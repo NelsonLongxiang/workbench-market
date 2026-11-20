@@ -23,10 +23,12 @@ export interface McpProtocolDeps {
   mcpAggregatedTools: () => Promise<{ name: string; description: string; inputSchema: unknown }[]>;
   mcpToolGranted: (sess: McpSess | null, toolName: string) => boolean;
   mcpInvokeTool: (sess: McpSess | null, toolName: string, args: any, channel: McpChannel, origin: string, t0?: number) => Promise<any>;
+  /** 结果大就换成引用（渐进开放第 5 步）：两条通道同一个函数 */
+  mcpByRef: (sess: McpSess | null, toolName: string, args: any, out: unknown, origin: string) => unknown;
 }
 
 export function registerMcpProtocolRoutes(app: HttpService, deps: McpProtocolDeps): void {
-  const { mcpGatewaySession, mcpAudit, mcpRestInfo, mcpPublicOrigin, MCP_KNOWN_PROTOCOLS, MCP_PROTOCOL, mcpAggregatedTools, mcpToolGranted, mcpInvokeTool } = deps;
+  const { mcpGatewaySession, mcpAudit, mcpRestInfo, mcpPublicOrigin, MCP_KNOWN_PROTOCOLS, MCP_PROTOCOL, mcpAggregatedTools, mcpToolGranted, mcpInvokeTool, mcpByRef } = deps;
   // /mcp 网关化（MCP_GATEWAY=on）：Bearer 有效→会话；无效/缺失/吊销→401+WWW-Authenticate（含 initialize，无兼容期）
   app.post('/mcp', { action: 'mcp.rpc', kind: 'write', statusNotVerdict: 'MCP 会话令牌与工具授权由网关判，不是登录身份的结论' }, async (req, res) => {
     const msg = req.body ?? {};
@@ -84,8 +86,8 @@ export function registerMcpProtocolRoutes(app: HttpService, deps: McpProtocolDep
         if (r.kind === 'ok') {
           // 上游结果已是 MCP 形状（{content,isError?}）→ 原样透传（下游客户端语义无损）；
           // 本地工具结果是业务对象 → 序列化为 text content。紧凑 JSON、不缩进：内容一样，换行和缩进只占上下文（渐进开放第 0 步量出来，access_info 省一半左右）
-          const out = r.out;
-          if (r.upstream && out && typeof out === 'object' && Array.isArray((out as any).content)) {
+          const out = mcpByRef(sess, toolName, msg.params?.arguments, r.out, mcpPublicOrigin(req));
+          if (r.upstream && out === r.out && out && typeof out === 'object' && Array.isArray((out as any).content)) {
             return res.json({ jsonrpc: '2.0', id: msg.id, result: out });
           }
           return res.json({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: JSON.stringify(out) }] } });

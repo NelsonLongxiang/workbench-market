@@ -19,6 +19,7 @@
   "dataset_snapshots  read",
   "dataset_upsert  write",
   "design_standard  read",
+  "result_read  read  exempt",
   "skill_download  read",
   "skill_file_put  admin",
   "skill_install_plan  read",

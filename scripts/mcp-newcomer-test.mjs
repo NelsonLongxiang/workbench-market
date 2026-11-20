@@ -69,7 +69,7 @@ try {
 
   // ---------- 一、读技能不用申请 ----------
   const names = await listNames(bare.token);
-  ok('零授权会话 tools/list 有两个权限自助工具和三个读技能的工具，别的没有', J([...names].sort()) === J(['access_info', 'access_request', ...SKILL_READS].sort()), J(names));
+  ok('零授权会话 tools/list 有两个权限自助工具、分段读大结果和三个读技能的工具，别的没有', J([...names].sort()) === J(['access_info', 'access_request', 'result_read', ...SKILL_READS].sort()), J(names));
   const info = await tool(bare.token, 'access_info');
   // 工具结果是紧凑 JSON（不缩进）：同一份内容，换行和缩进不占上下文
   ok('tools/call 的结果是紧凑 JSON：没有换行和缩进，解析得开', info.text.length > 100 && !info.text.includes('\n') && info.payload && JSON.stringify(info.payload) === info.text, info.text.slice(0, 80));
@@ -84,21 +84,26 @@ try {
   ok('默认应答不到全量的四分之一（不缩进、不带参数表）', info.text.length * 4 < fullInfo.text.length, `${info.text.length} / ${fullInfo.text.length}`);
   ok('应答里写着怎么取参数表', typeof info.payload?.how_to_detail === 'string' && info.payload.how_to_detail.includes('access_info'));
   ok('老客户端带 full: true 照样拿全量：每项带参数表，说明是原文', fullCat.length > 30 && fullCat.every((t) => t.input_schema && t.input_schema.type === 'object') && fullCat.some((t) => [...t.description].length > 80));
-  // 逐字节对照：scripts/fixtures/access-info-before-step1.json 是第 1 步之前（main 8dd8b231）同样配置下 access_info {} 的原样应答
-  //（实例地址随端口变，两边都写成 {{origin}} 再比）。
-  // 带 full: true 拿到的，除了 access_info 自己那一项（它的说明和参数表本来就改了），应当和它一个字节都不差。
-  // 工具目录以后变了（加了、删了工具），这一条会红：那时重抓基准，或者把这一条换成按项比。
-  // 基准是改成紧凑 JSON 之前抓的（缩进 2 格）；工具结果改成不缩进之后，按紧凑写法比：内容一个字节都不差，只是没有了换行和缩进
+  // 逐字节对照：scripts/fixtures/access-info-full-baseline.json 是加 result_read 之前（main 79f539a5，第 1 步和不缩进都已合入）
+  // 同样配置下 access_info {full: true} 的原样应答（实例地址随端口变，两边都写成 {{origin}} 再比）。
+  // 第 1 步那时的基准对的是第 1 步之前的 access_info {}，证明了 full 和老的整份目录逐字节相同；这一份接着那一份，往下传。
+  // 现在拿到的，除了多出 result_read 那一项（目录里一项、granted_tools 里一个名字，它是免授权的），应当和它一个字节都不差。
+  // 工具目录以后再变（加了、删了工具），这一条会红：那时照这里的做法重抓基准，把那一次加的、删的写进期望
   {
     const { readFileSync } = await import('node:fs');
-    const before = JSON.parse(readFileSync(new URL('./fixtures/access-info-before-step1.json', import.meta.url), 'utf8'));
+    const ADDED = ['result_read'];
+    const before = JSON.parse(readFileSync(new URL('./fixtures/access-info-full-baseline.json', import.meta.url), 'utf8'));
     const nowText = fullInfo.text.split(BASE).join('{{origin}}');
     const nowFull = JSON.parse(nowText);
-    const sameNames = J(before.catalog.map((t) => t.name)) === J(nowFull.catalog.map((t) => t.name));
-    const changed = before.catalog.filter((t, i) => J(t) !== J(nowFull.catalog[i])).map((t) => t.name);
-    const patched = { ...before, catalog: before.catalog.map((t) => (t.name === 'access_info' ? nowFull.catalog.find((x) => x.name === 'access_info') : t)) };
-    ok('带 full: true 的应答和第 1 步之前逐字节相同（只有 access_info 自己那一项变了）', sameNames && J(changed) === J(['access_info']) && JSON.stringify(patched) === nowText,
-      J({ sameNames, changed, bytes: [Buffer.byteLength(nowText), Buffer.byteLength(JSON.stringify(patched))] }));
+    const added = nowFull.catalog.map((t) => t.name).filter((n) => !before.catalog.some((t) => t.name === n));
+    const removed = before.catalog.map((t) => t.name).filter((n) => !nowFull.catalog.some((t) => t.name === n));
+    const changed = before.catalog.filter((t) => J(t) !== J(nowFull.catalog.find((x) => x.name === t.name))).map((t) => t.name);
+    // 把这次加的那几项按它们现在的位置放回基准里，再和现在的应答逐字节比
+    const insertAt = (list, items, nameOf) => { const out = [...list]; for (const it of items) { const i = nowFull.catalog.findIndex((x) => x.name === nameOf(it)); out.splice(i, 0, it); } return out; };
+    const newEntries = nowFull.catalog.filter((t) => ADDED.includes(t.name));
+    const patched = { ...before, granted_tools: (() => { const out = [...before.granted_tools]; for (const name of ADDED) { const i = nowFull.granted_tools.indexOf(name); if (i >= 0) out.splice(i, 0, name); } return out; })(), catalog: insertAt(before.catalog, newEntries, (t) => t.name) };
+    ok('带 full: true 的应答和基准逐字节相同（只多了 result_read 那一项）', J(added) === J(ADDED) && removed.length === 0 && changed.length === 0 && JSON.stringify(patched) === nowText,
+      J({ added, removed, changed, bytes: [Buffer.byteLength(nowText), Buffer.byteLength(JSON.stringify(patched))] }));
   }
   const details = await Promise.all(listed.map((t) => tool(bare.token, 'access_info', { tool: t.name })));
   ok('按名字取参数表（access_info {tool}）：和 tools/list 里的 inputSchema 一样，说明是原文（新人不用先申请才知道参数名）',

@@ -66,6 +66,9 @@ export interface McpRestDeps {
   uploadTicketSession: (t: UploadTicket) => McpSess | null | 'denied';
   skillStageIncomingPath: () => string;
   skillStageFromFile: (tmpAbs: string, size: number, sha: string) => Record<string, unknown>;
+  /** 大结果给引用（渐进开放第 5 步）：结果大就换成引用；拿引用去取时按会话和原工具再判一次 */
+  mcpByRef: (sess: McpSess | null, toolName: string, args: any, out: unknown, origin: string) => unknown;
+  mcpResultAccess: (sess: McpSess | null, id: unknown) => { kind: 'ok'; row: { id: string; tool: string; sha256: string; bytes: number; body: string } } | { kind: 'missing' } | { kind: 'denied'; tool: string };
 }
 
 /** 这一域只认网关的 MCP 会话令牌和工具授权（不是登录身份）：401、403 是会话的结论，不和统一判定比 */
@@ -74,9 +77,27 @@ const MCP_SESSION_DECIDES = 'MCP 会话令牌与工具授权由网关判，不�
 const UPLOAD_TICKET_DECIDES = '上传票本身就是凭据（只能用一次、10 分钟过期），用票时再核发票的会话和授权，不是登录身份的结论';
 
 export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void {
-  const { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader, takeUploadTicket, uploadTicketSession, skillStageIncomingPath, skillStageFromFile } = deps;
+  const { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader, takeUploadTicket, uploadTicketSession, skillStageIncomingPath, skillStageFromFile, mcpByRef, mcpResultAccess } = deps;
   app.get('/openapi.json', { action: 'mcp-rest.openapi', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, serveMcpOpenApi);
   app.get('/api/mcp-rest/openapi.json', { action: 'mcp-rest.openapi', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, serveMcpOpenApi);
+  // 拿引用去取大结果（渐进开放第 5 步）：只给建它的会话；按原工具再判一次授权。别的会话的、过期的、不存在的同一个 404
+  app.get('/api/mcp-rest/results/:id', { action: 'mcp-rest.result-get', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, wrap(async (req, res) => {
+    const t0 = Date.now();
+    const sess = mcpGatewaySession(req, res);
+    if (sess === undefined) return;
+    const acc = mcpResultAccess(sess, req.params.id);
+    if (acc.kind === 'missing') {
+      mcpAudit(sess, 'rest', 'results/get', '', false, 'result not found', Date.now() - t0, null);
+      return res.status(404).json({ error: '没有这个结果（编号不对、已过期，或者不是本会话的）：重新调原来的工具' });
+    }
+    if (acc.kind === 'denied') {
+      mcpAudit(sess, 'rest', 'results/get', acc.tool, false, 'not granted', Date.now() - t0, null);
+      return res.status(403).json({ error: `本会话已经没有 ${acc.tool} 的授权，取不了它的结果`, hint: MCP_REST_DENIED_HINT });
+    }
+    mcpAudit(sess, 'rest', 'results/get', acc.row.tool, true, '', Date.now() - t0, null);
+    res.set({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ETag: `"${acc.row.sha256}"`, 'X-Content-Sha256': acc.row.sha256 });
+    res.send(acc.row.body);
+  }));
   app.post('/api/mcp-rest/tools/:name', { action: 'mcp-rest.tool-call', kind: 'write', statusNotVerdict: MCP_SESSION_DECIDES }, wrap(async (req, res) => {
     const t0 = Date.now();
     const sess = mcpGatewaySession(req, res);
@@ -96,7 +117,7 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
     if (r.kind === 'ok') {
       // 上游工具自报 isError：工具级失败，按上游错误回 502，结果原样附上
       if (r.upstream && r.out && typeof r.out === 'object' && (r.out as any).isError === true) return res.status(502).json({ error: `上游工具 ${toolName} 执行失败`, result: r.out });
-      return res.json(r.out ?? null);
+      return res.json(mcpByRef(sess, toolName, args, r.out, mcpPublicOrigin(req)) ?? null);
     }
     // 本地工具错误走统一错误出口（HttpError 状态码 + 具名字段如 violations；校验类普通 Error → 400）；上游传输失败 → 502
     if (r.upstream && !(r.error instanceof HttpError)) return res.status(502).json({ error: String(r.error?.message ?? r.error).slice(0, 200) });

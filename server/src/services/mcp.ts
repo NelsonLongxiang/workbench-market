@@ -44,6 +44,23 @@ export class McpService extends Service {
   callInsert(name: string, method: string, tool: string, ok: number, error: string, durationMs: number, argsSha: string) {
     return db.prepare('INSERT INTO mcp_calls (session_name, method, tool, ok, error, duration_ms, args_sha256) VALUES (?, ?, ?, ?, ?, ?, ?)').run(name, method, tool, ok, error, durationMs, argsSha);
   }
+  // ── 大结果给引用（渐进开放第 5 步）──
+  /** 存一份结果：先清掉过期的，存进去，再把这个会话超出 keep 份的旧结果删掉。同一个事务 */
+  resultPut(r: { id: string; sessionId: number; tool: string; bench: string; target: number | null; sha256: string; bytes: number; body: string; createdAt: number; expiresAt: number }, keep: number) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.prepare('DELETE FROM mcp_result_refs WHERE expires_at <= ?').run(r.createdAt);
+      db.prepare('INSERT INTO mcp_result_refs (id, session_id, tool, bench, target, sha256, bytes, body, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(r.id, r.sessionId, r.tool, r.bench, r.target, r.sha256, r.bytes, r.body, r.createdAt, r.expiresAt);
+      db.prepare('DELETE FROM mcp_result_refs WHERE session_id = ? AND id NOT IN (SELECT id FROM mcp_result_refs WHERE session_id = ? ORDER BY created_at DESC, id DESC LIMIT ?)').run(r.sessionId, r.sessionId, keep);
+      db.exec('COMMIT');
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  }
+  /** 取一份：只认没过期的；会话对不对由调用方核 */
+  resultGet(id: string, now: number) {
+    return db.prepare('SELECT id, session_id, tool, bench, target, sha256, bytes, body, created_at, expires_at FROM mcp_result_refs WHERE id = ? AND expires_at > ?').get(id, now) as
+      { id: string; session_id: number; tool: string; bench: string; target: number | null; sha256: string; bytes: number; body: string; created_at: number; expires_at: number } | undefined;
+  }
   calls(limit: number) {
     return db.prepare('SELECT * FROM mcp_calls ORDER BY id DESC LIMIT ?').all(limit);
   }
