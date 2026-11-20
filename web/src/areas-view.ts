@@ -111,6 +111,13 @@ export function actionError(status: number, body: unknown): string {
   return '没办成，稍后再试';
 }
 
+/** 列表是空的时候怎么说。服务端只列这个人看得到的领域：不是属主的人列表是空的，分不清「还没有领域」和「有、但没给你」，
+ *  所以不说「还没有领域」（领域可能已经有了，只是他看不到——阶段七验收 #915 指出会误导），说中性的「还没有你能看到的领域」；
+ *  属主看得到全部，空就是真的还没有，照旧说「还没有领域」并指出两条路。判别只看服务端给的 can（建领域只有属主为真） */
+export function emptyText(can: Pick<AreasCan, 'create'>): string {
+  return can.create ? '还没有领域：建一个，或者把部门迁成领域' : '还没有你能看到的领域：被授予某个领域后，它会出现在这里';
+}
+
 /** 读列表的页面状态：401 去登录；403 跨站或没权限；200 看得懂；别的出错 */
 export function pageKind(status: number): { kind: 'ok' | 'login' | 'forbidden' | 'error'; text: string } {
   if (status === 200) return { kind: 'ok', text: '' };

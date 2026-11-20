@@ -10,7 +10,7 @@ import { ApartmentOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons
 import WmPage from '../../components/WmPage';
 import { approveAccessGrant, attentionChanged, createArea, draftAreaLead, getAccessPrincipals, getArea, getAreas, getAuthMe, migrateDepartmentsToAreas, submitAccessGrant } from '../../api';
 import {
-  PENDING_LEAD_HINT, STATUS_TEXT, STATUS_TONE, actionError, areaFormProblem, areasOf, leadCandidates, leadLine, leadStepText, leadsOf, migrateResult, pageKind,
+  PENDING_LEAD_HINT, STATUS_TEXT, STATUS_TONE, actionError, areaFormProblem, areasOf, emptyText, leadCandidates, leadLine, leadStepText, leadsOf, migrateResult, pageKind,
   type Area, type AreasCan, type Lead, type LeadStep,
 } from '../../areas-view';
 
@@ -175,7 +175,7 @@ export default function Areas() {
       {creating && <NewArea areas={areas} onCancel={() => setCreating(false)} onDone={(name) => { setCreating(false); void message.success(`领域「${name}」建好了，接着给它指定一位负责人`); void load(); }} />}
       {areas.length === 0
         ? <Empty image={<ApartmentOutlined className="wm-areas-empty-icon" />} data-testid="areas-empty"
-            description={can.create ? '还没有领域：建一个，或者把部门迁成领域' : '还没有领域，等属主来建'} />
+            description={emptyText(can)} />
         : <div className="wm-areas-grid" data-testid="areas-list">
             {areas.map((a) => <AreaCard key={a.id} a={a} leads={leads[a.id] ?? null} principals={principals} me={me} can={can} onChanged={() => void load()} />)}
           </div>}

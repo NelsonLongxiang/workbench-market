@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 领域页（/areas）的说法和整形（web/src/areas-view.ts）：接口契约按后端领域第 1 步（PR2b、PR3a）给的。全是合成值。 */
-const { AREA_ID_RE, PENDING_LEAD_HINT, STATUS_TEXT, actionError, areaFormProblem, areasOf, leadCandidates, leadLine, leadStepText, leadsOf, migrateResult, pageKind, personLabel } = await import('../web/src/areas-view.ts');
+const { AREA_ID_RE, PENDING_LEAD_HINT, STATUS_TEXT, actionError, emptyText, areaFormProblem, areasOf, leadCandidates, leadLine, leadStepText, leadsOf, migrateResult, pageKind, personLabel } = await import('../web/src/areas-view.ts');
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ✓', n); } else { fail++; console.log('  ✗', n, x); } };
 const J = JSON.stringify;
@@ -47,6 +47,8 @@ ok('出错：后端的错误代号各一句（不是属主、标识被占、给�
 ok('出错：写请求总门的 403（error 是一句话、没有 message）按状态码说；有中文 message 的照用；断网说连不上；PR3a 前没有迁移接口说没有这个接口',
   actionError(403, { error: '需要有效的 X-Admin-Token 或站内管理员登录' }).includes('属主的站内账号') && actionError(400, { error: 'odd', message: '合成：服务端说的话' }) === '合成：服务端说的话'
   && actionError(0, null).includes('连不上') && actionError(404, {}).includes('还没有这个接口') && !actionError(400, { message: 'some_code_here' }).includes('some_code'));
+ok('列表空：属主说还没有领域、给两条路；不是属主的说中性的「还没有你能看到的领域」，不说「还没有领域」「等属主来建」（领域可能已经有了，只是他看不到）',
+  emptyText({ create: true }) === '还没有领域：建一个，或者把部门迁成领域' && emptyText({ create: false }).startsWith('还没有你能看到的领域') && !emptyText({ create: false }).includes('还没有领域') && !emptyText({ create: false }).includes('等属主'));
 ok('读列表的状态：200 正常；401 去登录；403 看不了；断网、别的出错', pageKind(200).kind === 'ok' && pageKind(401).kind === 'login' && pageKind(403).kind === 'forbidden' && pageKind(0).text.includes('连不上') && pageKind(500).kind === 'error');
 
 const m = migrateResult({ created: [{ id: 'ops', name: '运营' }, { id: 'buy', name: '采购' }], drafted: [{ department: 'ops', grant: 9, principal: 'user:syn-a' }], skipped: [{ department: 'pd', reason: 'lead_without_grant' }, { department: 'x', reason: 'self_grant' }, { department: 'y', reason: 'unknown_code' }, { reason: 'id_invalid' }] });
