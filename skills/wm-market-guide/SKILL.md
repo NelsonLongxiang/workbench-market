@@ -1,6 +1,6 @@
 ---
 name: wm-market-guide
-version: 1.5.2
+version: 1.6.0
 description: 工作台市场（workbench-market）使用指南——agent 经 MCP 面板操作市场与可视化界面（驾驶舱/门户/交付空间/市场的「技能」分类）的完整实践：工具选型、UI/UX token 规范、可视化组件模式、常见坑。当需要通过 MCP 操作工作台、发布自产台、跑 SOP、管技能、搭驾驶舱或排查门户 iframe/代理问题时加载。
 ---
 
@@ -12,20 +12,20 @@ description: 工作台市场（workbench-market）使用指南——agent 经 MC
 
 | 面 | 入口 | 适用 |
 |---|---|---|
-| MCP 面板（推荐给 agent）| /mcp（StreamableHTTP·Bearer 可选）| 全部 27 工具·幂等·结构化回执 |
+| MCP 面板（推荐给 agent）| /mcp（StreamableHTTP·会话令牌）| 有哪些工具以 `access_info` 的目录为准·幂等·结构化回执；同一个令牌也能走 REST（`/api/mcp-rest`） |
 | REST | /api/* | 浏览器/脚本直调·部分需要 admin 口令 |
 
 鉴权边界（踩坑过）：远程（非回环）写面走 adminGuard（X-Admin-Token）；loopback 免。本地开发从本机回环地址访问即免口令；远程调用需带令牌。MCP 工具没有能直接删除/回滚的——那两类走 change_requests 人审门（见 §四）。
 
-## 二、MCP 工具地图（按用途分；实际有哪些以 `access_info` 的目录为准）
+## 二、怎么找工具（不在这里列清单）
 
-看：workbench_summary（全局统计）/ workbench_list（列表+状态）/ workbench_check（探活·单个或 all）/ use_url（取门户/直连地址）/ skills_list / skill_versions / app_data_list / app_files_list / sop_run_list / sop_run_get / change_requests
+工具的名字和个数会变，这里不逐个列。找、申请、调用的完整做法在技能 `wm-capability-access`，要点：
 
-建/改：workbench_register（登记外部服务）/ workbench_update / workbench_unregister / app_sync（自产台、SOP 台从仓库 main 同步出新版本·管理类）/ sop_publish（发布 SOP 台）/ skills_list→skill_install_plan（技能钉装计划）。自产台没有「直接发布」的工具：内容只从台的仓库 main 来
-
-跑：sop_run_start（建 run）→ sop_run_step_save（步数据·Redis 热态+30s checkpoint）→ sop_run_sandbox（VM 沙箱执行·commit_hash 交付物）→ sop_run_finish（终态）
-
-人审：change_request_create（提回滚/删除请求·批准前不执行）→ 人经 REST（口令+reviewed_by）批准。
+- `tools/list` 只有你现在能调的；完整目录调 `access_info`，默认只给索引（名字、一行说明、类别 read / write / admin、批没批）。
+- 要哪个工具的参数表，按名字取：`access_info {tool: "工具名"}`。
+- 没批的用 `access_request` 申请，写清用途；只要一张台就写 `工具@台号`。数据视图的工具必须限定到台，见 `wm-data-views`。
+- 结果太大时应答只给引用（`result_ref`），按引用去取。
+- MCP 工具没有能直接删除、回滚的：那两类走人审门（`change_request_create` 提请求，人经 REST 批准后才执行，见第四节）。
 
 技能三源聚合（导入器 `scripts/skill-import.mjs` 幂等重跑=漂移升版）：`agents:`（~/.agents/skills·层5）· `dsh:`（~/.dsh/skills·层2 开发运维·2026-10-30 起）· `jf:`（业务角色层·legacy 仅展示）。
 
