@@ -97,6 +97,11 @@ with sync_playwright() as p:
         ctx, pg = open_page(b, areas=[], can=OWNER)
         check('还没有领域（属主）：说建一个或把部门迁成领域，工具照样在', '建一个，或者把部门迁成领域' in pg.locator('[data-testid=areas-empty]').inner_text() and pg.locator('[data-testid=areas-migrate]').count() == 1)
         ctx.close()
+        # 不是属主、库里其实已经有领域（服务端只列他看得到的，这里列表是空的）：说中性的话，不说「还没有领域」「等属主来建」
+        ctx, pg = open_page(b, areas=[], can={'create': False, 'migrate': False, 'assign_lead': False})
+        t = pg.locator('[data-testid=areas-empty]').inner_text()
+        check('不是属主、领域已经有了但他看不到（列表空）：说「还没有你能看到的领域」，不说「还没有领域」「等属主来建」，没有工具', '还没有你能看到的领域' in t and '还没有领域' not in t and '等属主' not in t and pg.locator('[data-testid=areas-tools]').count() == 0, t)
+        ctx.close()
 
         print('二、不是属主')
         ctx, pg = open_page(b, can={'create': False, 'migrate': False, 'assign_lead': False})
