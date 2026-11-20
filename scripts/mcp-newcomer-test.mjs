@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /**
  * 新来的 AI 席位第一次接 MCP（冷读暴露的四处，通用网关这一侧）的对抗组。独立实例：全新 DATA_DIR、合成的管理口令、MCP_GATEWAY=on、数据视图开。
- *  一、读技能不用申请：零授权会话 tools/list 就有 skill_search、skills_list、skill_read；access_info 的目录每项带参数表（input_schema）。
+ *  一、读技能不用申请：零授权会话 tools/list 就有 skill_search、skills_list、skill_read。
+ *     目录分层（渐进开放第 1 步）：access_info 默认只给索引（名称、一行说明、类别、批没批），不带参数表；参数表按名字取（access_info {tool}），
+ *     和 tools/list 里的 inputSchema 一样；老客户端带 full: true 照样拿全量。
  *     免授权 ≠ 免认证：匿名、无效令牌、已吊销的会话照样 401。放开的只有这三个读：skill_download、skill_versions、skill_file_put、skill_publish 照旧要授权。
  *  二、skill_read 只读技能快照里的普通文件：../、绝对路径、反斜杠、点段、快照外的符号链接都读不到，和没有这个文件同一句；二进制只给大小和摘要。
  *  三、skill_search 的空结果分两种：库里一个技能都没有（不调评估模型，直说还没有导入技能）；有技能但没有够格的（另一句）。
@@ -71,11 +73,27 @@ try {
   const info = await tool(bare.token, 'access_info');
   const cat = info.payload?.catalog ?? [];
   const listed = ((await rpc('tools/list', {}, bare.token)).body?.result?.tools ?? []);
-  ok('access_info 的目录每项都带参数表 input_schema，和批准后 tools/list 里的 inputSchema 一样（新人不用先申请才知道参数名）',
-    cat.length > 30 && cat.every((t) => t.input_schema && typeof t.input_schema === 'object' && t.input_schema.type === 'object')
-    && listed.every((t) => J(cat.find((c) => c.name === t.name)?.input_schema) === J(t.inputSchema)),
-    J(cat.filter((t) => !t.input_schema).map((t) => t.name)));
-  ok('skill_search 的参数表里写着 need（冷读里猜成 query 的那个）', J(cat.find((t) => t.name === 'skill_search')?.input_schema?.required) === J(['need']));
+  // 目录分层（渐进开放第 1 步）：默认只给索引，参数表按名字取
+  const fullInfo = await tool(bare.token, 'access_info', { full: true });
+  const fullCat = fullInfo.payload?.catalog ?? [];
+  ok('access_info 默认只给索引：每项没有参数表，说明压成一行（不超过 80 字、没有换行和控制字符），目录项数和全量一样',
+    cat.length > 30 && cat.length === fullCat.length && cat.every((t) => !('input_schema' in t) && typeof t.description === 'string' && t.description.length > 0 && [...t.description].length <= 80 && !/[\u0000-\u001f\u007f-\u009f]/.test(t.description)),
+    J(cat.filter((t) => 'input_schema' in t || [...(t.description ?? '')].length > 80).map((t) => t.name)));
+  ok('默认应答不到全量的四分之一（不缩进、不带参数表）', info.text.length * 4 < fullInfo.text.length, `${info.text.length} / ${fullInfo.text.length}`);
+  ok('应答里写着怎么取参数表', typeof info.payload?.how_to_detail === 'string' && info.payload.how_to_detail.includes('access_info'));
+  ok('老客户端带 full: true 照样拿全量：每项带参数表，说明是原文', fullCat.length > 30 && fullCat.every((t) => t.input_schema && t.input_schema.type === 'object') && fullCat.some((t) => [...t.description].length > 80));
+  const details = await Promise.all(listed.map((t) => tool(bare.token, 'access_info', { tool: t.name })));
+  ok('按名字取参数表（access_info {tool}）：和 tools/list 里的 inputSchema 一样，说明是原文（新人不用先申请才知道参数名）',
+    details.every((d, i) => d.payload?.tool?.name === listed[i].name && J(d.payload.tool.input_schema) === J(listed[i].inputSchema) && d.payload.tool.description === listed[i].description),
+    J(details.map((d) => d.text.slice(0, 60))));
+  const notGranted = await tool(bare.token, 'access_info', { tool: 'workbench_vars_set' });
+  ok('没批的工具也能取参数表，标 granted=false', notGranted.payload?.tool?.granted === false && notGranted.payload.tool.input_schema?.type === 'object', notGranted.text.slice(0, 120));
+  const ss = await tool(bare.token, 'access_info', { tool: 'skill_search' });
+  ok('skill_search 的参数表里写着 need（冷读里猜成 query 的那个）', J(ss.payload?.tool?.input_schema?.required) === J(['need']));
+  const unknown = await tool(bare.token, 'access_info', { tool: 'no_such_tool' });
+  ok('取不存在的工具：报错，不编一个出来', unknown.isError && /目录里没有/.test(unknown.text), unknown.text.slice(0, 120));
+  const both = await tool(bare.token, 'access_info', { tool: 'skill_search', full: true });
+  ok('tool、full、ref 一次只能给一个', both.isError, both.text.slice(0, 120));
   ok('读技能的三个工具在目录里标 always_allowed、granted；下载、版本链、上传、发布照旧 granted=false',
     SKILL_READS.every((n) => cat.find((t) => t.name === n)?.always_allowed === true && cat.find((t) => t.name === n)?.granted === true)
     && ['skill_download', 'skill_versions', 'skill_file_put', 'skill_publish'].every((n) => cat.find((t) => t.name === n)?.granted === false && !cat.find((t) => t.name === n)?.always_allowed));
