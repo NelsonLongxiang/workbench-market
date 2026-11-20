@@ -181,10 +181,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "17390", "etag": "W/\"43ee-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "17795", "etag": "W/\"4583-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "name": "access_info", "description": "查本会话的权限：会话名、已授权工具、工具目录（本地 + 上游聚合；默认只给索引——每项是名字、一行说明、category=read/write/admin、granted，不带参数表）、本会话提过的权限申请及状态（通用申请编号 mcp-N，台的申请 bench-N）。要某个工具的参数表和完整说明，带 tool（没批的工具也取得到）；带 ref 只回这一条申请；带 full: true 回整份目录连参数表（大，只在确实要全量时用）。三者一次只能给一个。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。", "category": "read", "always_allowed": true },
               { "name": "access_request", "description": "申请把目录里的工具授权给本会话（管理员在「MCP 网关」页批准后立即生效，批准是并入现有授权，不会收走已有工具）。tools 必须是 access_info 目录里的工具名；reason 必填（≤500 字），写清要做什么。同一组工具已有待批申请时返回那条，不重复建；每会话每小时最多 10 条。会话不能自己批准。", "category": "write", "always_allowed": true },
+              { "name": "result_read", "description": "分段读一份大结果：工具结果太大时应答只给引用（result_ref），能执行代码的直接拿 url 用同一个会话令牌 GET；不能执行代码的用它按段读。只读得到本会话的结果，读的时候按原来那个工具再判一次授权；引用过期就读不到了，重新调原工具。", "category": "read", "always_allowed": true },
               { "name": "workbench_list", "description": "列出市场中的工作台（可按关键词/类型/状态过滤），返回 id/名称/类型/状态/延迟/地址/分类/启用——找台的入口。", "category": "read" },
               { "name": "workbench_summary", "description": "市场总览统计：总数/启用/在线/离线/未探测/平均延迟/分类聚合。", "category": "read" },
               { "name": "workbench_check", "description": "立即健康探测并回写状态：传 id 探测单个台；all=true 并发探测全部启用台。", "category": "write" },
