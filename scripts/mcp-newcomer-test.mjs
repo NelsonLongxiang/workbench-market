@@ -90,6 +90,10 @@ try {
   ok('没批的工具也能取参数表，标 granted=false', notGranted.payload?.tool?.granted === false && notGranted.payload.tool.input_schema?.type === 'object', notGranted.text.slice(0, 120));
   const ss = await tool(bare.token, 'access_info', { tool: 'skill_search' });
   ok('skill_search 的参数表里写着 need（冷读里猜成 query 的那个）', J(ss.payload?.tool?.input_schema?.required) === J(['need']));
+  // 一行说明的压法：上游聚合来的说明是别人写的，只当数据——去控制字符、只取第一句、限长
+  const { catalogSummary } = await import('../server/src/mcp-tools.ts');
+  const evil = catalogSummary('第一句\u0007话\n第二行；第二句。'), long = catalogSummary('长'.repeat(200));
+  ok('一行说明：去掉控制字符和换行，只取第一句；超长截到 80 字加省略号', evil === '第一句 话 第二行；' && [...long].length === 80 && long.endsWith('…'), J([evil, long.length]));
   const unknown = await tool(bare.token, 'access_info', { tool: 'no_such_tool' });
   ok('取不存在的工具：报错，不编一个出来', unknown.isError && /目录里没有/.test(unknown.text), unknown.text.slice(0, 120));
   const both = await tool(bare.token, 'access_info', { tool: 'skill_search', full: true });
