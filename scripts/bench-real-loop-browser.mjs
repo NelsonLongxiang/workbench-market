@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { legacySeed } from './lib/legacy-dept-seed.mjs';
 
 if (!existsSync('web/dist/index.html')) { console.error('缺 web/dist：先跑 pnpm --filter web build'); process.exit(2); }
 const ROOT = resolve('.');
@@ -46,11 +47,13 @@ try {
   const who = (session) => ({ headers: same, session });
   const admin = { headers: { 'x-admin-token': ADMIN_TOKEN } };
   for (const s of [SESSIONS.alpha, SESSIONS.beta]) await call('GET', '/api/auth/viewer', { session: s });
-  for (const id of ['sales', 'ops']) await call('PUT', `/api/departments/${id}`, { ...admin, body: { name: id } });
+  // 部门已停写：两个部门和 beta 的 dept:sales 授予是停写前就有的，直接写库造（scripts/lib/legacy-dept-seed.mjs）
+  const seed = legacySeed(join(TMP, 'data', 'workbench-market.db'));
+  for (const id of ['sales', 'ops']) seed.department(id, id);
   const grantsGot = [];
   const activate = async (principal, role, scope) => { const d = await call('POST', '/api/grants', { body: { principal, role, scope, reason: '合成：真实闭环' } }); const id = d.json?.grant?.id; const s2 = await call('POST', `/api/grants/${id}/submit`); const a = await call('POST', `/api/grants/${id}/approve`); grantsGot.push(`${principal}:draft=${d.status},submit=${s2.status},approve=${a.status}`); };
   await activate('user:alpha', 'management', '*');
-  await activate('user:beta', 'dept-member', 'dept:sales');
+  seed.grant('user:beta', 'dept-member', 'dept:sales', { reason: '合成：真实闭环' });
   const mgr = who(SESSIONS.alpha);
   // 两个台：sales 的主台 + ops 的他台（跨台隔离用）；各绑一张卡片
   const binds = [];

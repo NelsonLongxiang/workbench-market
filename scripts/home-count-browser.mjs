@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
+import { legacySeed } from './lib/legacy-dept-seed.mjs';
 
 if (!existsSync('web/dist/index.html')) { console.error('缺 web/dist：先跑 pnpm --filter web build'); process.exit(2); }
 const ROOT = resolve('.');
@@ -63,7 +64,8 @@ try {
   for (const h of [ALPHA, LEAD, MGMT]) await call('GET', '/api/auth/me', h); // 先登录一次，主体建出来
   // 负责人：部门负责人 + 团队认领，都经正式入口（本机命令行即属主，直接生效）；team-b 不认领，没有负责人
   const local = async (method, path, body) => { const r = await fetch(base + path, { method, headers: body !== undefined ? { 'content-type': 'application/json' } : {}, body: body !== undefined ? JSON.stringify(body) : undefined }); let j = null; try { j = await r.json(); } catch {} if (!r.ok) throw new Error(`${method} ${path} → ${r.status} ${JSON.stringify(j)}`); return j; };
-  await local('PUT', '/api/departments/purchasing', { name: '合成采购部', lead: 'user:root-admin' });
+  // 部门已停写：部门和它的负责人（字段 + 生效的 dept-lead 授予）是停写前属主指定的，直接写库造（scripts/lib/legacy-dept-seed.mjs）
+  { const seed = legacySeed(join(TMP, 'data', 'workbench-market.db')); seed.department('purchasing', '合成采购部'); seed.deptLead('purchasing', 'user:root-admin'); }
   await local('POST', '/api/teams/claim', { host: HOST, team: 'zone/canvas/team-a', department: 'purchasing' });
   // 管理层授予：只给 user:no-flag（起草→提交→放行）；负责人身上要是迁出了管理层（身份来源说是管理员的，第一次见到时迁），撤掉，让他只剩负责人这一层
   const g = await local('POST', '/api/grants', { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：管理层' });
