@@ -116,6 +116,8 @@ try {
   ok('result_read 分段读完拼起来就是原结果（sha256 对得上），它自己的结果不再套引用', joined !== null && createHash('sha256').update(joined).digest('hex') === ref.sha256 && parts.length > 1, `${parts.length} 段`);
   const rb = await tool(b.token, 'result_read', { id: ref.id });
   ok('别的会话分段读：和不存在的同一句', rb.isError && /没有这个结果/.test(rb.text), rb.text.slice(0, 120));
+  const past = await tool(a.token, 'result_read', { id: ref.id, offset: 10 ** 9 });
+  ok('offset 越界：返回空，不报错，没有下一段', !past.isError && past.payload?.text === '' && past.payload.next_offset === null, past.text.slice(0, 160));
   ok('length 超过上限按上限给', (await tool(a.token, 'result_read', { id: ref.id, length: 10 ** 9 })).payload?.text?.length <= 32768);
   const listed = ((await rpc('tools/list', {}, (await session('ref-c')).token)).json?.result?.tools ?? []).map((t) => t.name);
   ok('result_read 免授权：新会话的 tools/list 里有它', listed.includes('result_read'), J(listed));
