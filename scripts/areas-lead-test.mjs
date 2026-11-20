@@ -11,6 +11,8 @@
  *      重算时 db.isTransaction 为真
  *   L6 （#21）迁移接口两个进程同时调：每个部门只成一个领域、负责人授予只起草一条，两边都回成功。
  *      两个子进程在「这个部门的领域在不在」那一句之后各停 400 毫秒；每个部门的建领域和起草授予要是不在同一个写事务里，就会撞或重复
+ *   L7 （#22，PR3b）经验库：条目照写 dept:<x>，判定按领域问——持 area:<x> 的领域成员看得到 dept:<x> 的条目；领域撤了就看不到；
+ *      部门还没迁成领域的，持 dept:<x> 照旧看得到；看不到别的部门的条目
  *   L4 旧库升级：PR1 建的 area_events（CHECK 里没有 lead-active / lead-missing）整表搬一次，行和编号原样，新种类能写，只增不改的触发器还在；再启动一次不重搬
  *
  *   node scripts/areas-lead-test.mjs
@@ -191,6 +193,24 @@ try {
     const evN = Number(db.prepare("SELECT COUNT(*) AS n FROM area_events WHERE kind = 'migrate' AND area_id IN ('c-sales', 'c-ops')").get().n);
     check(dr.ok && res.every((r) => r.ok) && areasN === 2 && grantsN === 1 && evN === 2,
       'L6（#21）两个进程同时调迁移：两边都成功，每个部门只成一个领域、一行 migrate 留痕，负责人授予只起草一条', { res, areasN, grantsN, evN });
+  }
+
+  // ---- L7 ----
+  {
+    const { visibility } = await import(at('server/src/services/knowledge.ts'));
+    for (const p of ['user:km', 'user:kd', 'user:kl']) person(p);
+    areas.create({ id: 'kx', name: '合成经验领域' }, cli, Date.now());
+    lead('user:kl', 'kx');
+    const issue = (principal, role, scope) => { const d = grants.draft({ principal, role, scope, expiresAt: null, reason: '合成' }, cli); if (!d.ok) throw new Error(`起草 ${principal} 失败：${d.code}`); grants.submit(d.grant.id, cli); grants.approve(d.grant.id, cli); };
+    svc('departments').upsert({ id: 'kold', name: '合成没迁的部门', functionCode: null, lead: null }, 'cli', Date.now());
+    issue('user:km', 'area-member', 'area:kx');
+    issue('user:kd', 'dept-member', 'dept:kold');
+    const actor = (id) => ({ type: 'principal', id, kind: 'person', status: 'active', owner: '' });
+    const before = { kmKx: visibility(actor('user:km'))('dept:kx'), kmOld: visibility(actor('user:km'))('dept:kold'), kdOld: visibility(actor('user:kd'))('dept:kold'), kdKx: visibility(actor('user:kd'))('dept:kx') };
+    areas.retire('kx', '合成', { ...cli, owner: true }, Date.now());
+    const after = { kmKx: visibility(actor('user:km'))('dept:kx') };
+    check(before.kmKx === true && before.kmOld === false && before.kdOld === true && before.kdKx === false && after.kmKx === false,
+      'L7（#22）经验库：area:kx 的领域成员看得到 dept:kx 的条目、看不到别的部门的；没迁的部门 kold，持 dept:kold 照旧看得到；kx 撤了以后看不到', { before, after });
   }
 
   // ---- L4 ----
