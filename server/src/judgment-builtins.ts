@@ -261,7 +261,8 @@ export const builtin = (name: BuiltinName): BuiltinIdentity => BUILTINS.find((b)
  * owner 是有范围 * 的属主授予的主体；person 是任何启用的人（主体的 kind 是 person；停用的在第一步就拒了）；其余是内置身份的名字。
  * 进快照（surfaces/actions.json 的 builtins.narrowed）
  */
-export type NarrowedAction = { action: string; only: readonly ('owner' | 'person' | BuiltinName)[]; why: string };
+/** scopedHolder：另外认持有这个角色、范围正好是对象所在领域（area:<领域>）的授予的人——judge 不知道请求落在哪个领域，不认它；由路由按对象判（routes/areas.ts） */
+export type NarrowedAction = { action: string; only: readonly ('owner' | 'person' | BuiltinName)[]; scopedHolder?: string; why: string };
 export const NARROWED: readonly NarrowedAction[] = [
   { action: 'content.observation', only: ['admin-token'], why: '门户观测状态今天只认管理口令，身份来源的管理员、本机命令行都不认（存量差异清单 E）' },
   { action: 'grant.revoke-migration', only: ['owner', 'local-cli'], why: '整批撤销迁移出来的授予只有属主能做（本机命令行在授予管理面上算属主），比管理员严' },
@@ -270,7 +271,7 @@ export const NARROWED: readonly NarrowedAction[] = [
   { action: 'local-account.change-own-password', only: ['person'], why: '改自己的站内账号密码只认人：任何启用的人都能改自己的（路由只认登录着的本人、要原密码，不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能（管理员重置走 local-account.reset-password）' },
   { action: 'area.create', only: ['owner', 'local-cli'], why: '建领域只有属主（本机命令行在这里算属主）；管理层、系统管理员、管理口令都不行（docs/domains-step1.md 第三节）' },
   { action: 'area.retire', only: ['owner', 'local-cli'], why: '撤领域只有属主（本机命令行在这里算属主）；管理层、系统管理员、管理口令都不行（docs/domains-step1.md 第三节）' },
-  { action: 'area.spec-set', only: ['owner', 'local-cli'], why: '定规范是硬规则，角色覆盖不算：第 1 步 PR1 只有属主（本机命令行在这里算属主），PR2 加持本领域 area-spec 授予的人' },
+  { action: 'area.spec-set', only: ['owner', 'local-cli'], scopedHolder: 'area-spec', why: '定规范是硬规则，角色覆盖不算：只认属主（本机命令行在这里算属主），和持本领域 area-spec 授予（范围正好是 area:<领域>）的人；后者由路由按对象判' },
   { action: 'work-items.create', only: ['person'], why: '「安排一件事」只认人：建立人就是提需求的本人。任何启用的人都能安排（不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能' },
 ];
 export const narrowed = (action: string): NarrowedAction | undefined => NARROWED.find((n) => n.action === action);

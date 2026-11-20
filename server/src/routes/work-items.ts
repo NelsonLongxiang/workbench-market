@@ -180,7 +180,11 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
 
   // 「安排一件事」：登录的人直接建一件事项，建立人是本人。只认 cookie 认出的启用的人（口令、命令行、MCP 都不是人，不能用）。
   // 写请求总门对这一条路径放行（index.ts），认人在这里；规则（派给、先过目、幂等、限流）在 task-center.ts 的 arrangeTask
-  app.post('/api/work-items', { action: 'work-items.create', kind: 'write', unauthenticated: 401 }, (req, res, next) => {
+  app.post('/api/work-items', {
+    action: 'work-items.create', kind: 'write', unauthenticated: 401,
+    // 领域的触发（docs/domains-step1.md 第三节第 1 小节、第七节第 1 条）：第 1 步只登记、恒为假，第 2 步改成「请求带了领域」
+    refine: [{ action: 'area.trigger', kind: 'write', why: '在领域里触发任务，第 1 步只登记（恒为假），第 2 步按请求带了领域判', when: () => false }],
+  }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
     (async () => {
@@ -395,7 +399,11 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     })().catch(next);
   });
 
-  app.post('/api/work-items/:id/decision', { action: 'work-items.accept', kind: 'decide', statusNotVerdict: CREATOR_DECIDES }, (req, res, next) => {
+  app.post('/api/work-items/:id/decision', {
+    action: 'work-items.accept', kind: 'decide', statusNotVerdict: CREATOR_DECIDES,
+    // 领域的验收：第 1 步只登记、恒为假，第 2 步改成「事项带了领域」
+    refine: [{ action: 'area.accept', kind: 'decide', why: '在领域里验收任务，第 1 步只登记（恒为假），第 2 步按事项带了领域判', when: () => false }],
+  }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
     const id = String(req.params.id ?? '');
