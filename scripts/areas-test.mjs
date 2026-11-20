@@ -555,7 +555,7 @@ try {
   }
 
   // ================= D：部门迁成领域（docs/domains-step1.md 第二节第 3 小节；第 1 步 PR3a） =================
-  await A.person('dan', 'Dan-pass-000001', '192.0.2.101');
+  const dan = await A.person('dan', 'Dan-pass-000001', '192.0.2.101');
   await A.person('eve', 'Eve-pass-000001', '192.0.2.102');
   await A.person('fay', 'Fay-pass-000001', '192.0.2.103');
   // 四个部门：m-sales 有生效的负责人授予（属主直接指定，发了 dept-lead）；m-ops 没有负责人；
@@ -624,6 +624,19 @@ try {
       'D5a GET /api/areas 的 can：属主、本机命令行三项都是真；管理层、普通员工、管理口令都是假', cans);
     check(leads?.length === 1 && leads[0].principal === 'user:dan' && leads[0].status === 'active' && leads[0].display_name !== undefined && iotaLeads?.some((x) => x.principal === 'user:ivy' && x.status === 'active'),
       'D5b GET /api/areas/:id 的 leads：列出生效的负责人（迁移后放行的 dan、恢复后的 ivy）', { leads, iotaLeads });
+    // 再给 m-sales 起草一位负责人 kim，停在待核：等放行的是人员信息，只有属主看得到
+    const k = await A.cli('POST', '/api/grants', { principal: 'user:kim', role: 'area-lead', scope: 'area:m-sales', reason: '合成' });
+    await A.cli('POST', `/api/grants/${k.json?.grant?.id}/submit`);
+    const who = (r) => (r.json?.leads ?? []).map((x) => `${x.principal}:${x.status}`).sort().join(',');
+    const seen = {
+      olga: who(await olga.go('GET', '/api/areas/m-sales')), cli: who(await A.cli('GET', '/api/areas/m-sales')),
+      mona: who(await mona.go('GET', '/api/areas/m-sales')), token: who(await A.remote('GET', '/api/areas/m-sales', { token: ADMIN_TOKEN })),
+      dan: who(await dan.go('GET', '/api/areas/m-sales')),
+    };
+    const tomS = (await tom.go('GET', '/api/areas/m-sales')).status, samS = (await sam.go('GET', '/api/areas/m-sales')).status;
+    check(seen.olga === 'user:dan:active,user:kim:pending' && seen.cli === seen.olga && seen.mona === 'user:dan:active' && seen.token === 'user:dan:active' && seen.dan === 'user:dan:active'
+        && tomS === 404 && samS === 404,
+      'D5c leads 的可见范围：属主、本机命令行看得到等放行的 kim；管理层、管理口令、负责人 dan 只看到生效的；无关的普通员工、系统管理员连领域都看不到（404）', { seen, tomS, samS });
   }
 
 } catch (e) {

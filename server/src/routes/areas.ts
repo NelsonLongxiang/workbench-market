@@ -2,7 +2,8 @@
  * 领域（docs/domains-step1.md 第三节；规范 15 两层组织）的读写接口，第 1 步 PR1：
  *
  *   GET  /api/areas                          领域清单（看得到的才列；看不到的人是空数组），另带 can: { create, migrate, assign_lead }（都只有属主为真）
- *   GET  /api/areas/:id                      一个领域，另带 leads: [{ grant, principal, display_name, status: active | pending | disabled }]
+ *   GET  /api/areas/:id                      一个领域，另带 leads: [{ grant, principal, display_name, status: active | pending | disabled }]：
+ *                                            属主看全部；别的看得到这个领域的人只看生效的，外加本人那一条；看不到这个领域的照旧 404
  *   POST /api/areas                          建 { id, name }：只有属主（本机命令行在这里算属主）
  *   POST /api/areas/migrate                  部门迁成领域：只有属主；回 { created: [{id,name}], drafted: [{department,grant,principal}], skipped: [{department,reason}] }；幂等
  *   POST /api/areas/:id/retire               撤 { reason? }：只有属主；范围是 area:<标识> 的没结束的授予同一个事务里一并撤销（应答带 grants_revoked）；撤了只读、不删
@@ -126,8 +127,10 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
     const id = areaId(req);
     const a = sees(w, id, 'area.read') ? areas().get(id) : null;
     if (!a) return void missing(res, id);
-    // leads：这个领域生效的、等放行的负责人（看得到这个领域的人都看得到）
-    res.json({ area: a, leads: grants().leadsOf(id) });
+    // leads：这个领域的负责人。等放行的、已停用的是人员信息：只有属主（含本机命令行）看得全；
+    // 别的看得到这个领域的人（管理层、管理口令、持这个领域授予的人）只看生效的，外加他本人那一条（不论状态）
+    const all = grants().leadsOf(id);
+    res.json({ area: a, leads: w.owner ? all : all.filter((l) => l.status === 'active' || (!!w.actor.principal && l.principal === w.actor.principal)) });
   }));
 
   app.get('/api/areas/:id/specs', { action: 'area.spec-list', kind: 'read', statusNotVerdict: OBJECT_SCOPED }, route(async (req, res) => {
