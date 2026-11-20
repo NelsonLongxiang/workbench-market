@@ -31,6 +31,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
+import { legacySeed } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -135,10 +136,12 @@ try {
   const as = (s) => ({ headers: { ...REMOTE, ...same }, session: s });
   for (const s of [SESSIONS.admin, SESSIONS.alpha, SESSIONS.beta, SESSIONS.noAdminFlag]) await srv.call('GET', '/api/auth/viewer', { session: s });
   // 本机命令行（属主）建部门、发授予：alpha 普通员工；beta 普通员工 + 销售部负责人；root-admin 迁移出的系统管理员 + 普通员工；no-flag 管理层
-  await srv.call('PUT', '/api/departments/sales', { body: { name: '合成销售部' } });
-  await srv.call('PUT', '/api/departments/ops', { body: { name: '合成运营部' } });
+  // 部门已停写：部门和 beta 的销售部负责人授予是停写前就有的，直接写库造（scripts/lib/legacy-dept-seed.mjs）
+  const seed = legacySeed(join(srv.dataDir, 'workbench-market.db'));
+  seed.department('sales', '合成销售部');
+  seed.department('ops', '合成运营部');
   const issue = async (principal, role, scope) => { const d = await srv.call('POST', '/api/grants', { body: { principal, role, scope, reason: '合成：经验库对抗' } }); await srv.call('POST', `/api/grants/${d.json?.grant?.id}/submit`); return (await srv.call('POST', `/api/grants/${d.json?.grant?.id}/approve`)).status; };
-  const issued = [await issue('user:alpha', 'member', '*'), await issue('user:beta', 'member', '*'), await issue('user:beta', 'dept-lead', 'dept:sales'),
+  const issued = [await issue('user:alpha', 'member', '*'), await issue('user:beta', 'member', '*'), (seed.grant('user:beta', 'dept-lead', 'dept:sales', { reason: '合成：经验库对抗' }), 200),
     await issue('user:root-admin', 'member', '*'), await issue('user:root-admin', 'admin', '*'), await issue('user:no-flag', 'management', '*')];
   const titles = (r) => (r.json?.items ?? []).map((i) => i.title).sort();
   const list = async (who) => srv.call('GET', '/api/knowledge', who);
@@ -242,10 +245,10 @@ try {
     };
     check(show(bad) === show({ missingDept: 404, badDept: 400, emptyProject: 400, ctrlProject: 400, noBody: 400 }), '对照的写法：部门不存在 404；部门写成 dept:、空项目名、带控制字符、缺 department 都 400', show(bad));
     // 对到的部门删掉了：对照不再生效（回到只给管理层），对照表上标出部门不在了
-    await srv.call('PUT', '/api/departments/syn-gone', { body: { name: '合成临时部' } });
+    seed.department('syn-gone', '合成临时部'); // 部门已停写：建、删都直接写库（停写前就有、后来从库里没了的部门）
     const toGone = await srv.call('PUT', P, { ...who.mgmt, body: { project: 'syn-project', department: 'syn-gone' } });
     const goneLabelBefore = (await list(who.mgmt)).json?.items?.find((i) => i.title === claimTitle)?.scope_label;
-    const del = await srv.call('DELETE', '/api/departments/syn-gone');
+    const del = { status: seed.run((d) => d.prepare("DELETE FROM departments WHERE id = 'syn-gone'").run().changes) === 1 ? 200 : 500 };
     const goneLabel = (await list(who.mgmt)).json?.items?.find((i) => i.title === claimTitle)?.scope_label;
     const goneRow = (await srv.call('GET', P, who.mgmt)).json?.projects?.find((p) => p.project === 'syn-project');
     check(toGone.status === 200 && goneLabelBefore === '合成临时部' && del.status === 200 && goneLabel === '只给管理层' && goneRow?.department === null && goneRow?.department_missing === true,

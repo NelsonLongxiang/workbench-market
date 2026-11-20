@@ -25,6 +25,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
+import { legacySeed } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
@@ -102,12 +103,15 @@ try {
   const grantIds = new Map();
   const activate = async (body) => { const d = await srv.call('POST', '/api/grants', { body: { reason: '合成：台绑部门', ...body } }); const id = d.json?.grant?.id; grantIds.set(body.principal, id); await srv.call('POST', `/api/grants/${id}/submit`); const a = await srv.call('POST', `/api/grants/${id}/approve`); return a.status < 300; };
   const otherId = db.prepare("SELECT id FROM principals WHERE id = 'user:no-flag'").get()?.id;
-  for (const id of ['sales', 'ops']) await srv.call('PUT', `/api/departments/${id}`, { ...token, body: { name: id } });
+  // 部门已停写：两个部门和 dept: 的授予都是停写前就有的，直接写库造（scripts/lib/legacy-dept-seed.mjs）
+  const seed = legacySeed(join(srv.data, 'workbench-market.db'));
+  for (const id of ['sales', 'ops']) seed.department(id, id);
+  const legacy = (principal, role, scope) => { grantIds.set(principal, seed.grant(principal, role, scope, { reason: '合成：台绑部门' })); return true; };
   const prep = [
     await activate({ principal: 'user:alpha', role: 'management', scope: '*' }),
-    await activate({ principal: 'user:beta', role: 'dept-member', scope: 'dept:sales' }),
-    await activate({ principal: 'user:strasse', role: 'dept-lead', scope: 'dept:sales' }),
-    await activate({ principal: 'user:no-flag', role: 'dept-member', scope: 'dept:ops' }),
+    legacy('user:beta', 'dept-member', 'dept:sales'),
+    legacy('user:strasse', 'dept-lead', 'dept:sales'),
+    legacy('user:no-flag', 'dept-member', 'dept:ops'),
   ];
   check(prep.every(Boolean) && otherId === 'user:no-flag', '（准备）两个部门；管理层一人；sales 的部门成员、部门负责人各一人；ops 的部门成员一人（授予都由属主放行）', { prep, otherId });
   const st = async (opts, method, path, body) => (await srv.call(method, `/api/bench-views${path}`, { ...opts, ...(body === undefined ? {} : { body }) })).status;
@@ -165,28 +169,27 @@ try {
   check(b1 === 403 && b2 === 403 && b3 === 403 && db.prepare("SELECT department_id FROM bench_views WHERE slug = 'sales-b'").get().department_id === 'sales', '改绑：部门负责人、部门成员、管理口令都不行', { lead: b1, member: b2, token: b3 });
 
   console.log('四、关系不带来权限');
-  const add = await srv.call('PUT', '/api/departments/sales/members/user:root-admin', token);
-  const mkLead = await srv.call('PUT', '/api/departments/sales', { ...token, body: { name: 'sales', lead: 'user:root-admin' } });
+  // 部门已停写：成员表、负责人字段只能是停写前就有的，直接写库造（同样的关系，原来由系统管理员经接口写进去、负责人那一步只成提议）
+  seed.member('sales', 'user:root-admin');
   const relNow = () => db.prepare("SELECT (SELECT COUNT(*) FROM department_members WHERE department_id = 'sales' AND principal_id = 'user:root-admin') AS m, (SELECT lead_principal FROM departments WHERE id = 'sales') AS l").get();
-  const proposal = db.prepare("SELECT status FROM relation_proposals WHERE kind = 'dept-lead' AND department_id = 'sales' AND principal_id = 'user:root-admin' ORDER BY id DESC").get();
   const NINE = [['GET', ''], ['GET', '/sales-b/datasets'], ['PUT', '/sales-b/datasets/x', COLS], ['GET', '/sales-b/render'], ['GET', '/sales-b/log'], ['GET', '/sales-b/mcp-grants'], ['PUT', '/sales-b/mcp-grants', grantBody], ['POST', '', { slug: 'sys-b', title: 'x', department: 'sales' }], ['PUT', '/sales-b/binding', { department: 'ops' }]];
   const nine = async () => { const got = []; for (const [m, path, body] of NINE) got.push(await st(sys, m, path, body)); return got; };
   let got = await nine();
   const rel = relNow();
-  check(add.status < 300 && mkLead.status < 300 && rel.m === 1 && rel.l === '' && proposal?.status === 'pending' && got.every((x) => x === 403),
-    '系统管理员把一个人加进部门成员表、又提议设成部门负责人（提议待确认）：这个人对这个部门的台是 403（清单、读、写、拍板、登记、改绑）', { add: add.status, lead: mkLead.status, rel, proposal, got: got.join() });
+  check(rel.m === 1 && rel.l === '' && got.every((x) => x === 403),
+    '一个人在部门成员表里（停写前就有的关系）：这个人对这个部门的台是 403（清单、读、写、拍板、登记、改绑）', { rel, got: got.join() });
   // 就算负责人这层关系确认了（这里直接写进部门表，等于确认过的结果），没有授予照样进不来：关系不带来权限
   db.prepare("UPDATE departments SET lead_principal = 'user:root-admin' WHERE id = 'sales'").run();
   got = await nine();
   check(relNow().l === 'user:root-admin' && got.every((x) => x === 403), '负责人这层关系就算确认了，没有已放行的授予照样是 403', { rel: relNow(), got: got.join() });
 
   console.log('五、授予要放行');
-  const d = await srv.call('POST', '/api/grants', { ...token, body: { principal: 'user:root-admin', role: 'dept-member', scope: 'dept:sales', reason: '合成：系统管理员起草' } });
-  const gid = d.json?.grant?.id;
-  await srv.call('POST', `/api/grants/${gid}/submit`, token);
+  // 部门已停写：新起草 dept: 授予 422（dept-write-stop-test S3）；停写前就在待核的照常能放行（S3b），这里用那种
+  const fresh = await srv.call('POST', '/api/grants', { ...token, body: { principal: 'user:root-admin', role: 'dept-member', scope: 'dept:sales', reason: '合成：系统管理员起草' } });
+  const gid = seed.grant('user:root-admin', 'dept-member', 'dept:sales', { reason: '合成：停写前起草、待核', to: 'pending' });
   const self = await srv.call('POST', `/api/grants/${gid}/approve`, token);
   const pend = await st(sys, 'GET', '/sales-b/datasets');
-  check(gid !== undefined && self.status >= 400 && pend === 403, '系统管理员起草的部门范围授予，自己放行不了；停在待放行时仍是 403', { approve: self.status, read: pend });
+  check(fresh.status === 422 && self.status >= 400 && pend === 403, '系统管理员新起草部门范围授予 422；停写前就在待核的那条，管理口令放行不了，停在待放行时仍是 403', { fresh: fresh.status, approve: self.status, read: pend });
   const rel2 = await srv.call('POST', `/api/grants/${gid}/approve`);
   const ok1 = await st(sys, 'GET', '/sales-b/datasets'), ok2 = await st(sys, 'GET', '/ops-b/datasets');
   check(rel2.status < 300 && ok1 === 200 && ok2 === 403, '属主放行之后：进得了这个部门的台，别的部门的照样进不了', { approve: rel2.status, sales: ok1, ops: ok2 });
