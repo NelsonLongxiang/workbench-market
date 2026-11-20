@@ -184,7 +184,7 @@ export const listCockpitsShared = (): Promise<Cockpit[]> => shared('cockpits', (
 /** 当前登录身份（登录门的 /api/auth/me）：外壳的用户卡、全景的问候语用。拿不到就是 null，不弹口令。
  *  叫 getAuthMe 不叫 getMe：事项详情那条线（#565）在这里也加了一个 getMe，两边先后合进 main 时不撞名；都合了以后收成一份。 */
 /** can：服务端按这个人算好的能做什么（create_cockpit 建驾驶舱，remember_knowledge 把拍板记成经验，#745） */
-export type AuthMe = { authenticated?: boolean; login?: string | null; via?: string | null; display_name?: string | null; can?: { create_cockpit?: boolean; remember_knowledge?: boolean } };
+export type AuthMe = { authenticated?: boolean; login?: string | null; via?: string | null; principal?: string | null; display_name?: string | null; can?: { create_cockpit?: boolean; remember_knowledge?: boolean } };
 export function getAuthMe(): Promise<AuthMe | null> {
   return shared('auth-me', async () => {
     try { const r = await fetch('/api/auth/me', { cache: 'no-store', credentials: 'same-origin' }); return r.ok ? await r.json() as AuthMe : null; } catch { return null; }
@@ -258,6 +258,13 @@ async function accessCall(url: string, init?: { method: string; body: unknown })
   } catch { return { status: 0, body: null }; }
 }
 export const getAccessGrants = () => accessCall('/api/grants');
+/** 领域（/areas，领域第 1 步）：读、建、把部门迁成领域；负责人走授予（起草 → 提交 → 放行）。和「谁能做什么」同一个调法：被拒时页面自己说，不弹口令 */
+export const getAreas = () => accessCall('/api/areas');
+export const getArea = (id: string) => accessCall(`/api/areas/${encodeURIComponent(id)}`);
+export const createArea = (id: string, name: string) => accessCall('/api/areas', { method: 'POST', body: { id, name } });
+export const migrateDepartmentsToAreas = () => accessCall('/api/areas/migrate', { method: 'POST', body: {} });
+export const draftAreaLead = (principal: string, area: string) => accessCall('/api/grants', { method: 'POST', body: { principal, role: 'area-lead', scope: `area:${area}`, reason: '在领域页指定负责人' } });
+export const submitAccessGrant = (id: number) => accessCall(`/api/grants/${id}/submit`, { method: 'POST', body: {} });
 export const getAccessPrincipals = () => accessCall('/api/principals');
 export const getAccessRoles = () => accessCall('/api/roles');
 export const getAccessMatrix = () => accessCall('/api/roles/matrix');

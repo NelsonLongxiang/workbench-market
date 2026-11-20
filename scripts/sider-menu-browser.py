@@ -1,5 +1,5 @@
 """外壳浏览器回归（产品化原型 3fbfd0b 的新外壳，#571）；由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
-断言：旧路由直接打开仍可用 · 侧栏主入口七个按序、各有专属图标 · 侧栏文字对比度 ≥4.5 · 「全景」角标 = 轮到你且能当场办的条数（别处处理的不算）·
+断言：旧路由直接打开仍可用 · 侧栏主入口八个按序（原型七个加上先保留的「团队」）、各有专属图标 · 侧栏文字对比度 ≥4.5 · 「全景」角标 = 轮到你且能当场办的条数（别处处理的不算）·
 我的驾驶舱列出驾驶舱并可跳转 · 「设置 / 管理」只对管理员出现、点开五项可跳转 · 用户卡点开是弹出层（口令在里面）·
 / 是全景 · 没有「旧版页面」菜单 · 控制面没口令也看不到管理入口。"""
 import json, sys, urllib.request
@@ -38,7 +38,8 @@ def slow(page):
     if rate > 1: page.context.new_cdp_session(page).send('Emulation.setCPUThrottlingRate', {'rate': rate})
 def settled(pg, sel, timeout=10000): pg.wait_for_function(SETTLED, arg=sel, timeout=timeout)
 
-MAIN = ['全景', '事项', '驾驶舱', '团队', '谁能做什么', '工作台市场', '经验库']
+# 原型的一级入口是 全景、事项、驾驶舱、领域、谁能做什么、工作台市场、经验库；「团队」先保留（统筹 11-20：领域第 1 步不替换团队），排在领域后面
+MAIN = ['全景', '事项', '驾驶舱', '领域', '团队', '谁能做什么', '工作台市场', '经验库']
 ADMIN = ['待属主看板', 'MCP 网关', '凭据库', '类型管理', '设置']
 SIDE = '[data-testid=wm-side]'
 MAIN_JS = """[...document.querySelectorAll('[data-testid=wm-side] nav[aria-label="工作"] .wm-nav-item')].map(e=>{const cs=getComputedStyle(e);return [e.innerText.split('\\n')[0].trim(), cs.color, [...(e.querySelector('.wm-nav-icon .anticon')?.classList||[])].find(c=>c.startsWith('anticon-'))||null]})"""
@@ -53,7 +54,7 @@ with sync_playwright() as p:
     pg.goto(M + '/'); pg.wait_for_selector(SIDE)
     check('/ 是全景（顶栏标题）', pg.locator('.wm-top-title').first.inner_text().strip() == '全景', pg.locator('.wm-top-title').first.inner_text())
     items = pg.evaluate(MAIN_JS); names = [i[0] for i in items]
-    check('侧栏主入口七个、按原型顺序', names == MAIN, names)
+    check('侧栏主入口八个、按原型顺序（原型七个 +「团队」先保留）', names == MAIN, names)
     icons = [i[2] for i in items]
     check('主入口各有专属图标、不复用', None not in icons and len(set(icons)) == len(icons), icons)
     bg = rgb(pg.evaluate(f"getComputedStyle(document.querySelector('{SIDE}')).backgroundColor"))
