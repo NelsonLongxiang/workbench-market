@@ -7,7 +7,7 @@
  *     result_id 是脚本自己调出来的一份大结果的引用编号；
  *   - 技能里点名的字段（catalog 的四个键、how_to_detail、input_schema、ref、status、result_ref 的五个键、summary、how_to_fetch、
  *     text、total_chars、next_offset、openapi_url、rest_base、X-Content-Sha256）在真实应答里都有；
- *   - 技能里写的数（64 KB、32768、15 分钟、20 份）和代码里的常量对得上；
+ *   - 技能里写的数（64 KB、32768、15 分钟、20 份，申请理由 500 字、每会话每小时 10 条）和代码里的常量对得上；
  *   - 技能里写的说法（MCP 没批回 Method not found；REST 没批 403、没这个工具 404；offset 越界回空）和真实行为一致。
  * 代码改了、技能没跟上，这里会红。隔离实例：全新数据目录、NODE_ENV=test、合成的管理口令，用测试专用的 WM_MCP_RESULT_LIMITS 把阈值调到 16 000 字节：目录（约 11 KB）照常整份回，设计规范（约 24 KB）给引用。
  *   node scripts/skill-capability-access-examples-test.mjs
@@ -126,6 +126,10 @@ try {
   ok(`引用 ${MCP_RESULT_DEFAULTS.ttl / 60000} 分钟过期`, text.includes(`${MCP_RESULT_DEFAULTS.ttl / 60000} 分钟过期`), MCP_RESULT_DEFAULTS);
   ok(`result_read 一段最多 ${readMax} 个字符`, Number.isInteger(readMax) && text.includes(`一段最多 ${readMax} 个字符`), readMax);
   ok(`每个会话最多留最新的 ${keep} 份`, Number.isInteger(keep) && text.includes(`最多留最新的 ${keep} 份`), keep);
+  const reasonMax = Number(/const ACCESS_REASON_MAX = (\d+);/.exec(indexSrc)?.[1]);
+  const hourlyMax = Number(/const ACCESS_REQUEST_HOURLY_MAX = (\d+);/.exec(indexSrc)?.[1]);
+  ok(`申请理由不超过 ${reasonMax} 字`, Number.isInteger(reasonMax) && text.includes(`不超过 ${reasonMax} 字`), reasonMax);
+  ok(`每会话每小时最多 ${hourlyMax} 条申请`, Number.isInteger(hourlyMax) && text.includes(`每会话每小时最多 ${hourlyMax} 条`), hourlyMax);
 
   console.log('四、技能写的说法和真实行为一致');
   const notGrantedMcp = await rpc(sess.token, 'workbench_vars_set', { id: 1, key: 'x', value: 1 });
@@ -136,6 +140,9 @@ try {
   ok('REST：没批 403 带 hint，没这个工具 404', notGrantedRest.status === 403 && typeof notGrantedRest.json?.hint === 'string' && unknownRest.status === 404, [notGrantedRest.status, unknownRest.status]);
   const past = await rpc(sess.token, 'result_read', { id: ref.id, offset: 10 ** 9 });
   ok('result_read 的 offset 超出末尾：不报错，回空的 text', !past.isError && past.payload?.text === '' && past.payload.next_offset === null, past.text.slice(0, 120));
+  const longReason = await rpc(sess.token, 'access_request', { tools: ['workbench_list'], reason: '长'.repeat(reasonMax + 1) });
+  const fitReason = await rpc(sess.token, 'access_request', { tools: ['workbench_list'], reason: '长'.repeat(reasonMax) });
+  ok(`申请理由：${reasonMax + 1} 字被拒，${reasonMax} 字收下`, longReason.isError && !fitReason.isError && /^mcp-\d+$/.test(fitReason.payload?.request?.ref ?? ''), [longReason.text.slice(0, 80), fitReason.text.slice(0, 80)]);
   const unknownDetail = await rpc(sess.token, 'access_info', { tool: 'no_such_tool' });
   ok('按名字取详情：名字不在目录里会报错', unknownDetail.isError, unknownDetail.text.slice(0, 120));
   const listed = (await call('POST', '/mcp', { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }, auth)).json?.result?.tools?.map((t) => t.name) ?? [];
