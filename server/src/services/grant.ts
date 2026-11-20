@@ -326,6 +326,22 @@ export class GrantService extends Service {
     }
   }
 
+  /**
+   * 范围正好是 scope 的、没结束的授予（草稿、待核、生效）整批撤销，每条记一行痕，返回撤了的授予编号。
+   * 只在调用方已经开着的写事务里用（撤领域：和领域改成 retired 同一个事务，docs/domains-step1.md 统筹裁定 2），自己不开事务；没开着就抛错。
+   */
+  revokeScopeInTx(scope: string, actor: Actor, reason: string, now: number): number[] {
+    if (!db.isTransaction) throw new Error('revokeScopeInTx 要在调用方的写事务里用');
+    if (!reason.trim()) throw new Error('revokeScopeInTx 要写理由');
+    const rows = db.prepare("SELECT id, status FROM grants WHERE scope = ? AND status IN ('draft','pending','active') ORDER BY id").all(scope) as { id: number; status: GrantStatus }[];
+    const ev = db.prepare("INSERT INTO grant_events (grant_id, event, from_status, to_status, actor, actor_principal, reason, at) VALUES (?, 'revoke', ?, 'revoked', ?, ?, ?, ?)");
+    for (const r of rows) {
+      if (db.prepare("UPDATE grants SET status = 'revoked', updated_at = ? WHERE id = ? AND status = ?").run(now, r.id, r.status).changes !== 1) throw new Error(`授予 ${r.id} 的状态变了`);
+      ev.run(r.id, r.status, actor.by, actor.principal, text(reason, 500), now);
+    }
+    return rows.map((r) => Number(r.id));
+  }
+
   /** 迁移出来、还没撤销或过期的授予整批撤销（要写理由），返回撤了几条 */
   revokeMigrated(actor: Actor, reason: string, now = Date.now()): Result<{ revoked: number }> {
     if (!reason.trim()) return refuse(400, 'reason_required', '撤销要写理由');
