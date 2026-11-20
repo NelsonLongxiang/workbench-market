@@ -10,7 +10,7 @@ const express=require('express');
 const { createStartupSecurityProbe, isStartupProbeRequest }=await import('../server/src/startup-security-self-probe.ts');
 let checks=0;const check=(name,condition)=>{assert.ok(condition,name);checks++;console.log('PASS '+name);};
 const noAuth='DO_NOT_LOG_SYNTHETIC_CREDENTIAL';
-async function fixture({ticketUploadBroken=false,seatTokenBroken=false,accessBroken=false,mcpBroken=false,writeBroken=false,principalsBroken=false,localAccountsBroken=false,approveBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,uploadBroken=false,dueBroken=false,seatReplyBroken=false,seatAskBroken=false,leadReleaseBroken=false,grantsBroken=false,grantApproveBroken=false,knowledgeBroken=false,knowledgeMapBroken=false,rememberBroken=false,teamReassignBroken=false,attentionBroken=false,appDataBroken=false,varsMissingBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test',cockpitBroken=false}={}){
+async function fixture({ticketUploadBroken=false,seatTokenBroken=false,accessBroken=false,mcpBroken=false,writeBroken=false,principalsBroken=false,localAccountsBroken=false,approveBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,uploadBroken=false,dueBroken=false,seatReplyBroken=false,seatAskBroken=false,leadReleaseBroken=false,grantsBroken=false,grantApproveBroken=false,knowledgeBroken=false,areaCreateBroken=false,areaSpecBroken=false,areaReadBroken=false,knowledgeMapBroken=false,rememberBroken=false,teamReassignBroken=false,attentionBroken=false,appDataBroken=false,varsMissingBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test',cockpitBroken=false}={}){
  const app=express(),logs=[],db=new DatabaseSync(':memory:');db.exec('CREATE TABLE workbenches(id INTEGER PRIMARY KEY,name TEXT)');let ordinaryHits=0;const requests=[];
  const probe=createStartupSecurityProbe({timeoutMs:hang?50:500,log:row=>logs.push(row)});app.use(probe.middleware);app.use(express.json());let release;const barrier=hold?new Promise(r=>release=r):Promise.resolve();
  const server=createServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;
@@ -31,6 +31,9 @@ async function fixture({ticketUploadBroken=false,seatTokenBroken=false,accessBro
  app.get('/api/export',(req,res)=>req.query.reveal==='1'&&!exportBroken?res.status(403).json({error:'denied'}):res.json({masked:req.query.reveal==='1'?0:1,workbenches:[]}));
  app.get('/api/grants',(_req,res)=>grantsBroken?res.json({grants:[]}):res.status(401).json({error:'grants_auth_required'}));
  app.post('/api/grants/:id/approve',(_req,res)=>grantApproveBroken?res.status(404).json({error:'grant_missing'}):res.status(401).json({error:'grants_auth_required'}));
+ app.post('/api/areas',(_req,res)=>areaCreateBroken?res.status(201).json({area:{id:'wm-self-probe'}}):res.status(403).json({error:'denied'}));
+ app.post('/api/areas/:id/specs',(_req,res)=>areaSpecBroken?res.status(404).json({error:'area_missing'}):res.status(403).json({error:'denied'}));
+ app.get('/api/areas',(_req,res)=>areaReadBroken?res.json({areas:[]}):res.status(401).json({error:'areas_auth_required'}));
  app.get('/api/knowledge',(_req,res)=>knowledgeBroken?res.status(200).json({items:[],source:'ok'}):res.status(401).json({error:'login_required'}));
  app.put('/api/knowledge/project-depts',(_req,res)=>knowledgeMapBroken?res.status(403).json({error:'need admin'}):res.status(401).json({error:'login_required'}));
  app.post('/api/knowledge/remember',(_req,res)=>rememberBroken?res.status(403).json({error:'need admin'}):res.status(401).json({error:'login_required'}));
@@ -80,6 +83,7 @@ async function fixture({ticketUploadBroken=false,seatTokenBroken=false,accessBro
  const fd=await fixture({dueBroken:true});try{const r=await fd.start();check('due date change that lets a remote anonymous browser edit work fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.work-items.due-set-anonymous');}finally{await fd.close();}
  const g=await fixture({grantsBroken:true});try{const r=await g.start();check('grant list readable by a remote anonymous browser fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.grants.admin-read');}finally{await g.close();}
  const ga=await fixture({grantApproveBroken:true});try{const r=await ga.start();check('grant approve entry that answers a remote anonymous browser past the sign-in check fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.grants.approve-anonymous');}finally{await ga.close();}
+ for(const [flag,row,what] of [['areaCreateBroken','market.areas.anonymous-create','area creation that a remote anonymous browser gets past the write gate'],['areaSpecBroken','market.areas.anonymous-spec-set','area spec write that answers a remote anonymous browser past the write gate (even with 404)'],['areaReadBroken','market.areas.anonymous-read','area list that answers a remote anonymous browser']]){const fx=await fixture({[flag]:true});try{const r=await fx.start();check(what+' fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]===row);}finally{await fx.close();}}
  const kn=await fixture({knowledgeBroken:true});try{const r=await kn.start();check('knowledge list that answers a remote anonymous browser past the sign-in check fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.knowledge.anonymous-read');}finally{await kn.close();}
  const knm=await fixture({knowledgeMapBroken:true});try{const r=await knm.start();check('knowledge project-department write that lets the admin write gate answer a remote anonymous browser (403 instead of 401) fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.knowledge.project-depts-anonymous-write');}finally{await knm.close();}
  const krm=await fixture({rememberBroken:true});try{const r=await krm.start();check('knowledge remember that lets the admin write gate answer a remote anonymous browser (403 instead of 401) fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.knowledge.remember-anonymous');}finally{await krm.close();}
@@ -161,6 +165,9 @@ for(const nodeEnv of ['development','test']){
  app.post('/api/work-items/:id/messages/:mid/reply',(_req,res)=>res.status(401).end());
  app.post('/api/work-items/:id/release',(_req,res)=>res.status(401).end());
  app.post('/api/work-items/:id/asks/:d/answer',(_req,res)=>res.status(401).end());
+ app.post('/api/areas',(_req,res)=>res.status(403).end());
+ app.post('/api/areas/:id/specs',(_req,res)=>res.status(403).end());
+ app.get('/api/areas',(_req,res)=>res.status(401).end());
  const server=createServer(app);const running=probe.run({market:server,gatewayOn:true,nodeEnv:'test'});
  await new Promise(r=>setTimeout(r,900));await new Promise(r=>server.listen(0,'127.0.0.1',r));
  try{const r=await running;check('market surface that starts listening after the request timeout still passes',r.passed===true&&r.rows.some(x=>x.surface==='market')&&r.rows.filter(x=>x.surface==='market').every(x=>x.verdict==='pass'));}finally{server.closeAllConnections();await new Promise(r=>server.close(r));}
