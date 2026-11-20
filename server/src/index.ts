@@ -2902,6 +2902,7 @@ const wbById = (id: number): ReturnType<typeof rowToWorkbench> | null => {
   return row ? rowToWorkbench(row) : null;
 };
 
+import { MCP_RESULT_LIMITS } from './mcp-result-limits.ts';
 import { MCP_TOOLS, catalogSummary, type McpToolDef, type McpToolCategory } from './mcp-tools.ts';
 import { evalCandidates, evalConfigured } from './eval.ts'; // #178 评估模型客户端
 
@@ -3420,16 +3421,7 @@ const MCP_ACCESS_TOOLS: ReadonlySet<string> = new Set(['access_info', 'access_re
 // ---------- 大结果给引用（渐进开放第 5 步，docs/productization/16-progressive-capability-access.md）----------
 // 工具结果（紧凑 JSON）超过阈值时，存进 mcp_result_refs，tools/call 和 REST 的工具调用都只回引用（地址、sha256、字节数、期限）和摘要。
 // 能执行代码的拿地址、用同一个会话令牌 GET；不能执行代码的用免授权的 result_read 分段读。两条路都只认建它的会话，都按原工具再判一次授权。
-// 测试环境可以用 WM_MCP_RESULT_LIMITS（inline=<字节>,ttl=<毫秒>）调小；不是测试环境设了它就拒绝启动（不让生产上悄悄关掉或放大）
-const MCP_RESULT_DEFAULTS = { inline: 64 * 1024, ttl: 15 * 60_000 };
-const MCP_RESULT_LIMITS = (() => {
-  const raw = process.env.WM_MCP_RESULT_LIMITS ?? '';
-  if (!raw) return MCP_RESULT_DEFAULTS;
-  if (process.env.NODE_ENV !== 'test') { console.error('[mcp] 拒绝启动：WM_MCP_RESULT_LIMITS 只给测试用（NODE_ENV=test），生产上不要设'); process.exit(1); }
-  const m = /^inline=(\d{1,9}),ttl=(\d{1,9})$/.exec(raw.trim());
-  if (!m || Number(m[1]) < 1 || Number(m[2]) < 1) { console.error('[mcp] 拒绝启动：WM_MCP_RESULT_LIMITS 写成 inline=<字节>,ttl=<毫秒>'); process.exit(1); }
-  return { inline: Number(m[1]), ttl: Number(m[2]) };
-})();
+// 阈值和期限的配置在 mcp-result-limits.ts（WM_MCP_RESULT_LIMITS 只给测试调小，别的环境设了就拒绝启动）
 /** 每个会话最多留几份；result_read 一段最多多少字符 */
 const MCP_RESULT_KEEP = 20;
 const MCP_RESULT_READ_MAX = 32768;
