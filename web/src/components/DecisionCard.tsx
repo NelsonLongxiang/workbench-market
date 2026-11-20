@@ -17,7 +17,7 @@ import { answerChoices, answerLabel, confirmButtonText, answerRoute, answerViaOf
 import { cardWording, splitAskTitle } from '../home-view';
 import { seatLabel, teamLabel, waitingLabel } from '../people';
 import { fallbackPlace, pageLink } from '../page-paths';
-import { REVIEW_NEEDS, changeCard, changeDetailOf, confirmText, grantCard, grantDetailOf, grantDoneText, withDoneText, reviewAnswerLabel, runCard, runDetailOf, taskKindLabel } from '../review-view';
+import { REVIEW_NEEDS, changeCard, changeDetailOf, confirmText, grantCard, grantDetailOf, grantDoneText, withDoneText, hostDecisionCard, hostDecisionOf, LEVEL_TONE, reviewAnswerLabel, runCard, runDetailOf, taskKindLabel } from '../review-view';
 
 
 const COLOR: Record<string, string> = { ask: 'gold', accept: 'green', glance: 'default', review: 'blue', grant: 'purple' };
@@ -86,6 +86,9 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
   const grant = grantDetailOf(item);
   const gc = grant ? grantCard(grant) : null;
   const via = answerViaOf(item);
+  // 团队的决策卡（T8）：只展示，拍板到宿主上
+  const hd = hostDecisionOf(item);
+  const hc = hd ? hostDecisionCard(hd, teamLabel) : null;
   /** 这个答法要先填的一项：条目自带答复入口的照它说的（可以是选填），其余按来源的表 */
   const needOf = (a: string): { key: string; label: string; max?: number; optional?: boolean; options?: string[] } | null => {
     if (via) { const i = viaInput(via, a); return i ? { key: i.to, label: viaInputLabel(i), max: i.max, optional: !i.required, options: i.options } : null; }
@@ -102,6 +105,8 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
     ? ''
     : grant
     ? ''
+    : hc
+    ? hc.who
     : isAsk
     ? `${waitingLabel(item.waiting_for, { seat, people: [item.creator ?? {}], name: item.waiting_for_name })} 问`
     : item.source === 'work-items' && detail
@@ -184,10 +189,19 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
   };
   return <div className="wm-decision" data-testid="decision-card">
     <div className="wm-decision-head">
-      {stuck ? <Tag color="warning" data-testid="decision-stuck">{stuckLabel(item.since)}</Tag> : <Tag color={taskKind ? 'default' : COLOR[item.category] ?? 'default'}>{taskKind ?? wording.label}</Tag>}
+      {stuck ? <Tag color="warning" data-testid="decision-stuck">{stuckLabel(item.since)}</Tag> : hc ? <Tag color="purple">团队的决策卡</Tag> : <Tag color={taskKind ? 'default' : COLOR[item.category] ?? 'default'}>{taskKind ?? wording.label}</Tag>}
+      {hd?.level && <Tag color={LEVEL_TONE[hd.level]} data-testid="decision-host-level">{hd.level}</Tag>}
       <Typography.Text type="secondary" className="wm-caption">{[whoLine, !stuck && item.since && `等了 ${waited(item.since)}`].filter(Boolean).join(' · ')}</Typography.Text>
     </div>
-    <Typography.Text strong className="wm-decision-title">{cc ? cc.title : rc ? rc.title : gc ? gc.title : parsed.question}</Typography.Text>
+    <Typography.Text strong className="wm-decision-title">{cc ? cc.title : rc ? rc.title : gc ? gc.title : hc ? hc.title : parsed.question}</Typography.Text>
+    {hc && <div className="wm-decision-lines" data-testid="decision-host">
+      {hc.lines.map((l, i) => <Typography.Text key={i} type="secondary">{l}</Typography.Text>)}
+    </div>}
+    {hc && <Space wrap size={8} className="wm-decision-actions">
+      {hd?.decideAt
+        ? <Button type="primary" href={hd.decideAt} target="_blank" rel="noopener noreferrer" data-testid="decision-host-go">去宿主拍板 →</Button>
+        : <Typography.Text type="secondary" className="wm-caption" data-testid="decision-where">{hc.where}</Typography.Text>}
+    </Space>}
     {rc && <div className="wm-decision-lines" data-testid="decision-run">
       {rc.lines.map((l, i) => <Typography.Text key={i} type="secondary">{l}</Typography.Text>)}
       {rc.problems.map((l, i) => <Typography.Text key={`p${i}`} type="warning">{l}</Typography.Text>)}
@@ -219,7 +233,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
       {remOn && <RememberFields defaults={remDefaults} lesson={lesson} cue={cue} visibility={vis} onLesson={setLesson} onCue={setCue} onVisibility={setVis} cuePlaceholder={parsed.question || undefined} />}
       {remBlock && <Typography.Text type="secondary" className="wm-caption" data-testid="decision-remember-block">{remBlock}</Typography.Text>}
     </div>}
-    {!(isAsk && options.length > 0 && choices.includes('answer')) && <Space wrap size={8} className="wm-decision-actions">
+    {!hc && !(isAsk && options.length > 0 && choices.includes('answer')) && <Space wrap size={8} className="wm-decision-actions">
       {choices.map((a, i) => {
         const need = needOf(a);
         if (open === a && need) {

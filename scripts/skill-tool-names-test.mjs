@@ -20,6 +20,8 @@ const ROOT = resolve(arg >= 0 ? process.argv[arg + 1] : join(HERE, '..'));
 /** 长得像工具名、其实不是的：名字 → 是什么 */
 const NOT_TOOLS = new Map([
   ['workbench_id', '数据视图台对应的市场台号（GET /api/bench-views 的字段）'],
+  ['result_ref', '大结果的引用：工具结果太大时应答里的字段（{ id, url, sha256, bytes, expires_at }），见 wm-capability-access'],
+  ['result_id', 'wm-capability-access 例子里的占位 {{result_id}}：换成上一步 result_ref.id'],
 ]);
 
 const tools = new Set(JSON.parse(readFileSync(join(ROOT, 'surfaces/mcp-tools.json'), 'utf8')).map((x) => String(x).split(/\s+/)[0]));

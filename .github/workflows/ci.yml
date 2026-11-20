@@ -354,6 +354,8 @@ jobs:
           node scripts/privacy-gate.mjs --selftest
       - name: 台库冒烟（数据视图：数据集与改列·四种写入的校验、幂等、上限·快照与退回·查询描述与注入形态·视图描述的核对、版本、并发保存、回退·排队、隔离、标识不逃出目录）
         run: node scripts/bench-store-smoke.mjs && node --disable-warning=ExperimentalWarning scripts/skill-data-views-examples-test.mjs
+      - name: 技能 wm-capability-access 里的例子都是真的（隔离实例上逐个调用·点名的字段和常量对得上）
+        run: node scripts/skill-capability-access-examples-test.mjs
       - name: 台库分道（同一个台固定一道·不同道互不排队·大写入全局一次一件且做完换线程·一道终止不碍别的道·排队上限按各道合计）
         run: node scripts/bench-store-lanes-test.mjs
       - name: 台库按卡片 id 开放（卡片 id 和台标识都认·删卡片要管理层并确认、409 只给规模·删前备份·连带清登记、授予、库文件、驾驶舱面板）与清扫（孤儿库、过期备份、Redis 孤儿键）
@@ -633,6 +635,8 @@ jobs:
         run: node scripts/vault-concurrency-test.mjs && node scripts/vault-smoke.mjs
       - name: 条目自带答复入口单测（纯函数——answer_via 的地址、请求体、填写项；核准卡片的写法；单列一步）
         run: node scripts/answer-via-unit.mjs
+      - name: 团队的决策卡单测（带宿主拍板地址的算等你拍板·地址只认 http 和 https·空串不计数）
+        run: node scripts/host-decision-unit.mjs
       - name: F5 env-face 判定回归（不启动 Docker）
         run: node scripts/security-env-face-test.mjs
       - name: 扩展挂载点冒烟（WM_EXTENSIONS_DIR：不设不加载·目录/模块/register 出错拒绝启动·路由/待办来源/业务写面）

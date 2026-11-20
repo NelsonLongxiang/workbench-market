@@ -68,6 +68,7 @@ const evil = await peer('evil');
 const lab2 = await peer('labtwo');
 const stranger = await peer('stranger'); // 不在登记表、也不在任何名册里
 const rot = await peer('rot'); // 名册按旧指纹报过团队 R；换钥匙后按新指纹重报的名册里只有 R2（旧指纹的席位行还留着）
+const rk = await peer('rk'); // 先用旧钥匙报卡，再换钥匙、按新指纹重报同一个团队 K（旧钥匙签的卡还在库里）
 
 const PM = await port();
 const BASE = `http://127.0.0.1:${PM}`;
@@ -247,6 +248,37 @@ try {
   const blocked = await send(env({ card: { id: 'c-after-disable' } }));
   ok('lab 停用之后：它的卡从清单里消失，再推 401', afterDisable === 0 && blocked.r.status === 401 && !rows().some((x) => x.card_id === 'c-after-disable'), [afterDisable, blocked.r.text]);
 
+  console.log('四之二、换钥匙之后旧钥匙签的卡');
+  {
+    const d = db(); const now = new Date().toISOString();
+    try {
+      d.prepare("INSERT INTO a2a_peers (id, root_url, zone, name, public_key, key_fingerprint, status, registered_by, registered_at, updated_at) VALUES ('peer_rk', ?, 'rk', '合成宿主 rk', ?, ?, 'active', 'test', ?, ?)").run(rk.url, rk.publicKey, rk.fp, now, now);
+      d.prepare('INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?, ?)').run(rk.url, rk.fp, rk.host, 'rk', now, now);
+      d.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, role, first_seen_at) VALUES (?, ?, ?, 'rk/canvas/K', 'rk/00000001', 'observer', ?)").run(rk.url, rk.fp, rk.host, now);
+    } finally { d.close(); }
+  }
+  const kOld = await send(env({ card: { id: 'c-oldkey', team: 'rk/canvas/K' } }), { signer: rk });
+  const kOldAt = Date.now();
+  const shownBefore = cards(await attention()).some((x) => x.source_id.endsWith(':c-oldkey'));
+  ok('（前提）旧钥匙签、团队在旧指纹名册里的卡 → 收下并显示', kOld.r.json?.status === 'stored' && shownBefore, kOld.r.text);
+  // 宿主换钥匙：登记表钉新钥匙，按新指纹重报的名册里还是团队 K；旧指纹的名册行留着（名册入库只替换同一指纹的）
+  rk.rotate();
+  {
+    const d = db(); const now = new Date().toISOString();
+    try {
+      d.prepare("UPDATE a2a_peers SET public_key = ?, key_fingerprint = ?, updated_at = ? WHERE id = 'peer_rk'").run(rk.publicKey, rk.fp, now);
+      d.prepare('INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?, ?)').run(rk.url, rk.fp, rk.fp.slice(7, 15), 'rk', now, now);
+      d.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, role, first_seen_at) VALUES (?, ?, ?, 'rk/canvas/K', 'rk/00000001', 'observer', ?)").run(rk.url, rk.fp, rk.fp.slice(7, 15), now);
+    } finally { d.close(); }
+  }
+  // 市场按根地址缓存名片，验签不过时重取一次，但同一地址 30 秒内只取一次（peer-card.ts 的 RETRY_MS）：等过这段再用新钥匙发
+  const sinceOld = Date.now() - kOldAt;
+  if (sinceOld < 31_000) await new Promise((r) => setTimeout(r, 31_000 - sinceOld));
+  const kNew = await send(env({ card: { id: 'c-newkey', team: 'rk/canvas/K' } }), { signer: rk });
+  const afterRekey = cards(await attention());
+  ok('（对照）换钥匙后新钥匙签、团队 K 在新名册里的卡 → 收下并显示', kNew.r.json?.status === 'stored' && afterRekey.some((x) => x.source_id.endsWith(':c-newkey')), kNew.r.text);
+  ok('换钥匙并按新指纹重报了同一个团队之后：旧钥匙签的等待卡不再显示（库里那行还在）', !afterRekey.some((x) => x.source_id.endsWith(':c-oldkey')) && rows().some((x) => x.card_id === 'c-oldkey' && x.state === 'waiting'), afterRekey.map((x) => x.source_id));
+
   console.log('五、不是这种正文');
   const other = await send(env({ card: { id: 'c-v2' } }), { head: '[A2A decision-card] v2', signer: evil });
   ok('版本号不对（v2）→ 不走这条分流、不落库', other.r.json?.error !== 'decision-card-invalid' && other.r.json?.error !== 'team-not-bound' && !rows().some((x) => x.card_id === 'c-v2'), other.r.text);
@@ -255,7 +287,7 @@ try {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {
   if (child && child.exitCode === null) { const done = new Promise((r) => child.once('exit', r)); child.kill(); await done; }
-  for (const p of [lab, evil, lab2, stranger, rot]) p.server.close();
+  for (const p of [lab, evil, lab2, stranger, rot, rk]) p.server.close();
   rmSync(DATA, { recursive: true, force: true });
 }
 console.log(`a2a-decision-cards-test: ${pass} passed / ${fail} failed`);
