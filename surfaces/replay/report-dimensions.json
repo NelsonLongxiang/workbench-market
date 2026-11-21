@@ -15,7 +15,7 @@
   "scenarios": [
     {
       "name": "open",
-      "what": "缺省配置：登录门关，没设管理口令。本机命令行是属主；假登录提供方认出 alpha（员工，没有授予）、beta（准备步骤里由本机命令行放行属主，用来复核本机命令行发的模板）。",
+      "what": "缺省配置：登录门关，没设管理口令。本机命令行是属主；假登录提供方认出 alpha（员工，没有授予）、beta（准备步骤里由本机命令行放行属主，用来发判据类模板版本；root-admin 也放行属主，复核 beta 发的那一版）。",
       "env": {},
       "clock": "2030-01-01T00:00:00Z",
       "fixtures": ["identity-fake"],
@@ -482,9 +482,9 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "267", "etag": "W/\"10b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "352", "etag": "W/\"160-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "template": { "version": 1, "sha256": "dcdb32de48ffbad70727cbca0fc88cf9f78edadd738392351e7fdef96afbc49d", "bytes": 469, "kind": "criteria", "note": "第一版", "created_at": 1893456000000, "created_by": "user:beta", "created_by_principal": "user:beta", "review": null, "active": false }
+              "template": { "version": 1, "sha256": "dcdb32de48ffbad70727cbca0fc88cf9f78edadd738392351e7fdef96afbc49d", "criteria_sha256": "e3cc2637d829a125ea8dc88cd7ecb3fa163b9cb7b906683311eba6dd00a8b26f", "bytes": 469, "kind": "criteria", "note": "第一版", "created_at": 1893456000000, "created_by": "user:beta", "created_by_principal": "user:beta", "review": null, "active": false }
             }
           }
         },
@@ -586,12 +586,13 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "770", "etag": "W/\"302-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "855", "etag": "W/\"357-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "dimension_id": "ops-view",
               "template": {
                 "version": 1,
                 "sha256": "dcdb32de48ffbad70727cbca0fc88cf9f78edadd738392351e7fdef96afbc49d",
+                "criteria_sha256": "e3cc2637d829a125ea8dc88cd7ecb3fa163b9cb7b906683311eba6dd00a8b26f",
                 "bytes": 469,
                 "kind": "criteria",
                 "note": "第一版",
@@ -625,12 +626,13 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "770", "etag": "W/\"302-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "855", "etag": "W/\"357-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "dimension_id": "ops-view",
               "template": {
                 "version": 1,
                 "sha256": "dcdb32de48ffbad70727cbca0fc88cf9f78edadd738392351e7fdef96afbc49d",
+                "criteria_sha256": "e3cc2637d829a125ea8dc88cd7ecb3fa163b9cb7b906683311eba6dd00a8b26f",
                 "bytes": 469,
                 "kind": "criteria",
                 "note": "第一版",
@@ -728,8 +730,8 @@
           "response": {
             "status": 409,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "117", "etag": "W/\"75-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "report_template_unreviewed", "message": "第 1 版改了判据，要作者以外的人复核过才能生效" }
+            "headers": { "cache-control": "private, no-store", "content-length": "129", "etag": "W/\"81-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "report_template_unreviewed", "message": "第 1 版的判据没有被作者以外的人复核过，复核过才能生效" }
           }
         },
         {
@@ -820,11 +822,12 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "340", "etag": "W/\"154-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "425", "etag": "W/\"1a9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "template": {
                 "version": 1,
                 "sha256": "dcdb32de48ffbad70727cbca0fc88cf9f78edadd738392351e7fdef96afbc49d",
+                "criteria_sha256": "e3cc2637d829a125ea8dc88cd7ecb3fa163b9cb7b906683311eba6dd00a8b26f",
                 "bytes": 469,
                 "kind": "criteria",
                 "note": "第一版",
