@@ -20,6 +20,7 @@ import { svc } from '../context.ts';
 import { areaVerdict } from '../judgment.ts';
 import { REPORT_DIMENSION_SET } from '../roles.ts';
 import { AREA_ID_RE, type AreaService } from './area.ts';
+import type { PrincipalService } from './principal.ts';
 
 export type DimensionStatus = 'active' | 'retired';
 export type TemplateKind = 'layout' | 'criteria';
@@ -32,7 +33,7 @@ export type TemplateMeta = {
   review: { reviewed_by: string; reviewed_at: number; note: string } | null; active: boolean;
 };
 export type TemplateFull = TemplateMeta & { body: unknown };
-export type DimensionRefusal = { ok: false; http: 400 | 404 | 409; code: string; message: string };
+export type DimensionRefusal = { ok: false; http: 400 | 403 | 404 | 409; code: string; message: string };
 /** 做这一步的人：by 是留痕写法（cli、admin-token、user:<名> …），principal 是对到的主体（对不到为 null） */
 export type DimensionActor = { by: string; principal: string | null };
 /** 判定的主体：路由认出人以后交进来。owner：属主（本机命令行在这里也算属主） */
@@ -138,6 +139,13 @@ function tx<T>(fn: () => T): T {
   }
 }
 
+/** 认得出的人：主体不为空、是人、启用着。复核判据类模板版本只认这种人（本机命令行、只带管理口令的主体为空，认不出是谁） */
+function identifiedPerson(principal: string | null): boolean {
+  if (!principal) return false;
+  const p = svc<PrincipalService>('principals').get(principal) as { kind?: string; status?: string } | null;
+  return !!p && p.kind === 'person' && p.status === 'active';
+}
+
 export class ReportDimensionService extends Service {
   constructor(ctx: any) {
     super(ctx, 'reportDimensions');
@@ -224,6 +232,8 @@ export class ReportDimensionService extends Service {
       const last = db.prepare('SELECT version, body FROM report_templates WHERE dimension_id = ? ORDER BY version DESC LIMIT 1').get(id) as { version: number; body: string } | undefined;
       const version = Number(last?.version ?? 0) + 1;
       const kind = templateKind(last ? JSON.parse(last.body) as Record<string, unknown> : null, input.body as Record<string, unknown>);
+      // 判据类版本要作者以外的人复核；作者认不出是谁（本机命令行、只带管理口令）就判不了「是不是本人」，所以认不出的人不能发判据类版本（统筹 11-21 裁定）
+      if (kind === 'criteria' && !actor.principal) return refuse(403, 'report_template_author_unidentified', '这一版改了判据（第一版也算），要作者以外的人复核；本机命令行、管理口令认不出是谁，发判据类版本请用站内账号');
       db.prepare('INSERT INTO report_templates (dimension_id, version, body, sha256, kind, note, created_at, created_by, created_by_principal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(id, version, text, digest, kind, input.note, now, actor.by.slice(0, 256), actor.principal);
       db.prepare('UPDATE report_dimensions SET updated_at = ?, updated_by = ? WHERE id = ?').run(now, actor.by.slice(0, 256), id);
@@ -232,7 +242,10 @@ export class ReportDimensionService extends Service {
     });
   }
 
-  /** 复核一版：作者本人不能复核（同一个主体，或者同一个留痕写法，比如都是本机命令行）；一版只复核一次 */
+  /**
+   * 复核一版：复核人必须是认得出的人（主体不为空、是人、启用着），并且不是作者——本机命令行、只带管理口令的不能复核（403）；
+   * 作者主体相同、或者留痕写法相同，都算本人（403，规格第五节 5a）；一版只复核一次（409）
+   */
   review(id: string, version: number, note: string, actor: DimensionActor, now: number): { ok: true; template: TemplateMeta } | DimensionRefusal {
     if (note.length > NOTE_MAX || /[\x00-\x1f\x7f]/.test(note)) return refuse(400, 'report_template_note_invalid', `说明最多 ${NOTE_MAX} 个字符，不带控制字符`);
     return tx(() => {
@@ -241,8 +254,9 @@ export class ReportDimensionService extends Service {
       if (d.status === 'retired') return refuse(409, 'report_dimension_retired', `维度 ${id} 已经撤了，只读`);
       const t = db.prepare('SELECT created_by, created_by_principal FROM report_templates WHERE dimension_id = ? AND version = ?').get(id, version) as { created_by: string; created_by_principal: string | null } | undefined;
       if (!t) return refuse(404, 'report_template_missing', `维度 ${id} 没有第 ${version} 版模板`);
+      if (!identifiedPerson(actor.principal)) return refuse(403, 'report_template_reviewer_unidentified', '复核要认得出是谁：请用站内账号复核（本机命令行、管理口令不能复核）');
       const self = t.created_by === actor.by.slice(0, 256) || (!!t.created_by_principal && t.created_by_principal === actor.principal);
-      if (self) return refuse(409, 'report_template_self_review', '模板版本不能由作者本人复核，要作者以外的人');
+      if (self) return refuse(403, 'report_template_self_review', '模板版本不能由作者本人复核，要作者以外的人');
       if (db.prepare('SELECT 1 FROM report_template_reviews WHERE dimension_id = ? AND version = ?').get(id, version)) return refuse(409, 'report_template_reviewed', `第 ${version} 版已经复核过了`);
       db.prepare('INSERT INTO report_template_reviews (dimension_id, version, reviewed_by, reviewed_by_principal, reviewed_at, note) VALUES (?, ?, ?, ?, ?, ?)')
         .run(id, version, actor.by.slice(0, 256), actor.principal, now, note);

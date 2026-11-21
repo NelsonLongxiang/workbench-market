@@ -57,10 +57,24 @@
 | `sha256` | TEXT | 正文摘要 |
 | `kind` | TEXT | `layout`（只动版式、措辞、组件）/ `criteria`（动了论断要求、回应要求、数据口径或验收声明）。由服务端比对上一版算出，不由提交方声明 |
 | `note` | TEXT | 这一版改了什么 |
-| `reviewed_by`、`reviewed_at` | 可空 | 作者以外的复核人和时间。`criteria` 版本没有复核人时只能建、不能移成生效（属主 2026-11-21 定）；复核人不能是 `created_by` 本人，同一主体换会话也不算 |
-| `created_at`、`created_by` | | |
+| `created_at`、`created_by`、`created_by_principal` | | 作者的留痕写法和主体（本机命令行、只带管理口令的主体为空） |
 
 规则：版本建好就不能改、不能删（触发器拒 UPDATE、DELETE），**不按条数修剪**：报告引用着它。撤维度只改 `status`，模板留着。
+
+**`report_template_reviews`（复核记录）**：实现时从 `report_templates` 的 `reviewed_by`、`reviewed_at` 两列改成单独一张表（PR A 评审对齐）。模板正文建好就不能改，复核是后来的事，放在同一行就得改那一行；单独一张表也是只增不改。
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| `dimension_id`、`version` | 复合主键 | 一版只复核一次 |
+| `reviewed_by`、`reviewed_by_principal`、`reviewed_at`、`note` | | 复核人的留痕写法、主体、时间、说明 |
+
+复核人的口径（属主 2026-11-21 定「必须有作者以外的复核人」；怎么算「作者以外」由统筹 2026-11-21 按严格口径裁定，见 PR A 的评审）：
+
+- 复核人必须**认得出是谁**：主体不为空、主体是人、启用着。本机命令行、只带管理口令的主体为空，**不能复核**（403）。
+- 复核人不能是作者：主体相同就算本人，换个留痕写法（比如带管理口令）也算；留痕写法相同也算（403）。
+- 作者认不出是谁，就判不了谁是本人，所以**本机命令行、只带管理口令的不能发 `criteria` 版本**（第一版也算 `criteria`），403；`layout` 版本照常能发。
+- 跨领域的维度只有属主能定，属主自己发的 `criteria` 版本要**另一位**持属主授予的人复核。
+- 库这一层也守着：复核人主体为空、作者本人复核、`criteria` 版本作者主体为空，触发器都拒。
 
 ### 2. 台库（附加的表，开库不建、不升台库版本，第一次用到才建；和 `bs_vars`、`bs_app_data` 同一种做法）
 
@@ -131,7 +145,8 @@
 
 | 动作 | 类别 | 路由 | 谁 |
 |---|---|---|---|
-| `report.dimension-read` | read | `GET /api/report-dimensions`、`GET /api/report-dimensions/:id`、`…/templates/:version` | 登录的人（模板是协议，不是业务数据）。评审定 |
+| `report.dimension-list` | read | `GET /api/report-dimensions`（清单） | 同下。实现时从 `report.dimension-read` 里分出来（PR A 评审对齐）：清单和单条各报一个动作，判法相同；`area-report` 预设两个都带，权限没有扩大 |
+| `report.dimension-read` | read | `GET /api/report-dimensions/:id`、`…/templates/:version` | 登录的人（模板是协议，不是业务数据）。评审定 |
 | `report.dimension-set` | decide | `POST /api/report-dimensions`（建）、`POST …/:id/templates`（发一版）、`POST …/:id/templates/:version/review`（复核）、`POST …/:id/activate`（移生效指针）、`POST …/:id/retire` | **硬规则，不走角色覆盖**（和 `area.spec-set` 同一种机制）：领域维度认属主、本机命令行和持本领域 `area-report` 授予的人；跨领域维度只认属主和本机命令行 |
 | `report.bind` | write | `PUT /api/bench-views/:bench/reports/:dimension/binding` | 和 `bench-store.view-put` 同一档：管理层；台所在领域有写授予的人 |
 | `report.generate` | write | `POST /api/bench-views/:bench/reports` | 同上 |
@@ -140,7 +155,7 @@
 
 ### 2. 角色
 
-- 新预设 `area-report`（定义本领域的维度）：只含 `report.dimension-read`、`report.dimension-set`，范围必须正好是 `area:<领域>`。和 `area-spec` 一样单独授予，不随领域负责人一起给（属主 2026-11-21：单独授予）。
+- 新预设 `area-report`（定义本领域的维度）：只含 `report.dimension-list`、`report.dimension-read`、`report.dimension-set`，范围必须正好是 `area:<领域>`。和 `area-spec` 一样单独授予，不随领域负责人一起给（属主 2026-11-21：单独授予）。
 - `report.dimension-set` 写进判定的收窄规则（`narrowed`），和 `area.spec-set` 一样：管理层范围 `*`、自定义角色列了这个动作，都不算。
 
 ### 3. MCP
@@ -154,7 +169,7 @@
 3. 改、删一个已有的模板版本：接口没有入口；直接对库 UPDATE、DELETE 被触发器拒（两种库各一条）。
 4. 模板 `reason_required` 写成 `false`、`claims` 的 `min` 大于 `max`、未知键：400。
 5. 发模板时请求里写 `kind`：拒（由服务端算）；论断要求变了而服务端判成 `layout`：用例守住判法。
-5a. `criteria` 版本没有复核就移成生效：409；作者自己复核：403；复核人没有这个维度的 `report.dimension-set`：403；`layout` 版本不要复核也能生效。
+5a. `criteria` 版本没有复核就移成生效：409；作者自己复核：403（换个留痕写法、主体相同也算）；复核人没有这个维度的 `report.dimension-set`：403；本机命令行、只带管理口令的复核：403；本机命令行发 `criteria` 版本：403；`layout` 版本不要复核也能生效。
 6. 生成请求里带来源版本、哈希、行数、`producer_kind`：拒（未知键），不被采纳。
 7. 数据槽取到的数据被截断、行数超上限、列类型和模板不合：拒，不出半份报告（P0 的拒收照搬到服务端）。
 8. 论断数目不在模板范围内、`basis` 指向报告里没有的行：400。
