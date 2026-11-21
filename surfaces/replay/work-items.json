@@ -1426,6 +1426,303 @@
           }
         }
       ]
+    },
+    {
+      "name": "arrange-area",
+      "what": "「安排一件事」带领域（领域第 2 步 4a）：领域 sales 有负责人、ops 还没有、old 撤了；alpha 持 area:sales，beta 只持 dept:sales，no-flag 是管理层",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "fixtures": ["identity-fake"],
+      "seed": [
+        {
+          "table": "bindings",
+          "row": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/team-a", "direction": "notify", "mode": "read", "notify_url": "http://127.0.0.1:1", "created_by": "seed", "revoked_at": "" }
+        },
+        {
+          "table": "bindings",
+          "row": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/team-b", "direction": "notify", "mode": "read", "notify_url": "http://127.0.0.1:1", "created_by": "seed", "revoked_at": "" }
+        },
+        {
+          "table": "bindings",
+          "row": { "target_type": "sop", "target_slug": "task-center", "agent_node": "dsh/canvas/team-old", "direction": "notify", "mode": "read", "notify_url": "http://127.0.0.1:1", "created_by": "seed", "revoked_at": "2026-01-01 00:00:00" }
+        },
+        { "table": "bindings", "row": { "target_type": "sop", "target_slug": "sop-x", "agent_node": "dsh/canvas/team-x", "direction": "notify", "mode": "read", "notify_url": "http://127.0.0.1:1", "created_by": "seed", "revoked_at": "" } },
+        { "table": "areas", "row": { "id": "sales", "name": "合成销售领域", "status": "active", "created_at": 0, "created_by": "cli", "updated_at": 0, "updated_by": "cli" } },
+        { "table": "areas", "row": { "id": "ops", "name": "合成运营领域", "status": "pending-lead", "created_at": 0, "created_by": "cli", "updated_at": 0, "updated_by": "cli" } },
+        { "table": "areas", "row": { "id": "old", "name": "合成撤了的领域", "status": "retired", "created_at": 0, "created_by": "cli", "updated_at": 0, "updated_by": "cli" } },
+        { "table": "departments", "row": { "id": "sales", "name": "合成销售部", "created_at": 0, "updated_at": 0 } },
+        { "table": "grants", "row": { "id": 9101, "principal_id": "user:alpha", "role": "area-member", "scope": "area:sales", "reason": "合成", "status": "draft", "created_by": "cli", "created_at": 0, "updated_at": 0 } },
+        { "table": "grants", "row": { "id": 9102, "principal_id": "user:beta", "role": "dept-member", "scope": "dept:sales", "reason": "合成：停写前就有的", "status": "draft", "created_by": "cli", "created_at": 0, "updated_at": 0 } },
+        { "table": "grants", "row": { "id": 9103, "principal_id": "user:no-flag", "role": "management", "scope": "*", "reason": "合成", "status": "draft", "created_by": "cli", "created_at": 0, "updated_at": 0 } }
+      ],
+      "steps": [
+        {
+          "id": "viewer-alpha",
+          "what": "布置现场：先登录一次，主体建出来（借登录的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "viewer-beta",
+          "what": "布置现场：先登录一次，主体建出来（借登录的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "viewer-nf",
+          "what": "布置现场：先登录一次，主体建出来（借登录的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-9101-submit",
+          "what": "布置现场：属主（本机命令行）提交、放行种进来的授予（借授予的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/9101/submit" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-9101-approve",
+          "what": "布置现场：属主（本机命令行）提交、放行种进来的授予（借授予的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/9101/approve" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-9102-submit",
+          "what": "布置现场：属主（本机命令行）提交、放行种进来的授予（借授予的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/9102/submit" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-9102-approve",
+          "what": "布置现场：属主（本机命令行）提交、放行种进来的授予（借授予的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/9102/approve" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-9103-submit",
+          "what": "布置现场：属主（本机命令行）提交、放行种进来的授予（借授予的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/9103/submit" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-9103-approve",
+          "what": "布置现场：属主（本机命令行）提交、放行种进来的授予（借授予的路由，只比状态码）",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/9103/approve" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "area-member",
+          "route": "POST /api/work-items",
+          "class": "normal",
+          "what": "持 area:sales 的领域成员带领域 sales 建事项：201，事项落到领域上",
+          "compare": ["state", "held", "duplicate", "reason"],
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "合成：area-member", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000001", "area": "sales" }
+          },
+          "response": { "status": 201, "picked": { "state": "held", "held": true, "duplicate": false } }
+        },
+        {
+          "id": "area-dept-only",
+          "route": "POST /api/work-items",
+          "class": "unauthorized",
+          "what": "只持 dept:sales（停写前的部门授予）的人带领域 sales 建事项：403（新的 area.* 不认 dept:）",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" },
+            "json": { "title": "合成：area-dept-only", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000002", "area": "sales" }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "162", "etag": "W/\"a2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_trigger_forbidden", "message": "在领域 sales 里建事项要有这个领域的授予（领域成员、负责人），或者是属主、管理层" }
+          }
+        },
+        {
+          "id": "area-no-grant",
+          "route": "POST /api/work-items",
+          "class": "unauthorized",
+          "what": "持 area:sales 的人带已撤的领域 old 建事项：403（看不到全部领域的人，撤了的和没授予一样答）",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "合成：area-no-grant", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000003", "area": "old" }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "160", "etag": "W/\"a0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_trigger_forbidden", "message": "在领域 old 里建事项要有这个领域的授予（领域成员、负责人），或者是属主、管理层" }
+          }
+        },
+        {
+          "id": "area-pending-lead",
+          "route": "POST /api/work-items",
+          "class": "invalid",
+          "what": "管理层带还没有负责人的领域 ops 建事项：409 area_no_lead",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" },
+            "json": { "title": "合成：area-pending-lead", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000004", "area": "ops" }
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_no_lead", "message": "领域 ops 还没有负责人：等属主指定负责人之后才能触发、验收" }
+          }
+        },
+        {
+          "id": "area-retired",
+          "route": "POST /api/work-items",
+          "class": "invalid",
+          "what": "管理层带已经撤了的领域 old 建事项：409 area_retired",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" },
+            "json": { "title": "合成：area-retired", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000005", "area": "old" }
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "69", "etag": "W/\"45-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_retired", "message": "领域 old 已经撤了，只读" }
+          }
+        },
+        {
+          "id": "area-missing",
+          "route": "POST /api/work-items",
+          "class": "invalid",
+          "what": "管理层带不存在的领域 nope 建事项：404 area_missing",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" },
+            "json": { "title": "合成：area-missing", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000006", "area": "nope" }
+          },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_missing", "message": "领域 nope 不存在" }
+          }
+        },
+        {
+          "id": "area-bad",
+          "route": "POST /api/work-items",
+          "class": "invalid",
+          "what": "领域标识写法不对：400 area_invalid",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" },
+            "json": { "title": "合成：area-bad", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000007", "area": "Bad_Area!" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_invalid", "message": "领域标识要是小写字母开头的字母、数字、连字符，最多 48 个字符" }
+          }
+        },
+        {
+          "id": "area-number",
+          "route": "POST /api/work-items",
+          "class": "invalid",
+          "what": "领域给成数字：400 area_invalid",
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-admin-flag-missing1" },
+            "json": { "title": "合成：area-number", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000008", "area": 7 }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_invalid", "message": "领域标识要是小写字母开头的字母、数字、连字符，最多 48 个字符" }
+          }
+        },
+        {
+          "id": "area-empty",
+          "route": "POST /api/work-items",
+          "class": "normal",
+          "what": "领域给空串：当成没给",
+          "compare": ["state", "held", "duplicate", "reason"],
+          "request": {
+            "method": "POST",
+            "path": "/api/work-items",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "合成：area-empty", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000009", "area": "" }
+          },
+          "response": { "status": 201, "picked": { "state": "held", "held": true, "duplicate": false } }
+        },
+        {
+          "id": "list-area",
+          "route": "GET /api/work-items",
+          "class": "normal",
+          "what": "alpha 按领域 sales 筛自己的事项",
+          "vary": { "items.0.id": "random" },
+          "request": { "method": "GET", "path": "/api/work-items?area=sales", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "731", "etag": "W/\"2db-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "view": "mine",
+              "views": { "mine": { "available": true, "count": 2, "decide": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
+              "items": [
+                {
+                  "id": "<每个实例随机·string·23>",
+                  "title": "合成：area-member",
+                  "state": "held",
+                  "object": "po:7",
+                  "phase": "对账",
+                  "seat": "",
+                  "cockpit_id": null,
+                  "last_progress": { "actor": "market", "fact": "submit", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
+                  "updated_at": "YYYY-MM-DD hh:mm:ss",
+                  "due": null,
+                  "overdue": false,
+                  "release_by": { "kind": "management", "text": "管理层" },
+                  "area": "sales"
+                }
+              ],
+              "counts": { "draft": 0, "held": 1, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 1,
+              "next_cursor": null
+            }
+          }
+        },
+        {
+          "id": "list-area-bad",
+          "route": "GET /api/work-items",
+          "class": "invalid",
+          "what": "按领域筛，标识写法不对：400 area_invalid",
+          "request": { "method": "GET", "path": "/api/work-items?area=Bad!", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "area_invalid", "message": "领域标识要是小写字母开头的字母、数字、连字符，最多 48 个字符" }
+          }
+        }
+      ]
     }
   ]
 }

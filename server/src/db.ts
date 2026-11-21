@@ -1185,10 +1185,16 @@ for (const [column, ddl] of [
   ['cockpit_id', 'cockpit_id INTEGER'],
   // 截止日期（到日，存那天的 UTC 零点 ISO；空 = 没有）：安排时填、建立人可以改；过了期仍未完成的算 overdue（服务端按同一时钟算）
   ['due_at', "due_at TEXT NOT NULL DEFAULT ''"],
+  // 任务带领域（docs/domains-step1.md 第 2 步）：事项落在哪个领域。area_source：chosen（建立人显式选的，4a）、inferred（按领域规范判断的，4b），
+  //   没有领域时都是空（存量一律为空，不回填）；area_reason 是判断的理由（4b 用，4a 为空串）。只是标签和判定依据，不改可见范围（4b）
+  ['area_id', "area_id TEXT CHECK (area_id IS NULL OR area_id <> '')"],
+  ['area_source', "area_source TEXT CHECK (area_source IS NULL OR area_source IN ('chosen', 'inferred'))"],
+  ['area_reason', "area_reason TEXT NOT NULL DEFAULT ''"],
 ] as const) {
   if (!(tableColumns('work_items') as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_items ADD COLUMN ${ddl}`);
 }
 db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_cockpit ON work_items (cockpit_id, updated_at)');
+db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_area ON work_items (area_id, updated_at)');
 // 「安排一件事」的附件：先由登录的人上传（只存引用：落盘路径、名字、类型、大小、sha256），安排时挂到那一次的事件上。
 //   uploaded_by 是上传的人（主体）；event_id 空 = 还没挂到哪件事上（只有上传的人自己能挂）；挂上之后不再改。
 //   读：看得到这件事项的人经事项读（work-item-access 的 canSee）；接单节点凭那次投递的回执令牌取。时间由代码给。

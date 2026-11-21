@@ -1084,7 +1084,10 @@
       "seat_id TEXT NOT NULL DEFAULT ''",
       "seat_at TEXT NOT NULL DEFAULT ''",
       "cockpit_id INTEGER",
-      "due_at TEXT NOT NULL DEFAULT ''"
+      "due_at TEXT NOT NULL DEFAULT ''",
+      "area_id TEXT",
+      "area_source TEXT",
+      "area_reason TEXT NOT NULL DEFAULT ''"
     ],
     "workbench_event_deliveries": [
       "id INTEGER PK",
@@ -1296,6 +1299,7 @@
     "idx_wi_attach_owner ON work_item_attachments: CREATE INDEX idx_wi_attach_owner ON work_item_attachments (uploaded_by, event_id)",
     "idx_work_item_log_item ON work_item_log: CREATE INDEX idx_work_item_log_item ON work_item_log (item_id, seq)",
     "idx_work_item_requests_time ON work_item_requests: CREATE INDEX idx_work_item_requests_time ON work_item_requests(requester, created_at)",
+    "idx_work_items_area ON work_items: CREATE INDEX idx_work_items_area ON work_items (area_id, updated_at)",
     "idx_work_items_cockpit ON work_items: CREATE INDEX idx_work_items_cockpit ON work_items (cockpit_id, updated_at)",
     "idx_work_items_object ON work_items: CREATE INDEX idx_work_items_object ON work_items (object, phase)",
     "idx_work_items_source ON work_items: CREATE INDEX idx_work_items_source ON work_items (source_kind, source_ref)",
