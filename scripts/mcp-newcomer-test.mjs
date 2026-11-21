@@ -99,18 +99,23 @@ try {
   {
     const { readFileSync } = await import('node:fs');
     const ADDED = ['result_read'];
+    // 有意改了参数表的工具：去掉这次加的那一处，应当和基准一字不差；放回基准时用现在的那一项
+    // dataset_query：查询描述加了 current_only（公共区的数据集只取每条更正链最新那行）
+    const CHANGED = { dataset_query: (t) => { const c = JSON.parse(J(t)); delete c.input_schema.properties.query.properties.current_only; return c; } };
     const before = JSON.parse(readFileSync(new URL('./fixtures/access-info-full-baseline.json', import.meta.url), 'utf8'));
     const nowText = fullInfo.text.split(BASE).join('{{origin}}');
     const nowFull = JSON.parse(nowText);
     const added = nowFull.catalog.map((t) => t.name).filter((n) => !before.catalog.some((t) => t.name === n));
     const removed = before.catalog.map((t) => t.name).filter((n) => !nowFull.catalog.some((t) => t.name === n));
     const changed = before.catalog.filter((t) => J(t) !== J(nowFull.catalog.find((x) => x.name === t.name))).map((t) => t.name);
+    const declaredOk = Object.entries(CHANGED).every(([name, undo]) => { const now = nowFull.catalog.find((x) => x.name === name), old = before.catalog.find((x) => x.name === name); return now && old && J(undo(now)) === J(old); });
+    const changedNow = new Map(nowFull.catalog.filter((t) => Object.hasOwn(CHANGED, t.name)).map((t) => [t.name, t]));
     // 把这次加的那几项按它们现在的位置放回基准里，再和现在的应答逐字节比
     const insertAt = (list, items, nameOf) => { const out = [...list]; for (const it of items) { const i = nowFull.catalog.findIndex((x) => x.name === nameOf(it)); out.splice(i, 0, it); } return out; };
     const newEntries = nowFull.catalog.filter((t) => ADDED.includes(t.name));
-    const patched = { ...before, granted_tools: (() => { const out = [...before.granted_tools]; for (const name of ADDED) { const i = nowFull.granted_tools.indexOf(name); if (i >= 0) out.splice(i, 0, name); } return out; })(), catalog: insertAt(before.catalog, newEntries, (t) => t.name) };
-    ok('带 full: true 的应答和基准逐字节相同（只多了 result_read 那一项）', J(added) === J(ADDED) && removed.length === 0 && changed.length === 0 && JSON.stringify(patched) === nowText,
-      J({ added, removed, changed, bytes: [Buffer.byteLength(nowText), Buffer.byteLength(JSON.stringify(patched))] }));
+    const patched = { ...before, granted_tools: (() => { const out = [...before.granted_tools]; for (const name of ADDED) { const i = nowFull.granted_tools.indexOf(name); if (i >= 0) out.splice(i, 0, name); } return out; })(), catalog: insertAt(before.catalog.map((t) => changedNow.get(t.name) ?? t), newEntries, (t) => t.name) };
+    ok('带 full: true 的应答和基准逐字节相同（只多了 result_read 那一项，dataset_query 只多了 current_only）', J(added) === J(ADDED) && removed.length === 0 && J(changed) === J(Object.keys(CHANGED)) && declaredOk && JSON.stringify(patched) === nowText,
+      J({ added, removed, changed, declaredOk, bytes: [Buffer.byteLength(nowText), Buffer.byteLength(JSON.stringify(patched))] }));
   }
   const details = await Promise.all(listed.map((t) => tool(bare.token, 'access_info', { tool: t.name })));
   ok('按名字取参数表（access_info {tool}）：和 tools/list 里的 inputSchema 一样，说明是原文（新人不用先申请才知道参数名）',

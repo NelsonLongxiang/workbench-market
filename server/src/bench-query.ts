@@ -36,7 +36,25 @@ export const COLUMN_TYPES: readonly BenchColumnType[] = ['text', 'integer', 'dec
  * 列定义。values：这一列各个取值是什么意思（业务口径，比如 { ok: '正常', bad: '异常' }），由定义数据集的人写，dataset_list 原样给出；
  * auto：主键由服务端分配（只用于唯一的整数主键列；追加时没给这一列的行，按现有最大值往上数）
  */
-export type ColumnDef = { name: string; type: BenchColumnType; label: string; required: boolean; values?: Record<string, string>; auto?: true };
+export type ColumnDef = { name: string; type: BenchColumnType; label: string; required: boolean; values?: Record<string, string>; auto?: true; system?: true };
+
+/**
+ * 来源列（公共区：领域之间的产出物）。只在建数据集时由服务端带 provenance 开关加上，普通的定义建不出来（列名必须小写字母开头）；
+ * 写入方给了就拒，只由服务端在追加时填。读的时候和普通列一样能选、能筛、能排序。
+ *   _area 写入方领域 · _task 任务 · _batch 批次 · _grant 任务写授权号 · _upstream 用到的上游产出物（JSON 数组的文本）· _supersedes 这一行更正的是哪一行（那一行的 _row）
+ * _row 不是存的列：是行号（库里的 rid），只读；更正、引用上游都按它指认一行。
+ */
+export const SYSTEM_COLUMNS: readonly ColumnDef[] = [
+  { name: '_area', type: 'text', label: '写入方领域', required: true, system: true },
+  { name: '_task', type: 'text', label: '任务', required: true, system: true },
+  { name: '_batch', type: 'text', label: '批次', required: true, system: true },
+  { name: '_grant', type: 'text', label: '写授权', required: true, system: true },
+  { name: '_upstream', type: 'text', label: '上游', required: false, system: true },
+  { name: '_supersedes', type: 'integer', label: '更正的行', required: false, system: true },
+];
+export const ROW_COLUMN: ColumnDef = { name: '_row', type: 'integer', label: '行号', required: true, system: true };
+/** 带来源列的数据集（公共区的）：只能经公共区的写入口追加 */
+export const hasProvenance = (ds: Pick<DatasetDef, 'columns'>): boolean => ds.columns.some((c) => c.system === true);
 export type DatasetDef = {
   name: string; title: string; version: number; columns: ColumnDef[]; key: string[];
   row_count: number; data_bytes: number; created_at: number; updated_at: number; updated_by: string;
@@ -66,7 +84,7 @@ const invalid = (m: string): never => { throw new BenchError('invalid', m); };
 
 /** 数据集的表名、列名在库里的写法：加固定前缀，避开保留字；名字先过 NAME_RE */
 export const physTable = (dataset: string) => `ds_${dataset}`;
-export const physCol = (col: string) => `c_${col}`;
+export const physCol = (col: string) => (col === '_row' ? 'rid' : `c_${col}`);
 const quoted = (alias: string) => `"${alias}"`; // 别名过了 NAME_RE，不含引号
 
 const realDate = (s: string) => {
@@ -147,13 +165,17 @@ export type PlanOpts = { params?: Record<string, unknown>; contains?: (col: stri
 export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts: PlanOpts = {}): QueryPlan {
   if (!isObj(spec)) invalid('查询描述须为对象');
   const q = spec as Record<string, unknown>;
-  onlyKeys(q, ['dataset', 'select', 'filter', 'group', 'measures', 'sort', 'limit', 'offset'], '查询描述');
+  onlyKeys(q, ['dataset', 'select', 'filter', 'group', 'measures', 'sort', 'limit', 'offset', 'current_only'], '查询描述');
   if (typeof q.dataset !== 'string' || !NAME_RE.test(q.dataset)) invalid('dataset 须为数据集名');
   const ds = datasets.get(q.dataset as string);
   if (!ds) throw new BenchError('not_found', `没有数据集 ${String(q.dataset)}`);
+  const prov = hasProvenance(ds);
+  // 带来源列的数据集：来源列和行号也能读（选、筛、排序、分组）
+  const readable = prov ? [...ds.columns, ROW_COLUMN] : ds.columns;
+  const colName = (name: unknown): boolean => typeof name === 'string' && (NAME_RE.test(name) || (prov && readable.some((x) => x.system && x.name === name)));
   const colOf = (name: unknown, where: string): ColumnDef => {
-    if (typeof name !== 'string' || !NAME_RE.test(name)) invalid(`${where}：列名写法不对`);
-    const c = ds.columns.find((x) => x.name === name);
+    if (!colName(name)) invalid(`${where}：列名写法不对`);
+    const c = readable.find((x) => x.name === name);
     if (!c) invalid(`${where}：数据集 ${ds.name} 没有列 ${String(name)}`);
     return c as ColumnDef;
   };
@@ -241,7 +263,7 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
       columns.push({ name: mo.as as string, type, label, role: 'measure', labeled });
     });
   } else {
-    const picked = q.select === undefined ? ds.columns : strList(q.select, 'select', BENCH_LIMITS.columns).map((s) => colOf(s, 'select'));
+    const picked = q.select === undefined ? readable : strList(q.select, 'select', BENCH_LIMITS.columns).map((s) => colOf(s, 'select'));
     if (!picked.length) invalid('select 不能为空');
     if (new Set(picked.map((c) => c.name)).size !== picked.length) invalid('select 里有重复的列');
     for (const c of picked) {
@@ -260,7 +282,7 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
     const so = s as Record<string, unknown>;
     onlyKeys(so, ['col', 'dir'], at);
     const dir = so.dir === undefined || so.dir === 'asc' ? 'ASC' : so.dir === 'desc' ? 'DESC' : invalid(`${at}：dir 须为 asc 或 desc`);
-    if (typeof so.col !== 'string' || !NAME_RE.test(so.col)) invalid(`${at}：列名写法不对`);
+    if (!colName(so.col)) invalid(`${at}：列名写法不对`);
     if (aggregate) {
       if (!columns.some((c) => c.name === so.col)) invalid(`${at}：聚合查询只能按输出列排序，没有 ${String(so.col)}`);
       order.push(`${quoted(so.col as string)} ${dir} NULLS LAST`);
@@ -276,6 +298,13 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
   };
   const limit = int(q.limit, BENCH_LIMITS.queryDefault, 1, BENCH_LIMITS.queryLimit, 'limit');
   const offset = int(q.offset, 0, 0, BENCH_LIMITS.rows, 'offset');
+  // 只取每条更正链上最新的那行：本行没有被别的行更正过（不改旧行，读的时候排除）
+  if (q.current_only !== undefined && typeof q.current_only !== 'boolean') invalid('current_only 须为 true 或 false');
+  if (q.current_only === true) {
+    if (!prov) invalid(`current_only 只用于带来源列的数据集（公共区的），${ds.name} 不是`);
+    const sup = physCol('_supersedes');
+    where.push(`rid NOT IN (SELECT ${sup} FROM ${physTable(ds.name)} WHERE ${sup} IS NOT NULL)`);
+  }
   const cond = where.length ? where.join(' AND ') : null, guarded = opts.guard ? opts.guard(cond) : cond;
   const sql = `SELECT ${selects.join(', ')} FROM ${physTable(ds.name)}`
     + (guarded ? ` WHERE ${guarded}` : '')

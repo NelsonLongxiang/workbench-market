@@ -56,6 +56,7 @@ const QUERY: Schema = {
     },
     limit: { type: 'integer', minimum: 1, maximum: 5000, description: '最多返回几行，缺省 200' },
     offset: { type: 'integer', minimum: 0, description: '跳过前几行' },
+    current_only: { type: 'boolean', description: '只取每条更正链上最新的那行（只用于公共区带来源列的数据集；那种数据集还能读来源列 _area、_task、_batch、_grant、_upstream、_supersedes 和行号 _row）' },
   },
   required: ['dataset'], additionalProperties: false,
 };
