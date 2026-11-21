@@ -44,7 +44,7 @@ ok('切回标签页重新取入口：离上一次不到 30 秒不取，满了才
 const R = (card, extra = {}) => asEntry({ ...E, bench: { ...E.bench, card_title: card }, can: { rename: true }, ...extra });
 ok('卡片名只在能改名时留着；不能改的入口里就算带了也去掉', R('合成卡片').bench.card_title === '合成卡片' && !('card_title' in asEntry({ ...E, bench: { ...E.bench, card_title: '合成卡片' } }).bench) && R(null).bench.card_title === null && !('card_title' in R(42).bench));
 ok('「跟卡片同名」：卡片名和台名不同才出；同名、没卡片（null）、卡片名空、没给卡片名都不出', showFromCard(R('合成卡片')) && !showFromCard(R('合成台')) && !showFromCard(R(null)) && !showFromCard(R('')) && !showFromCard(asEntry({ ...E, can: { rename: true } })));
-ok('「跟卡片同名」：不能改名的人永远不出（就算入口里带了卡片名）', !showFromCard(asEntry({ ...E, bench: { ...E.bench, card_title: '合成卡片' }, can: { rename: false } })));
+ok('「跟卡片同名」：不能改名的人永远不出（就算入口里带了卡片名，也不靠 asEntry 先去掉）', !showFromCard(asEntry({ ...E, bench: { ...E.bench, card_title: '合成卡片' }, can: { rename: false } })) && !showFromCard({ ...asEntry(E), bench: { ...E.bench, card_title: '合成卡片' }, can: { rename: false } }));
 await (async () => {
   // 先发的后到：第一次的应答晚于第二次，落到页面上的只有第二次；两个调用方拿到的都是第二次的结果
   const gates = []; const applied = [];

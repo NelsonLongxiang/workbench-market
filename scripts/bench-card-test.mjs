@@ -199,6 +199,15 @@ try {
     // 卡片名（#927）：只给能改名的人，并且是卡片改名之后的新名字（「跟卡片同名」照它出不出）；不能改的人入口里没有这一项
     check(stale.json?.bench?.card_title === '合成·旧台改名' && eMember.status === 200 && !('card_title' in (eMember.json?.bench ?? {})) && !(eSys.status === 200 && 'card_title' in (eSys.json?.bench ?? {})),
       '入口的 card_title：管理层拿到卡片现在的名字；能读入口的普通员工、系统管理员身份的人都拿不到', { boss: stale.json?.bench, member: eMember.json?.bench, sys: [eSys.status, eSys.json?.bench] });
+    {
+      // 卡片名的取法和 from_card 一样：去前后空白、最多 64 个字（页面拿它和台名比，决定出不出「跟卡片同名」）
+      const long = '合成' + '长'.repeat(70);
+      const put = await srv.call('PUT', `/api/workbenches/${W2}`, { ...token, body: { name: `  ${long}  ` } });
+      const e = await entry(boss, W2);
+      const back = await srv.call('PUT', `/api/workbenches/${W2}`, { ...token, body: { name: '合成·旧台改名' } });
+      check(put.status !== 200 || e.json?.bench?.card_title === long.slice(0, 64), '入口的 card_title：卡片名前后有空白、超过 64 个字时，照 from_card 的取法去空白、截到 64 个字', { put: put.status, got: e.json?.bench?.card_title, back: back.status });
+      check(back.status === 200, '（准备）卡片名改回', back.text?.slice(0, 160));
+    }
     // 拒：没登录、普通员工（有取数授予也一样）、管理口令和改对应关系同一个结果、跨站
     const anonT = await srv.call('PUT', `/api/bench-views/${W2}/title`, { headers: REMOTE, body: { title: '匿名改' } });
     const memberT = await title(member, W2, { title: '员工改' });
