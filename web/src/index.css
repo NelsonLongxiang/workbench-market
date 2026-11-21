@@ -276,6 +276,18 @@ body {
 .wm-bp-refresh { margin-left: auto; }
 .wm-bp-body { flex: 1; min-height: 0; overflow: auto; padding: var(--wm-space-4) var(--wm-space-6) var(--wm-space-6); }
 .wm-bp-state { margin-top: var(--wm-space-6); }
+/* 台的 MCP 授权页（/bench-mcp/<台>，#904） */
+.wm-bm-acts { display: inline-flex; gap: var(--wm-space-2); }
+.wm-bm-tools { display: inline-flex; flex-wrap: wrap; gap: var(--wm-space-1); }
+.wm-bm-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.wm-bm-block { margin-top: var(--wm-space-6); }
+.wm-bm-gap { margin-bottom: var(--wm-space-2); }
+.wm-bm-gap-l { margin-left: var(--wm-space-2); }
+.wm-bm-grant { padding: var(--wm-space-3) 0; border-bottom: 1px solid var(--wm-color-border); }
+.wm-bm-grant-head { font-weight: var(--wm-font-weight-subtitle); margin-bottom: var(--wm-space-2); }
+.wm-bm-grant-tools { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--wm-space-1); }
+.wm-bm-dialog { display: flex; flex-direction: column; gap: var(--wm-space-3); }
+.wm-bm-dialog .ant-input-textarea-show-count { margin-bottom: var(--wm-space-6); }
 
 /* 侧栏折叠按钮贴合深色底；保留以维持移动端抽屉触发器 */
 .wm-sider-collapse {
