@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * 出自产台页面 HTML 的单测（阶段八 8f-2，server/src/app-html.ts）。不起服务，换上会抛错的依赖，看请求一定有应答：
- *   · 出票抛错：页面照常返回，不带票据，缓存头照旧，不算回落
+ *   · 出票抛错：页面照常返回，不带票据，缓存头 no-store（页面里有台令牌，#266；不是带票据那种 private），不算回落
  *   · 认人抛错：当认不出，页面照常返回，不带票据
  *   · 拼页面（登录门改写）抛错：回到原样页面（sendFile），记一笔回落
  *   · 历史版本：不认人、不出票
@@ -58,8 +58,8 @@ const run = async (over, input = {}) => {
 }
 {
   const { res, calls } = await run({ issueTicket: () => { throw new Error('出票故意抛错'); } });
-  check(res.sent !== null && res.sent.includes('wm-app-token') && !res.sent.includes('wm-submitter-ticket') && !res.sent.includes('WM_SUBMITTER_TICKET') && res.headers['cache-control'] === undefined && res.file === null && calls.fallback === 0,
-    '出票抛错：页面照常返回（有台令牌），不带票据，缓存头照旧，不算回落', JSON.stringify({ sent: res.sent?.slice(0, 80), cc: res.headers['cache-control'] }));
+  check(res.sent !== null && res.sent.includes('wm-app-token') && !res.sent.includes('wm-submitter-ticket') && !res.sent.includes('WM_SUBMITTER_TICKET') && res.headers['cache-control'] === 'no-store' && !res.varies.includes('Cookie') && res.file === null && calls.fallback === 0,
+    '出票抛错：页面照常返回（有台令牌），不带票据；缓存头是 no-store（页面里有台令牌，#266），不是带票据那种 private、不按 Cookie 区分；不算回落', JSON.stringify({ sent: res.sent?.slice(0, 80), cc: res.headers['cache-control'] }));
 }
 {
   const { res, calls } = await run({ person: async () => { throw new Error('认人故意抛错'); } });
