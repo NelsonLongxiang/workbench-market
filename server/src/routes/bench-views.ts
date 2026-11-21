@@ -35,7 +35,7 @@ import { checkBenchRequest, decideBenchRequest, listBenchMcp, setBenchGrants } f
 import { viaBegin, viaSettle } from '../attention-via.ts';
 import { assertBenchBinding, renderBenchView } from '../services/bench-render.ts';
 import type { ReportDimensionService } from '../services/report-dimension.ts';
-import { ReportError, checkBinding, materialize, prepareInputs, sha256, slotSpecs, type TemplateV2 } from '../services/report-compile.ts';
+import { ReportError, actorKindOf, checkBinding, materialize, prepareInputs, sha256, slotSpecs, type TemplateV2 } from '../services/report-compile.ts';
 
 export type BenchViewsConfig = { on: boolean };
 /** 启动时读一次：WM_BENCH_VIEWS（on / off，缺省 on；不需要时显式 off 关掉）。不合法拒绝启动 */
@@ -80,6 +80,8 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     return fn(req, res);
   });
   const principals = () => svc<PrincipalService>('principals');
+  /** 产出方算人还是 AI：按主体表里的 kind，只有 person 记 human（report-compile.ts 的 actorKindOf） */
+  const producerKind = (actor: string): 'human' | 'ai' => actorKindOf((principals().get(actor) as { kind?: string } | null)?.kind);
   const resolve = identity().cachedResolver({ ttlMs: 60_000, max: 1000 });
 
   /** Origin 是本站（和判定比对里认「本机页面」的口径一样） */
@@ -366,7 +368,7 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     const row = {
       dimension_id: dim.id, template_version: dim.version, template_sha256: dim.sha256, binding_version: binding.version, subject: body.subject,
       inputs: JSON.stringify(inputs), body: text, sources: JSON.stringify(frozen.sources), content_sha256: sha256(text),
-      producer: actor, producer_kind: actor.startsWith('seat:') ? 'ai' as const : 'human' as const, supersedes, created_at: Date.now(),
+      producer: actor, producer_kind: producerKind(actor), supersedes, created_at: Date.now(),
     };
     const id = await s.reportInsert(row, frozen.claims.map((c) => ({ claim_key: c.claim_key, kind: c.kind, text: c.text, basis: JSON.stringify(c.basis) })));
     res.status(201);
