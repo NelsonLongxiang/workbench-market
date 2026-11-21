@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button, Empty, Result, Skeleton, Typography } from 'antd';
-import { ArrowLeftOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ApiOutlined, ArrowLeftOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { BenchView, type ViewResult } from '../bench-blocks/BenchView';
 import { getBenchView, submitBenchForm, type BenchEntry } from '../api';
 import { BENCH_VIEWS_OFF, benchViewError, isBenchViewsOff } from '../cockpit-frame-view';
@@ -78,6 +78,7 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
         <div className="wm-bp-bar-extra">
           <BenchRename cardId={cardId} entry={entry} refreshEntry={refreshEntry} />
           <ReportsLink cardId={cardId} entry={entry} />
+          {entry.can.mcp ? <Link to={`/bench-mcp/${encodeURIComponent(entry.bench.slug)}`} data-testid="bench-page-mcp"><Button type="text" size="small" icon={<ApiOutlined />}>MCP 授权</Button></Link> : null}
           <Link to={`/market/wb/${encodeURIComponent(cardId)}`} data-testid="bench-page-detail"><Button type="text" size="small" icon={<InfoCircleOutlined />}>详情</Button></Link>
         </div>
       </div>
