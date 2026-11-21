@@ -683,6 +683,27 @@ body { background: var(--wm-color-page); }
 .wm-bb-table .ant-table { font-size: var(--wm-font-size-body); }
 .wm-bb-table .ant-table-thead > tr > th { font-size: var(--wm-font-size-caption); font-weight: 600; color: var(--wm-color-text-secondary); background: var(--wm-color-surface); }
 .wm-bb-filter-bar { box-shadow: none; }
+/* 记录卡（records，#858）：桌面上排成网格，窄了自动单列；长字段、长网址都不撑破卡片 */
+.wm-rec-count { color: var(--wm-color-text-secondary); font-size: 12px; margin-bottom: var(--wm-space-2); }
+.wm-rec-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--wm-space-3); }
+.wm-rec-card { border: 1px solid var(--wm-color-border); border-radius: 8px; background: var(--wm-color-surface); padding: var(--wm-space-3); display: flex; flex-direction: column; gap: var(--wm-space-2); min-width: 0; overflow-wrap: anywhere; }
+.wm-rec-dense .wm-rec-card { padding: var(--wm-space-2); }
+.wm-rec-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--wm-space-2); }
+.wm-rec-title { margin: 0; font-size: 14px; font-weight: 600; color: var(--wm-color-text); min-width: 0; }
+.wm-rec-date { flex: none; font-size: 12px; color: var(--wm-color-text-secondary); white-space: nowrap; }
+.wm-rec-badges { display: flex; flex-wrap: wrap; gap: var(--wm-space-1); }
+.wm-rec-fields { margin: 0; display: grid; gap: var(--wm-space-1); }
+.wm-rec-field { display: grid; grid-template-columns: minmax(64px, 30%) 1fr; gap: var(--wm-space-2); }
+.wm-rec-field dt { color: var(--wm-color-text-secondary); font-size: 12px; }
+.wm-rec-field dd { margin: 0; font-size: 13px; color: var(--wm-color-text); white-space: pre-wrap; min-width: 0; }
+.wm-rec-clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.wm-rec-empty { color: var(--wm-color-text-disabled); }
+.wm-rec-details { border-top: 1px dashed var(--wm-color-border); padding-top: var(--wm-space-2); }
+.wm-rec-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wm-space-3); margin-top: auto; }
+.wm-rec-toggle { border: none; background: none; padding: 0; color: var(--wm-color-primary); cursor: pointer; font-size: 13px; }
+.wm-rec-link { color: var(--wm-color-primary); font-size: 13px; }
+.wm-rec-toggle:focus-visible, .wm-rec-link:focus-visible { outline: 2px solid var(--wm-color-primary); outline-offset: 2px; border-radius: 2px; }
+.wm-rec-link-invalid { color: var(--wm-color-text-disabled); font-size: 12px; }
 .wm-bb-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wm-space-3) var(--wm-space-4); }
 .wm-bb-filter { display: inline-flex; align-items: center; gap: var(--wm-space-2); }
 .wm-bb-filter-label { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); white-space: nowrap; }

@@ -34,7 +34,7 @@ import {
   BENCH_LIMITS, BenchError, COLUMN_TYPES, NAME_RE, SYSTEM_COLUMNS, coerceValue, decodeValue, hasProvenance, physCol, physTable, planQuery, publicColumn,
   type ColumnDef, type DatasetDef, type OutColumn,
 } from '../bench-query.ts';
-import { diffJson, validateViewDoc, type JsonDiff } from '../bench-views.ts';
+import { diffJson, safeLink, validateViewDoc, type JsonDiff } from '../bench-views.ts';
 import { tableTarget, tableDigest, type TableTarget } from '../bench-table.ts';
 import { DB_BUSY_TIMEOUT_MS } from '../db-busy.ts';
 
@@ -886,9 +886,12 @@ export class BenchStoreCore {
           const r = await run(b.query);
           if (!r.data) { blocks.push({ ...b, error: r.error }); continue; }
           // 表格的表头：视图里给的 column_labels，其次是数据集、聚合里起的说明名；都没有就给空，由页面写「第 N 列」——不拿列名（键名）当表头
-          const given = b.type === 'table' && isObj(b.column_labels) ? b.column_labels as Record<string, string> : {};
-          const columns = r.data.columns.map((c) => (b.type === 'table' ? publicColumn({ ...c, label: Object.hasOwn(given, c.name) ? given[c.name] : c.labeled ? c.label : '' }) : publicColumn(c)));
-          blocks.push({ ...b, data: { ...r.data, columns } });
+          const listed = b.type === 'table' || b.type === 'records';
+          const given = listed && isObj(b.column_labels) ? b.column_labels as Record<string, string> : {};
+          const columns = r.data.columns.map((c) => (listed ? publicColumn({ ...c, label: Object.hasOwn(given, c.name) ? given[c.name] : c.labeled ? c.label : '' }) : publicColumn(c)));
+          // 记录卡的来源链接先在服务端核一遍：每行每个链接给 { href, host }，不认的给 null（页面再核一次）
+          const links = b.type === 'records' && Array.isArray(b.links) ? b.links as { col: string }[] : [];
+          blocks.push({ ...b, data: { ...r.data, columns }, ...(b.type === 'records' ? { link_targets: r.data.rows.map((row) => links.map((l) => safeLink(row[l.col]))) } : {}) });
         }
       }
       if (revision !== await this.tableRevision(await this.load())) throw new BenchError('conflict', '读取期间数据已改变，请刷新后重试');

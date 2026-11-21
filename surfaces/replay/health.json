@@ -24,7 +24,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "8909", "etag": "W/\"22cd-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9039", "etag": "W/\"234f-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -50,6 +50,7 @@
                   { "id": "market.work-items.lead-release-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/release", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.tasks.anonymous", "surface": "market", "method": "GET", "path": "/api/tasks", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.arrange-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-ask-answer-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/asks/1/answer", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.cockpits.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/cockpits/999999999", "verdict": "pass", "status": 401, "reason": null },
@@ -112,7 +113,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "8364", "etag": "W/\"20ac-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "8494", "etag": "W/\"212e-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -138,6 +139,7 @@
                   { "id": "market.work-items.lead-release-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/release", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.tasks.anonymous", "surface": "market", "method": "GET", "path": "/api/tasks", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.arrange-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-ask-answer-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/asks/1/answer", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.cockpits.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/cockpits/999999999", "verdict": "pass", "status": 401, "reason": null },
@@ -191,7 +193,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "8909", "etag": "W/\"22cd-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9039", "etag": "W/\"234f-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -217,6 +219,7 @@
                   { "id": "market.work-items.lead-release-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/release", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.tasks.anonymous", "surface": "market", "method": "GET", "path": "/api/tasks", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.arrange-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-ask-answer-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/asks/1/answer", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.cockpits.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/cockpits/999999999", "verdict": "pass", "status": 401, "reason": null },
@@ -279,7 +282,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9208", "etag": "W/\"23f8-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9338", "etag": "W/\"247a-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -306,6 +309,7 @@
                   { "id": "market.work-items.lead-release-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/release", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.tasks.anonymous", "surface": "market", "method": "GET", "path": "/api/tasks", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.arrange-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-ask-answer-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/asks/1/answer", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.cockpits.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/cockpits/999999999", "verdict": "pass", "status": 401, "reason": null },
@@ -370,7 +374,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "8479", "etag": "W/\"211f-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "8609", "etag": "W/\"21a1-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -397,6 +401,7 @@
                   { "id": "market.work-items.lead-release-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/release", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.tasks.anonymous", "surface": "market", "method": "GET", "path": "/api/tasks", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.arrange-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-ask-answer-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/asks/1/answer", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.cockpits.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/cockpits/999999999", "verdict": "pass", "status": 401, "reason": null },
@@ -458,7 +463,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "8909", "etag": "W/\"22cd-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9039", "etag": "W/\"234f-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -484,6 +489,7 @@
                   { "id": "market.work-items.lead-release-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/release", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.tasks.anonymous", "surface": "market", "method": "GET", "path": "/api/tasks", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.arrange-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-ask-answer-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/asks/1/answer", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.cockpits.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/cockpits/999999999", "verdict": "pass", "status": 401, "reason": null },
@@ -544,7 +550,7 @@
           "response": {
             "status": 503,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "8387", "etag": "W/\"20c3-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "8517", "etag": "W/\"2145-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": false,
               "service": "workbench-market-server",
@@ -570,6 +576,7 @@
                   { "id": "market.work-items.lead-release-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/release", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.tasks.anonymous", "surface": "market", "method": "GET", "path": "/api/tasks", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.arrange-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-ask-answer-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/asks/1/answer", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.cockpits.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/cockpits/999999999", "verdict": "pass", "status": 401, "reason": null },
@@ -624,7 +631,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "8931", "etag": "W/\"22e3-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9061", "etag": "W/\"2365-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -650,6 +657,7 @@
                   { "id": "market.work-items.lead-release-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/release", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.tasks.anonymous", "surface": "market", "method": "GET", "path": "/api/tasks", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.arrange-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-ask-answer-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/asks/1/answer", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.cockpits.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/cockpits/999999999", "verdict": "pass", "status": 401, "reason": null },
@@ -720,7 +728,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9588", "etag": "W/\"2574-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9718", "etag": "W/\"25f6-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -746,6 +754,7 @@
                   { "id": "market.work-items.lead-release-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/release", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.tasks.anonymous", "surface": "market", "method": "GET", "path": "/api/tasks", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.arrange-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-ask-answer-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/asks/1/answer", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.cockpits.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/cockpits/999999999", "verdict": "pass", "status": 401, "reason": null },
@@ -813,7 +822,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9028", "etag": "W/\"2344-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9158", "etag": "W/\"23c6-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -839,6 +848,7 @@
                   { "id": "market.work-items.lead-release-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/release", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-reply-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/messages/1/reply", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.list-anonymous", "surface": "market", "method": "GET", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.tasks.anonymous", "surface": "market", "method": "GET", "path": "/api/tasks", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.arrange-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.work-items.seat-ask-answer-anonymous", "surface": "market", "method": "POST", "path": "/api/work-items/wi_selfprobe/asks/1/answer", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.cockpits.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/cockpits/999999999", "verdict": "pass", "status": 401, "reason": null },
