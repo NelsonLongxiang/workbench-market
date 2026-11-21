@@ -218,18 +218,18 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     (async () => {
       const requester = await person(req, res);
       if (!requester) return;
-      // 任务带领域（4a）：给了领域就先核写法、能不能在这个领域触发（只问 AreaService.decide），再核领域的门；门在建事项的写事务里再核一次。
+      // 任务带领域（4a）：路由上只核写法。能不能在这个领域触发（只问 AreaService.decide）、领域的门，在建事项的写事务里判一次：
+      // 查过幂等键之后、任何写入之前（统筹 11-21 定乙：同一个键原样重试拿回原来那条，安全由写事务里的判定负责）。
       // 看不到全部领域的人，领域不存在、撤了一律答 403（和没授予一样），不透露在不在
       const area = areaOfBody(req.body);
       if (area === null) return void res.status(400).json({ error: 'area_invalid', message: '领域标识要是小写字母开头的字母、数字、连字符，最多 48 个字符' });
-      if (area !== undefined) {
+      const check = (a: string) => () => {
         const owner = svc<GrantService>('grants').isOwner(requester);
         const subject = { owner, seesAll: owner || svc<GrantService>('grants').isBusinessSide(requester), principal: requester };
-        if (areas().decide(subject, 'area.trigger', area).verdict !== 'allow') return void res.status(403).json({ error: 'area_trigger_forbidden', message: `在领域 ${area} 里建事项要有这个领域的授予（领域成员、负责人），或者是属主、管理层` });
-        const gate = areas().workGate(area);
-        if (gate) return void res.status(gate.http).json({ error: gate.code, message: gate.message });
-      }
-      const out = arrangeTask(req.body, requester, new Date(), area === undefined ? undefined : { area, gate: () => areas().workGate(area) });
+        if (areas().decide(subject, 'area.trigger', a).verdict !== 'allow') return { http: 403, code: 'area_trigger_forbidden', message: `在领域 ${a} 里建事项要有这个领域的授予（领域成员、负责人），或者是属主、管理层` };
+        return areas().workGate(a);
+      };
+      const out = arrangeTask(req.body, requester, new Date(), area === undefined ? undefined : { area, check: check(area) });
       res.status(out.status).json(out.body);
       if (out.status === 201 && out.body.held === false) kickWorkbenchEvents();
     })().catch(next);

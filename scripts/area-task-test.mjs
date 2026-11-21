@@ -17,6 +17,8 @@
  *   T10 「以某人的身份看」：area.trigger 在 area:sales 上，alpha allow、beta 和 strasse deny——和实际一致
  *   T12 跨连接的真竞态（阶段四验收补测 Y2）：路由核门时领域还在，进建事项的写事务之前被另一条库连接撤掉——写事务里那道门拦下 409 area_retired，没有建出事项。
  *       路由上那道门和 arrangeTask 在同一个同步调用里，同一个进程里插不进别的请求；能抢在中间的只有共用这个库的另一个连接，守的就是写事务里那道门
+ *   T13 幂等重试的先后（统筹 11-21 定乙：领域的鉴权和门只在写事务里判一次，在查幂等键之后）：事项建好以后领域撤了，
+ *       用原幂等键重试回 200 duplicate、原样返回、事项不重复；用新键，管理层回 409 area_retired，持这个领域授予（撤领域时一并收回）的成员回 403
  *   T11 判定切换开关开着（WM_JUDGMENT_ENFORCE=area,work-items）：建事项这条路由声明了状态码不代表授权，持 area:sales 的人照样能带领域建
  *
  *   node scripts/area-task-test.mjs
@@ -194,6 +196,31 @@ try {
     const r = await pending;
     const made = items() - n0;
     check(r.status === 409 && r.json?.error === 'area_retired' && made === 0, 'T12 路由核门时领域还在，进写事务前被另一条连接撤掉：写事务里那道门拦下 409 area_retired，没有建出事项', { status: r.status, error: r.json?.error ?? null, made });
+  }
+
+  // ---- T13（统筹 11-21 定乙）：领域撤了以后，原幂等键重试拿回原来那条，新键被拦 ----
+  {
+    A.exec((d) => d.prepare("INSERT INTO areas (id, name, status, created_at, created_by, updated_at, updated_by) VALUES ('late', '合成late', 'active', 0, 'cli', 0, 'cli')").run());
+    legacySeed(join(OUT, 'main', 'data', 'workbench-market.db')).grant('user:alpha', 'area-member', 'area:late', { reason: '合成' });
+    const pre = A.q("SELECT (SELECT status FROM areas WHERE id = 'late') AS area, (SELECT status FROM grants WHERE principal_id = 'user:alpha' AND role = 'area-member' AND scope = 'area:late') AS grant")[0];
+    check(pre?.area === 'active' && pre?.grant === 'active', '（前置）领域 late 是 active，alpha 持一条生效的 area:late 领域成员授予', pre);
+    const bm = body('late'), ba = body('late');
+    const firstM = await A.call('POST', '/api/work-items', { session: P.mgmt, body: bm });
+    const firstA = await A.call('POST', '/api/work-items', { session: P.alpha, body: ba });
+    const retire = await A.call('POST', '/api/areas/late/retire', { body: { reason: '合成：撤了再重试' } });
+    const after = A.q("SELECT (SELECT status FROM areas WHERE id = 'late') AS area, (SELECT status FROM grants WHERE principal_id = 'user:alpha' AND role = 'area-member' AND scope = 'area:late') AS grant")[0];
+    const n0 = items();
+    const againM = await A.call('POST', '/api/work-items', { session: P.mgmt, body: bm });
+    const againA = await A.call('POST', '/api/work-items', { session: P.alpha, body: ba });
+    const freshM = await A.call('POST', '/api/work-items', { session: P.mgmt, body: body('late') });
+    const freshA = await A.call('POST', '/api/work-items', { session: P.alpha, body: body('late') });
+    const made = items() - n0;
+    const c = (r) => `${r.status}/${r.json?.error ?? ''}`;
+    const s = { first: [firstM.status, firstA.status], retire: retire.status, after, againM: `${againM.status}/${againM.json?.duplicate}`, againA: `${againA.status}/${againA.json?.duplicate}`,
+      sameM: againM.json?.item_id === firstM.json?.item_id, sameA: againA.json?.item_id === firstA.json?.item_id, freshM: c(freshM), freshA: c(freshA), made };
+    check(firstM.status === 201 && firstA.status === 201 && retire.status === 200 && after?.area === 'retired' && after?.grant === 'revoked'
+      && s.againM === '200/true' && s.againA === '200/true' && s.sameM && s.sameA && s.freshM === '409/area_retired' && s.freshA === '403/area_trigger_forbidden' && made === 0,
+      'T13 领域撤了以后：原幂等键重试 200 duplicate、原样返回同一件、不重复建；新键管理层 409 area_retired，授予已随领域收回的成员 403', s);
   }
 
   // ---- T11 ----

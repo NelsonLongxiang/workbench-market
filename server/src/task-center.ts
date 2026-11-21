@@ -118,11 +118,13 @@ function directedSeat(team: string, notifyUrl: string, seatId: string, requester
 }
 
 /**
- * 任务带领域（第 2 步 4a）：调用方（路由）已经核过建立人能在这个领域触发（AreaService.decide 的 area.trigger），这里带进来：
- *   area  领域标识，算进幂等的请求体哈希（没给时不进，旧的哈希不变）；
- *   gate  领域的门（AreaService.workGate：没负责人、撤了、不存在），在建事项的写事务里再核一次，免得核完到写之间领域变了。
+ * 任务带领域（第 2 步 4a）：路由只核过写法，这里带进来：
+ *   area   领域标识，算进幂等的请求体哈希（没给时不进，旧的哈希不变）；
+ *   check  能不能在这个领域建事项：先判 area.trigger（AreaService.decide），再过领域的门（AreaService.workGate：没负责人、撤了、不存在）。
+ *          只在写事务里判一次（统筹 11-21 定乙）：在查幂等键之后、任何写入之前——同一个键原样重试拿回原来那条（领域后来撤了也一样），
+ *          新请求在写事务里读到的才算数，路由读完到进写事务之间领域被别的连接撤掉也拦得住。
  */
-export type ArrangeArea = { area: string; gate: () => { http: number; code: string; message: string } | null };
+export type ArrangeArea = { area: string; check: () => { http: number; code: string; message: string } | null };
 
 export function arrangeTask(raw: unknown, requester: string, now: Date = new Date(), area?: ArrangeArea): ArrangeOutcome {
   const b = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
@@ -178,13 +180,14 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
       if (prev.body_sha256 !== sha) return { status: 409, body: { error: 'idempotency_conflict' } };
       return { status: 200, body: view(prev.task_id, prev.event_id, true) };
     }
+    // 领域：鉴权和门只在这里判一次（查过幂等键、还没有任何写入）
+    if (area) {
+      const no = area.check();
+      if (no) { tasks.arrangeRollback(); return { status: no.http, body: { error: no.code, message: no.message } }; }
+    }
     const limits = arrangeLimits();
     if (tasks.arrangeCountSince(requester, sqlTime(new Date(now.getTime() - 60_000))) >= limits.perMinute) { tasks.arrangeRollback(); return { status: 429, body: { error: 'rate_limited', window: 'minute', limit: limits.perMinute } }; }
     if (tasks.arrangeCountSince(requester, sqlTime(new Date(now.getTime() - 86_400_000))) >= limits.perDay) { tasks.arrangeRollback(); return { status: 429, body: { error: 'rate_limited', window: 'day', limit: limits.perDay } }; }
-    if (area) {
-      const g = area.gate();
-      if (g) { tasks.arrangeRollback(); return { status: g.http, body: { error: g.code, message: g.message } }; }
-    }
     const target = assignableTeams().find((t) => t.agent_node === team);
     if (!target) { tasks.arrangeRollback(); return bad('team_not_assignable'); }
     // 附件只能是本人上传、还没挂到别的事上的；别人的、不存在的、挂过的一律同答（不说是哪一种）
