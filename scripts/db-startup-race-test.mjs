@@ -39,7 +39,7 @@ const ROOT = resolve(arg >= 0 ? process.argv[arg + 1] : join(HERE, '..'));
 const OUT = join(HERE, '..', 'tmp', `db-startup-race-${process.pid}-${Date.now().toString(36)}`);
 const DB_URL = pathToFileURL(join(ROOT, 'server', 'src', 'db.ts')).href;
 const N = 8;
-/** 子进程的系统临时目录（os.tmpdir() 读 TMPDIR）：单独给一个，「在临时目录以外」才有明确的边界（仓库本身可能就在 /tmp 下面） */
+/** 子进程的系统临时目录（os.tmpdir() 读 TMPDIR）：单独给一个，和 DATA_DIR 分开——集合点的目录只认 DATA_DIR，放在系统临时目录下的要被拒 */
 const SYS_TMP = join(OUT, 'systmp');
 /** db.ts 自己引的模块先在约好的时刻之前加载好：过了那个时刻只剩 db.ts 本身，各进程进迁移的时间差压到最小 */
 const PREWARM = ['config.ts', 'db-busy.ts', 'portal-access.ts'].map((f) => `await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server', 'src', f)).href)});`).join(' ');
@@ -133,29 +133,35 @@ try {
   check(prodBarrier.exit !== 0 && !prodBarrier.timedOut && /WM_TEST_SCHEMA_BARRIER 只给测试用/.test(prodBarrier.err) && badBarrier.exit !== 0 && /名字>@<进程数>@<绝对路径的目录/.test(badBarrier.err),
     '不是 NODE_ENV=test 时设了 WM_TEST_SCHEMA_BARRIER：拒绝启动；写法不对：拒绝启动', { prod: summary([prodBarrier]), bad: summary([badBarrier]) });
   // 集合点的目录各进程要往里写文件：读配置时就收紧，不满足的拒绝启动，而且一个文件都不写
-  const outside = join(OUT, 'outside'); // 既不在 SYS_TMP 下，也不在 DATA_DIR 下
+  const outside = join(OUT, 'outside'); // 不在 DATA_DIR 下（也不在子进程的系统临时目录下）
   mkdirSync(join(dir, 'ok'), { recursive: true }); mkdirSync(outside, { recursive: true }); mkdirSync(join(SYS_TMP, 'meet'), { recursive: true });
   symlinkSync(outside, join(dir, 'link-out'));
   writeFileSync(join(dir, 'a-file'), '');
   const dirCases = {
     '带 ..（<目录>/ok/../.. 落到 DATA_DIR 外面）': [`${dir}/ok/../..`, /不能带 \.\./],
     '带 ..（落点仍在 DATA_DIR 里也不收）': [`${dir}/ok/..`, /不能带 \.\./],
-    '软链指到外面': [join(dir, 'link-out'), /系统临时目录或 DATA_DIR 之下/],
+    '软链指到外面': [join(dir, 'link-out'), /要在 DATA_DIR 之下（按软链展开/],
     '目录不存在': [join(dir, 'no-such-dir'), /不存在/],
-    '在临时目录和 DATA_DIR 以外': [outside, /系统临时目录或 DATA_DIR 之下/],
+    '在 DATA_DIR 以外': [outside, /要在 DATA_DIR 之下（按软链展开/],
+    '在系统临时目录下（只认 DATA_DIR）': [join(SYS_TMP, 'meet'), /要在 DATA_DIR 之下（按软链展开/],
     '相对路径': ['meet-teams', /绝对路径/],
     '是文件不是目录': [join(dir, 'a-file'), /不是目录/],
+    'TMPDIR=/ 时用外面的目录': [outside, /要在 DATA_DIR 之下（按软链展开/, { TMPDIR: '/' }],
+    'DATA_DIR=/': [outside, /DATA_DIR 是 \/ 或只有一层的根/, { DATA_DIR: '/' }],
+    'DATA_DIR 只有一层（/usr）': [outside, /DATA_DIR 是 \/ 或只有一层的根/, { DATA_DIR: '/usr' }],
+    // 只靠「在 DATA_DIR 之下」挡不住这一种：/usr/bin 确实在 /usr 下面。要靠「DATA_DIR 不能只有一层」这一条
+    'DATA_DIR 只有一层、目录在它下面（/usr、/usr/bin）': ['/usr/bin', /DATA_DIR 是 \/ 或只有一层的根/, { DATA_DIR: '/usr' }],
   };
   const dirRes = {};
-  for (const [name, [path, want]] of Object.entries(dirCases)) {
-    const r = await run(loadCode(0), { DATA_DIR: dir, WM_TEST_SCHEMA_BARRIER: `teams@1@${path}` });
+  for (const [name, [path, want, extraEnv]] of Object.entries(dirCases)) {
+    const r = await run(loadCode(0), { DATA_DIR: dir, WM_TEST_SCHEMA_BARRIER: `teams@1@${path}`, ...(extraEnv ?? {}) });
     dirRes[name] = !r.timedOut && r.exit !== 0 && want.test(r.err) ? 'refused' : `${r.exit}: ${r.err}`;
   }
   const leaked = (await import('node:fs')).readdirSync(outside).length;
   check(Object.values(dirRes).every((x) => x === 'refused') && leaked === 0,
-    'WM_TEST_SCHEMA_BARRIER 的目录：带 ..、软链指到外面、不存在、在临时目录和 DATA_DIR 以外、相对路径、是文件——读配置时就拒绝启动，外面的目录里一个文件都没写', { ...dirRes, leaked });
-  const okTmp = await run(loadCode(0), { DATA_DIR: dir, WM_TEST_SCHEMA_BARRIER: `teams@1@${join(SYS_TMP, 'meet')}` });
-  check(okTmp.exit === 0 && !okTmp.timedOut, 'WM_TEST_SCHEMA_BARRIER 的目录在系统临时目录下：照常启动', summary([okTmp]));
+    'WM_TEST_SCHEMA_BARRIER 的目录只认 DATA_DIR 之下：带 ..、软链指到外面、不存在、在 DATA_DIR 以外、在系统临时目录下、相对路径、是文件、TMPDIR=/、DATA_DIR 是 / 或只有一层——读配置时就拒绝启动，外面的目录里一个文件都没写', { ...dirRes, leaked });
+  const okData = await run(loadCode(0), { DATA_DIR: dir, WM_TEST_SCHEMA_BARRIER: `teams@1@${join(dir, 'ok')}` });
+  check(okData.exit === 0 && !okData.timedOut, 'WM_TEST_SCHEMA_BARRIER 的目录在 DATA_DIR 之下：照常启动', summary([okData]));
   check(prod.exit !== 0 && !prod.timedOut && /WM_TEST_SCHEMA_PAUSE_MS 只给测试用/.test(prod.err) && badVal.exit !== 0 && /0～5000/.test(badVal.err),
     '不是 NODE_ENV=test 时设了 WM_TEST_SCHEMA_PAUSE_MS：拒绝启动；值超出 0～5000：拒绝启动', { prod: summary([prod]), bad: summary([badVal]) });
 

@@ -2,13 +2,58 @@ import { DatabaseSync } from 'node:sqlite';
 import { isCredentialed, isInternalTarget } from './portal-access.ts';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DB_BUSY_TIMEOUT_MS } from './db-busy.ts';
 import { defineConfig, loadConfig } from './config.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * 只给测试用（WM_TEST_SCHEMA_PAUSE_MS，毫秒，0～5000）：装视图时在「核对定义」和「删」之间、「删」和「建」之间各停这么久，
+ * 补列（addColumnIfMissing）、只做一次的迁移（migrateOnce）在事务里再核过、动手之前也停这么久，把多进程同时启动的竞态窗口撑大，
+ * 让「去掉事务」这类回归在测试里每次都红。只在 NODE_ENV=test 时认，别的环境设了拒绝启动；生产上恒为 0。
+ */
+/**
+ * 集合点的目录：各进程要往里写文件，所以在读配置时就收紧（不拖到启动中途才报错）：
+ *   绝对路径、不带 ..；已经存在、是目录；按 realpath（软链展开以后）落在 DATA_DIR 之下，软链逃不出去。
+ *   只认 DATA_DIR（不认系统临时目录：TMPDIR 可以被设成 /）；DATA_DIR 自己是 / 或只有一层的根（比如 /data）也不收，那样等于不设限。
+ * 不满足的拒绝启动。返回 realpath 之后的目录。这一段放在打开主库之前：DATA_DIR 不对时先报这一条，不先撞上建库失败。
+ */
+function barrierDir(raw: string, env: Readonly<Record<string, string | undefined>>): string {
+  const refuse = (why: string): never => { throw new Error(`[db] 拒绝启动：WM_TEST_SCHEMA_BARRIER 的目录${why}`); };
+  if (!isAbsolute(raw)) refuse('要写成绝对路径');
+  if (raw.split(/[\\/]+/).includes('..')) refuse('不能带 ..');
+  let root = '';
+  try { root = realpathSync(env.DATA_DIR ? resolve(env.DATA_DIR) : join(here, '..', 'data')); } catch { refuse('要在 DATA_DIR 之下，可 DATA_DIR 还不存在'); }
+  if (root.split(sep).filter(Boolean).length < 2) refuse(`要在 DATA_DIR 之下，可 DATA_DIR 是 / 或只有一层的根（${root}），这样等于不设限`);
+  let real = '';
+  try { real = realpathSync(raw); } catch { refuse('不存在'); }
+  if (!statSync(real).isDirectory()) refuse('不是目录');
+  if (real !== root && !real.startsWith(root + sep)) refuse('要在 DATA_DIR 之下（按软链展开以后的真实路径算）');
+  return real;
+}
+export const SchemaTestConfig = defineConfig((env) => {
+  const raw = String(env.WM_TEST_SCHEMA_PAUSE_MS ?? '').trim();
+  const rawBarrier = String(env.WM_TEST_SCHEMA_BARRIER ?? '').trim();
+  let pauseMs = 0;
+  let barrier: { label: string; count: number; dir: string } | null = null;
+  if (raw !== '') {
+    if (env.NODE_ENV !== 'test') throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_PAUSE_MS 只给测试用（NODE_ENV=test），生产上不要设');
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 0 || n > 5000) throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_PAUSE_MS 要写成 0～5000 的整数（毫秒）');
+    pauseMs = n;
+  }
+  if (rawBarrier !== '') {
+    if (env.NODE_ENV !== 'test') throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_BARRIER 只给测试用（NODE_ENV=test），生产上不要设');
+    const m = /^([a-z][a-z-]{0,39})@([1-9]\d?)@(.+)$/.exec(rawBarrier);
+    if (!m) throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_BARRIER 要写成 <名字>@<进程数>@<绝对路径的目录>（名字是小写字母和连字符，进程数 1～99）');
+    barrier = { label: m[1], count: Number(m[2]), dir: barrierDir(m[3], env) };
+  }
+  return { pauseMs, barrier };
+});
+const schemaTest = loadConfig(SchemaTestConfig);
+
 export const dataDir = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(here, '..', 'data');
 mkdirSync(dataDir, { recursive: true });
 
@@ -49,47 +94,6 @@ export function viewSql(view: string): string | null {
 }
 const normSql = (sql: string): string => sql.trim().replace(/;+\s*$/, '');
 
-/**
- * 只给测试用（WM_TEST_SCHEMA_PAUSE_MS，毫秒，0～5000）：装视图时在「核对定义」和「删」之间、「删」和「建」之间各停这么久，
- * 补列（addColumnIfMissing）、只做一次的迁移（migrateOnce）在事务里再核过、动手之前也停这么久，把多进程同时启动的竞态窗口撑大，
- * 让「去掉事务」这类回归在测试里每次都红。只在 NODE_ENV=test 时认，别的环境设了拒绝启动；生产上恒为 0。
- */
-/**
- * 集合点的目录：各进程要往里写文件，所以在读配置时就收紧（不拖到启动中途才报错）：
- *   绝对路径、不带 ..；已经存在、是目录；按 realpath（软链展开以后）落在系统临时目录或 DATA_DIR 之下，软链逃不出去。
- * 不满足的拒绝启动。返回 realpath 之后的目录。
- */
-function barrierDir(raw: string, env: Readonly<Record<string, string | undefined>>): string {
-  const refuse = (why: string): never => { throw new Error(`[db] 拒绝启动：WM_TEST_SCHEMA_BARRIER 的目录${why}`); };
-  if (!isAbsolute(raw)) refuse('要写成绝对路径');
-  if (raw.split(/[\\/]+/).includes('..')) refuse('不能带 ..');
-  let real = '';
-  try { real = realpathSync(raw); } catch { refuse('不存在'); }
-  if (!statSync(real).isDirectory()) refuse('不是目录');
-  const roots = [tmpdir(), env.DATA_DIR ? resolve(env.DATA_DIR) : join(here, '..', 'data')].flatMap((r) => { try { return [realpathSync(r)]; } catch { return []; } });
-  if (!roots.some((r) => real === r || real.startsWith(r.endsWith(sep) ? r : r + sep))) refuse('要在系统临时目录或 DATA_DIR 之下（按软链展开以后的真实路径算）');
-  return real;
-}
-export const SchemaTestConfig = defineConfig((env) => {
-  const raw = String(env.WM_TEST_SCHEMA_PAUSE_MS ?? '').trim();
-  const rawBarrier = String(env.WM_TEST_SCHEMA_BARRIER ?? '').trim();
-  let pauseMs = 0;
-  let barrier: { label: string; count: number; dir: string } | null = null;
-  if (raw !== '') {
-    if (env.NODE_ENV !== 'test') throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_PAUSE_MS 只给测试用（NODE_ENV=test），生产上不要设');
-    const n = Number(raw);
-    if (!Number.isInteger(n) || n < 0 || n > 5000) throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_PAUSE_MS 要写成 0～5000 的整数（毫秒）');
-    pauseMs = n;
-  }
-  if (rawBarrier !== '') {
-    if (env.NODE_ENV !== 'test') throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_BARRIER 只给测试用（NODE_ENV=test），生产上不要设');
-    const m = /^([a-z][a-z-]{0,39})@([1-9]\d?)@(.+)$/.exec(rawBarrier);
-    if (!m) throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_BARRIER 要写成 <名字>@<进程数>@<绝对路径的目录>（名字是小写字母和连字符，进程数 1～99）');
-    barrier = { label: m[1], count: Number(m[2]), dir: barrierDir(m[3], env) };
-  }
-  return { pauseMs, barrier };
-});
-const schemaTest = loadConfig(SchemaTestConfig);
 /** 测试用的停顿（生产上 pauseMs 恒为 0，不停） */
 const testPause = (): void => { if (schemaTest.pauseMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, schemaTest.pauseMs); };
 /**
