@@ -142,7 +142,11 @@ try {
   await cli('POST', '/api/report-dimensions', { id: 'pending', title: '合成还没生效' });
   await cli('POST', '/api/areas', { id: 'zeta', name: '合成己领域' });
   await cli('POST', '/api/report-dimensions', { id: 'zdim', title: '合成 zeta 的维度', area: 'zeta' });
-  check(g1 && g2 && mk.status === 201 && vput.status === 200 && t1.status === 201 && rv.status === 200 && ac.status === 200,
+  // zdim 也给一版生效的模板：G1 里它被拒，只能是因为「属于别的领域」，不是因为没有生效模板（变异 b7 存活后补）
+  await cli('POST', '/api/report-dimensions/zdim/templates', { body: tpl() });
+  const zrv = await srv.call('POST', '/api/report-dimensions/zdim/templates/1/review', { ...sys, body: {} });
+  const zac = await cli('POST', '/api/report-dimensions/zdim/activate', { version: 1 });
+  check(g1 && g2 && mk.status === 201 && vput.status === 200 && t1.status === 201 && rv.status === 200 && ac.status === 200 && zrv.status === 200 && zac.status === 200,
     '（准备）管理层、属主；台、数据集（11 月两行、10 月一行）、视图；跨领域维度 monthly 第 1 版复核后生效', { g1, g2, mk: mk.status, vput: vput.status, t1: t1.status, rv: rv.text?.slice(0, 160), ac: ac.status });
 
   console.log('G1 绑定');
@@ -159,13 +163,14 @@ try {
       noView: (await bind(boss, { orders: { ...BINDING.orders, view: 'ghost' } })).status,
       unknownKey: (await bv(boss, 'PUT', '/synth-orders/reports/monthly/binding', { base: 0, slots: BINDING, kind: 'x' })).status,
     };
-    const dims = { ghost: (await bind(boss, BINDING, 0, 'ghost')).status, zeta: (await bind(boss, BINDING, 0, 'zdim')).status, pending: (await bind(boss, BINDING, 0, 'pending')).status };
+    const zr = await bind(boss, BINDING, 0, 'zdim');
+    const dims = { ghost: (await bind(boss, BINDING, 0, 'ghost')).status, zeta: zr.status, zetaWhy: /属于别的领域/.test(zr.text), pending: (await bind(boss, BINDING, 0, 'pending')).status };
     const ok1 = await bind(boss, BINDING);
     const stale = await bind(boss, BINDING, 0);
     const got = await bv(boss, 'GET', '/synth-orders/reports/monthly/binding');
-    check(byMember.status === 403 && Object.values(bad).every((s) => s === 400) && dims.ghost === 404 && dims.zeta === 409 && dims.pending === 409
+    check(byMember.status === 403 && Object.values(bad).every((s) => s === 400) && dims.ghost === 404 && dims.zeta === 409 && dims.zetaWhy && dims.pending === 409
         && ok1.status === 200 && ok1.json?.binding?.version === 1 && ok1.json?.binding?.template_version === 1 && stale.status === 409 && got.json?.binding?.version === 1,
-      'G1 普通员工绑 403；槽缺、多、列对不上、参数引用模板没有的输入、块是表单、块不存在、视图不存在、不认识的键 400；维度不存在 404、属于别的领域 409、没有生效模板 409；管理层绑成第 1 版；base 对不上 409；读回第 1 版',
+      'G1 普通员工绑 403；槽缺、多、列对不上、参数引用模板没有的输入、块是表单、块不存在、视图不存在、不认识的键 400；维度不存在 404、属于别的领域（有生效模板，拒的原因就是领域）409、没有生效模板 409；管理层绑成第 1 版；base 对不上 409；读回第 1 版',
       { byMember: byMember.status, bad, dims, ok1: ok1.text?.slice(0, 200), stale: stale.status });
   }
 
