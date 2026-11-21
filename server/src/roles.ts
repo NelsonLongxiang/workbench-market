@@ -190,7 +190,7 @@ const AREA_MEMBER_TRANSITIONAL: readonly string[] = [
   'bench-store.view-put', 'bench-store.view-versions', 'bench-store.view-diff', 'bench-store.view-rollback', 'bench-store.log-list', 'bench-store.mcp-list',
   'bench-store.mcp-grant', 'bench-store.mcp-decide', 'knowledge.read',
   // 报告（报告第 1 步 PR B）：绑模板、生成、读
-  'bench-store.report-bind', 'bench-store.report-generate', 'bench-store.report-read',
+  'bench-store.report-bind', 'bench-store.report-generate', 'bench-store.report-read', 'bench-store.report-respond',
 ];
 /**
  * 这组权限覆不覆盖定规范（含定报告维度）、负责人专有的动作（按权限覆盖判，不按角色名）：带 area: 范围时，起草、放行都只有属主。
