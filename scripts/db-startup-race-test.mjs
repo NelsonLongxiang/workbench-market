@@ -29,7 +29,7 @@
  *   node scripts/db-startup-race-test.mjs --root DIR   测另一棵目录树（变异测试用）
  */
 import { spawn } from 'node:child_process';
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -39,6 +39,8 @@ const ROOT = resolve(arg >= 0 ? process.argv[arg + 1] : join(HERE, '..'));
 const OUT = join(HERE, '..', 'tmp', `db-startup-race-${process.pid}-${Date.now().toString(36)}`);
 const DB_URL = pathToFileURL(join(ROOT, 'server', 'src', 'db.ts')).href;
 const N = 8;
+/** 子进程的系统临时目录（os.tmpdir() 读 TMPDIR）：单独给一个，「在临时目录以外」才有明确的边界（仓库本身可能就在 /tmp 下面） */
+const SYS_TMP = join(OUT, 'systmp');
 /** db.ts 自己引的模块先在约好的时刻之前加载好：过了那个时刻只剩 db.ts 本身，各进程进迁移的时间差压到最小 */
 const PREWARM = ['config.ts', 'db-busy.ts', 'portal-access.ts'].map((f) => `await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server', 'src', f)).href)});`).join(' ');
 const CHILD_TIMEOUT_MS = 30_000;
@@ -53,7 +55,7 @@ const check = (ok, label, detail) => { if (ok) pass++; else fail++; console.log(
 function run(code, env) {
   return new Promise((res) => {
     const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', code], {
-      env: { PATH: process.env.PATH, HOME: process.env.HOME, NODE_ENV: 'test', ...env }, stdio: ['ignore', 'pipe', 'pipe'],
+      env: { PATH: process.env.PATH, HOME: process.env.HOME, NODE_ENV: 'test', TMPDIR: SYS_TMP, ...env }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     let out = '', err = '', timedOut = false;
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, CHILD_TIMEOUT_MS);
@@ -102,6 +104,7 @@ rmSync(OUT, { recursive: true, force: true });
 try {
   const dir = join(OUT, 'data');
   mkdirSync(dir, { recursive: true });
+  mkdirSync(SYS_TMP, { recursive: true });
 
   console.log('一、视图定义没变');
   const first = await run(loadCode(0), { DATA_DIR: dir });
@@ -125,10 +128,34 @@ try {
   console.log('四、测试用的停顿只给测试用');
   const prod = await run(loadCode(0), { DATA_DIR: dir, NODE_ENV: 'production', WM_TEST_SCHEMA_PAUSE_MS: '10' });
   const badVal = await run(loadCode(0), { DATA_DIR: dir, WM_TEST_SCHEMA_PAUSE_MS: '9999' });
-  const prodBarrier = await run(loadCode(0), { DATA_DIR: dir, NODE_ENV: 'production', WM_TEST_SCHEMA_BARRIER: `teams@2@${OUT}` });
+  const prodBarrier = await run(loadCode(0), { DATA_DIR: dir, NODE_ENV: 'production', WM_TEST_SCHEMA_BARRIER: `teams@2@${dir}` });
   const badBarrier = await run(loadCode(0), { DATA_DIR: dir, WM_TEST_SCHEMA_BARRIER: 'teams@soon' });
   check(prodBarrier.exit !== 0 && !prodBarrier.timedOut && /WM_TEST_SCHEMA_BARRIER 只给测试用/.test(prodBarrier.err) && badBarrier.exit !== 0 && /名字>@<进程数>@<绝对路径的目录/.test(badBarrier.err),
     '不是 NODE_ENV=test 时设了 WM_TEST_SCHEMA_BARRIER：拒绝启动；写法不对：拒绝启动', { prod: summary([prodBarrier]), bad: summary([badBarrier]) });
+  // 集合点的目录各进程要往里写文件：读配置时就收紧，不满足的拒绝启动，而且一个文件都不写
+  const outside = join(OUT, 'outside'); // 既不在 SYS_TMP 下，也不在 DATA_DIR 下
+  mkdirSync(join(dir, 'ok'), { recursive: true }); mkdirSync(outside, { recursive: true }); mkdirSync(join(SYS_TMP, 'meet'), { recursive: true });
+  symlinkSync(outside, join(dir, 'link-out'));
+  writeFileSync(join(dir, 'a-file'), '');
+  const dirCases = {
+    '带 ..（<目录>/ok/../.. 落到 DATA_DIR 外面）': [`${dir}/ok/../..`, /不能带 \.\./],
+    '带 ..（落点仍在 DATA_DIR 里也不收）': [`${dir}/ok/..`, /不能带 \.\./],
+    '软链指到外面': [join(dir, 'link-out'), /系统临时目录或 DATA_DIR 之下/],
+    '目录不存在': [join(dir, 'no-such-dir'), /不存在/],
+    '在临时目录和 DATA_DIR 以外': [outside, /系统临时目录或 DATA_DIR 之下/],
+    '相对路径': ['meet-teams', /绝对路径/],
+    '是文件不是目录': [join(dir, 'a-file'), /不是目录/],
+  };
+  const dirRes = {};
+  for (const [name, [path, want]] of Object.entries(dirCases)) {
+    const r = await run(loadCode(0), { DATA_DIR: dir, WM_TEST_SCHEMA_BARRIER: `teams@1@${path}` });
+    dirRes[name] = !r.timedOut && r.exit !== 0 && want.test(r.err) ? 'refused' : `${r.exit}: ${r.err}`;
+  }
+  const leaked = (await import('node:fs')).readdirSync(outside).length;
+  check(Object.values(dirRes).every((x) => x === 'refused') && leaked === 0,
+    'WM_TEST_SCHEMA_BARRIER 的目录：带 ..、软链指到外面、不存在、在临时目录和 DATA_DIR 以外、相对路径、是文件——读配置时就拒绝启动，外面的目录里一个文件都没写', { ...dirRes, leaked });
+  const okTmp = await run(loadCode(0), { DATA_DIR: dir, WM_TEST_SCHEMA_BARRIER: `teams@1@${join(SYS_TMP, 'meet')}` });
+  check(okTmp.exit === 0 && !okTmp.timedOut, 'WM_TEST_SCHEMA_BARRIER 的目录在系统临时目录下：照常启动', summary([okTmp]));
   check(prod.exit !== 0 && !prod.timedOut && /WM_TEST_SCHEMA_PAUSE_MS 只给测试用/.test(prod.err) && badVal.exit !== 0 && /0～5000/.test(badVal.err),
     '不是 NODE_ENV=test 时设了 WM_TEST_SCHEMA_PAUSE_MS：拒绝启动；值超出 0～5000：拒绝启动', { prod: summary([prod]), bad: summary([badVal]) });
 
@@ -177,7 +204,7 @@ console.log(JSON.stringify({ r, n: m.tableColumns(${JSON.stringify('zz_race_a')}
 console.log(JSON.stringify({ gaps: ${teamGaps} }));`, { DATA_DIR: dir });
   check(tdrop.exit === 0 && tdrop.result?.gaps === TEAMS.length, `（准备）拿掉 teams 四张表的 ${TEAMS.length} 列`, summary([tdrop]));
   // 各进程加载 db.ts 到 teams 那段的快慢不一：在那里凑齐 N 个再一起进去（最多等 10 秒，见 db.ts 的 testBarrier）
-  const meetDir = join(OUT, 'meet-teams');
+  const meetDir = join(dir, 'meet-teams'); // 集合点的目录要在系统临时目录或 DATA_DIR 之下
   mkdirSync(meetDir, { recursive: true });
   const tup = await Promise.all(Array.from({ length: N }, () => run(`const m = await import(${JSON.stringify(DB_URL)});
 console.log(JSON.stringify({ gaps: ${teamGaps} }));`, { DATA_DIR: dir, WM_TEST_SCHEMA_BARRIER: `teams@${N}@${meetDir}` })));

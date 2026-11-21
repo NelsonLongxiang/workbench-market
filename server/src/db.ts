@@ -1,8 +1,9 @@
 import { DatabaseSync } from 'node:sqlite';
 import { isCredentialed, isInternalTarget } from './portal-access.ts';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { mkdirSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DB_BUSY_TIMEOUT_MS } from './db-busy.ts';
 import { defineConfig, loadConfig } from './config.ts';
@@ -53,6 +54,22 @@ const normSql = (sql: string): string => sql.trim().replace(/;+\s*$/, '');
  * 补列（addColumnIfMissing）、只做一次的迁移（migrateOnce）在事务里再核过、动手之前也停这么久，把多进程同时启动的竞态窗口撑大，
  * 让「去掉事务」这类回归在测试里每次都红。只在 NODE_ENV=test 时认，别的环境设了拒绝启动；生产上恒为 0。
  */
+/**
+ * 集合点的目录：各进程要往里写文件，所以在读配置时就收紧（不拖到启动中途才报错）：
+ *   绝对路径、不带 ..；已经存在、是目录；按 realpath（软链展开以后）落在系统临时目录或 DATA_DIR 之下，软链逃不出去。
+ * 不满足的拒绝启动。返回 realpath 之后的目录。
+ */
+function barrierDir(raw: string, env: Readonly<Record<string, string | undefined>>): string {
+  const refuse = (why: string): never => { throw new Error(`[db] 拒绝启动：WM_TEST_SCHEMA_BARRIER 的目录${why}`); };
+  if (!isAbsolute(raw)) refuse('要写成绝对路径');
+  if (raw.split(/[\\/]+/).includes('..')) refuse('不能带 ..');
+  let real = '';
+  try { real = realpathSync(raw); } catch { refuse('不存在'); }
+  if (!statSync(real).isDirectory()) refuse('不是目录');
+  const roots = [tmpdir(), env.DATA_DIR ? resolve(env.DATA_DIR) : join(here, '..', 'data')].flatMap((r) => { try { return [realpathSync(r)]; } catch { return []; } });
+  if (!roots.some((r) => real === r || real.startsWith(r.endsWith(sep) ? r : r + sep))) refuse('要在系统临时目录或 DATA_DIR 之下（按软链展开以后的真实路径算）');
+  return real;
+}
 export const SchemaTestConfig = defineConfig((env) => {
   const raw = String(env.WM_TEST_SCHEMA_PAUSE_MS ?? '').trim();
   const rawBarrier = String(env.WM_TEST_SCHEMA_BARRIER ?? '').trim();
@@ -66,9 +83,9 @@ export const SchemaTestConfig = defineConfig((env) => {
   }
   if (rawBarrier !== '') {
     if (env.NODE_ENV !== 'test') throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_BARRIER 只给测试用（NODE_ENV=test），生产上不要设');
-    const m = /^([a-z][a-z-]{0,39})@([1-9]\d?)@(\/.+)$/.exec(rawBarrier);
+    const m = /^([a-z][a-z-]{0,39})@([1-9]\d?)@(.+)$/.exec(rawBarrier);
     if (!m) throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_BARRIER 要写成 <名字>@<进程数>@<绝对路径的目录>（名字是小写字母和连字符，进程数 1～99）');
-    barrier = { label: m[1], count: Number(m[2]), dir: m[3] };
+    barrier = { label: m[1], count: Number(m[2]), dir: barrierDir(m[3], env) };
   }
   return { pauseMs, barrier };
 });
