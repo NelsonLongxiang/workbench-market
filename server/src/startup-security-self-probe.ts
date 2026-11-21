@@ -113,6 +113,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       { id: 'market.work-items.seat-reply-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/messages/1/reply', body: '{"text":"selfprobe"}', origin: true, headers: REMOTE_ANON, status: 401 },
       // 事项列表（GET /api/work-items）：只给管理员和登录的人，远程匿名必须 401（登录门开着时登录门先拦，也是 401）；不放行本机页面
       { id: 'market.work-items.list-anonymous', target: m, surface: 'market', method: 'GET', path: '/api/work-items', headers: REMOTE_ANON, status: 401 },
+      // 统一待办（GET /api/tasks，#324）：远程匿名必须 401、不带任何来源的任务信封，且不查私有源（登录门开着时登录门先拦，也是 401）
+      { id: 'market.tasks.anonymous', target: m, surface: 'market', method: 'GET', path: '/api/tasks', headers: REMOTE_ANON, status: 401 },
       // 「安排一件事」（POST /api/work-items）：不经管理门，远程匿名来必须 401（登录门开着时登录门先拦，也是 401）
       { id: 'market.work-items.arrange-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
       // 建立人回答席位提问的入口同样经写请求总门放行、路由内认人，远程匿名来必须 401
