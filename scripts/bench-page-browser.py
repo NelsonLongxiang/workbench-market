@@ -240,8 +240,9 @@ with sync_playwright() as p:
     pg.locator('[data-testid=bench-rename-save]').click()
     pg.wait_for_selector('[data-testid=bench-rename-error]')
     pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '别人刚改的名'")
-    check('被别人先改过（409）：照服务端说已经被改过了，对话框不关；重新问入口，顶部换成现在的名字',
-          '已经被改过' in pg.locator('[data-testid=bench-rename-error]').inner_text() and pg.locator('[data-testid=bench-rename-dialog]').count() == 1)
+    check('被别人先改过（409）：照服务端说已经被改过了，对话框不关；重新问入口，顶部换成现在的名字；输入框里还是自己填的名字（不替人丢掉）',
+          '已经被改过' in pg.locator('[data-testid=bench-rename-error]').inner_text() and pg.locator('[data-testid=bench-rename-dialog]').count() == 1
+          and pg.locator('[data-testid=bench-rename-input]').input_value() == '我想改的名')
     mode['title'] = 'ok'
     pg.locator('[data-testid=bench-rename-save]').click()
     pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '我想改的名'")

@@ -101,9 +101,15 @@ function RenameDialog({ cardId, current, syncTo, refreshEntry, onClose }: { card
   const [text, setText] = useState(current);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  // 409 之后重新问入口回来，名字变了：输入框换成现在的名字（base_title 用的就是 current，跟着变）
+  // 409 之后重新问入口回来，名字变了：base_title 用的就是 current，跟着变。
+  // 输入框只在用户没动过（还是原来那个名字）时跟着换成现在的名字；用户填过的新名字留着，不替他丢掉（#928 浏览器用例抓到的）
   const shown = useRef(current);
-  useEffect(() => { if (shown.current !== current) { shown.current = current; setText(current); } }, [current]);
+  useEffect(() => {
+    if (shown.current === current) return;
+    const before = shown.current;
+    shown.current = current;
+    setText((t) => (t.trim() === before ? current : t));
+  }, [current]);
   const send = async (req: { title: string } | { from_card: true }) => {
     setBusy(true); setErr(null);
     const r = await renameBenchTitle(cardId, { ...req, base_title: current });
