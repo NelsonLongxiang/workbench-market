@@ -1,7 +1,7 @@
 /** 外壳（产品化原型 3fbfd0b）：左边 248px 浅色侧栏，右边一张圆角的主区卡片。
  *  侧栏从上到下：品牌行 → 主入口一列（「全景」带等你拍板数）→ 我的驾驶舱 → 底部（管理员的设置 / 管理、口令、登录身份）。
  *  入口数据只来自 nav.tsx；AI 员工列表、在岗数、搜索等接口有了再加（不放占位）。 */
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { Fragment, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Alert, Button, Dropdown, Popover } from 'antd';
 import { PlusOutlined, SettingOutlined } from '@ant-design/icons';
@@ -57,7 +57,10 @@ export default function Shell({ admin, footer, children }: { admin: boolean; foo
         <Link to="/" className="wm-brand"><span className="wm-logo">市</span><b>工作台市场</b></Link>
         {groups.map((g, gi) => <nav key={g.key} aria-label={g.name}>
           {gi > 0 && <div className="wm-nav-sec">{g.name}</div>}
-          {g.pages.map((p) => <NavItem key={p.path} to={p.path} icon={p.icon} name={p.name} on={current?.page.path === p.path} count={p.path === '/' ? pending : null} />)}
+          {g.pages.map((p) => <Fragment key={p.path}>
+            {p.section && <div className="wm-nav-sec">{p.section}</div>}
+            <NavItem to={p.path} icon={p.icon} name={p.name} on={current?.page.path === p.path} count={p.path === '/' ? pending : null} />
+          </Fragment>)}
         </nav>)}
         {cockpits && <nav aria-label="我的驾驶舱">
           <div className="wm-nav-sec"><span>我的驾驶舱</span><Link to="/cockpit" aria-label="新建或管理驾驶舱" className="wm-nav-sec-act"><PlusOutlined /></Link></div>

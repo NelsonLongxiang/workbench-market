@@ -9,10 +9,11 @@
 .wm-mkt-cell:has(.wm-mkt-detail) .wm-mkt-go { margin-right: calc(2em + var(--wm-space-3)); }
 .wm-mkt-detail {
   position: absolute; bottom: var(--wm-space-4); right: var(--wm-space-4);
+  padding: 2px var(--wm-space-1); margin: -2px calc(-1 * var(--wm-space-1)); border-radius: var(--wm-radius-sm);
   font-size: var(--wm-font-size-caption); line-height: inherit; color: var(--wm-color-text-secondary);
-  transition: color var(--wm-motion-fast) var(--wm-motion-easing);
+  transition: color var(--wm-motion-fast) var(--wm-motion-easing), background var(--wm-motion-fast) var(--wm-motion-easing);
 }
-.wm-mkt-detail:hover { color: var(--wm-color-primary); text-decoration: underline; }
+.wm-mkt-detail:hover { color: var(--wm-color-primary); background: var(--wm-color-primary-subtle); text-decoration: underline; }
 .wm-mkt-detail:focus-visible { outline: 2px solid var(--wm-color-primary); outline-offset: 2px; }
 
 /* 详情页 */
