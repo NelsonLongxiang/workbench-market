@@ -242,6 +242,26 @@ try {
   r = await tool(srv, A.token, 'view_put', { bench: 'demo', doc: { title: '日报', views: [{ key: 'main', title: '总览', blocks: [{ type: 'table', query: { dataset: 'daily', sort: [{ col: 'day' }] } }] }] }, base: 0, note: '首版' });
   const vg = await tool(srv, A.token, 'view_get', { bench: 'demo' });
   check(r.json?.version === 1 && vg.json?.view?.active_version === 1, '会话存视图、读回来');
+  {
+    // #904：管理页上，直接授予的工具 request_id 是 null（和批准申请来的分得开）；入口告诉页面能不能进管理页、能不能批（入口要台上已有视图描述，放在会话存了视图之后）
+    const page = (await srv.call('GET', '/api/bench-views/demo/mcp-grants', mgr)).json;
+    const direct = page?.grants?.find((g) => g.session === 'sess-a')?.tools?.find((t) => t.tool === 'view_put');
+    // 对照要进得了入口：普通员工临时授一个只点名「取数、读视图」的自定义角色（看得到台、管不了 MCP），核完收回，不影响后面的用例
+    await srv.call('POST', '/api/roles/guest/copy', { body: { id: 'mcp-viewer', name: '合成·只看视图' } });
+    await srv.call('PUT', '/api/roles/mcp-viewer', { body: { permissions: [{ actions: ['bench-store.render', 'bench-store.view-get'] }] } });
+    await srv.call('POST', '/api/roles/mcp-viewer/approve');
+    const gv = await srv.call('POST', '/api/grants', { body: { principal: 'user:beta', role: 'mcp-viewer', scope: '*', reason: '合成：入口对照' } });
+    await srv.call('POST', `/api/grants/${gv.json?.grant?.id}/submit`); await srv.call('POST', `/api/grants/${gv.json?.grant?.id}/approve`);
+    const eM = await srv.call('GET', '/api/bench-views/demo/entry', mgr), eS = await srv.call('GET', '/api/bench-views/demo/entry', staff), eN = await srv.call('GET', '/api/bench-views/demo/entry', member);
+    const pS = await srv.call('GET', '/api/bench-views/demo/mcp-grants', staff), pN = await srv.call('GET', '/api/bench-views/demo/mcp-grants', member);
+    const gone = await srv.call('POST', `/api/grants/${gv.json?.grant?.id}/revoke`, { body: { reason: '合成：核完收回' } });
+    const back = await srv.call('GET', '/api/bench-views/demo/entry', member);
+    const canOf = (x) => (x.status === 200 ? x.json?.can : null);
+    check(direct && direct.request_id === null && direct.category === 'write' && direct.granted_by === 'user:alpha'
+        && canOf(eM)?.mcp === true && canOf(eM)?.mcp_decide === true && eS.status === 200 && canOf(eS)?.mcp_decide === false && eN.status === 200 && canOf(eN)?.mcp === false && canOf(eN)?.mcp_decide === false && gone.status === 200 && back.status === 404
+        && page?.can?.decide === true && page?.bench?.slug === 'demo' && pS.status === 200 && pS.json?.can?.decide === false && pN.status === 403,
+      '（#904）直接授予的 request_id 为 null；入口的 can.mcp、can.mcp_decide：管理层都是 true；有做没有拍板的人能进管理页、批不了（mcp_decide false）；只能读视图的人两项都是 false（核完收回授予，入口回到 404）；管理页应答的 can.decide 同一个判法：管理层 true、有做没有拍板 false、只能读视图的进不了管理页（403）', { decide: [page?.can, pS.status, pS.json?.can, pN.status], direct, mgr: canOf(eM), staff: [eS.status, canOf(eS)], member: [eN.status, canOf(eN)], revoke: gone.status, back: back.status });
+  }
   // 表格的列都要有说明名：聚合出来的列没给 label，会话存也拒，点名缺的是哪一列；不产生新版本
   r = await tool(srv, A.token, 'view_put', { bench: 'demo', doc: { title: '日报', views: [{ key: 'main', title: '总览', blocks: [{ type: 'table', query: { dataset: 'daily', group: ['day'], measures: [{ as: 'total', fn: 'sum', col: 'n' }] } }] }] }, base: 1, note: '缺说明名' });
   check(/列 total 没有说明名/.test(r.text) && (await tool(srv, A.token, 'view_get', { bench: 'demo' })).json?.view?.active_version === 1, '会话存视图：表格的列没有说明名就拒，点名是哪一列', r.text.slice(0, 200));
@@ -412,7 +432,48 @@ try {
   const gPage = await srv.call('GET', '/api/bench-views/linked-g/mcp-grants', mgr);
   check(linkG.status === 201 && hg.json?.ok === true && !gListed && gApprove.status === 404 && gViaLinked.status === 404 && db.prepare('SELECT COUNT(*) AS n FROM bench_views WHERE workbench_id = ?').get(WG).n === 1,
     '卡片已对应了别的台、申请写成 wb-<卡片 id>：不进清单，批是 404（两个路径都是），不会再开一个台库', { link: linkG.status, listed: gListed, approve: gApprove.status, viaLinked: gViaLinked.status });
-  check(gPage.status === 200 && !gPage.json?.requests?.some((x) => x.id === hg.json?.request?.id), '这种申请也不出现在那个台的管理页上（显示了也批不了）', gPage.json?.requests?.map((x) => `${x.id}:${x.status}`));
+  check(gPage.status === 200 && !gPage.json?.requests?.some((x) => x.id === hg.json?.request?.id), '这种申请也不出现在那个台的管理页的申请清单上（显示了也批不了）', gPage.json?.requests?.map((x) => `${x.id}:${x.status}`));
+  // #904：但也不能让管理页看起来「没有申请」——单列在 unmatched 里，写明会话写的是什么、该用哪个标识重新申请
+  const um = gPage.json?.unmatched?.find((x) => x.id === hg.json?.request?.id);
+  check(um?.status === 'pending' && um.bench === `wb-${WG}` && um.session === 'sess-h' && um.why.includes(`wb-${WG}`) && um.why.includes('linked-g') && um.tool_kinds?.[0]?.category === 'read'
+      && (await srv.call('GET', `/api/bench-views/other/mcp-grants`, mgr)).json?.unmatched?.length === 0,
+    '（#904）写法对不上、这个台批不了的申请：管理页单列在 unmatched，写明会话写的标识和该用的标识；别的台（标识就是自己的）这一栏是空的', { um, unmatched: gPage.json?.unmatched?.length });
+  // #904 复现：申请写的是卡片号、那时卡片还没有台；之后给这张卡片登记了一个自己起名的台（不是 wb-<卡片 id>）。
+  // 「关注」、台上的管理页、按规范标识批，三处要认得同一条申请
+  const WX = mkCard('合成卡片己');
+  const hx = await tool(srv, H.token, 'access_request', { tools: [`dataset_list@bench:${WX}`], reason: '先提申请、后登记台' });
+  const linkX = await srv.call('POST', '/api/bench-views', { ...mgr, body: { slug: 'linked-x', title: '后登记的台', workbench_id: WX } });
+  const xCard = mine(await attention(mgr)).find((x) => x.source_id.endsWith(`:${hx.json?.request?.id}`));
+  const xPage = await srv.call('GET', '/api/bench-views/linked-x/mcp-grants', mgr);
+  const xApprove = await srv.call('POST', `/api/bench-views/linked-x/mcp-requests/${hx.json?.request?.id}`, { ...mgr, body: { approve: true } });
+  const xUse = await tool(srv, H.token, 'dataset_list', { bench: 'linked-x' });
+  // #904：管理页上的授予标明是批准哪条申请来的；申请带工具的读写分类
+  const xAfter = (await srv.call('GET', '/api/bench-views/linked-x/mcp-grants', mgr)).json;
+  const xGrant = xAfter?.grants?.find((g) => g.session === 'sess-h')?.tools?.find((t) => t.tool === 'dataset_list');
+  const xReq = xAfter?.requests?.find((x) => x.id === hx.json?.request?.id);
+  check(xGrant?.request_id === hx.json?.request?.id && xGrant.category === 'read' && xReq?.status === 'approved' && xReq.decided_by === 'user:alpha' && JSON.stringify(xReq.tool_kinds) === JSON.stringify([{ tool: 'dataset_list', category: 'read' }]),
+    '（#904）管理页：批准来的授予带着申请编号（request_id）；申请带工具读写分类、谁定的', { xGrant, xReq });
+  check(hx.json?.ok === true && linkX.status === 201 && xCard?.detail?.bench === 'linked-x' && xCard.detail.bench_registered === true && xCard.answer_via?.path === `/api/bench-views/linked-x/mcp-requests/${hx.json.request.id}`
+      && xPage.json?.requests?.some((x) => x.id === hx.json.request.id && x.status === 'pending') && xApprove.status === 200 && xApprove.json?.status === 'approved' && !xUse.isError,
+    '（#904 复现）先写卡片号申请、后给卡片登记自己起名的台：「关注」里按规范标识列出、台上的管理页里看得到、按规范标识批得成，会话随即调得了', { card: xCard?.detail, path: xCard?.answer_via?.path, page: xPage.json?.requests?.map((x) => `${x.id}:${x.status}`), approve: [xApprove.status, xApprove.text.slice(0, 120)], use: xUse.text.slice(0, 80) });
+  // #938 独立验收：标识正好是 wb-<卡片 id> 的台，是另一个登记了的台。卡片改对应到别的台以后，那个台的申请不能出现在新台的 unmatched 里
+  // （新台的管理员不一定进得了旧台：旧台在别的部门时就是越界看到别人的会话名、理由和工具）；台自己的申请也不进自己的 unmatched
+  const WY = mkCard('合成卡片庚');
+  const Y = await mk('sess-y'); // 自己一个会话：不占 sess-h 的待批名额
+  const y1 = await tool(srv, Y.token, 'access_request', { tools: [`dataset_list@bench:${WY}`], reason: '开台库那一条' });
+  const openY = await srv.call('POST', `/api/bench-views/${WY}/mcp-requests/${y1.json?.request?.id}`, { ...mgr, body: { approve: true } });
+  const y2 = await tool(srv, Y.token, 'access_request', { tools: [`dataset_snapshots@bench:wb-${WY}`], reason: '旧台上还没定的那一条' });
+  const ownPage = await srv.call('GET', `/api/bench-views/wb-${WY}/mcp-grants`, mgr);
+  const unlinkY = await srv.call('PUT', `/api/bench-views/wb-${WY}/workbench`, { ...mgr, body: { workbench_id: null } });
+  const linkY = await srv.call('POST', '/api/bench-views', { ...mgr, body: { slug: 'linked-y', title: '改对应过来的台', workbench_id: WY } });
+  const yPage = await srv.call('GET', '/api/bench-views/linked-y/mcp-grants', mgr);
+  const yOld = await srv.call('GET', `/api/bench-views/wb-${WY}/mcp-grants`, mgr);
+  check(openY.status === 200 && openY.json?.opened_bench?.slug === `wb-${WY}` && y2.json?.ok === true
+      && ownPage.status === 200 && ownPage.json?.requests?.some((x) => x.id === y2.json.request.id) && ownPage.json?.unmatched?.length === 0,
+    '（#938 验收 m10）标识就是 wb-<卡片 id> 的台：自己的申请在申请清单里，不进自己的 unmatched', { open: openY.status, own: ownPage.json?.unmatched?.length });
+  check(unlinkY.status === 200 && linkY.status === 201 && yPage.status === 200 && !yPage.json?.unmatched?.some((x) => x.id === y2.json?.request?.id) && !yPage.json?.requests?.some((x) => x.id === y2.json?.request?.id)
+      && yOld.json?.requests?.some((x) => x.id === y2.json?.request?.id && x.status === 'pending'),
+    '（#938 验收）wb-<卡片 id> 已经是登记了的台、卡片改对应到别的台：那个台的申请不出现在新台的 unmatched 和申请清单里，还在它自己的台上', { unlink: unlinkY.status, link: linkY.status, unmatched: yPage.json?.unmatched?.map((x) => x.id), old: yOld.json?.requests?.map((x) => `${x.id}:${x.status}`) });
   const WF = mkCard('合成卡片丁');
   const h7 = await tool(srv, H.token, 'access_request', { tools: [`dataset_list@bench:${WF}`], reason: '开库那一条' });
   const h8 = await tool(srv, H.token, 'access_request', { tools: [`dataset_snapshots@bench:${WF}`], reason: '开台库之前提的，留到删卡片' });
