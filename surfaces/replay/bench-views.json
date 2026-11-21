@@ -1977,8 +1977,15 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "208", "etag": "W/\"d0-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "bench": { "slug": "demo", "title": "示例台", "workbench_id": null }, "version": 2, "title": "订单台二版", "default_view": "overview", "views": [{ "key": "overview", "title": "总览" }, { "key": "entry", "title": "补录" }] }
+            "headers": { "cache-control": "private, no-store", "content-length": "248", "etag": "W/\"f8-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "bench": { "slug": "demo", "title": "示例台", "workbench_id": null, "card_title": null },
+              "version": 2,
+              "title": "订单台二版",
+              "default_view": "overview",
+              "views": [{ "key": "overview", "title": "总览" }, { "key": "entry", "title": "补录" }],
+              "can": { "rename": true }
+            }
           }
         },
         {
@@ -3697,8 +3704,15 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "199", "etag": "W/\"c7-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "bench": { "slug": "demo", "title": "示例台", "workbench_id": 1 }, "version": 1, "title": "订单台", "default_view": "overview", "views": [{ "key": "overview", "title": "总览" }, { "key": "entry", "title": "补录" }] }
+            "headers": { "cache-control": "private, no-store", "content-length": "249", "etag": "W/\"f9-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "bench": { "slug": "demo", "title": "示例台", "workbench_id": 1, "card_title": "任务中心" },
+              "version": 1,
+              "title": "订单台",
+              "default_view": "overview",
+              "views": [{ "key": "overview", "title": "总览" }, { "key": "entry", "title": "补录" }],
+              "can": { "rename": true }
+            }
           }
         },
         {

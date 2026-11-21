@@ -5,7 +5,8 @@
       「巡检明细」那份的三张卡没写宽度：平分一整行，最右一张的右边缘和下面整行的表格对齐（统筹 11-13）；
   三、交表单：请求带视图、第几块、版本、填的值；交上去之后整页重新取数；版本变了、不让交，各说一句；
   四、取数没成：看不到、数据视图没开、只有一份视图（不出页签）；
-  五、入口：没有台的卡片照原来嵌页面、不存在的卡片照原来说不存在（都走实例里真的入口）；入口 403、读不到（再试一次）。"""
+  五、入口：没有台的卡片照原来嵌页面、不存在的卡片照原来说不存在（都走实例里真的入口）；入口 403、读不到（再试一次）；
+  七、改台名（#927）：入口没说能改不出按钮；能改时改名、跟卡片同名、被别人先改过（409）三种情形，请求带 base_title，改成后顶部换名、地址不变。"""
 import json, os, re, sys
 from urllib.parse import urlparse, parse_qs
 from playwright.sync_api import sync_playwright
@@ -45,8 +46,9 @@ def view_result(view, params):
         blocks += [{'type': 'table', 'title': '明细', 'span': 12, 'data': {'columns': [{'name': 'site', 'type': 'text'}, {'name': 'n', 'type': 'integer'}], 'rows': rows}}]
     return {'title': ENTRY['title'], 'version': 5, 'view': {'key': view, 'title': vt}, 'params': params, 'blocks': blocks}
 
-log = {'entry': 0, 'render': [], 'form': []}
-mode = {'entry': 'ok', 'render': 'ok', 'form': 'ok'}
+log = {'entry': 0, 'render': [], 'form': [], 'title': []}
+mode = {'entry': 'ok', 'render': 'ok', 'form': 'ok', 'title': 'ok'}
+name = {'title': '合成·巡检台'}  # 改台名用例里「服务端那边」现在的台名
 def fake(route, body, status=200): route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
 def on_bv(route):
     u = urlparse(route.request.url); parts = u.path.split('/')
@@ -60,6 +62,7 @@ def on_bv(route):
         if mode['entry'] == 'one': return fake(route, {**ENTRY, 'views': ENTRY['views'][:1]})
         if mode['entry'] == 'v2': return fake(route, ENTRY2)
         if mode['entry'] == 'v3': return fake(route, ENTRY3)
+        if mode['entry'] == 'rename': return fake(route, {**ENTRY, 'bench': {**ENTRY['bench'], 'title': name['title'], 'card_title': '合成·巡检卡片'}, 'can': {'rename': True}})
         return fake(route, ENTRY)
     if rest == 'render':
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
@@ -73,6 +76,13 @@ def on_bv(route):
         if mode['form'] == '409': return fake(route, {'error': 'conflict', 'message': '版本变了'}, 409)
         if mode['form'] == '403': return fake(route, {'error': 'bench_views_forbidden'}, 403)
         return fake(route, {'ok': True})
+    if rest == 'title' and route.request.method == 'PUT':
+        req = json.loads(route.request.post_data or '{}'); log['title'].append(req)
+        if mode['title'] == '409':
+            name['title'] = '别人刚改的名'  # 别人先改了：服务端那边的名字已经变了
+            return fake(route, {'error': 'conflict', 'message': '台的名字已经被改过了，先重新读一次再改'}, 409)
+        name['title'] = '合成·巡检卡片' if req.get('from_card') else req.get('title')
+        return fake(route, {'bench': {**ENTRY['bench'], 'title': name['title']}, 'changed': True})
     return fake(route, {'error': 'not_found'}, 404)
 
 def q_of(pg): return {k: v[0] for k, v in parse_qs(urlparse(pg.url).query).items()}
@@ -199,6 +209,43 @@ with sync_playwright() as p:
     pg.locator('[data-testid=bench-page-refresh]').click()
     pg.wait_for_timeout(800)
     check('入口这次读不到（500）：页面保持现状不换，正文照常重新取数，不整页报错', len(log['render']) > r2 and pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览·三' and pg.locator('[data-testid=use-entry-error]').count() == 0, (len(log['render']) - r2))
+    mode['entry'] = 'ok'
+
+    print('七、改台名（#927）')
+    mode['entry'] = 'ok'; mode['render'] = 'ok'
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    check('入口没说能改（普通入口不带 can.rename）：不出「改名」', pg.locator('[data-testid=bench-page-rename]').count() == 0)
+    mode['entry'] = 'rename'; mode['title'] = 'ok'; name['title'] = '合成·巡检台'
+    pg.goto(f'{M}/use/{CARD}?v=vk-rows'); pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    url0 = pg.url
+    pg.locator('[data-testid=bench-page-rename]').click(); pg.wait_for_selector('[data-testid=bench-rename-input]')
+    check('能改：出「改名」，对话框里是现在的名字；卡片名和台名不同，出「跟卡片同名」', pg.locator('[data-testid=bench-rename-input]').input_value() == '合成·巡检台' and '合成·巡检卡片' in pg.locator('[data-testid=bench-rename-sync]').inner_text())
+    check('名字没改时「保存」不能点', pg.locator('[data-testid=bench-rename-save]').is_disabled())
+    pg.locator('[data-testid=bench-rename-input]').fill('  ')
+    check('名字空白：说名字不能是空的，「保存」不能点', '不能是空的' in pg.locator('[data-testid=bench-rename-problem]').inner_text() and pg.locator('[data-testid=bench-rename-save]').is_disabled())
+    pg.locator('[data-testid=bench-rename-input]').fill('合成·巡检台（新）')
+    pg.locator('[data-testid=bench-rename-save]').click()
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '合成·巡检台（新）'")
+    check('保存：请求带新名字和看到的名字（base_title）；顶部换成新名，对话框关了，地址不变（还在原来那份视图）',
+          log['title'][-1] == {'title': '合成·巡检台（新）', 'base_title': '合成·巡检台'} and pg.locator('[data-testid=bench-rename-dialog]').count() == 0 and pg.url == url0, (log['title'][-1:], pg.url))
+    check('正文标题（视图的标题）不跟着变', pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览')
+    pg.locator('[data-testid=bench-page-rename]').click(); pg.wait_for_selector('[data-testid=bench-rename-sync]')
+    pg.locator('[data-testid=bench-rename-sync]').click()
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '合成·巡检卡片'")
+    check('跟卡片同名：请求是 from_card，带看到的名字；顶部换成卡片名', log['title'][-1] == {'from_card': True, 'base_title': '合成·巡检台（新）'}, log['title'][-1:])
+    pg.locator('[data-testid=bench-page-rename]').click(); pg.wait_for_selector('[data-testid=bench-rename-input]')
+    check('台名和卡片名一样了：不再出「跟卡片同名」', pg.locator('[data-testid=bench-rename-sync]').count() == 0)
+    mode['title'] = '409'
+    pg.locator('[data-testid=bench-rename-input]').fill('我想改的名')
+    pg.locator('[data-testid=bench-rename-save]').click()
+    pg.wait_for_selector('[data-testid=bench-rename-error]')
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '别人刚改的名'")
+    check('被别人先改过（409）：照服务端说已经被改过了，对话框不关；重新问入口，顶部换成现在的名字',
+          '已经被改过' in pg.locator('[data-testid=bench-rename-error]').inner_text() and pg.locator('[data-testid=bench-rename-dialog]').count() == 1)
+    mode['title'] = 'ok'
+    pg.locator('[data-testid=bench-rename-save]').click()
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '我想改的名'")
+    check('再保存一次：这回带的是现在的名字（base_title 跟着换了），改成', log['title'][-1] == {'title': '我想改的名', 'base_title': '别人刚改的名'}, log['title'][-1:])
     mode['entry'] = 'ok'
 
     print('五、入口')

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 视图台页面（/use/<卡片 id>）的纯函数单测（web/src/bench-page-view.ts）：入口应答怎么走、地址里的视图和筛选、表单没交上去时说什么。数据都是合成的。 */
-import { ENTRY_TEXT, asEntry, entryOutcome, formError, pageTitle, paramsFromQuery, toQuery, viewFromQuery } from '../web/src/bench-page-view.ts';
+import { ENTRY_TEXT, asEntry, entryOutcome, formError, pageTitle, paramsFromQuery, renameChoices, renameError, titleProblem, toQuery, viewFromQuery } from '../web/src/bench-page-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -28,6 +28,17 @@ ok('版本变了（409）：表单说页面过期', formError(409, { error: 'con
 ok('服务端说填得不对：原样带它的原因', J(formError(400, { error: 'invalid', message: '「件数」要是整数' })) === J({ code: 'invalid', message: '「件数」要是整数' }));
 ok('不让交（403）给 forbidden，由表单块说；没登录、断网、别的：各一句人话', formError(401, null).message === '请先登录' && J(formError(403, { error: 'forbidden' })) === '{"code":"forbidden"}' && formError(0, null).message.includes('连不上') && formError(500, { error: 'internal', message: 'SQLITE_BUSY' }).message === '这次没交上去，稍后再试');
 ok('入口没走到页面时的说法都不提「台」，猜不出卡片背后有没有台', Object.values(ENTRY_TEXT).every((t) => !t.includes('台') || t.includes('工作台市场')), JSON.stringify(ENTRY_TEXT));
+
+// 改台名（#927）
+const R = { ...E, bench: { ...E.bench, card_title: '合成卡片名' }, can: { rename: true } };
+ok('入口的 can.rename 只认 true：缺了、写成字符串都当不能改；不能改时不留 card_title', asEntry(R).can.rename === true && asEntry(E).can.rename === false && asEntry({ ...R, can: { rename: 'true' } }).can.rename === false && !('card_title' in asEntry({ ...R, can: { rename: false } }).bench));
+ok('能改：card_title 照留；不是文字的当没有对应卡片（null）', asEntry(R).bench.card_title === '合成卡片名' && asEntry({ ...R, bench: { ...R.bench, card_title: 7 } }).bench.card_title === null);
+ok('改名按钮：服务端说能改才出；跟卡片同名只在有卡片名、和台名不同时给', J(renameChoices(asEntry(R))) === J({ canRename: true, syncTo: '合成卡片名' }) && J(renameChoices(asEntry(E))) === J({ canRename: false, syncTo: null })
+  && renameChoices(asEntry({ ...R, bench: { ...R.bench, card_title: '合成台' } })).syncTo === null && renameChoices(asEntry({ ...R, bench: { ...R.bench, card_title: null } })).syncTo === null);
+ok('新名字的规矩和服务端一样：去掉前后空白 1～64 个字', titleProblem('  ') !== null && titleProblem('名'.repeat(65)) !== null && titleProblem(` ${'名'.repeat(64)} `) === null && titleProblem('合成新名') === null);
+ok('改名没改成：409 照服务端说（没给原因时说被改过了），400 照原因，403 说只有管理层，别的给人话、不露代号',
+  renameError(409, { error: 'conflict', message: '台的名字已经被改过了，先重新读一次再改' }).includes('已经被改过') && renameError(409, null).includes('被改过') && renameError(400, { message: '台的名字须为 1～64 个字符' }).includes('1～64')
+  && renameError(403, { error: 'forbidden' }).includes('管理层') && renameError(0, null).includes('连不上') && renameError(500, { error: 'internal', message: 'SQLITE_BUSY' }) === '这次没改成，稍后再试');
 ok('说法里没有开发用语、不露代号', [...Object.values(ENTRY_TEXT), ...[401, 0, 500, 413].map((s) => formError(s, { error: 'limit', message: 'raw' }).message)].every((t) => !/接口|字段|slug|bench|error|SQLITE|raw/i.test(t)));
 
 console.log(`\nbench-page-unit: ${pass} 过 / ${fail} 败`);

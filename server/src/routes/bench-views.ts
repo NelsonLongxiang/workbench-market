@@ -29,7 +29,7 @@ import type { Kind } from '../roles.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
 import { tableTarget, tableCsv } from '../bench-table.ts';
 import { benchStore, type BenchStore } from '../services/bench-store.ts';
-import { bindBench, linkWorkbench, renameBench, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
+import { bindBench, linkWorkbench, renameBench, cardTitle, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
 import { relationOf } from '../team-relation.ts';
 import { checkBenchRequest, decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 import { viaBegin, viaSettle } from '../attention-via.ts';
@@ -284,12 +284,16 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     try { view = await (await benchStore(bench.slug)).getView(); } catch (e) { return fail(res, e); }
     const doc = view?.content as { title?: unknown; views?: { key: string; title: string }[] } | undefined;
     if (!view || !Array.isArray(doc?.views) || !doc.views.length) return none();
+    // can.rename：看的人能不能改台名（#927）。和改名接口 PUT /:bench/title 同一个判定（bench-store.bench-link、只认全公司那一档），页面照它出不出按钮。
+    // 能改的人另给 card_title（对应卡片现在的名字，没有对应卡片是 null），页面据此决定出不出「跟卡片同名」；不能改的人不给
+    const rename = everywhere(actor, 'bench-store.bench-link');
     res.json({
-      bench: { slug: bench.slug, title: bench.title, workbench_id: bench.workbench_id },
+      bench: { slug: bench.slug, title: bench.title, workbench_id: bench.workbench_id, ...(rename ? { card_title: cardTitle(bench.workbench_id) } : {}) },
       version: view.version,
       title: typeof doc.title === 'string' ? doc.title : bench.title,
       default_view: doc.views[0].key,
       views: doc.views.map((v) => ({ key: v.key, title: v.title })),
+      can: { rename },
     });
   }));
 

@@ -22,7 +22,11 @@ export function asEntry(body: unknown): BenchEntry | null {
     if (!v || !isStr(v.key) || !isStr(v.title) || keys.has(v.key)) return null;
     keys.add(v.key);
   }
-  return { bench: b.bench, version: b.version, title: isStr(b.title) ? b.title : b.bench.title, default_view: isStr(b.default_view) && keys.has(b.default_view) ? b.default_view : b.views[0].key, views: b.views };
+  // can.rename 只认 true（缺了、写别的都当不能改，不出按钮）；card_title 只在能改时留，只认文字
+  const rename = !!b.can && typeof b.can === 'object' && (b.can as { rename?: unknown }).rename === true;
+  const raw = b.bench as BenchEntry['bench'];
+  const bench: BenchEntry['bench'] = { slug: raw.slug, title: raw.title, workbench_id: raw.workbench_id, ...(rename ? { card_title: isStr(raw.card_title) ? raw.card_title : null } : {}) };
+  return { bench, version: b.version, title: isStr(b.title) ? b.title : b.bench.title, default_view: isStr(b.default_view) && keys.has(b.default_view) ? b.default_view : b.views[0].key, views: b.views, can: { rename } };
 }
 
 export function entryOutcome(status: number, body: unknown): EntryOutcome {
@@ -79,3 +83,31 @@ export const ENTRY_TEXT = {
   error: '这会儿打不开',
   errorSub: '稍后再试；一直打不开，请找管理员。',
 } as const;
+
+/** 改台名（#927）：能不能改、能不能「跟卡片同名」。能改由服务端说（can.rename）；跟卡片同名只在有对应卡片、卡片名和台名不同时给 */
+export function renameChoices(entry: BenchEntry): { canRename: boolean; syncTo: string | null } {
+  const canRename = entry.can?.rename === true;
+  const card = entry.bench.card_title;
+  return { canRename, syncTo: canRename && isStr(card) && card !== entry.bench.title ? card : null };
+}
+
+/** 新名字填得对不对（和服务端同一个规矩：去掉前后空白 1～64 个字符）：对回 null，不对回一句说法 */
+export function titleProblem(text: string): string | null {
+  const t = text.trim();
+  if (!t) return '名字不能是空的';
+  if (t.length > 64) return `名字最多 64 个字，现在 ${t.length} 个`;
+  return null;
+}
+
+/** 改名没改成时说什么。409 是名字已经被别人改过了（或没有对应卡片），照服务端的原因说；别的给一句人话，不露代号 */
+export function renameError(status: number, body: unknown): string {
+  const b = (body && typeof body === 'object' ? body : {}) as { message?: unknown };
+  const message = typeof b.message === 'string' && b.message ? b.message : '';
+  if (status === 409) return message || '名字已经被改过了，已显示现在的名字，再看一下';
+  if (status === 400) return message || '名字填得不对';
+  if (status === 401) return '请先登录';
+  if (status === 403) return '只有管理层能改台名';
+  if (status === 404) return '这会儿找不到它了，刷新一下再试';
+  if (status === 0) return '连不上服务器，稍后再试';
+  return '这次没改成，稍后再试';
+}

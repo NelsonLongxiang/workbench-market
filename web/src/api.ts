@@ -422,12 +422,21 @@ export async function exportBenchTable(bench: string, target: TableContext): Pro
 export const listBenchViews = () => benchViewsGet('/api/bench-views');
 export const getBenchViewDoc = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/view`);
 /** 视图台页面的入口：ref 写卡片 id 或台标识。200 时 body 是 BenchEntry；读不到的、不存在的、没开台库的、还没有视图描述的都是同一个 404（页面照原来的方式打开卡片）；没登录 401 */
-export type BenchEntry = { bench: { slug: string; title: string; workbench_id: number | null }; version: number; title: string; default_view: string; views: { key: string; title: string }[] };
+/** can.rename（#927）：看的人能不能改台名，服务端判（和改名接口同一个判定）；能改时 bench.card_title 是对应卡片现在的名字（没有对应卡片是 null），不能改的人没有这一项 */
+export type BenchEntry = { bench: { slug: string; title: string; workbench_id: number | null; card_title?: string | null }; version: number; title: string; default_view: string; views: { key: string; title: string }[]; can?: { rename: boolean } };
 export const getBenchEntry = (ref: string | number) => benchViewsGet(`/api/bench-views/${encodeURIComponent(String(ref))}/entry`) as Promise<{ status: number; body: BenchEntry | { error?: string } | null }>;
 /** 视图台页面上交表单：路径写卡片 id。返回状态码和应答体（出错时带 error、message），让表单说原因；断网当状态码 0 */
 export async function submitBenchForm(ref: string | number, req: { view: string; block: number; version: number; values: Record<string, unknown> }): Promise<{ status: number; body: unknown }> {
   try {
     const r = await fetch(`/api/bench-views/${encodeURIComponent(String(ref))}/form`, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(req) });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+/** 改台名（#905 的接口、#927 的按钮）：{ title } 直接给名字，或 { from_card: true } 照对应卡片的名字抄；base_title 写页面看到的名字，对不上回 409。
+ *  返回状态码和应答体，让页面给说法；断网当状态码 0 */
+export async function renameBenchTitle(ref: string | number, req: { title: string; base_title: string } | { from_card: true; base_title: string }): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(`/api/bench-views/${encodeURIComponent(String(ref))}/title`, { method: 'PUT', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(req) });
     return { status: r.status, body: await r.json().catch(() => null) };
   } catch { return { status: 0, body: null }; }
 }

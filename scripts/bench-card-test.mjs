@@ -11,7 +11,8 @@
  *   四、台库是空的、或者卡片没有台：和原来一样直接删，不要确认、不留备份；本机命令行（属主）带确认删得了有数据的
  *   五、视图台页面的入口 GET /api/bench-views/:bench/entry：写卡片 id 拿到台名、版本、默认视图、各视图的键和标题；
  *       读不到的、不存在的、卡片没有台的、还没有视图描述的，应答逐字一样（404 bench_not_found）；没登录 401
- *   五之二、取数时表单块带 can_submit：管理层 true；只授了「取数、读视图」的自定义角色 false（这时交表单确实 403）；不是表单的块不带
+ *   五之二、取数时表单块带 can_submit：管理层 true；只授了「取数、读视图」的自定义角色 false（这时交表单确实 403）；不是表单的块不带。
+ *       入口带 can.rename（#927）：管理层 true、另给对应卡片的名字；只能取数的人 false、不给卡片名
  *   五之三、只改台名（#905）：PUT /api/bench-views/:bench/title，{ title } 或 { from_card: true }，base_title 核看到的名字；只有管理层（和改对应关系同一个动作）；
  *       只动名字（登记其余各列、授予和申请、视图、数据集都不变），留痕前后两个名字；同名不留痕；并发只成一个；经同一个入口改回原名
  *   四之二、删台（DELETE /api/apps/:slug）也走同一道门、同一条路：台的卡片的台库有数据时，只有管理口令的 409、什么都没删（台、卡片、台库都在）；
@@ -158,7 +159,7 @@ try {
   await bv(boss, 'PUT', `/legacy-a/datasets/secret_ds`, { key: ['id'], columns: [{ name: 'id', type: 'integer', label: '编号' }, { name: 'hidden_col', type: 'text', label: '备注' }] });
   const put = await bv(boss, 'PUT', `/${W2}/view`, { doc, base: 0, note: '合成：第一版' });
   const got = await entry(boss, W2);
-  check(noView.status === 404 && put.status === 200 && got.status === 200 && JSON.stringify(got.json) === JSON.stringify({ bench: { slug: 'legacy-a', title: '旧台', workbench_id: W2 }, version: 1, title: '合成·旧台视图', default_view: 'board', views: [{ key: 'board', title: '看板' }, { key: 'detail', title: '明细' }] }), '写卡片 id：台名、版本、默认视图（第一份）、各视图的键和标题；还没有视图描述时 404', { noView: noView.status, put: put.text.slice(0, 300), got: got.text });
+  check(noView.status === 404 && put.status === 200 && got.status === 200 && JSON.stringify(got.json) === JSON.stringify({ bench: { slug: 'legacy-a', title: '旧台', workbench_id: W2, card_title: '合成·旧台' }, version: 1, title: '合成·旧台视图', default_view: 'board', views: [{ key: 'board', title: '看板' }, { key: 'detail', title: '明细' }], can: { rename: true } }), '写卡片 id：台名、版本、默认视图（第一份）、各视图的键和标题；还没有视图描述时 404', { noView: noView.status, put: put.text.slice(0, 300), got: got.text });
   const alike = [await entry(member, W2), await entry(boss, W3), await entry(boss, 999999), await entry(member, 999999), await entry(boss, 'ghost-bench'), noView];
   check(alike.every((x) => x.status === 404 && x.text === alike[0].text), '读不到的（普通员工）、卡片没有台、卡片不存在、台没登记、还没有视图描述：应答逐字一样', alike.map((x) => [x.status, x.text]));
   const anonE = await srv.call('GET', `/api/bench-views/${W2}/entry`, { headers: REMOTE }), tokE = await entry(token, W2);
@@ -177,6 +178,11 @@ try {
   check(rBoss.status === 200 && formOf(rBoss)?.can_submit === true && rView.status === 200 && formOf(rView)?.can_submit === false && submitDenied.status === 403 && !('can_submit' in (tableOf(rBoss) ?? {})),
     '管理层取数：表单块 can_submit 为 true；只能取数的人：false，这时交表单确实 403；表格块不带这个字段', { boss: formOf(rBoss), view: formOf(rView), denied: submitDenied.status, rView: rView.status });
 
+  // 入口的 can.rename（#927）：和改名接口同一个判定。管理层 true、带对应卡片的名字；只授了取数、读视图的人 false，也看不到卡片名，直接调改名接口照旧 403
+  const eBoss = await entry(boss, W2), eView = await entry(member, W2);
+  const viewerRename = await srv.call('PUT', `/api/bench-views/${W2}/title`, { ...member, body: { title: '员工改' } });
+  check(eBoss.json?.can?.rename === true && eBoss.json?.bench?.card_title === '合成·旧台' && eView.status === 200 && eView.json?.can?.rename === false && !('card_title' in (eView.json?.bench ?? {})) && viewerRename.status === 403,
+    '入口的 can.rename：管理层 true、带卡片名；只能取数的人 false、不给卡片名，直接调改名接口照旧 403', { boss: eBoss.json?.can, bossCard: eBoss.json?.bench?.card_title, view: eView.json?.can, viewBench: eView.json?.bench, viewerRename: viewerRename.status });
   console.log('五之三、只改台名（#905）');
   {
     const title = (opts, ref, body) => srv.call('PUT', `/api/bench-views/${ref}/title`, { ...opts, ...(body === undefined ? {} : { body }) });

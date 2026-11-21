@@ -233,6 +233,14 @@ export function linkWorkbench(slug: string, input: unknown, actor: string, at: n
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
 
+/** 对应卡片现在的名字（去掉前后空白、最多 64 个字符，和 from_card 抄过去的一样）；没有对应的卡片、卡片没有名字都是 null（#927：台页面的「跟卡片同名」） */
+export function cardTitle(workbenchId: number | null): string | null {
+  if (workbenchId === null) return null;
+  const card = db.prepare('SELECT name FROM workbenches WHERE id = ?').get(workbenchId) as { name: string } | undefined;
+  const t = card ? String(card.name).trim().slice(0, 64) : '';
+  return t || null;
+}
+
 /**
  * 只改台的名字（#905）：卡片改名后，台的登记名不会跟着变（两个是独立的字段，可能有意不同），这里给一个只动名字的入口。
  * 两种写法，二选一：title 直接给新名字；from_card: true 照这个台对应的卡片现在的名字抄一份（没有对应的卡片 409）。
@@ -259,10 +267,11 @@ export function renameBench(slug: string, input: unknown, actor: string, at: num
     if (typeof o.base_title === 'string' && o.base_title !== cur.title) throw new BenchError('conflict', '台的名字已经被改过了，先重新读一次再改');
     let title: string;
     if (fromCard) {
-      const card = cur.workbench_id === null ? undefined : db.prepare('SELECT name FROM workbenches WHERE id = ?').get(cur.workbench_id) as { name: string } | undefined;
+      const card = cur.workbench_id === null ? undefined : db.prepare('SELECT 1 FROM workbenches WHERE id = ?').get(cur.workbench_id);
       if (!card) throw new BenchError('conflict', '这个台没有对应的卡片，抄不了卡片的名字');
-      title = String(card.name).trim().slice(0, 64);
-      if (!title) throw new BenchError('conflict', '对应的卡片没有名字');
+      const t = cardTitle(cur.workbench_id);
+      if (!t) throw new BenchError('conflict', '对应的卡片没有名字');
+      title = t;
     } else title = (o.title as string).trim();
     const changed = cur.title !== title;
     if (changed) {
