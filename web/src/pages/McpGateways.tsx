@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import BenchMcpRequests from './BenchMcpRequests';
 import { Link } from 'react-router-dom';
 import { App, Button, Empty, Input, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { KeyOutlined, PlusOutlined } from '@ant-design/icons';
@@ -378,7 +379,7 @@ export default function McpGateways() {
                   会话经 MCP <Typography.Text code>access_request</Typography.Text> 提交；批准把申请的工具并入该会话现有授权（不收走已有工具），立即生效并记审计。已吊销会话只能驳回。
                 </Typography.Paragraph>
                 <Typography.Paragraph type="secondary" className="wm-caption" data-testid="mcp-bench-hint">
-                  这里只有会话自己的工具申请。会话申请在某个台上用工具（台的工具授权）不在这一页，在<Link to="/attention">「等你拍板」</Link>里批；
+                  这里只有会话自己的工具申请。会话申请在某个台上用工具（台的工具授权）看旁边的「台上的申请」页签，或者在<Link to="/attention">「等你拍板」</Link>里批；
                   台里是业务数据，要用有管理层授予的账号登录才看得到、批得了，只有系统管理员授予或管理口令的看不到。
                 </Typography.Paragraph>
                 <Space className="wm-mb-3">
@@ -392,6 +393,11 @@ export default function McpGateways() {
                     : '没有记录'} /> }} />
               </>
             ),
+          },
+          {
+            // #904：台上的申请（会话申请在某个台上用工具）原来只在「等你拍板」里，这里也列出来、链到各台的授权页
+            key: 'bench-requests', label: '台上的申请',
+            children: <BenchMcpRequests />,
           },
           {
             key: 'upstreams', label: `上游聚合（${upstreams.length}）`,

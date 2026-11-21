@@ -205,6 +205,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/bench-real-loop-browser.mjs
+      - name: 台上的 MCP 申请真实闭环（#904：经 MCP 提申请→只读视图的人看不到入口→MCP 网关页找得到→台页面进管理页→批准留一句·驳回必须写理由·别处先批了 409 照说→会话调得了批准的、调不到驳回的、看得到理由→留痕；业务接口不截）
+        env:
+          PYTHON: python
+        run: node scripts/bench-mcp-ui-browser.mjs
       - name: 原生表格完整导出与来源详情（合成真实接口、实际浏览器下载、4833与1650全匹配、撤权与跨源拒绝）
         env:
           PYTHON: python
@@ -637,6 +641,8 @@ jobs:
         run: node scripts/cockpit-bench-view-unit.mjs
       - name: 视图台页面单测（入口怎么走·地址里的视图和筛选·表单没交上去的说法）
         run: node scripts/bench-page-unit.mjs
+      - name: 台的 MCP 授权页单测（#904：状态·读写·授予从哪来·驳回要理由·没成的说法·应答不像样不当空·网关页「台上的申请」的行）
+        run: node scripts/bench-mcp-page-unit.mjs
       - name: 身份变了以后页面重读单测（纯函数——认人只认 /api/auth/me·不通和 502 不算·合并去抖·世代号；单列一步）
         run: node scripts/session-watch-unit.mjs
       - name: 技能正文里写到的 MCP 工具名都在工具目录里（对照 surfaces/mcp-tools.json）
