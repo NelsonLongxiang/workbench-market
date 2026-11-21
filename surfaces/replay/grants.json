@@ -54,7 +54,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "4344", "etag": "W/\"10f8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "4426", "etag": "W/\"114a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "source": "initial",
               "roles": [
@@ -211,7 +211,10 @@
                         "bench-store.mcp-list",
                         "bench-store.mcp-grant",
                         "bench-store.mcp-decide",
-                        "knowledge.read"
+                        "knowledge.read",
+                        "bench-store.report-bind",
+                        "bench-store.report-generate",
+                        "bench-store.report-read"
                       ]
                     }
                   ],
