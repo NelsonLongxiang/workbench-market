@@ -136,6 +136,10 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'department.upsert',
       'access.red-lines',
       'principal.access',
+      // 报告的维度和模板：本机命令行在这里算属主（docs/report-step1.md 第四节）
+      'report.dimension-list',
+      'report.dimension-read',
+      'report.dimension-set',
       'setup.wizard-approve',
       'setup.wizard-read',
       'setup.wizard-run',
@@ -274,6 +278,7 @@ export const NARROWED: readonly NarrowedAction[] = [
   { action: 'area.migrate', only: ['owner', 'local-cli'], why: '部门迁成领域只有属主（本机命令行在这里算属主）：迁移替部门负责人起草领域负责人的授予，这类授予本来就只有属主能起草（docs/domains-step1.md 第二节第 3 小节）' },
   { action: 'area.retire', only: ['owner', 'local-cli'], why: '撤领域只有属主（本机命令行在这里算属主）；管理层、系统管理员、管理口令都不行（docs/domains-step1.md 第三节）' },
   { action: 'area.spec-set', only: ['owner', 'local-cli'], scopedHolder: 'area-spec', why: '定规范是硬规则，角色覆盖不算：只认属主（本机命令行在这里算属主），和持本领域 area-spec 授予（范围正好是 area:<领域>）的人；后者由路由按对象判' },
+  { action: 'report.dimension-set', only: ['owner', 'local-cli'], scopedHolder: 'area-report', why: '定报告维度（建维度、发模板、复核、移指针、撤）是硬规则，角色覆盖不算：只认属主（本机命令行在这里算属主），和持本领域 area-report 授予（范围正好是 area:<领域>）的人；跨领域的维度只认属主；后者由路由按对象判（docs/report-step1.md 第四节）' },
   { action: 'work-items.create', only: ['person'], why: '「安排一件事」只认人：建立人就是提需求的本人。任何启用的人都能安排（不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能' },
 ];
 export const narrowed = (action: string): NarrowedAction | undefined => NARROWED.find((n) => n.action === action);
