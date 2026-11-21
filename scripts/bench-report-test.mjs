@@ -17,6 +17,7 @@
  *   R1 回应：理由必填、立场照模板、回应者／类别／位置由服务端填；R2 未处理的反驳（人的链头、改主意接链头、不分叉）；
  *   R3 MCP 生成、回应记 AI，AI 的反驳不算；R4 被更正之后旧报告上的不算；R5 回应、报告、论断不能改不能删
  *   R6（#932 独立验收）能回应读不了的 404 和不存在一样；MCP 回应要有 report_get 授予；一个人一条链；接别人链头 409；对整份报告的反驳算
+ *   R6d（属主 2026-11-21：收窄）回应记的位置只含管得到这个台的授予：别的领域的不记，台绑到那个领域以后才记
  *   R7（PR D）入口的 can.reports、can.respond 和接口同一套判法；读报告带回模板的立场和论断类别名、回应标出 mine
  *   G10 产出方由服务端填：登录的那个人，记 human（数据视图的台只认人，本机命令行、管理口令进不来是既有规矩）
  *
@@ -464,6 +465,24 @@ try {
         && JSON.stringify(r?.template) === JSON.stringify({ stances: ['agree', 'dispute', 'supplement'], claims: [{ kind: 'conclusion', label: '结论' }] }) && mineOk,
       'R7 入口的 can.reports、can.respond：管理层 true；读报告带回这份报告那一版模板（第 2 版只有「结论」一类）可选的立场和论断类别名；回应标出是不是读的人自己的（AI 会话的不是）',
       { boss: eBoss.json?.can, template: r?.template, mine: rs.map((x) => [x.responder, x.mine]) });
+  }
+
+  console.log('R6d 回应记的位置只含管得到这个台的授予（属主 2026-11-21：收窄）');
+  {
+    // alpha 另有一条只管 zeta 领域的授予：和这个台无关，不进位置；全公司（*）的照记
+    const gZ = await activate({ principal: 'user:alpha', role: 'area-lead', scope: 'area:zeta' });
+    const posRep = await gen(boss, G({ subject: 'card:synth-orders@pos' }));
+    const pr = await respond(boss, { claim_key: 'conclusion-1', stance: 'agree', reason: '合成：看位置' }, posRep.json?.report?.id);
+    const pos = pr.json?.response?.position ?? '';
+    check(gZ && pr.status === 201 && pos === 'management@*,owner@*' && !pos.includes('zeta'),
+      'R6d 回应记的位置只含管得到这个台的授予：全公司的 management、owner 记上，只管 zeta 领域的 area-lead 不记', { gZ, status: pr.status, pos });
+    // 台绑到 zeta 以后，zeta 的授予就管得到这个台了：记上。用完解绑，后面照旧
+    const bind = await bv(boss, 'PUT', '/synth-orders/binding', { department: 'zeta' });
+    const pw = await respond(boss, { stance: 'supplement', reason: '合成：绑了 zeta 再看位置' }, posRep.json?.report?.id);
+    const unbind = await bv(boss, 'PUT', '/synth-orders/binding', { department: '' });
+    const posZ = pw.json?.response?.position ?? '';
+    check(bind.status === 200 && pw.status === 201 && posZ === 'area-lead@area:zeta,management@*,owner@*' && unbind.status === 200,
+      'R6d 台绑到 zeta 以后，zeta 的 area-lead 管得到这个台，记进位置', { bind: [bind.status, bind.text?.slice(0, 120)], pw: pw.status, posZ, unbind: unbind.status });
   }
 
   console.log('R5 回应不能改不能删');

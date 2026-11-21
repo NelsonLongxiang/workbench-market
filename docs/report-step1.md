@@ -116,7 +116,7 @@
 | `stance` | `agree` / `dispute` / `supplement` |
 | `reason` | 必填，1～4000 字 |
 | `responder`、`responder_kind` | 主体标识；`human` / `ai`，服务端按主体种类定，不收请求里的 |
-| `position` | 回应时的位置：服务端按回应者当时生效的授予记（例如 `area:sales/area-lead`），不收请求里的 |
+| `position` | 回应时的位置：服务端按回应者当时生效的授予记，**只记管得到这个台的**：范围是全公司（`*`），或正好是这个台绑的部门、领域（例如 `area-lead@area:sales`）；别处的授予不记，免得读报告的人借此看到回应者的全部授予（属主 2026-11-21 定：收窄）。不收请求里的 |
 | `supersedes` | 同一回应者对同一条论断改主意时，指向自己的上一条；只能接自己的链头 |
 | `created_at` | |
 
