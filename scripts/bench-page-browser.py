@@ -49,6 +49,7 @@ def view_result(view, params):
 log = {'entry': 0, 'render': [], 'form': [], 'title': []}
 mode = {'entry': 'ok', 'render': 'ok', 'form': 'ok', 'title': 'ok', 'filters': 'one'}
 held = []  # 压住不回的取数（render 应答由测试自己放行）
+held_entry = []  # 压住不回的入口应答
 # 改台名（#905）：管理层的入口带 can.rename；台名改了以后入口照新名字回
 mgr = {'title': ENTRY['bench']['title']}
 def mgr_entry(): return {**ENTRY, 'bench': {**ENTRY['bench'], 'title': mgr['title']}, 'can': {'rename': True}}
@@ -66,6 +67,7 @@ def on_bv(route):
         if mode['entry'] == 'v2': return fake(route, ENTRY2)
         if mode['entry'] == 'v3': return fake(route, ENTRY3)
         if mode['entry'] == 'mgr': return fake(route, mgr_entry())
+        if mode['entry'] == 'hold': held_entry.append((route, mgr_entry())); return None  # 应答照发出那一刻的名字，由测试晚些放行
         return fake(route, ENTRY)
     if rest == 'render':
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
@@ -270,6 +272,24 @@ with sync_playwright() as p:
     check('过了 30 秒再切回来：重新取了一次入口，顶栏换成别人改的新名字', log['entry'] == e0 + 1, (e0, log['entry']))
     check('……对话框开着：输入框还是正在输入的那个，没被覆盖', inp.input_value() == '正在输入的名字', inp.input_value())
     pg.keyboard.press('Escape'); mode['entry'] = 'ok'
+
+    print('七之二、连着重取两次入口，先发出的那次晚到')
+    mode['entry'] = 'mgr'; mgr['title'] = '合成·旧名'; held_entry.clear()
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    mode['entry'] = 'hold'
+    pg.locator('[data-testid=bench-page-refresh]').click()
+    for _ in range(250):  # 等到第一次重取确实压在半路，等不到就失败
+        if held_entry: break
+        pg.wait_for_timeout(20)
+    check('（前提）第一次重取入口压在半路，它带的还是旧名', len(held_entry) == 1 and held_entry[0][1]['bench']['title'] == '合成·旧名', len(held_entry))
+    mgr['title'] = '合成·新名'; mode['entry'] = 'mgr'
+    pg.locator('[data-testid=bench-page-refresh]').click()
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '合成·新名'")
+    with pg.expect_event('requestfinished', lambda r: r.url.endswith('/entry')):
+        route, body = held_entry.pop(); fake(route, body)
+    pg.evaluate("() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))")  # 晚到的应答交给页面以后，再等两帧让它画完
+    check('先发出的那次晚到（带旧名）：顶栏仍是后一次的新名字，不退回旧名', pg.locator('[data-testid=bench-page-name]').inner_text() == '合成·新名' and pg.title().endswith('合成·新名'), (pg.locator('[data-testid=bench-page-name]').inner_text(), pg.title()))
+    mode['entry'] = 'ok'
 
     print('八、连着改两个筛选（第一次取数还没回来就改第二个）')
     mode['render'] = 'ok'; mode['entry'] = 'ok'; mode['filters'] = 'two'
