@@ -1474,6 +1474,9 @@ export class BenchStoreCore {
         if (!t.length) throw new BenchError('not_found', `没有第 ${r.supersedes} 条回应`);
         if (Number(t[0].report_id) !== r.report_id || String(t[0].claim_key) !== r.claim_key || String(t[0].responder) !== r.responder) throw new BenchError('conflict', '只能接自己对同一条论断的回应');
         if ((await this.conn.all('SELECT 1 AS x FROM bs_report_responses WHERE supersedes = ?', [r.supersedes])).length) throw new BenchError('conflict', `第 ${r.supersedes} 条回应已经被接过了，只能接链头`);
+      } else if ((await this.conn.all('SELECT 1 AS x FROM bs_report_responses WHERE report_id = ? AND claim_key = ? AND responder = ?', [r.report_id, r.claim_key, r.responder])).length) {
+        // 一个人对一条论断只有一条链：已经回应过的，改主意要带 supersedes 接自己的链头。不然「最新一条」和链头对不上，未处理的反驳会算错（规格第五节第 15 条；#932 独立验收）
+        throw new BenchError('conflict', '你对这条论断已经回应过了：改主意要带 supersedes 接你最新的那一条');
       }
       const ins = await this.conn.all('INSERT INTO bs_report_responses (report_id, claim_key, stance, reason, responder, responder_kind, position, supersedes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
         [r.report_id, r.claim_key, r.stance, r.reason, r.responder, r.responder_kind, r.position, r.supersedes, r.created_at]);

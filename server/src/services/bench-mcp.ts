@@ -261,6 +261,8 @@ export async function benchToolTarget(on: boolean, sessionId: number | null, too
   if (typeof ref !== 'string' || !BENCH_SLUG_RE.test(ref)) return null;
   const bench = resolveBenchRef(ref); // 写卡片 id 也认：授予按台标识记
   if (!hasBenchGrant(sessionId, bench, toolName)) return null;
+  // 回应要读得了这份报告（规格第五节第 14 条）：会话在这个台上还要有 report_get 的授予（#932 独立验收）
+  if (toolName === 'report_respond' && !hasBenchGrant(sessionId, bench, 'report_get')) return null;
   if (!getBench(bench)) return null;
   return benchStore(bench);
 }

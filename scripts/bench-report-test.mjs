@@ -16,6 +16,7 @@
  *   G9 （#17）删卡片：台库里只有报告也算有数据，409 的规模里有报告份数，不带正文
  *   R1 回应：理由必填、立场照模板、回应者／类别／位置由服务端填；R2 未处理的反驳（人的链头、改主意接链头、不分叉）；
  *   R3 MCP 生成、回应记 AI，AI 的反驳不算；R4 被更正之后旧报告上的不算；R5 回应、报告、论断不能改不能删
+ *   R6（#932 独立验收）能回应读不了的 404 和不存在一样；MCP 回应要有 report_get 授予；一个人一条链；接别人链头 409；对整份报告的反驳算
  *   G10 产出方由服务端填：登录的那个人，记 human（数据视图的台只认人，本机命令行、管理口令进不来是既有规矩）
  *
  *   node scripts/bench-report-test.mjs
@@ -382,6 +383,53 @@ try {
     const after = await read(mid);
     check(human.status === 201 && before?.claims?.[0]?.open_dispute === true && fix.status === 201 && after?.report?.superseded_by === fix.json?.report?.id && after?.claims?.[0]?.open_dispute === false && after?.open_disputes === 0,
       'R4 人的反驳算未处理；这份报告被更正之后，旧报告上的反驳不再算（看新报告）', { human: human.status, before: before?.claims?.[0]?.open_dispute, after: after?.claims?.[0]?.open_dispute, sb: after?.report?.superseded_by });
+  }
+
+  console.log('R6 回应要读得了（第 14 条）；一个人一条链（第 15 条）；接别人的链头、对整份报告的反驳（#932 独立验收）');
+  {
+    // 只能回应、读不了报告的人（自定义角色只列 report-respond，范围 *）：和报告不存在一样 404，应答一字不差，库里没多一行
+    await cli('POST', '/api/roles/guest/copy', { id: 'respond-only', name: '合成只能回应' });
+    await cli('PUT', '/api/roles/respond-only', { permissions: [{ actions: ['bench-store.report-respond'] }] });
+    await cli('POST', '/api/roles/respond-only/approve');
+    const gR = await activate({ principal: 'user:beta', role: 'respond-only', scope: '*' });
+    const beforeN = (await read())?.claims?.[0]?.responses?.length;
+    const onReal = await respond(member, { claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：读不了也想反驳' });
+    const onGhost = await respond(member, { claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：读不了也想反驳' }, 99999);
+    const readDenied = await bv(member, 'GET', `/synth-orders/reports/${rid}`);
+    const afterR = await read();
+    check(gR && readDenied.status === 403 && onReal.status === 404 && onReal.status === onGhost.status && onReal.text === onGhost.text
+        && afterR?.claims?.[0]?.responses?.length === beforeN && afterR?.open_disputes === 0,
+      'R6a 能回应、读不了报告的人：回应存在的报告和不存在的报告一样 404、应答一字不差（探不出报告在不在）；没写进去，不算未处理的反驳',
+      { gR, readDenied: readDenied.status, onReal: `${onReal.status} ${onReal.text?.slice(0, 80)}`, onGhost: `${onGhost.status} ${onGhost.text?.slice(0, 80)}`, n: [beforeN, afterR?.claims?.[0]?.responses?.length] });
+    // MCP：只授了 report_respond、没授 report_get 的会话回应不了；两个都授了才行
+    const admin = { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } };
+    const sess = (await srv.call('POST', '/api/mcp/sessions', { ...admin, body: { name: 'synth-respond-only' } })).json;
+    const call = async (name, args) => {
+      const r = await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${sess?.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } } });
+      const res = r.json?.result;
+      return { isError: res?.isError === true, rpcError: r.json?.error?.code ?? null, text: res?.content?.[0]?.text ?? JSON.stringify(r.json?.error ?? '') };
+    };
+    const g1 = await bv(boss, 'PUT', '/synth-orders/mcp-grants', { session: 'synth-respond-only', tools: ['report_respond'] });
+    const only = await call('report_respond', { bench: 'synth-orders', id: rid, claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：没授读' });
+    const g2 = await bv(boss, 'PUT', '/synth-orders/mcp-grants', { session: 'synth-respond-only', tools: ['report_respond', 'report_get'] });
+    const both = await call('report_respond', { bench: 'synth-orders', id: rid, stance: 'supplement', reason: '合成：授了读，对整份补充' });
+    check(g1.status === 200 && (only.isError || only.rpcError !== null) && g2.status === 200 && !both.isError && both.rpcError === null,
+      'R6b MCP：只授了 report_respond 的会话回应不了（要能读）；report_get 也授了才回应得了', { g1: g1.status, only: only.text.slice(0, 100), g2: g2.status, both: both.text.slice(0, 100) });
+    // 一个人一条链：已经回应过的，不带 supersedes 再发 409（不然先反驳、后另起一条认可，反驳还算着）
+    const mineHead = (r) => { const m = (r?.claims?.[0]?.responses ?? []).filter((x) => x.responder === 'user:alpha'); const rep = new Set(m.map((x) => x.supersedes)); return m.find((x) => !rep.has(x.id)); };
+    const head = mineHead(await read());
+    const fresh = await respond(boss, { claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：另起一条' });
+    // 接别人的链头：409
+    const othersHead = await respond(sys, { claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：接别人的', supersedes: head?.id });
+    // 对整份报告的反驳算进未处理的反驳；本人改成认可后不算
+    const whole = await respond(boss, { stance: 'dispute', reason: '合成：整份口径不对' });
+    const w1 = await read();
+    const wholeBack = await respond(boss, { stance: 'agree', reason: '合成：整份没问题', supersedes: whole.json?.response?.id });
+    const w2 = await read();
+    check(!!head && fresh.status === 409 && othersHead.status === 409 && whole.status === 201 && w1?.open_disputes === 1 && w1?.claims?.every((c) => c.open_dispute === false)
+        && w1?.responses?.some((x) => x.stance === 'dispute') && wholeBack.status === 201 && w2?.open_disputes === 0,
+      'R6c 已经回应过的不带 supersedes 再发 409；接别人的链头 409；对整份报告的反驳算一处未处理的反驳（论断上都没有），本人改成认可后为 0',
+      { head: head?.id, fresh: fresh.status, othersHead: othersHead.status, whole: whole.status, w1: w1?.open_disputes, wholeBack: wholeBack.status, w2: w2?.open_disputes });
   }
 
   console.log('R5 回应不能改不能删');
