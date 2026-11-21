@@ -4289,9 +4289,9 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "235", "etag": "W/\"eb-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "243", "etag": "W/\"f3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
-              "response": { "id": 1, "report_id": 1, "claim_key": "conclusion-1", "stance": "dispute", "reason": "回放：口径不对", "responder": "user:alpha", "responder_kind": "human", "position": "management@*", "supersedes": null, "created_at": 1893456000000 }
+              "response": { "id": 1, "report_id": 1, "claim_key": "conclusion-1", "stance": "dispute", "reason": "回放：口径不对", "responder": "user:alpha", "responder_kind": "human", "position": "management@*,owner@*", "supersedes": null, "created_at": 1893456000000 }
             }
           }
         },
@@ -4305,7 +4305,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1563", "etag": "W/\"61b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1571", "etag": "W/\"623-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "report": {
                 "id": 1,
@@ -4349,7 +4349,7 @@
                   "text": "回放结论",
                   "basis": [],
                   "responses": [
-                    { "id": 1, "report_id": 1, "claim_key": "conclusion-1", "stance": "dispute", "reason": "回放：口径不对", "responder": "user:alpha", "responder_kind": "human", "position": "management@*", "supersedes": null, "created_at": 1893456000000 }
+                    { "id": 1, "report_id": 1, "claim_key": "conclusion-1", "stance": "dispute", "reason": "回放：口径不对", "responder": "user:alpha", "responder_kind": "human", "position": "management@*,owner@*", "supersedes": null, "created_at": 1893456000000 }
                   ],
                   "open_dispute": true
                 }
