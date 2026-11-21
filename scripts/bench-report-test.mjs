@@ -19,8 +19,11 @@
  *   R6（#932 独立验收）能回应读不了的 404 和不存在一样；MCP 回应要有 report_get 授予；一个人一条链；接别人链头 409；对整份报告的反驳算
  *   R6e（#932 统筹）报告清单不越界：别的台的清单、按事物筛都 403、没有条数；MCP 只能列有授予的台
  *   R6d（属主 2026-11-21：收窄）回应记的位置只含管得到这个台的授予：别的领域的不记，台绑到那个领域以后才记
+ *   R7（PR D）入口的 can.reports、can.respond 和接口同一套判法；读报告带回模板的立场和论断类别名、回应标出 mine；
+ *   R7b（#937 统筹）读、清单带给人看的名字（维度、人、位置、来源视图），页面据此不露内部标识
  *   G12（#930 统筹验收）产出方只有 person 记 human；带报告动作的自定义角色两人放行：提议没放行、授予没放行都不生效
  *   G11（#930 独立验收）只能看台的人读报告、生成、绑定 403；冻结后补论断、论断挂到不存在的报告都拒；三张冻结的表在库里 UPDATE、DELETE、INSERT OR REPLACE 都拒
+ *   F（A～D 验收建议的补测）F1 预设 member 读不了报告；F2 领域授予读得了、回应得了；F2b 只有 read 档的领域授予读不了；F3 老部门的授予记进位置；F4 旧报告带它那一版模板
  *   G10 产出方由服务端填：登录的那个人，记 human（数据视图的台只认人，本机命令行、管理口令进不来是既有规矩）
  *
  *   node scripts/bench-report-test.mjs
@@ -33,6 +36,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
+import { legacySeed } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
@@ -434,6 +438,65 @@ try {
         && w1?.responses?.some((x) => x.stance === 'dispute') && wholeBack.status === 201 && w2?.open_disputes === 0,
       'R6c 已经回应过的不带 supersedes 再发 409；接别人的链头 409；对整份报告的反驳算一处未处理的反驳（论断上都没有），本人改成认可后为 0',
       { head: head?.id, fresh: fresh.status, othersHead: othersHead.status, whole: whole.status, w1: w1?.open_disputes, wholeBack: wholeBack.status, w2: w2?.open_disputes });
+    // 收回 beta 的「只能回应」，下面入口 can 的对照从干净的 beta 开始
+    const gid = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = 'respond-only' AND status = 'active'").get()?.id;
+    const rv = await cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：R6 用完收回' });
+    check(rv.status === 200, '（收尾）收回 beta 的只能回应', rv.status);
+  }
+
+  console.log('R7 报告页要的：入口的 can、读报告带回的模板信息和 mine（报告第 1 步 PR D）');
+  {
+    // 入口：能读报告、能回应的人 can.reports / can.respond 为 true。
+    // 对照要进得了入口：普通员工先授一个只点名「取数、读视图」的自定义角色（入口 200，两项都 false），再加一个只点名「读报告」的（reports true、respond 还是 false）
+    const role = async (id, actions) => {
+      const c = await cli('POST', '/api/roles/guest/copy', { id, name: `合成·${id}` });
+      const n = await cli('PUT', `/api/roles/${id}`, { permissions: [{ actions }] });
+      await cli('POST', `/api/roles/${id}/approve`);
+      return c.status === 201 && n.status === 200;
+    };
+    const prep = await role('rp-viewer', ['bench-store.render', 'bench-store.view-get']) && await activate({ principal: 'user:beta', role: 'rp-viewer', scope: '*' });
+    const eBoss = await bv(boss, 'GET', '/synth-orders/entry'), eMember = await bv(member, 'GET', '/synth-orders/entry');
+    const prep2 = await role('rp-reader', ['bench-store.report-read']) && await activate({ principal: 'user:beta', role: 'rp-reader', scope: '*' });
+    const eReader = await bv(member, 'GET', '/synth-orders/entry');
+    const canM = eMember.json?.can, canR = eReader.json?.can;
+    check(prep && prep2 && eMember.status === 200 && canM?.reports === false && canM?.respond === false && eReader.status === 200 && canR?.reports === true && canR?.respond === false,
+      'R7 入口的 can 对照：只能取数、读视图的人 reports、respond 都是 false；再授读报告：reports true、respond 仍是 false（和接口的判法一致）', { prep, prep2, member: [eMember.status, canM], reader: [eReader.status, canR] });
+    // 读：带回这一版模板可选的立场、论断各类的名字；自己的回应 mine 为 true，MCP 会话的为 false
+    const list = (await bv(boss, 'GET', '/synth-orders/reports?subject=card:synth-orders@mcp')).json?.reports ?? [];
+    const old = list.find((x) => x.superseded_by !== null);
+    const r = old ? (await bv(boss, 'GET', `/synth-orders/reports/${old.id}`)).json : null;
+    const rs = r?.claims?.[0]?.responses ?? [];
+    const mineOk = rs.length >= 2 && rs.every((x) => x.mine === (x.responder === 'user:alpha')) && rs.some((x) => x.mine) && rs.some((x) => !x.mine && x.responder_kind === 'ai');
+    check(eBoss.status === 200 && eBoss.json?.can?.reports === true && eBoss.json?.can?.respond === true
+        && JSON.stringify(r?.template) === JSON.stringify({ stances: ['agree', 'dispute', 'supplement'], claims: [{ kind: 'conclusion', label: '结论' }] }) && mineOk,
+      'R7 入口的 can.reports、can.respond：管理层 true；读报告带回这份报告那一版模板（第 2 版只有「结论」一类）可选的立场和论断类别名；回应标出是不是读的人自己的（AI 会话的不是）',
+      { boss: eBoss.json?.can, template: r?.template, mine: rs.map((x) => [x.responder, x.mine]) });
+    // 给人看的名字（#937 统筹：页面不露内部标识）：读、清单都带 names，和库里的名字一致；取不到的是 null（页面写「未命名」）
+    const dimTitle = (id) => db.prepare('SELECT title FROM report_dimensions WHERE id = ?').get(id)?.title ?? null;
+    const pName = (id) => (db.prepare('SELECT display_name FROM principals WHERE id = ?').get(id)?.display_name || '').trim() || null;
+    const nm = r?.names, ls = await bv(boss, 'GET', '/synth-orders/reports?subject=card:synth-orders@mcp');
+    const actorsOk = nm && Object.keys(nm.actors).length >= 2 && Object.entries(nm.actors).every(([a, n]) => n === pName(a)) && nm.actors['user:alpha'] && !String(nm.actors['user:alpha']).includes(':');
+    const posAlpha = rs.find((x) => x.responder === 'user:alpha')?.position, posAi = rs.find((x) => x.responder_kind === 'ai')?.position;
+    const pa = nm?.positions?.[posAlpha];
+    // 角色名照角色表（/api/roles）的 name，不是角色标识
+    const roleNames = new Map(((await cli('GET', '/api/roles')).json?.roles ?? []).map((x) => [x.id, x.name]));
+    const roleIds = String(posAlpha ?? '').split(',').map((g) => g.slice(0, g.lastIndexOf('@')));
+    const posOk = posAlpha?.includes('@*') && Array.isArray(pa) && pa.length === roleIds.length && pa.every((g, i) => g.role === roleNames.get(roleIds[i]) && g.role !== roleIds[i] && g.scope === '全公司') && nm?.positions?.[posAi] === 'mcp';
+    const srcOk = Array.isArray(nm?.sources) && nm.sources.length === r.report.sources.length && nm.sources.length >= 1
+      && nm.sources.every((x, i) => x.slot === r.report.sources[i].slot && x.view === '看板' && (x.block === null || typeof x.block === 'string'));
+    const ln = ls.json?.names;
+    const listOk = ls.status === 200 && ln && Object.entries(ln.dimensions).every(([d, t]) => t === dimTitle(d)) && Object.values(ln.dimensions).some((t) => t)
+      && Object.entries(ln.actors).every(([a, n]) => n === pName(a)) && Object.keys(ln.actors).length >= 1;
+    check(nm?.dimension === dimTitle(r?.report?.dimension_id) && nm?.dimension && actorsOk && posOk && srcOk && listOk,
+      'R7b 给人看的名字：读报告带维度标题、产出方和回应者的显示名、位置写成「角色名 + 范围名」（* 是全公司、MCP 会话是 mcp）、来源的视图标题；清单带维度标题、产出方显示名；和库里一致，取不到是 null',
+      { names: nm, list: ln, posAlpha, posAi });
+    // 收回 beta 的 rp-viewer、rp-reader：后面 G11「只能看台、不能读报告」从干净的 beta 开始
+    const rvs = [];
+    for (const role of ['rp-viewer', 'rp-reader']) {
+      const gid = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = ? AND status = 'active'").get(role)?.id;
+      rvs.push((await cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：R7 用完收回' })).status);
+    }
+    check(rvs.every((x) => x === 200), '（收尾）收回 beta 的 rp-viewer、rp-reader', rvs);
   }
 
   console.log('R6d 回应记的位置只含管得到这个台的授予（属主 2026-11-21：收窄）');
@@ -588,6 +651,58 @@ try {
         && sub.status === 200 && pending.status === 403 && pendingList.status === 403,
       'G12 管理口令把自定义角色改成带报告动作，只是提议：属主放行前授给人，生成 403；放行后 201；授予只起草、提交没放行：生成、读清单 403',
       { proposed: [proposed.status, proposed.text?.slice(0, 120)], gr, beforeApprove: beforeApprove.status, approved: approved.status, afterApprove: [afterApprove.status, afterApprove.text?.slice(0, 100)], rv2: rv2.status, sub: sub.status, pending: pending.status, pendingList: pendingList.status });
+  }
+  console.log('F 验收建议的补测（报告第 1 步 A～D 合并后的跟进）');
+  {
+    const revoke = async (principal, role) => {
+      const gid = db.prepare("SELECT id FROM grants WHERE principal_id = ? AND role = ? AND status = 'active'").get(principal, role)?.id;
+      return (await cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：F 用完收回' })).status;
+    };
+    const rid0 = first.json?.report?.id;
+    // F1（#930 验收 m11）按档授予的预设：普通员工（member，范围 *）读不了报告和清单
+    const gm = await activate({ principal: 'user:beta', role: 'member', scope: '*' });
+    const f1 = { view: (await bv(member, 'GET', '/synth-orders/view')).status, one: (await bv(member, 'GET', `/synth-orders/reports/${rid0}`)).status, list: (await bv(member, 'GET', '/synth-orders/reports')).status };
+    const rv1 = await revoke('user:beta', 'member');
+    // 台的动作全局都按 write 档判（judgment-builtins.ts），member 只有 read 档加点名的几个写动作，所以连视图也读不了：这里只守「读不了报告、清单」
+    check(gm && f1.one === 403 && f1.list === 403 && rv1 === 200, 'F1 预设 member（范围 *）：读报告、读清单 403（视图也是 403：台的动作按 write 档判）', { gm, f1, rv1 });
+    // F2（#932 验收 q3）领域授予：台绑到 zeta，持 area-member@area:zeta 的人读得了报告、清单，回应得了
+    const ga = await activate({ principal: 'user:beta', role: 'area-member', scope: 'area:zeta' });
+    const bz = await bv(boss, 'PUT', '/synth-orders/binding', { department: 'zeta' });
+    const f2 = { one: (await bv(member, 'GET', `/synth-orders/reports/${rid0}`)).status, list: (await bv(member, 'GET', '/synth-orders/reports')).status,
+      respond: (await bv(member, 'POST', `/synth-orders/reports/${rid0}/responses`, { stance: 'supplement', reason: '合成：领域成员补充' })).status };
+    const ub = await bv(boss, 'PUT', '/synth-orders/binding', { department: '' });
+    const f2off = (await bv(member, 'GET', `/synth-orders/reports/${rid0}`)).status;
+    const rv2 = await revoke('user:beta', 'area-member');
+    check(ga && bz.status === 200 && f2.one === 200 && f2.list === 200 && f2.respond === 201 && ub.status === 200 && f2off === 403 && rv2 === 200,
+      'F2 台绑到 zeta：持 zeta 领域成员授予的人读报告、读清单 200，回应 201；解绑以后读 403', { ga, bz: bz.status, f2, ub: ub.status, f2off, rv2 });
+    // F2b（#944 验收：读报告的范围档改成 read 的变异）按档给的、限定到领域的授予：自定义角色只有 read 档、范围 area:zeta，台绑到 zeta——
+    // 读报告在范围档要 write，所以 403；范围档被放宽成 read 时就会 200
+    await cli('POST', '/api/roles/guest/copy', { id: 'k-reader', name: '合成·只读档' });
+    const kput = await cli('PUT', '/api/roles/k-reader', { permissions: [{ kinds: ['read'] }] });
+    await cli('POST', '/api/roles/k-reader/approve');
+    const gk = await activate({ principal: 'user:beta', role: 'k-reader', scope: 'area:zeta' });
+    const bk = await bv(boss, 'PUT', '/synth-orders/binding', { department: 'zeta' });
+    const f2b = { one: (await bv(member, 'GET', `/synth-orders/reports/${rid0}`)).status, list: (await bv(member, 'GET', '/synth-orders/reports')).status };
+    const ubk = await bv(boss, 'PUT', '/synth-orders/binding', { department: '' });
+    const rvk = await revoke('user:beta', 'k-reader');
+    check(kput.status === 200 && gk && bk.status === 200 && f2b.one === 403 && f2b.list === 403 && ubk.status === 200 && rvk === 200,
+      'F2b 只有 read 档、范围 area:zeta 的自定义角色，台绑到 zeta：读报告、读清单 403（读报告在范围档也按 write 判）', { kput: kput.status, gk, bk: bk.status, f2b, ubk: ubk.status, rvk });
+    // F3（#932 验收 s1）老部门：台绑到部门 dv-old，dept:dv-old 的授予记进回应的位置，dept:dv-else 的不记
+    const seed = legacySeed(join(srv.data, 'workbench-market.db'));
+    seed.department('dv-old', '合成老部门'); seed.department('dv-else', '合成别的老部门');
+    seed.grant('user:alpha', 'dept-member', 'dept:dv-old'); seed.grant('user:alpha', 'dept-member', 'dept:dv-else');
+    const bd = await bv(boss, 'PUT', '/synth-orders/binding', { department: 'dv-old' });
+    const rep3 = await gen(boss, G({ subject: 'card:synth-orders@dept' }));
+    const r3 = await bv(boss, 'POST', `/synth-orders/reports/${rep3.json?.report?.id}/responses`, { claim_key: 'conclusion-1', stance: 'agree', reason: '合成：看部门位置' });
+    const pos3 = r3.json?.response?.position ?? '';
+    const ub3 = await bv(boss, 'PUT', '/synth-orders/binding', { department: '' });
+    check(bd.status === 200 && r3.status === 201 && pos3.includes('dept-member@dept:dv-old') && !pos3.includes('dv-else') && ub3.status === 200,
+      'F3 台绑到老部门 dv-old：dept:dv-old 的授予记进位置，dept:dv-else 的不记', { bd: [bd.status, bd.text?.slice(0, 100)], r3: r3.status, pos3, ub3: ub3.status });
+    // F4（#937 验收 s5）读旧报告带的是它生成时那一版模板（第 1 版有结论、风险两类），不是现在生效的第 2 版
+    const old = (await bv(boss, 'GET', `/synth-orders/reports/${rid0}`)).json;
+    const kinds = (old?.template?.claims ?? []).map((c) => c.kind);
+    check(old?.report?.template_version === 1 && JSON.stringify(kinds) === JSON.stringify(['conclusion', 'risk']),
+      'F4 读第 1 版模板生成的旧报告：带回的模板是第 1 版的（结论、风险两类），不是现在生效的第 2 版', { tv: old?.report?.template_version, kinds });
   }
   db.close();
 } catch (e) {
