@@ -22,6 +22,7 @@
  *      本机命令行不能发判据类版本 403；跨领域维度属主自己发的，属主自己、本机命令行都复核不了
  *   R5f（#926 独立验收，路径二）偷换生效的判据：在没复核的判据上只改标题仍是 criteria、不能生效，命令行也借不了道；
  *      判据和复核过的版本一样的才是 layout；按判据内容认复核（复核了 v3，判据一样的 v2 也能生效）
+ *   R5g（统筹 #926 增量验收条件 1）停用了的人带管理口令加会话复核：会话认不出，硬规则先拦 403，走不到复核（证明这一支到不了认人）
  *   R6 读：登录的人都能读（普通员工、没授予的人也行）；远程匿名读、写 401；跨站来的写 403
  *   R7 不存在的维度、版本 404；撤了的维度：发版、复核、移指针、再撤 409，读照常
  *
@@ -249,6 +250,8 @@ try {
       ['指针指没复核的判据类', sqlThrows(A, "UPDATE report_dimensions SET active_version = 1 WHERE id = 'ops'")],
       ['指针指不存在的版本', sqlThrows(A, "UPDATE report_dimensions SET active_version = 99 WHERE id = 'ops'")],
       ['作者本人复核（写库）', sqlThrows(A, "INSERT INTO report_template_reviews (dimension_id, version, reviewed_by, reviewed_by_principal, reviewed_at) VALUES ('ops', 1, 'user:olga', 'user:olga', 1)")],
+      // 换个留痕写法、主体还是作者（统筹 #926 增量验收条件 2）：只命中触发器里比主体的那一半
+      ['作者本人换个写法复核（写库）', sqlThrows(A, "INSERT INTO report_template_reviews (dimension_id, version, reviewed_by, reviewed_by_principal, reviewed_at) VALUES ('ops', 1, 'admin-token', 'user:olga', 1)")],
       ['复核人主体为空（写库，本机命令行那种）', sqlThrows(A, "INSERT INTO report_template_reviews (dimension_id, version, reviewed_by, reviewed_by_principal, reviewed_at) VALUES ('ops', 1, 'cli', NULL, 1)")],
       ['判据类版本作者主体为空（写库）', sqlThrows(A, "INSERT INTO report_templates (dimension_id, version, body, sha256, criteria_sha256, kind, note, created_at, created_by, created_by_principal) VALUES ('ops', 2, '{}', ?, ?, 'criteria', '', 1, 'cli', NULL)", 'b'.repeat(64), 'b'.repeat(64))],
       // 判据没有复核过的版本记成版式类（#926 独立验收 D3）：库也拒
@@ -384,6 +387,21 @@ try {
       'R5f 生效的版本复核过；再发一版放宽论断（criteria），在它上面只改标题的一版仍是 criteria；这两版都不能生效 409；命令行在它上面只改标题 403；'
       + '命令行只改复核过那一版的标题是 layout、能生效；放宽论断的那一版有人复核后，判据一样的另一版也能生效',
       { v1: v1.status, r1: r1.status, a1: a1.status, v2: kindOf(v2), v3: kindOf(v3), a3: err(a3), a2: err(a2), cli5: err(cli5), cli4: kindOf(cli4), a4: a4.status, midActive, r3: r3.status, a2b: a2b.status });
+  }
+
+  // ---- R5g 管理口令加会话的路径（统筹 #926 增量验收条件 1）：路由这一支不核主体的 kind、status，只靠复核里的认人 ----
+  {
+    const dan = await A.person('dan', 'Dan-pass-000001', '192.0.2.81');
+    const danG = await cliGrant('user:dan', 'area-report', 'area:zeta');
+    const dis = await A.cli('POST', '/api/principals/disable', { id: 'user:dan', reason: '合成：停用' });
+    const before = counts(A);
+    const r = await dan.go('POST', '/api/report-dimensions/swap/templates/2/review', { json: {}, headers: { 'x-admin-token': ADMIN_TOKEN } });
+    const sess = await dan.go('GET', '/api/report-dimensions');
+    // 走不到复核里的认人：停用了的人的会话认不出（自己读也是 401），这一支拿到的主体是空的，定报告维度的硬规则先拦下（403 set_forbidden）。
+    // 非人的主体（服务、组）没有登录会话，也到不了这一支。所以「认人只看主体非空」这个变异在 HTTP 上打不红，由 R3 的触发器用例和这条一起说明
+    check(danG.status === 200 && dis.status === 200 && sess.status === 401 && r.status === 403 && r.json?.error === 'report_dimension_set_forbidden' && same(before, counts(A)),
+      'R5g 停用了的人带管理口令加自己的会话复核：会话已经认不出（自己读 401），硬规则先拦 403 set_forbidden，走不到复核；库里没有变化',
+      { danG: danG.status, dis: dis.status, sess: sess.status, r: `${r.status}:${r.json?.error ?? ''}` });
   }
 
   // ---- R6 读、匿名、跨站 ----
