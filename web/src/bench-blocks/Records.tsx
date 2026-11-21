@@ -2,7 +2,7 @@
  * 记录卡（records，#858）：查询的每一行一张卡片。标题、徽标、日期、主要字段一直可见；次要字段和长文字收在「展开」里。
  * 所有字段一律当纯文本显示（React 默认转义，这里不用任何 innerHTML，不解析 HTML、markdown）。
  * 来源链接只显示 label，不露网址；悬停和读屏给出目标主机名；只认 http(s)，不认的标「来源地址无效」、不渲染成链接。
- * 分页在页面上做（和表格同一个口径），卡片上方写「共 N 条」，查询被截断时写「只显示前 N 条」。
+ * 分页在页面上做（和表格同一个口径），卡片上方写「共 N 条」；查询被截断时不写这一行，只留框架那句截断提示（两处说同一件事）。
  */
 import { useId, useState } from 'react';
 import { Pagination, Tag } from 'antd';
@@ -74,7 +74,8 @@ export function RecordsBlock({ spec, linkTargets, pageSize = 20, dense, span = 1
   return (
     <BlockFrame {...frame} span={span} kind="records" empty={empty ?? '暂无记录'}>
       <div className={`wm-rec${dense ? ' wm-rec-dense' : ''}`}>
-        <div className="wm-rec-count" data-testid="rec-count">共 {cards.length} 条{truncated ? `（只显示前 ${cards.length} 条）` : ''}</div>
+        {/* 查询被截断时不写「共 N 条」（那不是总数）：框架已经说了「数据不止这些，只显示了前 N 行」，这里不再重复 */}
+        {!truncated && <div className="wm-rec-count" data-testid="rec-count">共 {cards.length} 条</div>}
         <div className="wm-rec-grid">{shown.map((c) => <Card key={`${cur}-${c.key}`} c={c} />)}</div>
         {cards.length > pageSize && <Pagination size="small" current={cur} pageSize={pageSize} total={cards.length} showSizeChanger={false} onChange={setPage} />}
       </div>
