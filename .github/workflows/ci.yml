@@ -197,6 +197,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/bench-page-browser.mjs
+      - name: 安排一件事端到端（真接口，不截请求·首页打开抽屉→选团队填表→进新事项详情→列表里有它·缺标题不发请求·打开后团队被撤时照服务端说、不跳走）
+        env:
+          PYTHON: python
+        run: node scripts/arrange-e2e-browser.mjs
       - name: 数据视图真实闭环（#762：建数据集→写行→存视图→浏览器真接口打开→筛选改真实结果→表单落库→幂等重放→旧版本拒→回退重读→解绑 403→跨台隔离；业务接口不截）
         env:
           PYTHON: python
