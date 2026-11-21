@@ -134,23 +134,35 @@ export function requestTarget(ref: string): RequestTarget | null {
 const audit =(bench: string, sessionId: number, action: string, tools: string[], actor: string, at: number, requestId: number | null, note: string): void => {
   db.prepare('INSERT INTO bench_mcp_audit (bench, session_id, action, tools, actor, request_id, note, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(bench, sessionId, action, JSON.stringify(tools), actor, requestId, note.slice(0, 500), at);
 };
-/** 一个台上：哪些会话有哪些工具、有哪些申请、最近的留痕 */
+/**
+ * 一个台上：哪些会话有哪些工具、有哪些申请、最近的留痕。
+ * 台的管理页（#904）另要：每个工具是读还是写（category）、这条授予是批准哪条申请来的（request_id，直接授予是 null）；
+ * 每条申请的工具读写分类和谁定的；以及 unmatched：写法对不上、这个台批不了的申请（卡片已对应了这个台、会话却写成 wb-<卡片 id>），
+ * 单列出来写明原因，不给批——不然管理页上看起来就是「没有申请」
+ */
 export function listBenchMcp(bench: string, at = Date.now()) {
   expireBenchRequests(at);
-  const grants = new Map<number, { session_id: number; session: string; revoked: boolean; tools: { tool: string; category: string; granted_by: string; granted_at: number }[] }>();
-  for (const r of db.prepare(`SELECT g.session_id, g.tool, g.granted_by, g.granted_at, s.name, s.revoked_at FROM bench_mcp_grants g LEFT JOIN mcp_sessions s ON s.id = g.session_id WHERE g.bench = ? ORDER BY g.session_id, g.tool`).all(bench) as Row[]) {
+  const grants = new Map<number, { session_id: number; session: string; revoked: boolean; tools: { tool: string; category: string; granted_by: string; granted_at: number; request_id: number | null }[] }>();
+  for (const r of db.prepare(`SELECT g.session_id, g.tool, g.granted_by, g.granted_at, g.request_id, s.name, s.revoked_at FROM bench_mcp_grants g LEFT JOIN mcp_sessions s ON s.id = g.session_id WHERE g.bench = ? ORDER BY g.session_id, g.tool`).all(bench) as Row[]) {
     const id = Number(r.session_id);
     const e = grants.get(id) ?? { session_id: id, session: r.name === null ? '' : String(r.name), revoked: r.name === null || String(r.revoked_at ?? '') !== '', tools: [] };
-    e.tools.push({ tool: String(r.tool), category: CATEGORY.get(String(r.tool)) ?? 'write', granted_by: String(r.granted_by), granted_at: Number(r.granted_at) });
+    e.tools.push({ tool: String(r.tool), category: CATEGORY.get(String(r.tool)) ?? 'write', granted_by: String(r.granted_by), granted_at: Number(r.granted_at), request_id: r.request_id === null ? null : Number(r.request_id) });
     grants.set(id, e);
   }
   // 写成卡片号的申请也算这个台的
   const b = getBench(bench), refs = b ? benchAliases(b) : [bench];
   const requests = (db.prepare(`SELECT q.*, s.name FROM bench_mcp_requests q LEFT JOIN mcp_sessions s ON s.id = q.session_id WHERE q.bench IN (${refs.map(() => '?').join(', ')}) ORDER BY q.id DESC LIMIT 100`).all(...refs) as Row[])
-    .map((r) => ({ ...forSession(r), session_id: Number(r.session_id), session: r.name === null ? '' : String(r.name), decided_by: String(r.decided_by) }));
+    .map((r) => ({ ...forSession(r), session_id: Number(r.session_id), session: r.name === null ? '' : String(r.name), decided_by: String(r.decided_by), tool_kinds: parseTools(r.tools).map((x) => ({ tool: x, category: CATEGORY.get(x) ?? 'write' })) }));
+  // 卡片已对应了这个台（标识不是 wb-<卡片 id>），会话却写成 wb-<卡片 id>：这个台批不了（开不出第二个台库），只列出来说明原因
+  // 只在 wb-<卡片 id> 不是任何登记了的台时才列：台自己就叫 wb-<卡片 id> 时它查得到自己；wb-<卡片 id> 是另一个登记了的台
+  // （卡片后来改对应到这个台）时，那些申请是那个台的，列出来就越界看到别的台的会话、理由和工具（#938 独立验收）
+  const stray = b && b.workbench_id !== null && !getBench(cardSlug(b.workbench_id)) ? cardSlug(b.workbench_id) : null;
+  const unmatched = stray === null ? [] : (db.prepare('SELECT q.*, s.name FROM bench_mcp_requests q LEFT JOIN mcp_sessions s ON s.id = q.session_id WHERE q.bench = ? ORDER BY q.id DESC LIMIT 100').all(stray) as Row[])
+    .map((r) => ({ ...forSession(r), session_id: Number(r.session_id), session: r.name === null ? '' : String(r.name), decided_by: String(r.decided_by), tool_kinds: parseTools(r.tools).map((x) => ({ tool: x, category: CATEGORY.get(x) ?? 'write' })),
+      why: `会话写的是 ${stray}，这张卡片对应的台标识是 ${b!.slug}：这个台批不了，请让会话用 ${b!.slug} 重新申请` }));
   const log = (db.prepare('SELECT id, session_id, action, tools, actor, request_id, note, at FROM bench_mcp_audit WHERE bench = ? ORDER BY id DESC LIMIT 100').all(bench) as Row[])
     .map((r) => ({ id: Number(r.id), session_id: Number(r.session_id), action: String(r.action), tools: parseTools(r.tools), actor: String(r.actor), request_id: r.request_id === null ? null : Number(r.request_id), note: String(r.note), at: Number(r.at) }));
-  return { grants: [...grants.values()], requests, log };
+  return { grants: [...grants.values()], requests, unmatched, log };
 }
 /**
  * 还没定、批得了的申请（「关注」里的待批清单用）：登记过的台上的，和写成「还没开台库的卡片」的（批准时顺带开台库，bench_registered 为 false）。

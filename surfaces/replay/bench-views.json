@@ -1977,14 +1977,14 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "259", "etag": "W/\"103-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "bench": { "slug": "demo", "title": "示例台", "workbench_id": null },
               "version": 2,
               "title": "订单台二版",
               "default_view": "overview",
               "views": [{ "key": "overview", "title": "总览" }, { "key": "entry", "title": "补录" }],
-              "can": { "rename": true }
+              "can": { "rename": true, "mcp": true, "mcp_decide": true }
             }
           }
         },
@@ -2653,11 +2653,24 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "454", "etag": "W/\"1c6-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "709", "etag": "W/\"2c5-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "grants": [],
               "requests": [
-                { "id": 2, "bench": "demo", "tools": ["view_put"], "reason": "改页面", "status": "pending", "note": "", "created_at": 1893456000000, "decided_at": null, "session_id": 1, "session": "replay-seat", "decided_by": "" },
+                {
+                  "id": 2,
+                  "bench": "demo",
+                  "tools": ["view_put"],
+                  "reason": "改页面",
+                  "status": "pending",
+                  "note": "",
+                  "created_at": 1893456000000,
+                  "decided_at": null,
+                  "session_id": 1,
+                  "session": "replay-seat",
+                  "decided_by": "",
+                  "tool_kinds": [{ "tool": "view_put", "category": "write" }]
+                },
                 {
                   "id": 1,
                   "bench": "demo",
@@ -2669,10 +2682,14 @@
                   "decided_at": null,
                   "session_id": 1,
                   "session": "replay-seat",
-                  "decided_by": ""
+                  "decided_by": "",
+                  "tool_kinds": [{ "tool": "dataset_list", "category": "read" }, { "tool": "dataset_query", "category": "read" }]
                 }
               ],
-              "log": []
+              "unmatched": [],
+              "log": [],
+              "bench": { "slug": "demo", "title": "示例台", "workbench_id": null },
+              "can": { "decide": true }
             }
           }
         },
@@ -3019,14 +3036,17 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1373", "etag": "W/\"55d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1661", "etag": "W/\"67d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "grants": [
                 {
                   "session_id": 1,
                   "session": "replay-seat",
                   "revoked": false,
-                  "tools": [{ "tool": "dataset_append", "category": "write", "granted_by": "user:alpha", "granted_at": 1893456000000 }, { "tool": "dataset_list", "category": "read", "granted_by": "user:alpha", "granted_at": 1893456000000 }]
+                  "tools": [
+                    { "tool": "dataset_append", "category": "write", "granted_by": "user:alpha", "granted_at": 1893456000000, "request_id": null },
+                    { "tool": "dataset_list", "category": "read", "granted_by": "user:alpha", "granted_at": 1893456000000, "request_id": 1 }
+                  ]
                 }
               ],
               "requests": [
@@ -3041,7 +3061,8 @@
                   "decided_at": 1893456000000,
                   "session_id": 1,
                   "session": "replay-seat",
-                  "decided_by": "user:alpha"
+                  "decided_by": "user:alpha",
+                  "tool_kinds": [{ "tool": "view_put", "category": "write" }]
                 },
                 {
                   "id": 1,
@@ -3054,15 +3075,19 @@
                   "decided_at": 1893456000000,
                   "session_id": 1,
                   "session": "replay-seat",
-                  "decided_by": "user:alpha"
+                  "decided_by": "user:alpha",
+                  "tool_kinds": [{ "tool": "dataset_list", "category": "read" }, { "tool": "dataset_query", "category": "read" }]
                 }
               ],
+              "unmatched": [],
               "log": [
                 { "id": 4, "session_id": 1, "action": "revoke", "tools": ["dataset_query"], "actor": "user:alpha", "request_id": null, "note": "只让它追加", "at": 1893456000000 },
                 { "id": 3, "session_id": 1, "action": "grant", "tools": ["dataset_append"], "actor": "user:alpha", "request_id": null, "note": "只让它追加", "at": 1893456000000 },
                 { "id": 2, "session_id": 1, "action": "reject", "tools": ["view_put"], "actor": "user:alpha", "request_id": 2, "note": "页面由人改", "at": 1893456000000 },
                 { "id": 1, "session_id": 1, "action": "approve", "tools": ["dataset_list", "dataset_query"], "actor": "user:alpha", "request_id": 1, "note": "可以", "at": 1893456000000 }
-              ]
+              ],
+              "bench": { "slug": "demo", "title": "示例台", "workbench_id": null },
+              "can": { "decide": true }
             }
           }
         },
@@ -3704,14 +3729,14 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "221", "etag": "W/\"dd-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "250", "etag": "W/\"fa-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "bench": { "slug": "demo", "title": "示例台", "workbench_id": 1 },
               "version": 1,
               "title": "订单台",
               "default_view": "overview",
               "views": [{ "key": "overview", "title": "总览" }, { "key": "entry", "title": "补录" }],
-              "can": { "rename": true }
+              "can": { "rename": true, "mcp": true, "mcp_decide": true }
             }
           }
         },

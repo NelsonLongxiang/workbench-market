@@ -292,8 +292,8 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
       title: typeof doc.title === 'string' ? doc.title : bench.title,
       default_view: doc.views[0].key,
       views: doc.views.map((v) => ({ key: v.key, title: v.title })),
-      // 页面据此决定出不出「改名」按钮；和 PUT /title 是同一个判法
-      can: { rename: mayRename(actor) },
+      // 页面据此决定出不出「改名」按钮、「MCP 授权」入口和上面的批准驳回（#904）；和对应接口是同一个判法（mayRename / may）
+      can: { rename: mayRename(actor), mcp: may(actor, 'bench-store.mcp-list', bench), mcp_decide: may(actor, 'bench-store.mcp-decide', bench) },
     });
   }));
 
@@ -388,7 +388,14 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
 
   // 把台的数据交给一个 AI 会话是「拍板」（和批授予、批角色同类），不是普通的写：以后有能改数据、但不该替会话开权限的角色时分得开
   // —— MCP 工具的授予（3b）：按「会话 × 台 × 工具」记，由能改这个台的人批；管理口令在上面已经拒了 ——
-  app.get('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-list', async (req) => listBenchMcp(req.params.bench)));
+  // 台的 MCP 管理页（#904）照应答里的 can.decide 出批准、驳回：和 POST .../mcp-requests/:id 同一个判法（may），页面不自己猜
+  app.get('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const bench = getBench(req.params.bench);
+    const judged = await allowActor(req, res, 'bench-store.mcp-list', bench);
+    if (!judged) return;
+    if (!bench) return void res.status(404).json({ error: 'bench_not_found' });
+    res.json({ ...listBenchMcp(req.params.bench), bench: { slug: bench.slug, title: bench.title, workbench_id: bench.workbench_id }, can: { decide: may(judged, 'bench-store.mcp-decide', bench) } });
+  }));
   app.put('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-grant', kind: 'decide', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-grant', async (req, _res, _s, actor) => setBenchGrants(req.params.bench, req.body, actor, Date.now())));
   // 「关注」里「台的 MCP 授予申请」卡片照 answer_via 调这里：带来的（from_attention）批成了记进「关注」的答复账，可以顺带记成经验（attention-via.ts）；
   // remember 写得不对在批之前就拒（400，申请不动）。别处直接调的照旧
