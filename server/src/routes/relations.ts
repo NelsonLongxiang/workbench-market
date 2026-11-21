@@ -4,7 +4,9 @@
  *   GET  /api/relations/proposals              待确认的提议（和最近处理过的），每条带 can_approve / approve_denied_text / can_reject。登录的人、管理员
  *                                               另带 mine（是不是看的人提的）、outcome（结局，失效和驳回分开）和 outcome_reason、
  *                                               显示名（团队、节点、部门、被提名的人、提议人、处理人），页面不露代号；失效的留 7 天
- *   POST /api/relations/proposals/:id/approve  确认：负责人只有属主；团队认领要管理层或接收部门的负责人
+ *   POST /api/relations/proposals/:id/approve  确认：负责人只有属主；团队认领要管理层或接收部门的负责人。
+ *                                              部门负责人提议（部门已停写）改成起草 area-lead：应答多 drafted_grant_id，去重命中带 skipped，推翻迁移否决带 refused_before_overridden；
+ *                                              对应的领域不在或撤了 409 area_not_migrated
  *   POST /api/relations/proposals/:id/reject   驳回或撤回 { reason }：驳回只归能确认的人，提议的人撤回自己提的（系统管理员不替业务驳回）
  *
  * 确认的人大多不是管理员（管理层、部门负责人），所以这两条写不经管理员门：写请求总门对它们放行（index.ts 的 REMOTE_ALLOW_PREFIX），
@@ -115,7 +117,8 @@ export function registerRelationRoutes(app: HttpService, deps: RelationRouteDeps
     const r = proposals().approve(idOf(req), w.actor, Date.now());
     if (!r.ok) return void res.status(r.http).json({ error: r.code, message: r.message });
     logged('approve', r.proposal, w.actor.by);
-    res.json({ proposal: shape(r.proposal, w) });
+    // 部门负责人提议（部门已停写）：确认改成起草领域负责人，带上起草出的（或已有的）那条授予，页面显示「已起草，待你放行」
+    res.json({ proposal: shape(r.proposal, w), ...(r.converted ?? {}) });
   }));
 
   app.post('/api/relations/proposals/:id/reject', { action: 'relation.proposal-reject', kind: 'write', statusNotVerdict: CONFIRMER_DECIDES }, route(async (req, res) => {

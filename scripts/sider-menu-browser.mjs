@@ -43,7 +43,7 @@ try {
   // #320：存一个旧宽度（5 / 7）的驾驶舱，验证读时吸附到 3/4/6/12、不丢卡、不回写
   const legacy = await adm('POST', '/api/cockpits', { name: '旧布局舱', panels: [{ i: 'wb-a', workbenchId: wbA.id, x: 0, y: 0, w: 5, h: 8 }, { i: 'wb-b', workbenchId: wbB.id, x: 5, y: 0, w: 7, h: 8 }, { i: 'tasks', workbenchId: 0, kind: 'tasks', x: 0, y: 8, w: 4, h: 10 }] });
   const cfg = join(TMP, 'browser.json');
-  writeFileSync(cfg, JSON.stringify({ base, control: `http://127.0.0.1:${PORT + 1}`, token: env.ADMIN_TOKEN, cockpit, cockpit_name: '合成驾驶舱', min_tasks: 25, legacy_cockpit: legacy.id }));
+  writeFileSync(cfg, JSON.stringify({ base, control: `http://127.0.0.1:${PORT + 1}`, token: env.ADMIN_TOKEN, db: join(env.DATA_DIR, 'workbench-market.db'), node: process.execPath, cockpit, cockpit_name: '合成驾驶舱', min_tasks: 25, legacy_cockpit: legacy.id }));
   code = 0;
   // 一行一个脚本：各个 PR 各加各的行，git 能自动合（原来写在一行里，谁后合谁冲突）
   for (const script of [

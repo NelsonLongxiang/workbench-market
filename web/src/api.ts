@@ -343,7 +343,6 @@ export const assignTeamSeat = (host: string, team: string, seat: string, seat_id
 /** 一步改派（#682）：一个事务里收回并分给另一个人；200 { ok, changed, id, from }，拒绝的状态码和错误码同分配 */
 export const reassignTeamSeat = (host: string, team: string, seat: string, seat_id: string, principal: string) => teamCall('/api/teams/reassign', { method: 'POST', body: { host, team, seat, seat_id, principal } });
 export const unassignTeamSeat = (host: string, team: string, seat: string, seat_id: string) => teamCall('/api/teams/unassign', { method: 'POST', body: { host, team, seat, seat_id } });
-export const putDepartment = (id: string, name: string, lead: string | null) => teamCall(`/api/departments/${encodeURIComponent(id)}`, { method: 'PUT', body: { name, ...(lead ? { lead } : {}) } });
 
 /** 席位名册（阶段七 #581）：登录的人能读，只当显示用（句柄换名字）。读不到给空，页面照旧显示句柄 */
 export async function getRosterTeams(): Promise<unknown[]> {

@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
+import { legacySeed, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -63,19 +64,23 @@ try {
     const id = d.json?.grant?.id; await call('POST', `/api/grants/${id}/submit`); return (await call('POST', `/api/grants/${id}/approve`)).status;
   };
   // 部门（旧的）三个，领域两个（sales、ops，各放行一位负责人变 active）；legacy 不建领域
-  for (const id of ['sales', 'ops', 'legacy']) await call('PUT', `/api/departments/${id}`, { body: { name: `合成${id}` } });
+  // 部门已停写：三个旧部门和 no-flag 的 dept: 授予都是停写前就有的，直接写库造（scripts/lib/legacy-dept-seed.mjs）
+  const seed = legacySeed(join(data, 'workbench-market.db'));
+  for (const id of ['sales', 'ops', 'legacy']) seed.department(id, `合成${id}`);
+  const legacyIssue = (principal, role, scope) => { seed.grant(principal, role, scope, { reason: '合成' }); return 200; };
   for (const id of ['sales', 'ops']) await call('POST', '/api/areas', { body: { id, name: `合成${id}` } });
   const prep = [
     await issue('user:alpha', 'management', '*'),
     await issue('user:strasse', 'area-lead', 'area:sales'), await issue('user:strasse', 'area-lead', 'area:ops'),
     await issue('user:beta', 'area-member', 'area:sales'),
-    await issue('user:no-flag', 'dept-member', 'dept:ops'), await issue('user:no-flag', 'dept-member', 'dept:legacy'),
+    legacyIssue('user:no-flag', 'dept-member', 'dept:ops'), legacyIssue('user:no-flag', 'dept-member', 'dept:legacy'),
   ];
   const benches = [];
   for (const [slug, department] of [['b-sales', 'sales'], ['b-ops', 'ops'], ['b-legacy', 'legacy']]) {
     benches.push((await call('POST', '/api/bench-views', { session: P.boss, body: { slug, title: slug, department } })).status);
     await call('PUT', `/api/bench-views/${slug}/datasets/d`, { session: P.boss, body: { columns: [{ name: 'a', type: 'text' }] } });
   }
+  { const rows = deptGrantRows(join(data, 'workbench-market.db')); check(JSON.stringify(rows) === JSON.stringify(["user:no-flag dept-member dept:legacy active", "user:no-flag dept-member dept:ops active"]), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
   check(prep.every((s) => s === 200) && benches.every((s) => s === 201), '（准备）领域 sales、ops 有负责人；beta 持 area:sales；no-flag 持 dept:ops、dept:legacy；三个台各绑一个标识', { prep, benches });
   const reads = async (session, slug) => (await call('GET', `/api/bench-views/${slug}/datasets`, { session })).status;
 

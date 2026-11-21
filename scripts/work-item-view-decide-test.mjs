@@ -25,11 +25,14 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { seedDepartmentAsOwnerDid } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
 const ROOT = resolve(arg >= 0 ? process.argv[arg + 1] : join(HERE, '..'));
 const OUT = join(HERE, '..', 'tmp', `work-item-view-decide-${process.pid}-${Date.now().toString(36)}`);
+// 部门已停写（docs/domains-step1.md 第六节）：部门、部门负责人直接写库造（停写前属主建好的样子）
+const DEPT_DB = () => join(OUT, 'data', 'workbench-market.db');
 const PRELOAD = pathToFileURL(join(HERE, 'identity-fake-preload.mjs')).href;
 const ADMIN_TOKEN = 'view-decide-synthetic-admin';
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
@@ -142,7 +145,7 @@ try {
     db.close();
   }
   // 部门负责人、团队认领、管理层授予都由属主（本机命令行）做
-  const dept = await call('PUT', '/api/departments/sales', {}, { name: '合成销售部', lead: 'user:beta' });
+  const dept = seedDepartmentAsOwnerDid(DEPT_DB(), 'sales', '合成销售部', 'user:beta');
   const claim = await call('POST', '/api/teams/claim', {}, { host: HOST, team: TEAM, department: 'sales' });
   const g = await call('POST', '/api/grants', {}, { principal: 'user:root-admin', role: 'management', scope: '*', reason: '合成：持有管理层授予的人' });
   await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}, {});

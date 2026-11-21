@@ -37,11 +37,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1317", "etag": "W/\"525-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1329", "etag": "W/\"531-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "proposals": [
                 { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true, "mine": false, "outcome": "pending", "outcome_reason": null, "team_name": "Sales Team", "node_name": null, "department_name": "合成销售部", "principal_name": null, "proposed_by_name": "管理员（口令）", "decided_by_name": null },
-                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "属主（同时放行这个部门负责人的权限）", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true, "mine": false, "outcome": "pending", "outcome_reason": null, "team_name": null, "node_name": null, "department_name": "合成销售部", "principal_name": "合成乙", "proposed_by_name": "管理员（口令）", "decided_by_name": null }
+                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "属主（确认后起草领域负责人，属主放行后生效）", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true, "mine": false, "outcome": "pending", "outcome_reason": null, "team_name": null, "node_name": null, "department_name": "合成销售部", "principal_name": "合成乙", "proposed_by_name": "管理员（口令）", "decided_by_name": null }
               ]
             }
           }
@@ -55,11 +55,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1317", "etag": "W/\"525-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1329", "etag": "W/\"531-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "proposals": [
                 { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true, "mine": false, "outcome": "pending", "outcome_reason": null, "team_name": "Sales Team", "node_name": null, "department_name": "合成销售部", "principal_name": null, "proposed_by_name": "管理员（口令）", "decided_by_name": null },
-                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "属主（同时放行这个部门负责人的权限）", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true, "mine": false, "outcome": "pending", "outcome_reason": null, "team_name": null, "node_name": null, "department_name": "合成销售部", "principal_name": "合成乙", "proposed_by_name": "管理员（口令）", "decided_by_name": null }
+                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "属主（确认后起草领域负责人，属主放行后生效）", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true, "mine": false, "outcome": "pending", "outcome_reason": null, "team_name": null, "node_name": null, "department_name": "合成销售部", "principal_name": "合成乙", "proposed_by_name": "管理员（口令）", "decided_by_name": null }
               ]
             }
           }
@@ -145,30 +145,27 @@
         {
           "id": "approve-cli",
           "route": "POST /api/relations/proposals/:id/approve",
-          "class": "normal",
-          "what": "属主（本机命令行）确认 beta 做 sales 的负责人",
-          "vary": { "proposal.decided_at": 60000 },
+          "class": "invalid",
+          "what": "属主（本机命令行）确认 beta 做 sales 的负责人：sales 还没迁成领域，409 area_not_migrated（部门已停写，确认改成起草领域负责人）",
           "request": { "method": "POST", "path": "/api/relations/proposals/2/approve" },
           "response": {
-            "status": 200,
+            "status": 409,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "703", "etag": "W/\"2bf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
-              "proposal": { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "approved", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "", "confirm_by_text": "属主（同时放行这个部门负责人的权限）", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false, "mine": false, "outcome": "approved", "outcome_reason": null, "team_name": null, "node_name": null, "department_name": "合成销售部", "principal_name": "合成乙", "proposed_by_name": "管理员（口令）", "decided_by_name": "本机命令行" }
-            }
+            "headers": { "cache-control": "private, no-store", "content-length": "148", "etag": "W/\"94-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_not_migrated", "message": "部门 sales 还没迁成领域（或对应的领域已经撤了）：先把部门迁成领域，再确认" }
           }
         },
         {
           "id": "approve-again",
           "route": "POST /api/relations/proposals/:id/approve",
           "class": "invalid",
-          "what": "已经确认过：409",
+          "what": "还在待确认，属主再确认一次：照旧 409 area_not_migrated",
           "request": { "method": "POST", "path": "/api/relations/proposals/2/approve" },
           "response": {
             "status": 409,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "error": "state", "message": "提议 2 现在是 approved，不能确认" }
+            "headers": { "cache-control": "private, no-store", "content-length": "148", "etag": "W/\"94-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_not_migrated", "message": "部门 sales 还没迁成领域（或对应的领域已经撤了）：先把部门迁成领域，再确认" }
           }
         },
         {
@@ -236,11 +233,102 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1437", "etag": "W/\"59d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1406", "etag": "W/\"57e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "proposals": [
-                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "approved", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "", "confirm_by_text": "属主（同时放行这个部门负责人的权限）", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false, "mine": false, "outcome": "approved", "outcome_reason": null, "team_name": null, "node_name": null, "department_name": "合成销售部", "principal_name": "合成乙", "proposed_by_name": "管理员（口令）", "decided_by_name": "本机命令行" },
+                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "属主（确认后起草领域负责人，属主放行后生效）", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true, "mine": false, "outcome": "pending", "outcome_reason": null, "team_name": null, "node_name": null, "department_name": "合成销售部", "principal_name": "合成乙", "proposed_by_name": "管理员（口令）", "decided_by_name": null },
                 { "id": 1, "kind": "team-claim", "department_id": "sales", "host": "a1b2c3d4", "team": "zone1/canvas/Sales Team", "principal_id": "", "status": "rejected", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "合成：不认领", "confirm_by_text": "管理层或接收部门的负责人", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false, "mine": false, "outcome": "rejected", "outcome_reason": "合成：不认领", "team_name": "Sales Team", "node_name": null, "department_name": "合成销售部", "principal_name": null, "proposed_by_name": "管理员（口令）", "decided_by_name": "本机命令行" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "migrated",
+      "what": "部门已迁成领域（sales 在、ops 撤了）时确认 dept-lead 提议",
+      "env": {},
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["identity-fake"],
+      "seed": [
+        { "table": "principals", "row": { "id": "user:alpha", "id_key": "user:alpha", "kind": "person", "display_name": "合成甲" } },
+        { "table": "principals", "row": { "id": "user:beta", "id_key": "user:beta", "kind": "person", "display_name": "合成乙" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "alpha", "external_key": "alpha", "principal_id": "user:alpha" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "beta", "external_key": "beta", "principal_id": "user:beta" } },
+        { "table": "departments", "row": { "id": "sales", "name": "合成销售部", "created_at": 0, "updated_at": 0 } },
+        {
+          "table": "a2a_roster_nodes",
+          "row": { "host": "a1b2c3d4", "key_fingerprint": "sha256:a1b2c3d400000000000000000000000000000000000000000000000000000000", "peer_root": "https://node.synthetic.invalid", "peer_zone": "zone1", "reported_at": "2030-01-01T00:00:00Z", "received_at": "2030-01-01T00:00:00Z" }
+        },
+        {
+          "table": "a2a_roster_node_seats",
+          "row": { "peer_root": "https://node.synthetic.invalid", "host": "a1b2c3d4", "key_fingerprint": "sha256:a1b2c3d400000000000000000000000000000000000000000000000000000000", "team": "zone1/canvas/Sales Team", "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": 1, "first_seen_at": "2030-01-01T00:00:00Z" }
+        },
+        { "table": "departments", "row": { "id": "ops", "name": "合成运营部", "created_at": 0, "updated_at": 0 } },
+        { "table": "areas", "row": { "id": "sales", "name": "合成销售部", "status": "pending-lead", "source": "department", "created_at": 0, "created_by": "cli", "updated_at": 0, "updated_by": "cli" } },
+        { "table": "areas", "row": { "id": "ops", "name": "合成运营部", "status": "retired", "source": "department", "created_at": 0, "created_by": "cli", "updated_at": 0, "updated_by": "cli" } },
+        { "table": "relation_proposals", "row": { "id": 2, "kind": "dept-lead", "department_id": "sales", "principal_id": "user:beta", "proposed_by": "admin-token", "proposed_at": 0 } },
+        { "table": "relation_proposals", "row": { "id": 3, "kind": "dept-lead", "department_id": "ops", "principal_id": "user:alpha", "proposed_by": "admin-token", "proposed_at": 0 } }
+      ],
+      "steps": [
+        {
+          "id": "migrated-approve",
+          "route": "POST /api/relations/proposals/:id/approve",
+          "class": "normal",
+          "what": "sales 已迁成领域：属主（本机命令行）确认 beta 做 sales 的负责人，起草一条领域负责人（待核），应答带 drafted_grant_id",
+          "vary": { "proposal.decided_at": 60000 },
+          "request": { "method": "POST", "path": "/api/relations/proposals/2/approve" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "736", "etag": "W/\"2e0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "proposal": { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "approved", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "", "confirm_by_text": "属主（确认后起草领域负责人，属主放行后生效）", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false, "mine": false, "outcome": "approved", "outcome_reason": null, "team_name": null, "node_name": null, "department_name": "合成销售部", "principal_name": "合成乙", "proposed_by_name": "管理员（口令）", "decided_by_name": "本机命令行" },
+              "drafted_grant_id": 2
+            }
+          }
+        },
+        {
+          "id": "migrated-approve-again",
+          "route": "POST /api/relations/proposals/:id/approve",
+          "class": "invalid",
+          "what": "已经确认过：409",
+          "request": { "method": "POST", "path": "/api/relations/proposals/2/approve" },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "state", "message": "提议 2 现在是 approved，不能确认" }
+          }
+        },
+        {
+          "id": "retired-approve",
+          "route": "POST /api/relations/proposals/:id/approve",
+          "class": "invalid",
+          "what": "ops 的领域已经撤了：属主确认 alpha 做 ops 的负责人，409 area_not_migrated",
+          "request": { "method": "POST", "path": "/api/relations/proposals/3/approve" },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "146", "etag": "W/\"92-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_not_migrated", "message": "部门 ops 还没迁成领域（或对应的领域已经撤了）：先把部门迁成领域，再确认" }
+          }
+        },
+        {
+          "id": "migrated-list-after",
+          "route": "GET /api/relations/proposals",
+          "class": "normal",
+          "what": "之后：sales 那条已确认，ops 那条还在待确认",
+          "vary": { "proposals.0.decided_at": 60000, "proposals.1.decided_at": 60000 },
+          "request": { "method": "GET", "path": "/api/relations/proposals" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1377", "etag": "W/\"561-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "proposals": [
+                { "id": 3, "kind": "dept-lead", "department_id": "ops", "host": "", "team": "", "principal_id": "user:alpha", "status": "pending", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": null, "decided_by_principal": null, "decided_at": null, "reason": "", "confirm_by_text": "属主（确认后起草领域负责人，属主放行后生效）", "can_approve": true, "approve_denied": null, "approve_denied_text": null, "can_reject": true, "mine": false, "outcome": "pending", "outcome_reason": null, "team_name": null, "node_name": null, "department_name": "合成运营部", "principal_name": "合成甲", "proposed_by_name": "管理员（口令）", "decided_by_name": null },
+                { "id": 2, "kind": "dept-lead", "department_id": "sales", "host": "", "team": "", "principal_id": "user:beta", "status": "approved", "proposed_by": "admin-token", "proposed_by_principal": null, "proposed_at": 0, "decided_by": "cli", "decided_by_principal": null, "decided_at": 1893456000000, "reason": "", "confirm_by_text": "属主（确认后起草领域负责人，属主放行后生效）", "can_approve": false, "approve_denied": "state", "approve_denied_text": "不在待确认", "can_reject": false, "mine": false, "outcome": "approved", "outcome_reason": null, "team_name": null, "node_name": null, "department_name": "合成销售部", "principal_name": "合成乙", "proposed_by_name": "管理员（口令）", "decided_by_name": "本机命令行" }
               ]
             }
           }

@@ -20,6 +20,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { legacyDepartmentIn, legacyGrantIn, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 import { spawn } from 'node:child_process'; // 子进程不起服务、跑完自己退出，不用固定端口的夹具
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -157,9 +158,9 @@ try {
 
   // ---- L6 ----
   {
-    const { setDepartmentLead } = await import(at('server/src/services/dept-lead-grant.ts'));
     person('user:le');
-    const dr = setDepartmentLead({ id: 'c-sales', name: '合成并发销售', functionCode: null, lead: 'user:le' }, { by: 'cli', principal: null, owner: true }, Date.now());
+    // 部门已停写：c-sales 的负责人（字段 + 生效的 dept-lead 授予）是停写前就有的，直接写库造（scripts/lib/legacy-dept-seed.mjs）
+    const dr = { ok: legacyDepartmentIn(db, 'c-sales', '合成并发销售', 'user:le') > 0 };
     svc('departments').upsert({ id: 'c-ops', name: '合成并发运营', functionCode: null, lead: null }, 'cli', Date.now());
     const barrier = join(OUT, 'go-migrate');
     const child = () => {
@@ -204,7 +205,8 @@ try {
     const issue = (principal, role, scope) => { const d = grants.draft({ principal, role, scope, expiresAt: null, reason: '合成' }, cli); if (!d.ok) throw new Error(`起草 ${principal} 失败：${d.code}`); grants.submit(d.grant.id, cli); grants.approve(d.grant.id, cli); };
     svc('departments').upsert({ id: 'kold', name: '合成没迁的部门', functionCode: null, lead: null }, 'cli', Date.now());
     issue('user:km', 'area-member', 'area:kx');
-    issue('user:kd', 'dept-member', 'dept:kold');
+    legacyGrantIn(db, 'user:kd', 'dept-member', 'dept:kold', { reason: '合成' }); // 停写前就有的部门授予
+    { const rows = deptGrantRows(db); check(["user:kd dept-member dept:kold active"].every((x) => rows.includes(x)), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
     const actor = (id) => ({ type: 'principal', id, kind: 'person', status: 'active', owner: '' });
     const before = { kmKx: visibility(actor('user:km'))('dept:kx'), kmOld: visibility(actor('user:km'))('dept:kold'), kdOld: visibility(actor('user:kd'))('dept:kold'), kdKx: visibility(actor('user:kd'))('dept:kx') };
     areas.retire('kx', '合成', { ...cli, owner: true }, Date.now());

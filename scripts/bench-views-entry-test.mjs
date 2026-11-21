@@ -24,6 +24,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
+import { legacySeed } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
@@ -146,9 +147,16 @@ try {
   check(r.status === 403, '本机命令行（回环直连、没有登录）：403', r.status);
   r = await srv.call('GET', '/api/bench-views', { headers: { ...REMOTE, origin: 'http://evil.example', 'sec-fetch-site': 'cross-site' }, session: SESSIONS.alpha });
   check(r.status === 403 && r.json?.error === 'bench_views_cross_origin_denied', '带跨站标记：403，哪怕是管理层的登录', r.text.slice(0, 100));
-  const g2 = await activate({ principal: 'user:beta', role: 'management', scope: 'dept:sales' });
+  // dept: 范围的管理层授予：部门已停写，新起草 422，经接口造不出来（原来也没建部门 sales，起草同样被拒，这一条一直是空的）。
+  // 改成直接写库造停写前就有的那种（scripts/lib/legacy-dept-seed.mjs），并先核它确实在、是 active，免得前置失败时下面的 403 白白成立
+  const legacy = legacySeed(join(srv.data, 'workbench-market.db'));
+  legacy.department('sales', '合成销售部');
+  const g2 = legacy.grant('user:beta', 'management', 'dept:sales', { reason: '合成：数据视图入口' });
+  const g2Row = db.prepare('SELECT principal_id, role, scope, status FROM grants WHERE id = ?').get(g2);
+  check(g2Row?.principal_id === 'user:beta' && g2Row.role === 'management' && g2Row.scope === 'dept:sales' && g2Row.status === 'active',
+    '（前置）beta 持一条生效的 dept:sales 管理层授予（停写前就有的，直接写库造）', g2Row);
   r = await srv.call('GET', '/api/bench-views', nobody);
-  check(r.status === 403, '授予的范围不是「全部」（dept:…）：这一步还不认，403', { grant: g2.a.status, got: r.status });
+  check(r.status === 403, '授予的范围不是「全部」（dept:…）：这一步还不认，403', { grant: g2Row?.status, got: r.status });
 
   console.log('三、谁进得了');
   r = await srv.call('GET', '/api/bench-views', mgr);

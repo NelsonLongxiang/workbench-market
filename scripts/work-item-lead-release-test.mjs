@@ -21,11 +21,14 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { seedDepartmentAsOwnerDid } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
 const ROOT = resolve(arg >= 0 ? process.argv[arg + 1] : join(HERE, '..'));
 const OUT = join(HERE, '..', 'tmp', `work-item-lead-release-${process.pid}-${Date.now().toString(36)}`);
+// 部门已停写（docs/domains-step1.md 第六节）：部门、部门负责人直接写库造（停写前属主建好的样子）
+const DEPT_DB = () => join(OUT, 'data', 'workbench-market.db');
 const PRELOAD = pathToFileURL(join(HERE, 'identity-fake-preload.mjs')).href;
 const ADMIN_TOKEN = 'lead-release-synthetic-admin';
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
@@ -102,7 +105,7 @@ try {
     db.close();
   }
   // 部门负责人、团队认领由属主（本机命令行）做，直接生效：这里要的是已确认的负责人
-  const dept = await call('PUT', '/api/departments/sales', {}, { name: '合成销售部', lead: 'user:beta' });
+  const dept = seedDepartmentAsOwnerDid(DEPT_DB(), 'sales', '合成销售部', 'user:beta');
   const claim = await call('POST', '/api/teams/claim', {}, { host: HOST, team: TEAM, department: 'sales' });
   if (![dept, claim].every((r) => r.status >= 200 && r.status < 300)) throw new Error(`团队搭不起来：${show({ dept, claim })}`);
 
@@ -211,7 +214,7 @@ try {
   // ---------- 只是提议的负责人不放（关系确认制）----------
   {
     // 没有负责人的团队 B：先认领到一个没有部门负责人的部门（属主，直接生效），再由管理口令提议一个负责人（只记成提议，待确认）
-    await call('PUT', '/api/departments/nolead', {}, { name: '合成没有负责人的部门' });
+    seedDepartmentAsOwnerDid(DEPT_DB(), 'nolead', '合成没有负责人的部门');
     const c = await call('POST', '/api/teams/claim', {}, { host: HOST, team: VACANT, department: 'nolead' });
     const p = await call('POST', '/api/teams/leads', ADMIN, { host: HOST, team: VACANT, principal: 'user:no-flag' });
     const r = await release(I.vacant.item, WHO.无关的人), d = await detail(I.vacant.item, WHO.管理层);

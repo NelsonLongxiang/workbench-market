@@ -20,10 +20,13 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
+import { seedDepartmentAsOwnerDid } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const OUT = join(ROOT, 'tmp', `judgment-migration-${process.pid}-${Date.now().toString(36)}`);
+// 部门已停写（docs/domains-step1.md 第六节）：部门、部门负责人直接写库造（停写前属主建好的样子）
+const DEPT_DB = () => join(OUT, 'data', 'workbench-market.db');
 const PRELOAD = pathToFileURL(join(HERE, 'identity-fake-preload.mjs')).href;
 const ADMIN_TOKEN = 'synthetic-migration-admin';
 const REMOTE = { 'x-forwarded-for': '192.0.2.63' };
@@ -93,8 +96,8 @@ try {
   seatIns.run(HOST, OTHER, 'zone1/0000001c', 'seat-0000001c', '合成别队总工', 'router', now, now);
   seatIns.run(HOST, THIRD, 'zone1/0000001d', 'seat-0000001d', '合成第三队总工', 'router', now, now);
   // 部门和团队由属主（本机命令行）建好：TEAM 认领到 sales，负责人 alpha
-  await srv.call('PUT', '/api/departments/sales', { body: { name: '合成销售部' } });
-  await srv.call('PUT', '/api/departments/ops', { body: { name: '合成运营部' } });
+  seedDepartmentAsOwnerDid(DEPT_DB(), 'sales', '合成销售部');
+  seedDepartmentAsOwnerDid(DEPT_DB(), 'ops', '合成运营部');
   for (const s of [SESSIONS.admin, SESSIONS.alpha, SESSIONS.beta]) await srv.call('GET', '/api/auth/viewer', { session: s });
   await srv.call('POST', '/api/teams/claim', { body: { host: HOST, team: TEAM, department: 'sales' } });
   await srv.call('POST', '/api/teams/leads', { body: { host: HOST, team: TEAM, principal: 'user:alpha' } });
