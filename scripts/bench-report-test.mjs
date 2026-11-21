@@ -20,7 +20,7 @@
  *   R6d（属主 2026-11-21：收窄）回应记的位置只含管得到这个台的授予：别的领域的不记，台绑到那个领域以后才记
  *   R7（PR D）入口的 can.reports、can.respond 和接口同一套判法；读报告带回模板的立场和论断类别名、回应标出 mine
  *   G11（#930 独立验收）只能看台的人读报告 403；三张冻结的表在库里 UPDATE、DELETE、INSERT OR REPLACE 都拒
- *   F（A～D 验收建议的补测）F1 预设 member 读不了报告；F2 领域授予读得了、回应得了；F3 老部门的授予记进位置；F4 旧报告带它那一版模板
+ *   F（A～D 验收建议的补测）F1 预设 member 读不了报告；F2 领域授予读得了、回应得了；F2b 只有 read 档的领域授予读不了；F3 老部门的授予记进位置；F4 旧报告带它那一版模板
  *   G10 产出方由服务端填：登录的那个人，记 human（数据视图的台只认人，本机命令行、管理口令进不来是既有规矩）
  *
  *   node scripts/bench-report-test.mjs
@@ -578,6 +578,18 @@ try {
     const rv2 = await revoke('user:beta', 'area-member');
     check(ga && bz.status === 200 && f2.one === 200 && f2.list === 200 && f2.respond === 201 && ub.status === 200 && f2off === 403 && rv2 === 200,
       'F2 台绑到 zeta：持 zeta 领域成员授予的人读报告、读清单 200，回应 201；解绑以后读 403', { ga, bz: bz.status, f2, ub: ub.status, f2off, rv2 });
+    // F2b（#944 验收：读报告的范围档改成 read 的变异）按档给的、限定到领域的授予：自定义角色只有 read 档、范围 area:zeta，台绑到 zeta——
+    // 读报告在范围档要 write，所以 403；范围档被放宽成 read 时就会 200
+    await cli('POST', '/api/roles/guest/copy', { id: 'k-reader', name: '合成·只读档' });
+    const kput = await cli('PUT', '/api/roles/k-reader', { permissions: [{ kinds: ['read'] }] });
+    await cli('POST', '/api/roles/k-reader/approve');
+    const gk = await activate({ principal: 'user:beta', role: 'k-reader', scope: 'area:zeta' });
+    const bk = await bv(boss, 'PUT', '/synth-orders/binding', { department: 'zeta' });
+    const f2b = { one: (await bv(member, 'GET', `/synth-orders/reports/${rid0}`)).status, list: (await bv(member, 'GET', '/synth-orders/reports')).status };
+    const ubk = await bv(boss, 'PUT', '/synth-orders/binding', { department: '' });
+    const rvk = await revoke('user:beta', 'k-reader');
+    check(kput.status === 200 && gk && bk.status === 200 && f2b.one === 403 && f2b.list === 403 && ubk.status === 200 && rvk === 200,
+      'F2b 只有 read 档、范围 area:zeta 的自定义角色，台绑到 zeta：读报告、读清单 403（读报告在范围档也按 write 判）', { kput: kput.status, gk, bk: bk.status, f2b, ubk: ubk.status, rvk });
     // F3（#932 验收 s1）老部门：台绑到部门 dv-old，dept:dv-old 的授予记进回应的位置，dept:dv-else 的不记
     const seed = legacySeed(join(srv.data, 'workbench-market.db'));
     seed.department('dv-old', '合成老部门'); seed.department('dv-else', '合成别的老部门');
