@@ -133,5 +133,36 @@ ok('表格组件的表头经 tableHead，没有「label || name」的兜底', /t
   ok('连着改两个筛选：第二次改动基于人选的值，第一个还在', next.site === '北区' && next.owner === '合成甲', next);
 }
 
+// 记录卡（records，#858）
+{
+  const srv = await import('../server/src/bench-views.ts');
+  const LINKS = ['https://example.com/a?b=1', 'http://x.y', ' https://ok.com ', 'HTTPS://UP.com/p', 'javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:text/html,<b>x</b>', '//evil.example/x', '/rel/path', 'rel/path', 'ftp://x.y', 'https://u:p@h.example/', 'https:///nohost', 'https://', '', null, 5, 'https://ex.com/' + 'a'.repeat(2100)];
+  ok('来源链接：页面和服务端用同一套规则（每一种写法两边结果一样）', LINKS.every((x) => JSON.stringify(v.safeLink(x)) === JSON.stringify(srv.safeLink(x))), LINKS.map((x) => [x, v.safeLink(x), srv.safeLink(x)]).filter(([, a, b]) => JSON.stringify(a) !== JSON.stringify(b)));
+  ok('来源链接：只认 http(s) 完整网址，host 只给主机名', JSON.stringify(v.safeLink('https://example.com/a?b=1')) === JSON.stringify({ href: 'https://example.com/a?b=1', host: 'example.com' }));
+  ok('来源链接：javascript:、data:、相对地址、协议相对地址（//）、ftp、带账号密码、没主机名都不认', ['javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:text/html,x', '//evil.example/x', '/rel/path', 'rel/path', 'ftp://x.y', 'https://u:p@h.example/', 'https:///nohost'].every((x) => v.safeLink(x) === null));
+  const XSS = '<script>alert(1)</script><img src=x onerror=alert(2)>';
+  const data = { columns: [{ name: 't', type: 'text', label: '事项' }, { name: 'st', type: 'text', label: '状态' }, { name: 'who', type: 'text', label: '负责人' }, { name: 'note', type: 'text', label: '说明' }, { name: 'day', type: 'date', label: '约定日期' }, { name: 'url', type: 'text', label: '来源' }, { name: 'url2', type: 'text', label: '资料' }],
+    rows: [
+      { t: XSS, st: 'open', who: null, note: XSS, day: null, url: 'https://ok.example/doc', url2: 'javascript:alert(3)' },
+      { t: '第二件', st: 'weird', who: '合成乙', note: '短', day: '2026-11-21', url: 'https://ok.example/x', url2: null },
+    ], truncated: false };
+  const spec = { title_col: 't', badges: ['st'], fields: ['who'], details: ['note'], date_col: 'day', links: [{ col: 'url', label: '查看依据' }, { col: 'url2', label: '打开资料' }], value_labels: { st: { open: { text: '进行中', tone: 'warning' } } } };
+  const targets = data.rows.map((r) => spec.links.map((l) => srv.safeLink(r[l.col])));
+  const cards = v.recordCards(data, spec, targets);
+  ok('字段一律当纯文本：带 <script>、<img onerror> 的值原样当文字给出（标题、次要字段都是）', cards[0].title === XSS && cards[0].details[0].text === XSS);
+  ok('空值写「—」、空日期写「未填」，不当成完成', cards[0].fields[0].text === '—' && cards[0].fields[0].empty && cards[0].date === '未填' && cards[1].date === '2026-11-21');
+  ok('徽标：有说法的照说法和语气；没有说法的照原值、标未定义的取值', cards[0].badges[0].text === '进行中' && cards[0].badges[0].tone === 'warning' && !cards[0].badges[0].undefinedValue && cards[1].badges[0].text === 'weird' && cards[1].badges[0].undefinedValue);
+  ok('字段说明名取列的 label', cards[0].fields[0].label === '负责人' && cards[0].details[0].label === '说明');
+  ok('来源链接：http(s) 给 href 和主机名；javascript: 标无效；这一行没有的不显示', JSON.stringify(cards[0].links) === JSON.stringify([{ label: '查看依据', href: 'https://ok.example/doc', host: 'ok.example' }, { label: '打开资料', invalid: true }]) && cards[1].links.length === 1);
+  const noServer = v.recordCards(data, spec, undefined);
+  ok('服务端没给核过的链接：一律当无效，不渲染成链接（两边都认才给）', noServer[0].links.every((l) => l.invalid === true));
+  const mismatch = v.recordCards(data, spec, [[{ href: 'https://other.example/', host: 'other.example' }, null], [null]]);
+  ok('服务端核出来的地址和页面核出来的不是同一个：当无效', mismatch[0].links[0].invalid === true);
+  ok('长文字（超过 120 字或有换行）先收起', v.isLongText('x'.repeat(121)) && v.isLongText('a\nb') && !v.isLongText('短'));
+  ok('记录卡缺省占一整行', v.snapSpan(undefined, 'records') === 12);
+  const recSrc = (await import('node:fs')).readFileSync(new URL('../web/src/bench-blocks/Records.tsx', import.meta.url), 'utf8');
+  ok('记录卡组件不用 innerHTML、链接带 noopener noreferrer 和新窗口、悬停和读屏给主机名', !/dangerouslySetInnerHTML|\.innerHTML\s*=/.test(recSrc) && /rel="noopener noreferrer"/.test(recSrc) && /target="_blank"/.test(recSrc) && /title=\{`打开 \$\{l\.host\}`\}/.test(recSrc) && /aria-label=\{`\$\{l\.label\}（打开 \$\{l\.host\}）`\}/.test(recSrc));
+}
+
 console.log(`\nbench-blocks-ui-unit: ${pass} passed / ${fail} failed`);
 process.exit(fail ? 1 : 0);
