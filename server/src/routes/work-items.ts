@@ -48,6 +48,8 @@ import { markSeatMessagesRead, replySeatMessage, seatAsksOf, seatMessagesOf, sea
 import { principalsAdmin } from './principals.ts';
 import { canOf, canSee, creatorOf, dueWriterOk, decidesNow, itemDecisionVerdict, itemRoles, releaseBy, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
 import { arrangeTask } from '../task-center.ts';
+import { AREA_ID_RE, type AreaService } from '../services/area.ts';
+import type { GrantService } from '../services/grant.ts';
 import { assignableTeams, kickWorkbenchEvents, logEventFact, releaseCore } from '../workbench-events.ts';
 import { eventOfItem } from '../seat-messages.ts';
 import { attachmentsOfEvent } from '../services/work-item-attachments.ts';
@@ -74,11 +76,32 @@ function silentRes(): express.Response {
 /** 席位消息的已读与回复：建立人本人或管理员能做，是事项上的规则（判定这一步还不知道落在哪件事项上），401、403、404 不拿来和统一判定比 */
 const SEAT_WRITER_DECIDES = '按事项的建立人判：建立人本人或管理员，是事项上的规则不是角色授权';
 /** 建立人验收、退回自己的事项：只有这件事项的建立人本人能答，是事项上的规则；判定这一步还不知道落在哪件事项上 */
+/** 建事项：认人和规则都在路由里（登录的启用的人；带了领域时按 AreaService.decide 判 area.trigger，对象是那个领域），不交给判定切换开关 */
+const AREA_TRIGGER_DECIDES = '按请求判：登录的人建事项；带了领域时按这个领域的授予判（属主、管理层、领域成员），是对象范围的规则';
+/** 请求体里的领域：没给（不带、null、空串）是 undefined；写法不对是 null；否则是领域标识 */
+function areaOfBody(body: unknown): string | null | undefined {
+  const b = body && typeof body === 'object' && !Array.isArray(body) ? body as Record<string, unknown> : {};
+  if (b.area === undefined || b.area === null || b.area === '') return undefined;
+  return typeof b.area === 'string' && AREA_ID_RE.test(b.area) ? b.area : null;
+}
+const areas = () => svc<AreaService>('areas');
 const CREATOR_DECIDES = '按事项判：建立人本人验收、退回；负责人可退回本团队的；持有管理层授予的人代办，是事项上的规则不是角色授权';
 /** 回复席位消息：替人做决定的动作，和验收同一处判（itemDecisionVerdict） */
 const ITEM_REPLY_DECIDES = '按事项判：建立人本人回复；持有管理层授予的人代办（过了管理门不算），是事项上的规则不是角色授权';
 /** 放行：团队的负责人（缺位时管理层代办），是事项上的规则；判定这一步还不知道落在哪件事项上 */
 const LEAD_RELEASES = '按事项交给的团队判：负责人放行，团队没有负责人时持有管理层授予的人代办，是事项上的规则不是角色授权';
+
+/** 详情里的事项行：没带领域的不出领域那三列（应答和加列之前一样）；带了的原样给 */
+function itemView(item: NonNullable<ReturnType<WorkItemService['get']>>): Record<string, unknown> {
+  if (item.area_id) return item;
+  const { area_id: _a, area_source: _s, area_reason: _r, ...rest } = item;
+  return rest;
+}
+/** 详情的只增一项：带了领域的事项给领域的标识、名字、怎么来的（chosen / inferred）；没带的不给这一项 */
+function areaView(item: NonNullable<ReturnType<WorkItemService['get']>>): { area?: { id: string; name: string | null; source: string | null } } {
+  if (!item.area_id) return {};
+  return { area: { id: item.area_id, name: areas().get(item.area_id)?.name ?? null, source: item.area_source } };
+}
 
 export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps): void {
   const rememberActor = actorResolver({ adminTokenOk: deps.adminTokenOk });
@@ -113,6 +136,9 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     const cockpitRaw = str('cockpit');
     if (cockpitRaw !== undefined && (!/^[1-9]\d{0,9}$/.test(cockpitRaw) || Number(cockpitRaw) > COCKPIT_ID_MAX)) return void res.status(400).json({ error: 'work_items_cockpit_invalid' });
     const cockpit = cockpitRaw === undefined ? undefined : Number(cockpitRaw);
+    // 按领域筛（任务带领域 4a）：只有写法不对才 400；只在视角里收窄，不放宽谁看得到什么
+    const areaFilter = str('area');
+    if (areaFilter !== undefined && !AREA_ID_RE.test(areaFilter)) return void res.status(400).json({ error: 'area_invalid', message: '领域标识要是小写字母开头的字母、数字、连字符，最多 48 个字符' });
     (async () => {
       const viewer = await workItemViewer(req, deps);
       if (!viewer.admin && !viewer.principal) return void (viewer.sourceDown ? res.status(502).json({ error: IDENTITY_UNAVAILABLE }) : res.status(401).json({ error: 'work_items_auth_required' }));
@@ -133,7 +159,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       if (viewRaw !== undefined && !scopes[viewRaw as ViewName]) return void res.status(403).json({ error: 'work_items_view_unavailable', views });
       const view = (viewRaw as ViewName | undefined) ?? VIEWS.find((v) => views[v].available && views[v].count > 0) ?? VIEWS.find((v) => views[v].available);
       if (!view) return void res.json({ view: null, views, items: [], counts: Object.fromEntries(STATES.map((st) => [st, 0])), total: 0, next_cursor: null });
-      const page = items.page({ scope: scopes[view]!, state: state as WorkItemState | undefined, object: str('object'), phase: str('phase'), seat, cockpit, limit, after });
+      const page = items.page({ scope: scopes[view]!, state: state as WorkItemState | undefined, object: str('object'), phase: str('phase'), seat, cockpit, area: areaFilter, limit, after });
       // 视角的 SQL 只是加速：筛出来的每一条再按 itemRoles 过一遍，这个视角对应的那种人不成立的不给（列表里有、详情 404 的情况不允许出现）。
       // SQL 和 itemRoles 同一个口径时这里一条都不会少；计数照 SQL，测试守「列表里每一条详情都是 200」和件数一致
       const shown = page.items.filter((w) => itemRoles(w, viewer).includes(roleOf[view]));
@@ -145,6 +171,8 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
         items: shown.map((w) => ({
           id: w.id, title: w.title, state: w.state, object: w.object, phase: w.phase, seat: w.seat, cockpit_id: w.cockpit_id,
           last_progress: w.last_log, updated_at: w.updated_at, due: w.due_at ? w.due_at.slice(0, 10) : null, overdue: overdueOf(w, nowMs), release_by: releaseBy(w, viewer, teamViews),
+          // 只增：带了领域的事项才有这一项（没带的应答和原来一样）
+          ...(w.area_id ? { area: w.area_id } : {}),
         })),
         counts: page.counts, total: page.total,
         next_cursor: page.next ? Buffer.from(JSON.stringify({ u: page.next.updated_at, i: page.next.id }), 'utf8').toString('base64url') : null,
@@ -181,16 +209,27 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
   // 「安排一件事」：登录的人直接建一件事项，建立人是本人。只认 cookie 认出的启用的人（口令、命令行、MCP 都不是人，不能用）。
   // 写请求总门对这一条路径放行（index.ts），认人在这里；规则（派给、先过目、幂等、限流）在 task-center.ts 的 arrangeTask
   app.post('/api/work-items', {
-    action: 'work-items.create', kind: 'write', unauthenticated: 401,
-    // 领域的触发（docs/domains-step1.md 第三节第 1 小节、第七节第 1 条）：第 1 步只登记、恒为假，第 2 步改成「请求带了领域」
-    refine: [{ action: 'area.trigger', kind: 'write', why: '在领域里触发任务，第 1 步只登记（恒为假），第 2 步按请求带了领域判', when: () => false }],
+    action: 'work-items.create', kind: 'write', unauthenticated: 401, statusNotVerdict: AREA_TRIGGER_DECIDES,
+    // 领域的触发（docs/domains-step1.md 第三节第 1 小节、第七节第 1 条）：请求带了领域时问 area.trigger（第 2 步 4a）
+    refine: [{ action: 'area.trigger', kind: 'write', why: '在领域里触发任务：请求带了领域时，按领域的授予判', when: (req) => areaOfBody(req.body) !== undefined }],
   }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
     (async () => {
       const requester = await person(req, res);
       if (!requester) return;
-      const out = arrangeTask(req.body, requester);
+      // 任务带领域（4a）：路由上只核写法。能不能在这个领域触发（只问 AreaService.decide）、领域的门，在建事项的写事务里判一次：
+      // 查过幂等键之后、任何写入之前（统筹 11-21 定乙：同一个键原样重试拿回原来那条，安全由写事务里的判定负责）。
+      // 看不到全部领域的人，领域不存在、撤了一律答 403（和没授予一样），不透露在不在
+      const area = areaOfBody(req.body);
+      if (area === null) return void res.status(400).json({ error: 'area_invalid', message: '领域标识要是小写字母开头的字母、数字、连字符，最多 48 个字符' });
+      const check = (a: string) => () => {
+        const owner = svc<GrantService>('grants').isOwner(requester);
+        const subject = { owner, seesAll: owner || svc<GrantService>('grants').isBusinessSide(requester), principal: requester };
+        if (areas().decide(subject, 'area.trigger', a).verdict !== 'allow') return { http: 403, code: 'area_trigger_forbidden', message: `在领域 ${a} 里建事项要有这个领域的授予（领域成员、负责人），或者是属主、管理层` };
+        return areas().workGate(a);
+      };
+      const out = arrangeTask(req.body, requester, new Date(), area === undefined ? undefined : { area, check: check(area) });
       res.status(out.status).json(out.body);
       if (out.status === 201 && out.body.held === false) kickWorkbenchEvents();
     })().catch(next);
@@ -210,7 +249,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const item = items.get(id);
       if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
       // 只增：这个人能做什么（can）、是不是轮到他（turn）、建立人是谁（creator）。判断都在 work-item-access.ts，和各动作接口同一处
-      res.json({ item, due: item.due_at ? item.due_at.slice(0, 10) : null, overdue: overdueOf(item), attachments: attachmentsOfEvent(item.source_ref).map((a) => ({ name: a.name, size: a.size, url: `/api/work-items/${id}/attachments/${a.id}`, id: a.id, mime: a.mime, sha256: a.sha256 })), log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), subitems: seatSubitemsOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item), release_by: releaseBy(item, viewer) });
+      res.json({ item: itemView(item), ...areaView(item), due: item.due_at ? item.due_at.slice(0, 10) : null, overdue: overdueOf(item), attachments: attachmentsOfEvent(item.source_ref).map((a) => ({ name: a.name, size: a.size, url: `/api/work-items/${id}/attachments/${a.id}`, id: a.id, mime: a.mime, sha256: a.sha256 })), log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), subitems: seatSubitemsOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item), release_by: releaseBy(item, viewer) });
     })().catch(next);
   });
 
@@ -401,8 +440,8 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
 
   app.post('/api/work-items/:id/decision', {
     action: 'work-items.accept', kind: 'decide', statusNotVerdict: CREATOR_DECIDES,
-    // 领域的验收：第 1 步只登记、恒为假，第 2 步改成「事项带了领域」
-    refine: [{ action: 'area.accept', kind: 'decide', why: '在领域里验收任务，第 1 步只登记（恒为假），第 2 步按事项带了领域判', when: () => false }],
+    // 领域的验收：仍只登记、恒为假；代验连同「领域成员按领域看事项」排在 4b（docs/domains-step1.md 第七节第 11 条）
+    refine: [{ action: 'area.accept', kind: 'decide', why: '在领域里验收任务，只登记（恒为假），4b 按事项带了领域判', when: () => false }],
   }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
