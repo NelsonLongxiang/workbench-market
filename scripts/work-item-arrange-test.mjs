@@ -11,6 +11,7 @@
  *   限流：按设置（管理员可调）每人每分钟几件，超了 429；重放不算新的一件、也不被限流挡
  *   拒绝：没登录、提供方不认的会话、只带管理口令 401；主体停用 403；跨站 403；坏参数 400
  *   启动自检：远程匿名打这个入口必须 401
+ *   附件上限：单个 100MB（只声明 content-length 就 413、带 max_bytes）；每人没挂出去的最多 20 个、合计 500MB（429）
  *
  *   node scripts/work-item-arrange-test.mjs              测本仓库
  *   node scripts/work-item-arrange-test.mjs --root DIR   测另一棵目录树
@@ -651,6 +652,33 @@ try {
     const afterFree = await up(ALPHA, '腾出来了.txt', Buffer.from('ok'));
     check(fillId > 0 && over.status === 429 && over.body?.error === 'attachments_pending_bytes_limit' && over.body?.limit_bytes === 500 * 1024 * 1024 && betaOk.status === 201 && afterFree.status === 201,
       '收场（a）：每人没挂出去的总量上限 500MB——超了先拒（429，不保存），别人不受影响；腾出来以后又能传', show({ over: [over.status, over.body], afterFree: afterFree.status, betaOk: betaOk.status }));
+    // 单个上限 100MB：只声明 content-length 为 100MB+1、不真传，服务端看声明就拒（413，带 max_bytes），不认人之前就挡、不落盘
+    {
+      const { request } = await import('node:http');
+      const rows = () => { const d = dbr(); try { return d.prepare('SELECT COUNT(*) AS n FROM work_item_attachments').get().n; } finally { d.close(); } };
+      const before = rows();
+      const big = await new Promise((ok, no) => {
+        const rq = request(`${base}/api/work-items/attachments/${encodeURIComponent('太大了.bin')}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream', 'content-length': String(100 * 1024 * 1024 + 1), ...ALPHA } }, (rs) => {
+          let t = ''; rs.setEncoding('utf8'); rs.on('data', (c) => { t += c; }); rs.on('end', () => { rq.destroy(); let j = null; try { j = JSON.parse(t); } catch { /* 不是 JSON */ } ok({ status: rs.statusCode, body: j }); });
+        });
+        rq.on('error', (e) => (e.code === 'ECONNRESET' || e.code === 'EPIPE' ? null : no(e)));
+        rq.write(Buffer.from('x')); // 只发 1 个字节，剩下的不发：要的是服务端按声明先拒
+      });
+      check(big.status === 413 && big.body?.error === 'attachment_too_large' && big.body?.max_bytes === 100 * 1024 * 1024 && rows() === before,
+        '单个附件上限 100MB：声明 100MB+1 就拒（413 attachment_too_large，max_bytes 是 100MB），不落盘', show({ big, before, after: rows() }));
+    }
+    // 每人还没挂出去的最多 20 个：补到 20 个都收，第 21 个 429（带 limit），别人不受影响
+    {
+      const pendingBeta = () => { const d = dbr(); try { return d.prepare("SELECT COUNT(*) AS n FROM work_item_attachments WHERE uploaded_by = 'user:beta' AND event_id = ''").get().n; } finally { d.close(); } };
+      const start = pendingBeta();
+      const fills = [];
+      for (let i = start; i < 20; i++) fills.push((await up(BETA, `合成第${i + 1}个.txt`, Buffer.from(`b${i}`))).status);
+      const at20 = pendingBeta();
+      const over21 = await up(BETA, '合成第21个.txt', Buffer.from('b21'));
+      const alphaOk = await up(ALPHA, '甲照样能传.txt', Buffer.from('a'));
+      check(start < 20 && fills.every((s) => s === 201) && at20 === 20 && over21.status === 429 && over21.body?.error === 'attachments_pending_limit' && over21.body?.limit === 20 && pendingBeta() === 20 && alphaOk.status === 201,
+        '每人没挂出去的附件最多 20 个：第 21 个 429 attachments_pending_limit（limit 20），不保存；别人照样能传', show({ start, fills, at20, over21, after: pendingBeta(), alphaOk: alphaOk.status }));
+    }
   }
 
   // ---------- 拒绝 ----------
