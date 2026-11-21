@@ -90,7 +90,7 @@ async function main() {
       try { return await session(`ctx-all-${i}`, fullGrants); } catch (e) {
         const m = /([a-z_]+) 是数据视图的工具/.exec(String(e.message));
         if (!m) throw e;
-        fullGrants = fullGrants.filter((n) => !/^(dataset_|view_)/.test(n));
+        fullGrants = fullGrants.filter((n) => !/^(dataset_|view_|report_)/.test(n)); // 报告的 report_* 也是数据视图的工具（报告第 1 步 PR C）
       }
     }
     throw new Error('全授会话建不起来');
