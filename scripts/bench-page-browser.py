@@ -37,8 +37,9 @@ RECORDS = {'type': 'records', 'title': '下一动作', 'title_col': 't', 'badges
                             + [{'t': f'合成动作{i}', 'st': 'weird', 'who': '合成乙', 'purpose': '短', 'note': '短', 'day': '2026-11-21', 'url': None, 'url2': None} for i in range(2, 8)], 'truncated': False},
            'link_targets': [[{'href': 'https://ok.example/doc', 'host': 'ok.example'}, None]] + [[None, None] for _ in range(2, 8)]}
 def view_result(view, params):
-    if mode.get('records') == 'on':
-        return {'title': ENTRY['title'], 'version': 5, 'view': {'key': view, 'title': '巡检看板'}, 'params': params, 'blocks': [RECORDS]}
+    if mode.get('records') in ('on', 'truncated'):
+        block = RECORDS if mode['records'] == 'on' else {**RECORDS, 'data': {**RECORDS['data'], 'truncated': True}}
+        return {'title': ENTRY['title'], 'version': 5, 'view': {'key': view, 'title': '巡检看板'}, 'params': params, 'blocks': [block]}
     vt = next(v['title'] for v in ENTRY['views'] if v['key'] == view)
     n = 63 if not params.get('site') else 7
     rows = [{'site': '东区', 'n': 21, 'state': '正常'}, {'site': '西区', 'n': 42, 'state': '待查'}] if not params.get('site') else [{'site': params['site'], 'n': 7, 'state': '正常'}]
@@ -363,6 +364,14 @@ with sync_playwright() as p:
     newp = popup.value; newp.wait_for_load_state()
     check('Enter 在新窗口打开来源，打开的是这条记录的地址', newp.url == 'https://ok.example/doc', newp.url)
     newp.close()
+    check('没截断：不出框架的截断提示', pg.locator('[data-bb=records] .wm-bb-truncated').count() == 0)
+    # 查询被截断：截断只说一次（框架那句），不再写「共 N 条」——那不是总数
+    mode['records'] = 'truncated'
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=records][data-bb-state=ready] [data-testid=rec-card]')
+    rec = pg.locator('[data-bb=records]')
+    check('截断了：框架说一次「数据不止这些，只显示了前 7 行」；不写「共 7 条」，也没有第二处截断提示',
+          rec.locator('.wm-bb-truncated').count() == 1 and '只显示了前 7 行' in rec.locator('.wm-bb-truncated').inner_text() and rec.locator('[data-testid=rec-count]').count() == 0 and rec.inner_text().count('只显示') == 1,
+          (rec.locator('.wm-bb-truncated').all_inner_texts(), rec.locator('[data-testid=rec-count]').all_inner_texts()))
     mode['records'] = 'off'
 
     print('五、入口')
