@@ -8,6 +8,7 @@
  *   · 发一版 = 版本号取这个维度现有最大的加一；**不自动生效**。判据部分（论断要求、回应要求、验收声明、数据槽、参数）的摘要
  *     criteria_sha256 由这里算出来存下。kind 也由这里定：判据和这个维度某个**复核过的**版本一字不差（规范写法相同）是 layout，
  *     否则是 criteria；第一版没有复核过的版本可比，算 criteria。不和「上一版」比：上一版可能没复核过（#926 独立验收，绕过见 R5f）；
+ *   · 复核人不能是作者本人：这个维度里判据和被复核那一版一样的任何一版的作者都算（复核按判据内容生效，本人也按判据内容认）；
  *   · 能不能生效按判据部分判，不按 kind 判：目标版本的判据摘要要等于这个维度某个复核过的版本的判据摘要（属主 2026-11-21：
  *     判据要作者以外的人复核过）。复核人不能是作者本人（同一个主体、同一个留痕写法都算本人）；只改版式和文字的版本不要另外复核；
  *   · 撤维度：改成 retired，只读；模板、复核、留痕都留着；
@@ -253,10 +254,13 @@ export class ReportDimensionService extends Service {
       const d = this.get(id);
       if (!d) return refuse(404, 'report_dimension_missing', `维度 ${id} 不存在`);
       if (d.status === 'retired') return refuse(409, 'report_dimension_retired', `维度 ${id} 已经撤了，只读`);
-      const t = db.prepare('SELECT created_by, created_by_principal FROM report_templates WHERE dimension_id = ? AND version = ?').get(id, version) as { created_by: string; created_by_principal: string | null } | undefined;
+      const t = db.prepare('SELECT criteria_sha256 FROM report_templates WHERE dimension_id = ? AND version = ?').get(id, version) as { criteria_sha256: string } | undefined;
       if (!t) return refuse(404, 'report_template_missing', `维度 ${id} 没有第 ${version} 版模板`);
       if (!identifiedPerson(actor.principal)) return refuse(403, 'report_template_reviewer_unidentified', '复核要认得出是谁：请用站内账号复核（本机命令行、管理口令不能复核）');
-      const self = t.created_by === actor.by.slice(0, 256) || (!!t.created_by_principal && t.created_by_principal === actor.principal);
+      // 复核按判据内容生效（判据一样的版本都算复核过），所以本人也按判据内容认：这个维度里判据和这一版一样的任何一版，作者是复核人，就算本人
+      // （#926 独立验收 E1：不然自己发的判据可以借别人只改标题的那一版，自己复核后生效）
+      const self = !!db.prepare('SELECT 1 FROM report_templates WHERE dimension_id = ? AND criteria_sha256 = ? AND (created_by = ? OR (created_by_principal IS NOT NULL AND created_by_principal = ?))')
+        .get(id, t.criteria_sha256, actor.by.slice(0, 256), actor.principal);
       if (self) return refuse(403, 'report_template_self_review', '模板版本不能由作者本人复核，要作者以外的人');
       if (db.prepare('SELECT 1 FROM report_template_reviews WHERE dimension_id = ? AND version = ?').get(id, version)) return refuse(409, 'report_template_reviewed', `第 ${version} 版已经复核过了`);
       db.prepare('INSERT INTO report_template_reviews (dimension_id, version, reviewed_by, reviewed_by_principal, reviewed_at, note) VALUES (?, ?, ?, ?, ?, ?)')
