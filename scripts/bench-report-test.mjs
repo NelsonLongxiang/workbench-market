@@ -14,6 +14,7 @@
  *   G7 模板换了版本（判据类、复核后生效）：旧绑定生成 409，要重新绑
  *   G8 读：管理层读得到清单和单份；普通员工 403；没登录 401；不存在的 404
  *   G9 （#17）删卡片：台库里只有报告也算有数据，409 的规模里有报告份数，不带正文
+ *   G11（#930 独立验收）只能看台的人读报告 403；三张冻结的表在库里 UPDATE、DELETE、INSERT OR REPLACE 都拒
  *   G10 产出方由服务端填：登录的那个人，记 human（数据视图的台只认人，本机命令行、管理口令进不来是既有规矩）
  *
  *   node scripts/bench-report-test.mjs
@@ -298,6 +299,50 @@ try {
     const stored = (await bv(boss, 'GET', `/synth-orders/reports/${r?.id}`)).json?.report;
     check(r?.producer === 'user:alpha' && r?.producer_kind === 'human' && stored?.producer === 'user:alpha' && stored?.producer_kind === 'human',
       'G10 产出方由服务端填：登录的管理层 user:alpha，记 human（存下来的也一样）', { producer: r?.producer, kind: r?.producer_kind, stored: stored?.producer });
+  }
+  console.log('G11 只能看台、不能读报告的人；冻结的三张表在库里不能改、删、覆盖（#930 独立验收）');
+  {
+    // 只授了「取数、读视图」的人（进得了台，没有读报告）：读报告 403（m11）
+    await cli('POST', '/api/roles/guest/copy', { id: 'g-viewer', name: '合成·只看台' });
+    await cli('PUT', '/api/roles/g-viewer', { permissions: [{ actions: ['bench-store.render', 'bench-store.view-get'] }] });
+    await cli('POST', '/api/roles/g-viewer/approve');
+    const gv = await activate({ principal: 'user:beta', role: 'g-viewer', scope: '*' });
+    const rid0 = first.json?.report?.id;
+    const view = await bv(member, 'GET', '/synth-orders/view');
+    const one = await bv(member, 'GET', `/synth-orders/reports/${rid0}`);
+    const list = await bv(member, 'GET', '/synth-orders/reports');
+    const gid = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = 'g-viewer' AND status = 'active'").get()?.id;
+    const rv = await cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：G11 用完收回' });
+    check(gv && view.status === 200 && one.status === 403 && list.status === 403 && rv.status === 200,
+      'G11 只授了取数、读视图的人：读视图 200，读一份报告、读清单都 403（用完收回）', { gv, view: view.status, one: one.status, list: list.status, rv: rv.status });
+    // 绑定的筛选参数不在视图的筛选栏里（#930 验收 m16）：绑得上，生成时 400，不出报告；再绑回好的
+    const cur = (await bv(boss, 'GET', '/synth-orders/reports/monthly/binding')).json?.binding;
+    const curSlots = cur?.slots;
+    const badBind = await bv(boss, 'PUT', '/synth-orders/reports/monthly/binding', { base: cur?.version, slots: { orders: { ...curSlots?.orders, params: { region: { ref: { scope: 'parameter', name: 'period' } } } } } });
+    const nBefore = (await bv(boss, 'GET', '/synth-orders/reports')).json?.reports?.length;
+    const badGen = await gen(boss, G({ subject: 'card:synth-orders@badparam' }));
+    const nAfter = (await bv(boss, 'GET', '/synth-orders/reports')).json?.reports?.length;
+    const goodBind = await bv(boss, 'PUT', '/synth-orders/reports/monthly/binding', { base: badBind.json?.binding?.version, slots: curSlots });
+    check(!!curSlots && badBind.status === 200 && badGen.status === 400 && /筛选项/.test(badGen.text ?? '') && nAfter === nBefore && goodBind.status === 200,
+      'G11 绑定的筛选参数不在视图筛选栏里：生成 400（说清是哪个参数），不出报告；再绑回好的', { badBind: badBind.status, badGen: `${badGen.status} ${badGen.text?.slice(0, 100)}`, n: [nBefore, nAfter], goodBind: goodBind.status });
+    // 冻结：台库里直接 UPDATE、DELETE、INSERT OR REPLACE（同键覆盖）三张表都拒，行原样
+    const store = new DatabaseSync(join(srv.data, 'bench-stores', 'synth-orders.sqlite'));
+    const tr = (sql, ...a) => { try { store.prepare(sql).run(...a); return false; } catch { return true; } };
+    const snap = () => JSON.stringify(['bs_report_bindings', 'bs_reports', 'bs_report_claims'].map((t) => store.prepare(`SELECT * FROM ${t} ORDER BY 1, 2`).all()));
+    const before = snap();
+    const rows0 = { b: store.prepare('SELECT COUNT(*) AS n FROM bs_report_bindings').get().n, r: store.prepare('SELECT COUNT(*) AS n FROM bs_reports').get().n, c: store.prepare('SELECT COUNT(*) AS n FROM bs_report_claims').get().n };
+    const r = {
+      updB: tr("UPDATE bs_report_bindings SET slots = '{}'"), delB: tr('DELETE FROM bs_report_bindings'),
+      repB: tr("INSERT OR REPLACE INTO bs_report_bindings (dimension_id, version, template_version, slots, created_by, created_at) VALUES ('monthly', 1, 1, '{}', 'x', 1)"),
+      updR: tr("UPDATE bs_reports SET body = '[]'"), delR: tr('DELETE FROM bs_reports'),
+      repR: tr("INSERT OR REPLACE INTO bs_reports (id, dimension_id, template_version, template_sha256, binding_version, subject, inputs, body, sources, content_sha256, producer, producer_kind, supersedes, created_at) VALUES (?, 'monthly', 1, 'x', 1, 'card:x', '{}', '[]', '[]', 'x', 'x', 'human', NULL, 1)", rid0),
+      updC: tr("UPDATE bs_report_claims SET text = 'x'"), delC: tr('DELETE FROM bs_report_claims'),
+      repC: tr("INSERT OR REPLACE INTO bs_report_claims (report_id, claim_key, kind, text, basis) VALUES (?, 'conclusion-1', 'conclusion', '偷换的结论', '[]')", rid0),
+    };
+    const same = snap() === before;
+    store.close();
+    check(rows0.b > 0 && rows0.r > 0 && rows0.c > 0 && Object.values(r).every(Boolean) && same,
+      'G11 台库里直接 UPDATE、DELETE、INSERT OR REPLACE（同键覆盖）报告绑定、报告、论断：触发器都拒，三张表一行没变', { rows0, r, same });
   }
   db.close();
 } catch (e) {
