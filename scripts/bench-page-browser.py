@@ -278,13 +278,15 @@ with sync_playwright() as p:
     pg.wait_for_selector('[data-testid=bench-rename-input]', state='detached')
     # 「跟卡片同名」（#927）：没有对应卡片（card_title 为 null）不出；卡片名和台名不同才出，按钮上写着卡片名；点了请求带 from_card 和 base_title
     mgr['card'] = None
-    pg.locator('[data-testid=bench-page-refresh]').click(); pg.wait_for_timeout(400)
+    # 等这一次入口真回来再往下（等不到就超时失败），不靠固定时长：机器慢时入口没回来就点开对话框，用的还是旧的 card_title
+    with pg.expect_response(lambda r: r.url.endswith('/entry')): pg.locator('[data-testid=bench-page-refresh]').click()
     pg.locator('[data-testid=bench-page-rename]').click(); pg.locator('[data-testid=bench-rename-input]').wait_for()
     check('台没有对应卡片（card_title 为 null）：不出「跟卡片同名」', pg.locator('[data-testid=bench-rename-from-card]').count() == 0)
     # Esc 要落在对话框里才关（焦点还在顶栏的「改名」上时按 Esc 不关），所以按在输入框上
     pg.locator('[data-testid=bench-rename-input]').press('Escape'); pg.wait_for_selector('[data-testid=bench-rename-input]', state='detached')
     mgr['card'] = '合成·巡检卡片'
-    pg.locator('[data-testid=bench-page-refresh]').click(); pg.wait_for_timeout(400)
+    # 等这一次入口真回来再往下（等不到就超时失败），不靠固定时长：机器慢时入口没回来就点开对话框，用的还是旧的 card_title
+    with pg.expect_response(lambda r: r.url.endswith('/entry')): pg.locator('[data-testid=bench-page-refresh]').click()
     pg.locator('[data-testid=bench-page-rename]').click(); fc = pg.locator('[data-testid=bench-rename-from-card]'); fc.wait_for()
     check('卡片名和台名不同：出「跟卡片同名」，按钮上写着卡片名', '合成·巡检卡片' in fc.inner_text(), fc.inner_text())
     base = mgr['title']; fc.click()
