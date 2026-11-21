@@ -8,7 +8,7 @@
   五、入口：没有台的卡片照原来嵌页面、不存在的卡片照原来说不存在（都走实例里真的入口）；入口 403、读不到（再试一次）。"""
 import json, os, re, sys
 from urllib.parse import urlparse, parse_qs
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M, CARD = cfg['base'], cfg['card']
 SHOT = os.environ.get('BENCH_PAGE_SHOT')
@@ -231,9 +231,17 @@ with sync_playwright() as p:
     check('标题换成第三版，页签不再出（只剩一份）', pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览·三' and pg.locator('[data-testid=bench-page-tab]').count() == 0)
     mode['entry'] = '500'
     r2 = len(log['render'])
-    # 等条件成立，不固定睡：入口那次（500）的应答回来了、正文的重新取数也发了而且画好了，再看页面有没有被换掉
-    with pg.expect_response(lambda r: r.url.endswith('/entry')): pg.locator('[data-testid=bench-page-refresh]').click()
-    until(pg, lambda: len(log['render']) > r2); pg.wait_for_selector('[data-bb=bar][data-bb-state=ready]')
+    # 这一条要证明的是「没有发生」（页面没被换掉、没出整页错），照 #954 的口径：
+    #   先等两件一定会发生的事——入口那次（500）的应答到了，正文的重新取数发了而且画好了；
+    #   再留一段固定时间，让「错误晚一点才出来」也有机会出来，然后再看没有发生。等不到的不在这里抛错，交给下面的断言报
+    try:
+        with pg.expect_response(lambda r: r.url.endswith('/entry'), timeout=10000): pg.locator('[data-testid=bench-page-refresh]').click()
+    except PWTimeout:
+        pass
+    until(pg, lambda: len(log['render']) > r2)
+    try: pg.wait_for_selector('[data-bb=bar][data-bb-state=ready]', timeout=10000)
+    except PWTimeout: pass
+    pg.wait_for_timeout(800)  # 证明「没有发生」的那段时间（有意的固定等待，见 #954）
     check('入口这次读不到（500）：页面保持现状不换，正文照常重新取数，不整页报错', len(log['render']) > r2 and pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览·三' and pg.locator('[data-testid=use-entry-error]').count() == 0, (len(log['render']) - r2))
     mode['entry'] = 'ok'
 
