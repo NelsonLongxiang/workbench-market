@@ -9,6 +9,14 @@
  *       WM_TEST_SCHEMA_PAUSE_MS 把「核对定义」「删」「建」之间的窗口撑大：去掉事务的话 N 个进程都删了再建，后建的必然报 view already exists（这一节每次都红）
  *   三、视图被删了：同样 N 个进程同时加载，只有一个建（created），全部成功
  *   四、WM_TEST_SCHEMA_PAUSE_MS 只给测试用：不是 NODE_ENV=test 时设了拒绝启动；值不合法拒绝启动
+ *   五、旧库缺列：先记下建好的库每张表的 PRAGMA table_info，再用 DROP COLUMN 拿掉一批列，冒充升级前的旧库
+ *       （单列补、循环补、workbenches.access 那段「补列加回填」、teams 四张表那段「补列加回填」都有份），再让 N 个进程同时加载——
+ *       全部成功，拿掉的列都补回来了，每张表的列（名字、类型、非空、缺省值、主键）和索引、触发器、视图的定义都和原来一样。
+ *       拿掉再补回来的列排到了表尾，所以这一节按列名比、不比列的位置；按位置的逐表比对用真的旧版本库做（见 PR 描述）。
+ *       这一节证明「旧库升级完和新建的一样」；列定义本身没被改写，是拿真的旧版本库、按位置逐表比的（见 PR 描述）
+ *   六、两个补列函数本身：N 个进程都先把 db.ts 加载完，再约好同一时刻对一张临时表调 addColumnIfMissing / migrateOnce——
+ *       全部成功，只有一个进程补上（added / did 为真），列只有一份。整个启动里前面有别的写，各进程会在写锁上排成一队、碰不到这个窗口，
+ *       所以竞态在这里单独测：停顿撑大「核对」和「补列」之间的窗口，去掉事务里的再核一次，后补的必然报 duplicate column（这一节每次都红）
  *
  *   node scripts/db-startup-race-test.mjs              测本仓库
  *   node scripts/db-startup-race-test.mjs --root DIR   测另一棵目录树（变异测试用）
@@ -24,8 +32,12 @@ const ROOT = resolve(arg >= 0 ? process.argv[arg + 1] : join(HERE, '..'));
 const OUT = join(HERE, '..', 'tmp', `db-startup-race-${process.pid}-${Date.now().toString(36)}`);
 const DB_URL = pathToFileURL(join(ROOT, 'server', 'src', 'db.ts')).href;
 const N = 8;
+/** db.ts 自己引的模块先在约好的时刻之前加载好：过了那个时刻只剩 db.ts 本身，各进程进迁移的时间差压到最小 */
+const PREWARM = ['config.ts', 'db-busy.ts', 'portal-access.ts'].map((f) => `await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server', 'src', f)).href)});`).join(' ');
 const CHILD_TIMEOUT_MS = 30_000;
 const PAUSE_MS = 300;
+/** 旧库缺列那一节的停顿：比各进程加载 db.ts 的时间差大，「核对」和「补列」之间才一定重叠 */
+const COL_PAUSE_MS = 400;
 
 let pass = 0, fail = 0;
 const check = (ok, label, detail) => { if (ok) pass++; else fail++; console.log(`  ${ok ? '✓' : '✗'} ${label}${ok || detail === undefined ? '' : `（${typeof detail === 'string' ? detail : JSON.stringify(detail)}）`}`); };
@@ -47,7 +59,8 @@ function run(code, env) {
   });
 }
 /** 加载 db.ts，报告这一次视图做了什么、最后的定义对不对。startAt：约好的时刻，先空转等到再加载，让 N 个进程尽量同时进迁移 */
-const loadCode = (startAt) => `while (Date.now() < ${startAt}) {}
+const loadCode = (startAt) => `${PREWARM}
+while (Date.now() < ${startAt}) {}
 const m = await import(${JSON.stringify(DB_URL)});
 console.log(JSON.stringify({ setup: m.a2aRostersLiveSetup, ok: m.viewSql('a2a_rosters_live') === m.A2A_ROSTERS_LIVE_SQL }));`;
 /** 在库里改视图（造「定义过时」「被删了」两种起点）：加载 db.ts 之后用它的连接改 */
@@ -57,6 +70,23 @@ const together = async (dir, env = {}) => {
   const startAt = Date.now() + 1500;
   return Promise.all(Array.from({ length: N }, () => run(loadCode(startAt), { DATA_DIR: dir, ...env })));
 };
+/** 每张表的列（按列名排，不带位置 cid）和索引、触发器、视图的定义 */
+const schemaCode = `const m = await import(${JSON.stringify(DB_URL)});
+const tables = {};
+for (const { name } of m.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all())
+  tables[name] = m.db.prepare('PRAGMA table_info("' + name + '")').all().map(({ cid, ...c }) => ({ ...c })).sort((a, b) => (a.name < b.name ? -1 : 1));
+const objects = m.db.prepare("SELECT type, name, sql FROM sqlite_master WHERE type IN ('index', 'trigger', 'view') ORDER BY type, name").all().map((r) => ({ ...r }));
+console.log(JSON.stringify({ tables, objects }));`;
+/**
+ * 冒充旧库拿掉的列，每种补法各取一处：单列补（market_sessions）、循环补（local_accounts、work_items）、
+ * workbenches.access 那段「补列加回填」（两列）、teams 四张表那段「补列加回填」（八列，四张表一起补，要拿就一起拿）。
+ * 不多拿：停顿按「真的要补的那一次」算，补的进程一次接一次拿写锁，拿多了等着的进程会超过等锁上限（DB_BUSY_TIMEOUT_MS）报 database is locked——那是停顿造成的，不是被测的行为
+ */
+const DROPPED = [['market_sessions', 'max_expires_at'], ['local_accounts', 'credential_by_system_at'], ['work_items', 'area_reason'],
+  ['workbenches', 'access_logins'], ['workbenches', 'access'],
+  ...['teams', 'team_leads', 'seat_assignments', 'team_events'].flatMap((t) => [[t, 'key_fingerprint'], [t, 'peer_root']])];
+/** 加载 db.ts 之后，DROPPED 里还缺几列（在加载它的这个进程里数，数完不再有别的进程先加载一遍） */
+const gapsExpr = `${JSON.stringify(DROPPED)}.filter(([t, c]) => !m.tableColumns(t).some((x) => x.name === c)).length`;
 const summary = (rs) => rs.map((r) => (r.timedOut ? 'timeout' : r.exit !== 0 ? `exit ${r.exit}: ${r.err}` : `${r.result?.setup}/${r.result?.ok}`));
 const count = (rs, setup) => rs.filter((r) => r.exit === 0 && r.result?.setup === setup).length;
 const allOk = (rs) => rs.every((r) => !r.timedOut && r.exit === 0 && r.result?.ok === true);
@@ -90,6 +120,44 @@ try {
   const badVal = await run(loadCode(0), { DATA_DIR: dir, WM_TEST_SCHEMA_PAUSE_MS: '9999' });
   check(prod.exit !== 0 && !prod.timedOut && /WM_TEST_SCHEMA_PAUSE_MS 只给测试用/.test(prod.err) && badVal.exit !== 0 && /0～5000/.test(badVal.err),
     '不是 NODE_ENV=test 时设了 WM_TEST_SCHEMA_PAUSE_MS：拒绝启动；值超出 0～5000：拒绝启动', { prod: summary([prod]), bad: summary([badVal]) });
+
+  console.log('五、旧库缺列');
+  const before = await run(schemaCode, { DATA_DIR: dir });
+  const missing = (snap) => DROPPED.filter(([t, c]) => !snap?.tables?.[t]?.some((x) => x.name === c)).length;
+  // 拿掉列、数缺口在同一个进程里做：之后第一个加载 db.ts 的就是下面同时启动的那 N 个（别的进程先加载会把列补回去）
+  const drop = await run(`const m = await import(${JSON.stringify(DB_URL)}); m.db.exec(${JSON.stringify(DROPPED.map(([t, c]) => `ALTER TABLE ${t} DROP COLUMN ${c};`).join(' '))});
+console.log(JSON.stringify({ gaps: ${gapsExpr} }));`, { DATA_DIR: dir });
+  check(before.exit === 0 && missing(before.result) === 0 && drop.exit === 0 && drop.result?.gaps === DROPPED.length,
+    `（准备）拿掉 ${DROPPED.length} 列冒充旧库（${new Set(DROPPED.map(([t]) => t)).size} 张表）`, { before: before.exit, drop: summary([drop]), gaps: drop.result?.gaps });
+  const startAt = Date.now() + 1500;
+  const up = await Promise.all(Array.from({ length: N }, () => run(`${PREWARM}
+while (Date.now() < ${startAt}) {}
+const m = await import(${JSON.stringify(DB_URL)});
+console.log(JSON.stringify({ gaps: ${gapsExpr} }));`, { DATA_DIR: dir, WM_TEST_SCHEMA_PAUSE_MS: String(COL_PAUSE_MS) })));
+  const after = await run(schemaCode, { DATA_DIR: dir });
+  const diffTables = Object.keys({ ...before.result?.tables, ...after.result?.tables }).filter((t) => JSON.stringify(before.result?.tables?.[t]) !== JSON.stringify(after.result?.tables?.[t]));
+  const sameObjects = JSON.stringify(before.result?.objects) === JSON.stringify(after.result?.objects);
+  check(up.every((r) => !r.timedOut && r.exit === 0 && r.result?.gaps === 0) && after.exit === 0 && missing(after.result) === 0 && diffTables.length === 0 && sameObjects,
+    `${N} 个进程同时加载这个旧库：全部成功；拿掉的列都补回来了；每张表的列和索引、触发器、视图的定义都和原来一样`, { up: up.map((r) => (r.timedOut ? 'timeout' : r.exit !== 0 ? `exit ${r.exit}: ${r.err}` : `gaps=${r.result?.gaps}`)), missing: missing(after.result), diffTables, sameObjects });
+
+  console.log('六、两个补列函数本身');
+  const prep = await run(`const m = await import(${JSON.stringify(DB_URL)}); m.db.exec('CREATE TABLE zz_race_a (id INTEGER PRIMARY KEY); CREATE TABLE zz_race_b (id INTEGER PRIMARY KEY)');
+console.log(JSON.stringify({ ok: true }));`, { DATA_DIR: dir });
+  check(prep.exit === 0, '（准备）两张临时表', summary([prep]));
+  const race = async (call) => {
+    const at = Date.now() + 2500; // 都先把 db.ts 加载完（迁移在这之前做完），再一起调
+    return Promise.all(Array.from({ length: N }, () => run(`const m = await import(${JSON.stringify(DB_URL)});
+while (Date.now() < ${at}) {}
+const r = ${call};
+console.log(JSON.stringify({ r, n: m.tableColumns(${JSON.stringify('zz_race_a')}).length + m.tableColumns(${JSON.stringify('zz_race_b')}).length }));`, { DATA_DIR: dir, WM_TEST_SCHEMA_PAUSE_MS: String(PAUSE_MS) })));
+  };
+  const show = (rs) => rs.map((x) => (x.timedOut ? 'timeout' : x.exit !== 0 ? `exit ${x.exit}: ${x.err}` : String(x.result?.r)));
+  const a = await race(`m.addColumnIfMissing('zz_race_a', "c TEXT NOT NULL DEFAULT ''")`);
+  check(a.every((x) => !x.timedOut && x.exit === 0) && a.filter((x) => x.result?.r === true).length === 1,
+    `addColumnIfMissing：${N} 个进程同时补同一列，全部成功，只有一个补上`, show(a));
+  const b = await race(`m.migrateOnce(() => !m.hasColumn('zz_race_b', 'c'), () => m.db.exec("ALTER TABLE zz_race_b ADD COLUMN c TEXT NOT NULL DEFAULT ''"))`);
+  check(b.every((x) => !x.timedOut && x.exit === 0) && b.filter((x) => x.result?.r === true).length === 1,
+    `migrateOnce：${N} 个进程同时做同一段「补列加回填」，全部成功，只有一个做了`, show(b));
 } catch (e) {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {
