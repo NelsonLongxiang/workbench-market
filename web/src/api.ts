@@ -422,7 +422,7 @@ export async function exportBenchTable(bench: string, target: TableContext): Pro
 export const listBenchViews = () => benchViewsGet('/api/bench-views');
 export const getBenchViewDoc = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/view`);
 /** 视图台页面的入口：ref 写卡片 id 或台标识。200 时 body 是 BenchEntry；读不到的、不存在的、没开台库的、还没有视图描述的都是同一个 404（页面照原来的方式打开卡片）；没登录 401 */
-export type BenchEntry = { bench: { slug: string; title: string; workbench_id: number | null }; version: number; title: string; default_view: string; views: { key: string; title: string }[]; can: { rename: boolean; /** 能进这个台的 MCP 管理页（#904） */ mcp: boolean; /** 能批台上的 MCP 申请 */ mcp_decide: boolean } };
+export type BenchEntry = { bench: { slug: string; title: string; workbench_id: number | null; /** 卡片现在的名字：只给能改名的人；没有对应卡片是 null */ card_title?: string | null }; version: number; title: string; default_view: string; views: { key: string; title: string }[]; can: { rename: boolean; /** 能进这个台的 MCP 管理页（#904） */ mcp: boolean; /** 能批台上的 MCP 申请 */ mcp_decide: boolean } };
 /** 改台名（#905）：PUT /api/bench-views/<卡片 id>/title，{ title } 或 { from_card: true }，带 base_title（页面看到的名字）防覆盖。返回状态码和应答体；断网当状态码 0 */
 export async function renameBenchTitle(ref: string | number, body: { title?: string; from_card?: true; base_title: string }): Promise<{ status: number; body: unknown }> {
   try {

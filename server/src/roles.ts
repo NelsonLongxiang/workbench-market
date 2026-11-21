@@ -2,9 +2,10 @@
  * 角色声明（阶段六 6b）：角色和权限是声明，人写人审，改动走提交；谁有哪个角色是数据（授予，见 services/grant.ts）。
  *
  * 两层：
- *   · 平台的十个内置预设，写死在这里，不能被覆盖、不能改（要调整就复制成自定义角色，见 services/custom-role.ts）：
+ *   · 平台的十一个内置预设，写死在这里，不能被覆盖、不能改（要调整就复制成自定义角色，见 services/custom-role.ts）：
  *     owner 属主、admin 系统管理员、management 管理层、dept-lead 部门负责人、member 普通员工、guest 访客、ai-staff AI 员工，
- *     以及领域的三个（docs/domains-step1.md 第三节第 2 小节）：area-member 领域成员、area-spec 定规范、area-lead 领域负责人，只能带 area:<领域> 范围授予。
+ *     以及领域的四个（docs/domains-step1.md 第三节第 2 小节；docs/report-step1.md 第四节第 2 小节）：area-member 领域成员、area-spec 定规范、area-lead 领域负责人、
+ *     area-report 定报告维度，只能带 area:<领域> 范围授予。
  *     id 沿用阶段六 6b 的（admin、member、dept-lead 只改了显示名或升为内置），已有的授予不用动。
  *   · 组织角色：仓库里带一份通用的初始集合（dept-member 部门成员）；
  *     配了外部声明文件（WM_ROLES_FILE，JSON）就以它为准，初始集合不再用。外部文件放在仓库外，由部署方维护。
@@ -65,6 +66,8 @@ export const BUSINESS_DOMAINS: readonly string[] = [
   'knowledge',
   // 领域和领域规范（规范 15）：规范决定 AI 在这个领域怎么干活，是业务内容，系统管理员缺省看不到
   'area',
+  // 报告的维度和模板（第 19 篇）：维度决定一份报告要回答什么，是业务内容，系统管理员缺省看不到
+  'report',
 ];
 /** 动作的域：点号前面那段；MCP 工具名（没有点）都算 mcp-tool */
 export const domainOf = (action: string): string => (action.includes('.') ? action.slice(0, action.indexOf('.')) : 'mcp-tool');
@@ -149,7 +152,7 @@ export const BLOCKS: readonly { key: string; name: string; domains: readonly str
   { key: 'bench-data', name: '工作台数据', domains: ['app-data', 'bench-store', 'mcp-rest', 'mcp-tool'] },
   { key: 'knowledge', name: '经验库', domains: ['knowledge'] },
   // 领域（规范 15）：业务域，单独一块（团队那一块全是系统域，混进去会让一块里系统、业务掺着）
-  { key: 'area', name: '领域', domains: ['area'] },
+  { key: 'area', name: '领域', domains: ['area', 'report'] },
   { key: 'team', name: '团队与 AI 员工', domains: ['binding', 'department', 'principal', 'relation', 'team'] },
   { key: 'access', name: '权限与角色', domains: ['access', 'admin', 'admin-token', 'grant', 'judgment', 'role', 'setup'] },
   { key: 'system', name: '系统与节点', domains: ['a2a', 'a2a-peer', 'agent-card', 'app', 'auth', 'content', 'cookie', 'design-token', 'health', 'local-account', 'login', 'market', 'mcp', 'portal', 'remote-allow', 'setting', 'skill', 'sso', 'stats', 'type', 'vault', 'workbench'] },
@@ -160,12 +163,21 @@ export const MATRIX_KINDS: readonly { key: Kind; name: string }[] = [
 /** 格子：all 全部；scoped 范围内（范围由授予给）；some 部分动作；self 只限自己的；none 不能；na 这一块没有这一类动作 */
 export type Cell = 'all' | 'scoped' | 'some' | 'self' | 'none' | 'na';
 /** 范围由授予给的预设：部门负责人、AI 员工、访客（矩阵里显示「范围内」） */
-export const SCOPED_PRESETS: readonly string[] = ['dept-lead', 'ai-staff', 'guest', 'area-member', 'area-spec', 'area-lead'];
+export const SCOPED_PRESETS: readonly string[] = ['dept-lead', 'ai-staff', 'guest', 'area-member', 'area-spec', 'area-lead', 'area-report'];
 
-/** 领域的三个预设：只能带 area:<领域> 范围授予（services/grant.ts 核） */
-export const AREA_PRESETS: readonly string[] = ['area-member', 'area-spec', 'area-lead'];
+/** 领域的四个预设：只能带 area:<领域> 范围授予（services/grant.ts 核） */
+export const AREA_PRESETS: readonly string[] = ['area-member', 'area-spec', 'area-lead', 'area-report'];
 /** 定规范（硬规则：只认属主和持本领域 area-spec 授予的人，见 judgment.ts 的 areaVerdict） */
 export const AREA_SPEC_ACTION = 'area.spec-set';
+/** 定报告维度（建维度、发模板、复核、移指针、撤；docs/report-step1.md 第四节）：和定规范同一种硬规则，只认属主和持本领域 area-report 授予的人 */
+export const REPORT_DIMENSION_SET = 'report.dimension-set';
+/**
+ * 硬规则动作 → 只认的角色：领域范围上，只有角色正好是这个的授予算数，别的角色哪怕权限覆盖了也不算（judgment.ts 的 areaVerdict）。
+ * 和 judgment-builtins.ts 的 NARROWED 里这两个动作的 scopedHolder 是同一份口径
+ */
+export const AREA_HARD_HOLDERS: Readonly<Record<string, string>> = { [AREA_SPEC_ACTION]: 'area-spec', [REPORT_DIMENSION_SET]: 'area-report' };
+/** 动作按领域判（judgment.ts 的 areaVerdict，范围 area:<领域>）的域：领域本身，和属于领域的报告维度。矩阵和 scripts/role-matrix-judgment-test.mjs 共用这一份 */
+export const AREA_VERDICT_DOMAINS: readonly string[] = ['area', 'report'];
 /**
  * 领域负责人专有的动作（docs/domains-step1.md 第三节第 2 小节、第七节第 8 条）：过目放行、改派、批本领域的接入申请。
  * 第 1 步用恒为假的 refine 挂在 POST /api/areas/:id/retire 上登记（routes/areas.ts），先让角色能引用，路由上还走不到
@@ -178,10 +190,13 @@ const AREA_MEMBER_TRANSITIONAL: readonly string[] = [
   'bench-store.view-put', 'bench-store.view-versions', 'bench-store.view-diff', 'bench-store.view-rollback', 'bench-store.log-list', 'bench-store.mcp-list',
   'bench-store.mcp-grant', 'bench-store.mcp-decide', 'knowledge.read',
 ];
-/** 这组权限覆不覆盖定规范、负责人专有的动作（按权限覆盖判，不按角色名）：带 area: 范围时，起草、放行都只有属主 */
+/**
+ * 这组权限覆不覆盖定规范（含定报告维度）、负责人专有的动作（按权限覆盖判，不按角色名）：带 area: 范围时，起草、放行都只有属主。
+ * 定报告维度和定规范同类（模板决定 AI 在这个维度上怎么交代），算进 spec
+ */
 export function coversAreaPower(closure: readonly Permission[]): { spec: boolean; lead: boolean } {
   const hit = (a: string) => { const r = permits(closure, a, 'decide'); return r.covers || r.scoped; };
-  return { spec: hit(AREA_SPEC_ACTION), lead: AREA_LEAD_ACTIONS.some(hit) };
+  return { spec: hit(AREA_SPEC_ACTION) || hit(REPORT_DIMENSION_SET), lead: AREA_LEAD_ACTIONS.some(hit) };
 }
 
 /** 一个角色（展开之后的权限）覆不覆盖这个动作：统一判定（judgment.ts）和矩阵共用这一处。只有范围不写或 * 的权限算覆盖 */
@@ -232,7 +247,7 @@ export function roleMatrix(role: { id: string; closure: readonly Permission[]; p
           // scopedVerdict 认 area:<领域>（第 1 步 PR3b），按 ASKED 的 scoped 类别算
           if (AREA_PRESETS.includes(role.id)) {
             const sk = scopedKind(a);
-            if (domainOf(a) === 'area' ? permits(role.closure, a, k).covers : sk !== null && permits(role.closure, a, sk).covers) scoped++;
+            if (AREA_VERDICT_DOMAINS.includes(domainOf(a)) ? permits(role.closure, a, k).covers : sk !== null && permits(role.closure, a, sk).covers) scoped++;
             continue;
           }
           const dk = scopedKind(a);
@@ -297,6 +312,8 @@ export const PLATFORM_ROLES: readonly RoleDecl[] = [
   { id: 'area-member', name: '领域成员', permissions: [{ actions: ['area.list', 'area.read', 'area.spec-list', 'area.spec-read', 'area.trigger', 'area.accept', ...AREA_MEMBER_TRANSITIONAL] }] },
   { id: 'area-spec', name: '定规范', permissions: [{ actions: ['area.spec-list', 'area.spec-read', AREA_SPEC_ACTION] }] },
   { id: 'area-lead', name: '领域负责人', includes: ['area-member'], permissions: [{ actions: [...AREA_LEAD_ACTIONS] }] },
+  // 定报告维度（docs/report-step1.md 第四节第 2 小节）：和定规范一样单独授予，不随领域负责人一起给（属主 2026-11-21）
+  { id: 'area-report', name: '定报告维度', permissions: [{ actions: ['report.dimension-list', 'report.dimension-read', REPORT_DIMENSION_SET] }] },
 ];
 
 /** 只能授予非人主体的预设、只能授予人的预设 */

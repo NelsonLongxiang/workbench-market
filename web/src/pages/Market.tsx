@@ -118,7 +118,7 @@ export default function Market() {
       width: 200,
       render: (_, w) => (
         <Space size={6}>
-          <span style={{ fontSize: 16 }}>{w.icon || '▢'}</span>
+          <span className="wm-text-subtitle">{w.icon || '▢'}</span>
           <a onClick={() => setDetail(w)} className="wm-strong">
             {w.name}
           </a>
@@ -134,7 +134,7 @@ export default function Market() {
       render: (_, w) => (
         <Space size={4}>
           {accessTag(w)}
-          <Typography.Text className="wm-mono wm-caption" copyable={{ text: w.url }} style={{ maxWidth: 300 }} ellipsis={{ tooltip: w.url }}>
+          <Typography.Text className="wm-mono wm-caption wm-max-w-300" copyable={{ text: w.url }} ellipsis={{ tooltip: w.url }}>
             {w.url}
           </Typography.Text>
         </Space>
@@ -266,12 +266,12 @@ export default function Market() {
             allowClear
             placeholder="搜索名称 / 地址 / 描述"
             defaultValue={filters.q}
-            style={{ width: 240 }}
+            className="wm-w-240"
             onSearch={(v) => setFilters((f) => ({ ...f, q: v }))}
           />,
           <Select
             key="type"
-            style={{ width: 150 }}
+            className="wm-w-150"
             value={filters.type}
             onChange={(v) => setFilters((f) => ({ ...f, type: v }))}
             options={[
@@ -281,7 +281,7 @@ export default function Market() {
           />,
           <Select
             key="category"
-            style={{ width: 130 }}
+            className="wm-w-130"
             value={filters.category}
             onChange={(v) => setFilters((f) => ({ ...f, category: v }))}
             options={[
@@ -291,7 +291,7 @@ export default function Market() {
           />,
           <Select
             key="status"
-            style={{ width: 110 }}
+            className="wm-w-110"
             value={filters.status}
             onChange={(v) => setFilters((f) => ({ ...f, status: v }))}
             options={[
@@ -341,7 +341,7 @@ export default function Market() {
       <Drawer
         title={
           <Space>
-            <span style={{ fontSize: 18 }}>{detail?.icon}</span>
+            <span className="wm-text-subtitle">{detail?.icon}</span>
             <span>{detail?.name}</span>
             {detail ? typeTag(detail.type) : null}
           </Space>

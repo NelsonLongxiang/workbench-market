@@ -467,6 +467,253 @@
                   "required": [
                     "type",
                     "query",
+                    "title_col"
+                  ],
+                  "description": "每行一张卡片。title_col 是卡片标题列；badges 0～3 列显示成徽标（说法走 value_labels），fields 0～8 列一直可见，details 0～12 列收在「展开」里，date_col 是日期或时间列；这五处引用的列互不重复，每列要有说明名（数据集列定义的 label 或 column_labels）。links 0～3 个 { col, label }：col 的值是网址，只认 http(s)，卡片上只显示 label（12 字以内）；page_size 5～200；empty_text 是没有记录时的说法",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "records"
+                      ]
+                    },
+                    "title": {
+                      "type": "string",
+                      "description": "标题（64 字以内）"
+                    },
+                    "span": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 12,
+                      "description": "12 栏网格里占几栏"
+                    },
+                    "query": {
+                      "type": "object",
+                      "description": "查询描述（不写 SQL）。不写 group、measures 是明细查询；写了是聚合查询。完整写法和例子见技能 wm-data-views（references/query.md）",
+                      "properties": {
+                        "dataset": {
+                          "type": "string",
+                          "description": "数据集名（必填）"
+                        },
+                        "select": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "明细查询要哪些列；不写是全部列。和 group、measures 不能同时写"
+                        },
+                        "filter": {
+                          "type": "array",
+                          "description": "筛选条件，最多 20 条，全部满足才算（AND）",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "col",
+                              "op"
+                            ],
+                            "properties": {
+                              "col": {
+                                "type": "string",
+                                "description": "列名"
+                              },
+                              "op": {
+                                "type": "string",
+                                "enum": [
+                                  "=",
+                                  "!=",
+                                  ">",
+                                  ">=",
+                                  "<",
+                                  "<=",
+                                  "in",
+                                  "is_null",
+                                  "not_null",
+                                  "contains",
+                                  "prefix"
+                                ],
+                                "description": "比较符：= != > >= < <= 比大小；in 是「在这几个值里」（值放 values）；is_null / not_null 判空（不用 value）；contains 文本包含；prefix 开头是（文本、日期、时间列，比如按月筛日期列：prefix 2026-01）"
+                              },
+                              "value": {
+                                "description": "比较的值；写成 $名字 引用 params 里的值（没给就这条不生效）"
+                              },
+                              "values": {
+                                "type": "array",
+                                "description": "op 为 in 时的取值，1～200 个"
+                              }
+                            }
+                          }
+                        },
+                        "group": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "按哪些列分组"
+                        },
+                        "measures": {
+                          "type": "array",
+                          "description": "聚合，最多 12 项",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "fn",
+                              "as"
+                            ],
+                            "properties": {
+                              "fn": {
+                                "type": "string",
+                                "enum": [
+                                  "count",
+                                  "count_distinct",
+                                  "sum",
+                                  "avg",
+                                  "min",
+                                  "max"
+                                ],
+                                "description": "count 不写 col 就是数行数（COUNT(*)），写了 col 是数这一列不为空的行；count_distinct 数不同的值；sum、avg 只用于整数和小数列"
+                              },
+                              "col": {
+                                "type": "string",
+                                "description": "对哪一列算（count 可以不写）"
+                              },
+                              "as": {
+                                "type": "string",
+                                "description": "结果列的别名（必填，小写字母开头）"
+                              },
+                              "label": {
+                                "type": "string",
+                                "description": "显示名"
+                              }
+                            }
+                          }
+                        },
+                        "sort": {
+                          "type": "array",
+                          "description": "排序，最多 8 项。聚合查询只能按输出列（分组列和别名）排；不写时聚合按分组列升序、明细按写入次序",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "col"
+                            ],
+                            "properties": {
+                              "col": {
+                                "type": "string"
+                              },
+                              "dir": {
+                                "type": "string",
+                                "enum": [
+                                  "asc",
+                                  "desc"
+                                ],
+                                "description": "缺省 asc"
+                              }
+                            }
+                          }
+                        },
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 5000,
+                          "description": "最多返回几行，缺省 200"
+                        },
+                        "offset": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "跳过前几行"
+                        },
+                        "current_only": {
+                          "type": "boolean",
+                          "description": "只取每条更正链上最新的那行（只用于公共区带来源列的数据集；那种数据集还能读来源列 _area、_task、_batch、_grant、_upstream、_supersedes 和行号 _row）"
+                        }
+                      },
+                      "required": [
+                        "dataset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "title_col": {
+                      "type": "string",
+                      "description": "卡片标题列"
+                    },
+                    "badges": {
+                      "type": "array",
+                      "maxItems": 3,
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "0～3 列，显示成徽标（说法走 value_labels）"
+                    },
+                    "fields": {
+                      "type": "array",
+                      "maxItems": 8,
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "主要字段，0～8 列，一直可见"
+                    },
+                    "details": {
+                      "type": "array",
+                      "maxItems": 12,
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "次要字段，0～12 列，收在「展开」里"
+                    },
+                    "date_col": {
+                      "type": "string",
+                      "description": "日期或时间列"
+                    },
+                    "links": {
+                      "type": "array",
+                      "maxItems": 3,
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "col",
+                          "label"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "col": {
+                            "type": "string",
+                            "description": "值是网址的文本列（只认 http(s)）"
+                          },
+                          "label": {
+                            "type": "string",
+                            "description": "卡片上显示的字（12 字以内），比如「查看依据」"
+                          }
+                        }
+                      },
+                      "description": "来源链接，卡片上只显示 label、不露网址"
+                    },
+                    "page_size": {
+                      "type": "integer",
+                      "minimum": 5,
+                      "maximum": 200
+                    },
+                    "value_labels": {
+                      "type": "object",
+                      "description": "列名 → 取值 → 说法（一段文字，或 { text, tone }）"
+                    },
+                    "column_labels": {
+                      "type": "object",
+                      "description": "列名 → 说明名；每列要有说明名（或数据集列定义里的 label）"
+                    },
+                    "empty_text": {
+                      "type": "string",
+                      "description": "没有记录时的说法（32 字以内）"
+                    }
+                  }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "query",
                     "x",
                     "y"
                   ],

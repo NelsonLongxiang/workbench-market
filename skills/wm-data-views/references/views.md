@@ -1,4 +1,4 @@
-# 视图描述和八种组件
+# 视图描述和九种组件
 
 完整的机器可读契约（每种组件的键、必填、上限、字段说明）在同目录的 `view-doc-schema.json`，由代码生成、和服务端校验同一来源；`view_put` 的参数说明里只给大致形状。下面是写法和例子。
 
@@ -16,7 +16,7 @@
 
 - 一个台 1～20 个视图（页面顶上的页签）。`key`：小写字母开头，小写字母、数字、连字符，最多 32 个字符，不能重复。
 - 每个视图最多 40 个组件，从上到下、从左到右排在 12 栏的网格里。
-- 每个组件都可以带 `title`（最多 64 个字符）和 `span`（占几栏，落到 3 / 4 / 6 / 12 这四档上；不给时统计卡和进度占 3，表格和筛选栏占 12，其余占 6）。不给 `span` 时页面会补齐一行：一行里只剩一个组件就撑满；一行没放满时，剩下的栏数平分给这一行里没给 `span` 的统计卡、进度卡（三张各 4 栏、两张各 6 栏）。想让卡并排占满一行，就别给它们写 `span`。
+- 每个组件都可以带 `title`（最多 64 个字符）和 `span`（占几栏，落到 3 / 4 / 6 / 12 这四档上；不给时统计卡和进度占 3，表格、记录卡和筛选栏占 12，其余占 6）。不给 `span` 时页面会补齐一行：一行里只剩一个组件就撑满；一行没放满时，剩下的栏数平分给这一行里没给 `span` 的统计卡、进度卡（三张各 4 栏、两张各 6 栏）。想让卡并排占满一行，就别给它们写 `span`。
 - **多写一个不认识的键会被拒**（防止写错了没人知道）。
 
 ## 组件一览
@@ -27,6 +27,7 @@
 | `stat` | 一个大数 | `query`、`value`（取哪个输出列）、`unit`、`tone_rules` |
 | `progress` | 进度条 | `query`、`value`、`total`（一个输出列，或者写死的正数） |
 | `table` | 表格 | `query`、`columns`（显示哪些列、什么次序）、`page_size`（5～200）、`value_labels`、`column_labels` |
+| `records` | 记录卡（每行一张卡片） | `query`、`title_col`（必填）、`badges`、`fields`、`details`、`date_col`、`links`、`page_size`（5～200）、`value_labels`、`column_labels`、`empty_text` |
 | `bar` | 柱状图 | `query`、`x`、`y`（一个或几个数值列）、`series`、`stacked`、`horizontal`、`tone_rules` |
 | `line` | 折线图 | `query`、`x`、`y`、`series`、`area` |
 | `pie` | 饼图 | `query`、`label`、`value`、`donut` |
@@ -38,6 +39,51 @@
 - 分系列有两种写法，**不能同时用**：给多个 `y`（每个一条线 / 一组柱），或者一个 `y` 加 `series`（按那一列的取值分）。
 - 系列最多画 5 个，再多的自动并成「其他」。
 - 统计卡、进度取的是查询结果的**第一行**，所以它们的查询一般是只有聚合、没有分组的。
+
+## 记录卡（`records`）
+
+每行一张卡片，适合事项、阶段、问题、资料这类「一条一条读」的数据。不要用表格硬塞进卡片里。取数和表格一样：一个 `query`，筛选栏的 `$参数` 照常用，按台的读权限照旧。
+
+下面这个例子用的数据集（每列都带说明名，记录卡要用）：
+
+```json dataset
+{ "name": "actions", "title": "下一动作",
+  "columns": [
+    { "name": "id", "type": "integer", "label": "编号", "auto": true },
+    { "name": "action", "type": "text", "label": "动作", "required": true },
+    { "name": "status", "type": "text", "label": "状态" },
+    { "name": "owner", "type": "text", "label": "负责人" },
+    { "name": "purpose", "type": "text", "label": "目的" },
+    { "name": "depends", "type": "text", "label": "依赖" },
+    { "name": "result", "type": "text", "label": "结果" },
+    { "name": "due", "type": "date", "label": "约定时间" },
+    { "name": "source_url", "type": "text", "label": "来源" }
+  ],
+  "key": ["id"] }
+```
+
+```json view-doc
+{ "title": "督导台",
+  "views": [
+    { "key": "actions", "title": "下一动作", "blocks": [
+      { "type": "records", "title": "下一动作",
+        "query": { "dataset": "actions", "sort": [ { "col": "due", "dir": "asc" } ] },
+        "title_col": "action", "badges": ["status"], "fields": ["owner", "purpose"], "details": ["depends", "result"],
+        "date_col": "due", "links": [ { "col": "source_url", "label": "查看依据" } ],
+        "value_labels": { "status": { "todo": "待办", "doing": { "text": "进行中", "tone": "warning" }, "done": { "text": "完成", "tone": "success" } } },
+        "page_size": 20, "empty_text": "暂无下一动作" }
+    ] }
+  ] }
+```
+
+- `title_col`：卡片标题。`badges`：0～3 列，显示成徽标，说法走 `value_labels`；没写说法的取值照原值显示，并标「未定义的取值」。
+- `fields`：0～8 列，主要字段，一直显示。`details`：0～12 列，次要字段，收在「展开」里。长文字（超过 120 字或带换行）会先收起，点「展开」才看全。
+- `date_col`：右上角的日期，要是日期或时间列；空的写「未填」，不当成完成。
+- 标题、徽标、主要字段、次要字段、日期这五处**不能重复用同一列**；每一列都要有说明名（数据集列定义的 `label`，或 `column_labels`）。
+- `links`：0～3 个 `{ col, label }`。`col` 的值是网址，卡片上**只显示 `label`**（比如「查看依据」「打开资料」，12 字以内），不露网址；鼠标悬停和读屏会说出要去的主机名。只认 `http://`、`https://` 开头的完整网址，`javascript:`、`data:`、相对地址、以 `//` 开头的地址一律当无效，卡片上标「来源地址无效」，不渲染成链接。这一行没有网址的，就不显示这一项。`links` 的列可以和上面五处重叠。
+- 所有字段都当纯文本显示，不解析 HTML 或 markdown。
+- 分页在页面上做，每页 `page_size` 张（缺省 20）；上方写「共 N 条」；查询被截断时不写这一行，由块框架统一说「数据不止这些，只显示了前 N 行」（和表格一样，只说一次）。
+- 新增、更新了数据，卡片跟着变，不用每行写一个组件。
 
 ## 引用本台常量与变量
 

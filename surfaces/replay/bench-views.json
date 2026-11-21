@@ -1666,8 +1666,8 @@
           "response": {
             "status": 400,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "326", "etag": "W/\"146-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "error": "invalid", "message": "视图描述有 1 处不合格，未保存。每种组件的键、必填、上限见技能 wm-data-views 的 references/view-doc-schema.json", "details": ["第 1 个视图第 1 个组件：不认识的组件类型 html（现有：filter-bar、stat、table、bar、line、pie、progress、form）"] }
+            "headers": { "cache-control": "private, no-store", "content-length": "336", "etag": "W/\"150-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "视图描述有 1 处不合格，未保存。每种组件的键、必填、上限见技能 wm-data-views 的 references/view-doc-schema.json", "details": ["第 1 个视图第 1 个组件：不认识的组件类型 html（现有：filter-bar、stat、table、records、bar、line、pie、progress、form）"] }
           }
         },
         {
@@ -1977,9 +1977,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "259", "etag": "W/\"103-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "277", "etag": "W/\"115-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
-              "bench": { "slug": "demo", "title": "示例台", "workbench_id": null },
+              "bench": { "slug": "demo", "title": "示例台", "workbench_id": null, "card_title": null },
               "version": 2,
               "title": "订单台二版",
               "default_view": "overview",
@@ -3729,9 +3729,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "250", "etag": "W/\"fa-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "278", "etag": "W/\"116-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
-              "bench": { "slug": "demo", "title": "示例台", "workbench_id": 1 },
+              "bench": { "slug": "demo", "title": "示例台", "workbench_id": 1, "card_title": "任务中心" },
               "version": 1,
               "title": "订单台",
               "default_view": "overview",

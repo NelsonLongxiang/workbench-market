@@ -15,7 +15,7 @@ import RelTime from '../../components/RelTime';
 import WmPage from '../../components/WmPage';
 import { getMarketConnectors, getMarketRunningSops, getMarketSkills, getMarketSops, getMarketWorkbenches } from '../../api';
 import { adminActive, subscribeAdminToken } from '../../admin-token';
-import { NO_DESCRIPTION, cardTags, cardsOf, connectorCards, emptyText, runningBySlug, skillCards, sopCards, sourceProblem, tabFromQuery, tabsFor, workbenchCards } from '../../market-view';
+import { NO_DESCRIPTION, cardTags, cardsOf, connectorCards, emptyText, filterCards, runningBySlug, searchEmptyText, skillCards, sopCards, sourceProblem, tabFromQuery, tabsFor, workbenchCards } from '../../market-view';
 import type { MarketCard, MarketKind, MarketTab, SourceResult } from '../../market-view';
 
 type Sources = { wb: SourceResult | null; sop: SourceResult | null; skill: SourceResult | null; running: SourceResult | null; conn: SourceResult | null };
@@ -56,8 +56,12 @@ export default function Market() {
   // 连接器只给管理员：别人地址里带 ?k=连接器 也落「全部」
   const asked = tabFromQuery(params.get('k'));
   const tab: MarketTab = tabsFor(admin).includes(asked) ? asked : '全部';
+  const urlQ = (params.get('q') ?? '').slice(0, 100);
+  const [q, setQ] = useState(urlQ);
   const [src, setSrc] = useState<Sources>(NONE);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => setQ(urlQ), [urlQ]);
 
   useEffect(() => subscribeAdminToken(() => setAdmin(adminActive())), []);
   useEffect(() => {
@@ -78,7 +82,8 @@ export default function Market() {
     ...(ok(src.skill) ? skillCards(src.skill!.body) : []),
     ...(admin && ok(src.conn) ? connectorCards(src.conn!.body) : []),
   ], [src, admin]);
-  const shown = cardsOf(cards, tab);
+  const byTab = cardsOf(cards, tab);
+  const shown = filterCards(byTab, q);
   const problems = ([['工作台', src.wb], ['流程', src.sop], ['技能', src.skill], ...(admin ? [['连接器', src.conn]] : [])] as [MarketKind, SourceResult | null][])
     .filter(([k]) => tab === '全部' || tab === k)
     .map(([k, r]) => ({ k, p: sourceProblem(k, r) }))
@@ -100,11 +105,20 @@ export default function Market() {
             {t}
           </button>
         ))}
+        <input
+          type="search"
+          className="wm-input wm-mkt-search"
+          placeholder="搜索名称、说明或标签…"
+          aria-label="搜索市场"
+          data-testid="mkt-search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+        />
       </div>
       {problems.map(({ k, p }) => <Alert key={k} className="wm-mkt-alert" type={p!.type} showIcon message={p!.text} />)}
       {loading ? <Skeleton active /> : shown.length > 0
         ? <div className="wm-mkt-grid">{shown.map((c) => <Card key={c.key} c={c} tab={tab} />)}</div>
-        : problems.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText(tab, admin)} />}
+        : problems.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={q.trim() && byTab.length > 0 ? searchEmptyText(q, tab) : emptyText(tab, admin)} />}
     </WmPage>
   );
 }
