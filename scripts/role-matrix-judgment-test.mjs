@@ -97,7 +97,7 @@ try {
           if (judgeBuiltin({ actor, action: a, kind: ak, declared: true, now }).verdict === 'allow') { full++; continue; }
           const dk = scopedKind(a);
           if (dk && scopedVerdict({ principal: actor.id, action: a, kind: dk, scope: 'dept:sales', now }).verdict === 'allow') { scoped++; continue; }
-          if (roles.domainOf(a) === 'area' && areaVerdict({ principal: actor.id, action: a, kind: k, area: 'sales', now }).verdict === 'allow') { scoped++; continue; }
+          if (roles.AREA_VERDICT_DOMAINS.includes(roles.domainOf(a)) && areaVerdict({ principal: actor.id, action: a, kind: k, area: 'sales', now }).verdict === 'allow') { scoped++; continue; }
           if (SELF_DECIDED.includes(a) && selfPerm(ak, a)) self++;
         }
         out[b.key][k] = n === 0 ? 'na' : full === n ? 'all' : full > 0 ? 'some' : scoped > 0 ? 'scoped' : self > 0 ? 'self' : 'none';
