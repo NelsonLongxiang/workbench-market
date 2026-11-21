@@ -22,7 +22,9 @@ export function asEntry(body: unknown): BenchEntry | null {
     if (!v || !isStr(v.key) || !isStr(v.title) || keys.has(v.key)) return null;
     keys.add(v.key);
   }
-  return { bench: b.bench, version: b.version, title: isStr(b.title) ? b.title : b.bench.title, default_view: isStr(b.default_view) && keys.has(b.default_view) ? b.default_view : b.views[0].key, views: b.views };
+  return { bench: b.bench, version: b.version, title: isStr(b.title) ? b.title : b.bench.title, default_view: isStr(b.default_view) && keys.has(b.default_view) ? b.default_view : b.views[0].key, views: b.views,
+    // 能不能改台名：服务端说是 true 才算（缺了、写法不对都当不能，按钮不出）
+    can: { rename: (b.can as { rename?: unknown } | undefined)?.rename === true } };
 }
 
 export function entryOutcome(status: number, body: unknown): EntryOutcome {
@@ -73,6 +75,24 @@ export function formError(status: number, body: unknown): { code: string; messag
   if (status === 0) return { code: 'invalid', message: '连不上服务器，稍后再交' };
   return { code: 'invalid', message: '这次没交上去，稍后再试' };
 }
+
+/** 改台名的结果（PUT /title 的应答）：成了（变没变、新名字）；409 照服务端的说法、给「重新读一次」；别的给一句人话 */
+export type RenameOutcome = { kind: 'ok'; changed: boolean; title: string } | { kind: 'conflict'; text: string } | { kind: 'error'; text: string };
+export function renameOutcome(status: number, body: unknown): RenameOutcome {
+  const b = (body && typeof body === 'object' ? body : {}) as { message?: unknown; changed?: unknown; bench?: { title?: unknown } };
+  const message = typeof b.message === 'string' && b.message ? b.message : '';
+  if (status === 200 && typeof b.bench?.title === 'string') return { kind: 'ok', changed: b.changed === true, title: b.bench.title };
+  if (status === 409) return { kind: 'conflict', text: message || '台的名字已经被改过了，先重新读一次再改' };
+  if (status === 400) return { kind: 'error', text: message || '名字写得不对' };
+  if (status === 401) return { kind: 'error', text: '请先登录' };
+  if (status === 403) return { kind: 'error', text: '你不能改这个台的名字' };
+  if (status === 0) return { kind: 'error', text: '连不上服务器，稍后再试' };
+  return { kind: 'error', text: '这次没改成，稍后再试' };
+}
+
+/** 标签页切回前台时要不要重新问一次入口（别人改了台名，切回来看到的是新名字）：离上一次至少 30 秒才问，免得来回切换一直发请求 */
+export const ENTRY_REFRESH_MIN_MS = 30_000;
+export const shouldRefreshEntry = (lastAt: number, now: number, minMs = ENTRY_REFRESH_MIN_MS): boolean => now - lastAt >= minMs;
 
 /** 入口读不到时的说法：不提「这个台」，不让人从说法里猜出这张卡片背后有没有台 */
 export const ENTRY_TEXT = {
