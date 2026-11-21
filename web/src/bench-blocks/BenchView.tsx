@@ -11,7 +11,7 @@ import { StatBlock } from './Stat';
 import { TableBlock } from './Table';
 import { NativeTable } from './NativeTable';
 import { asTableContext } from '../bench-table-view';
-import { layoutSpans, snapSpan, valueLabel, withLabelColumns, type BlockData, type BlockError } from './blocks-view';
+import { filterBarValue, layoutSpans, snapSpan, valueLabel, withLabelColumns, type BlockData, type BlockError } from './blocks-view';
 
 type Block = { type: string; title?: string; span?: number; data?: BlockData; error?: BlockError; [k: string]: unknown };
 export type ViewResult = { title: string; version: number; view: { key: string; title: string }; params: Record<string, string>; blocks: Block[] };
@@ -20,6 +20,8 @@ export interface BenchViewProps {
   result: ViewResult | null;
   loading?: boolean;
   onParams: (params: Record<string, string>) => void;
+  /** 人最新选的筛选值（台页面：地址里的；驾驶舱面板：它自己记着的）。给了，筛选栏的值和下一次改动都按它（盖在视图的缺省值上）算，不按上一次取数回来的 params——取数还在路上时连着改第二个，第一个不会被冲掉 */
+  filterValue?: Record<string, string>;
   onSubmit: (blockIndex: number, values: Record<string, unknown>) => Promise<unknown>;
   /** 表单现在不能提交的原因；给了，所有表单的按钮都不可点（比如驾驶舱里一律不能交）。没给时按块：取数应答里表单块的 can_submit 是 false，那一块不可点、说明原因 */
   formDisabledReason?: string;
@@ -37,7 +39,7 @@ export interface BenchViewProps {
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 /** 表单块的 can_submit 是 false 时的说法 */
 export const FORM_DENIED = '你的账号不能在这个台上填表。要填的话，请管理层为你开通这个台的权限。';
-export function BenchView({ result, loading, onParams, onSubmit, formDisabledReason, frame, dense, hideFilters, tableBench, tableDisabled }: BenchViewProps) {
+export function BenchView({ result, loading, onParams, onSubmit, formDisabledReason, frame, dense, hideFilters, tableBench, tableDisabled, filterValue }: BenchViewProps) {
   const blocks = result?.blocks ?? [];
   // 宽度按真正画出来的块排（隐藏的筛选栏不占位）：独占一行又没写 span 的块撑满这一行
   const KNOWN = new Set(['filter-bar', 'form', 'stat', 'progress', 'table', 'bar', 'line', 'pie']);
@@ -48,7 +50,7 @@ export function BenchView({ result, loading, onParams, onSubmit, formDisabledRea
     <DashGrid top>
       {blocks.map((b, i) => {
         const common = { frame, title: b.title, span: spanOf.get(i) ?? snapSpan(b.span, b.type), loading, error: b.error ?? null, data: b.data ?? null };
-        if (b.type === 'filter-bar') return hideFilters ? null : <FilterBar key={i} frame={frame} title={b.title} span={common.span} fields={(b.fields as FilterField[]) ?? []} value={result?.params ?? {}} onChange={onParams} />;
+        if (b.type === 'filter-bar') return hideFilters ? null : <FilterBar key={i} frame={frame} title={b.title} span={common.span} fields={(b.fields as FilterField[]) ?? []} value={filterValue ? filterBarValue((b.fields as FilterField[]) ?? [], filterValue) : result?.params ?? {}} onChange={onParams} />;
         if (b.type === 'form') return <FormBlock key={i} frame={frame} title={b.title} span={common.span} error={b.error ?? null} fields={(b.columns as FormField[]) ?? []} submitLabel={str(b.submit_label) || undefined} onSubmit={(v) => onSubmit(i, v)} disabledReason={formDisabledReason ?? (b.can_submit === false ? FORM_DENIED : undefined)} />;
         if (b.type === 'stat') return <StatBlock key={i} {...common} value={str(b.value)} unit={str(b.unit) || undefined} toneRules={b.tone_rules} />;
         if (b.type === 'progress') return <ProgressBlock key={i} {...common} value={str(b.value)} total={typeof b.total === 'number' ? b.total : str(b.total)} />;

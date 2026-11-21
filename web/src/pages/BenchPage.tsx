@@ -82,7 +82,7 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
         {s.phase === 'loading' ? <div className="wm-dash-card" data-testid="bench-page-loading"><Skeleton active paragraph={{ rows: 6 }} /></div>
           : s.phase === 'off' ? <div className="wm-bp-state" data-testid="bench-page-off"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={BENCH_VIEWS_OFF} /></div>
             : s.phase === 'error' ? <div className="wm-bp-state" data-testid="bench-page-error"><Result status="warning" title={s.text} extra={<Button onClick={() => { setS({ phase: 'loading' }); void load(); }}>再试一次</Button>} /></div>
-              : <BenchView result={s.result} tableBench={cardId} tableDisabled={refreshing || s.requestKey !== key} frame="card" onParams={(p) => go(view, p)} onSubmit={submit} />}
+              : <BenchView result={s.result} tableBench={cardId} tableDisabled={refreshing || s.requestKey !== key} frame="card" filterValue={params} onParams={(p) => go(view, p)} onSubmit={submit} />}
       </main>
     </div>
   );
