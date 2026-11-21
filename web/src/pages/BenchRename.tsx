@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { Alert, Button, Input, Modal, Space } from 'antd';
 import { EditOutlined } from '@ant-design/icons';
 import { renameBenchTitle, type BenchEntry } from '../api';
-import { reloadOutcome, renameOutcome } from '../bench-page-view';
+import { reloadOutcome, renameOutcome, showFromCard } from '../bench-page-view';
 
 export default function BenchRename({ cardId, entry, refreshEntry }: { cardId: string; entry: BenchEntry; refreshEntry: () => Promise<BenchEntry | null> }) {
   const [open, setOpen] = useState(false);
@@ -39,8 +39,8 @@ export default function BenchRename({ cardId, entry, refreshEntry }: { cardId: s
       <Button type="text" size="small" icon={<EditOutlined />} onClick={show} data-testid="bench-page-rename">改名</Button>
       <Modal open={open} title="改台名" onCancel={() => setOpen(false)} destroyOnClose maskClosable={!busy} data-testid="bench-rename-dialog"
         footer={[
-          entry.bench.workbench_id !== null
-            ? <Button key="card" disabled={busy} onClick={() => void send({ from_card: true })} data-testid="bench-rename-from-card">用卡片现在的名字</Button>
+          showFromCard(entry)
+            ? <Button key="card" disabled={busy} onClick={() => void send({ from_card: true })} data-testid="bench-rename-from-card">用卡片现在的名字（{entry.bench.card_title}）</Button>
             : null,
           <Button key="cancel" disabled={busy} onClick={() => setOpen(false)}>取消</Button>,
           <Button key="ok" type="primary" loading={busy} disabled={!trimmed || trimmed.length > 64} onClick={() => void send({ title: trimmed })} data-testid="bench-rename-save">保存</Button>,

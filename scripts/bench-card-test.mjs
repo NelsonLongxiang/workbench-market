@@ -158,7 +158,7 @@ try {
   await bv(boss, 'PUT', `/legacy-a/datasets/secret_ds`, { key: ['id'], columns: [{ name: 'id', type: 'integer', label: '编号' }, { name: 'hidden_col', type: 'text', label: '备注' }] });
   const put = await bv(boss, 'PUT', `/${W2}/view`, { doc, base: 0, note: '合成：第一版' });
   const got = await entry(boss, W2);
-  check(noView.status === 404 && put.status === 200 && got.status === 200 && JSON.stringify(got.json) === JSON.stringify({ bench: { slug: 'legacy-a', title: '旧台', workbench_id: W2 }, version: 1, title: '合成·旧台视图', default_view: 'board', views: [{ key: 'board', title: '看板' }, { key: 'detail', title: '明细' }], can: { rename: true } }), '写卡片 id：台名、版本、默认视图（第一份）、各视图的键和标题、管理层能改名；还没有视图描述时 404', { noView: noView.status, put: put.text.slice(0, 300), got: got.text });
+  check(noView.status === 404 && put.status === 200 && got.status === 200 && JSON.stringify(got.json) === JSON.stringify({ bench: { slug: 'legacy-a', title: '旧台', workbench_id: W2, card_title: '合成·旧台' }, version: 1, title: '合成·旧台视图', default_view: 'board', views: [{ key: 'board', title: '看板' }, { key: 'detail', title: '明细' }], can: { rename: true } }), '写卡片 id：台名、版本、默认视图（第一份）、各视图的键和标题、管理层能改名并拿到卡片现在的名字；还没有视图描述时 404', { noView: noView.status, put: put.text.slice(0, 300), got: got.text });
   const alike = [await entry(member, W2), await entry(boss, W3), await entry(boss, 999999), await entry(member, 999999), await entry(boss, 'ghost-bench'), noView];
   check(alike.every((x) => x.status === 404 && x.text === alike[0].text), '读不到的（普通员工）、卡片没有台、卡片不存在、台没登记、还没有视图描述：应答逐字一样', alike.map((x) => [x.status, x.text]));
   const anonE = await srv.call('GET', `/api/bench-views/${W2}/entry`, { headers: REMOTE }), tokE = await entry(token, W2);
@@ -196,6 +196,18 @@ try {
     const sysT = await title(sys, W2, { title: '系统管理员改' });
     check(stale.json?.can?.rename === true && eMember.status === 200 && canOf(eMember) === false && canOf(eSys) !== true && sysT.status === 403,
       '入口的 can.rename：管理层 true；能读入口的普通员工 false；只有系统管理员身份的人不是 true，改名也 403', { boss: stale.json?.can, member: [eMember.status, eMember.json?.can], sys: [eSys.status, eSys.json?.can, sysT.status] });
+    // 卡片名（#927）：只给能改名的人，并且是卡片改名之后的新名字（「跟卡片同名」照它出不出）；不能改的人入口里没有这一项
+    check(stale.json?.bench?.card_title === '合成·旧台改名' && eMember.status === 200 && !('card_title' in (eMember.json?.bench ?? {})) && !(eSys.status === 200 && 'card_title' in (eSys.json?.bench ?? {})),
+      '入口的 card_title：管理层拿到卡片现在的名字；能读入口的普通员工、系统管理员身份的人都拿不到', { boss: stale.json?.bench, member: eMember.json?.bench, sys: [eSys.status, eSys.json?.bench] });
+    {
+      // 卡片名的取法和 from_card 一样：去前后空白、最多 64 个字（页面拿它和台名比，决定出不出「跟卡片同名」）
+      const long = '合成' + '长'.repeat(70);
+      const put = await srv.call('PUT', `/api/workbenches/${W2}`, { ...token, body: { name: `  ${long}  ` } });
+      const e = await entry(boss, W2);
+      const back = await srv.call('PUT', `/api/workbenches/${W2}`, { ...token, body: { name: '合成·旧台改名' } });
+      check(put.status !== 200 || e.json?.bench?.card_title === long.slice(0, 64), '入口的 card_title：卡片名前后有空白、超过 64 个字时，照 from_card 的取法去空白、截到 64 个字', { put: put.status, got: e.json?.bench?.card_title, back: back.status });
+      check(back.status === 200, '（准备）卡片名改回', back.text?.slice(0, 160));
+    }
     // 拒：没登录、普通员工（有取数授予也一样）、管理口令和改对应关系同一个结果、跨站
     const anonT = await srv.call('PUT', `/api/bench-views/${W2}/title`, { headers: REMOTE, body: { title: '匿名改' } });
     const memberT = await title(member, W2, { title: '员工改' });
