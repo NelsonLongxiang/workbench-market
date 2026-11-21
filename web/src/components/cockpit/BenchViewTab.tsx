@@ -24,7 +24,7 @@ export default function BenchViewTab({ refs, chosen, onChosen }: {
     {merged.length > 0 && <div className="wm-ck-bv-filters" data-testid="ck-bv-filters">
       <FilterBar frame="none" fields={merged} value={shown} onChange={(next) => onChosen(nextChosen(chosen, merged, next))} />
     </div>}
-    {refs.map((x, n) => <BenchViewPanel key={x.i} refItem={x} shared heading onLoaded={onLoaded}
+    {refs.map((x, n) => <BenchViewPanel key={x.i} refItem={x} heading onLoaded={onLoaded}
       // 还没取到第一次之前不知道它认哪些筛选项，先全给（入口对不认的名字本来就忽略）
       params={loaded[x.i] ? paramsFor(lists[n], shown) : shown} />)}
   </>;
