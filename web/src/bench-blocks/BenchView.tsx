@@ -5,6 +5,7 @@
 import { DashGrid } from '../components/Dash';
 import { BarBlock, LineBlock, PieBlock } from './Chart';
 import { FilterBar, type FilterField } from './FilterBar';
+import { RecordsBlock } from './Records';
 import { FormBlock, type FormField } from './Form';
 import { ProgressBlock } from './Progress';
 import { StatBlock } from './Stat';
@@ -42,7 +43,7 @@ export const FORM_DENIED = '你的账号不能在这个台上填表。要填的�
 export function BenchView({ result, loading, onParams, onSubmit, formDisabledReason, frame, dense, hideFilters, tableBench, tableDisabled, filterValue }: BenchViewProps) {
   const blocks = result?.blocks ?? [];
   // 宽度按真正画出来的块排（隐藏的筛选栏不占位）：独占一行又没写 span 的块撑满这一行
-  const KNOWN = new Set(['filter-bar', 'form', 'stat', 'progress', 'table', 'bar', 'line', 'pie']);
+  const KNOWN = new Set(['filter-bar', 'form', 'stat', 'progress', 'table', 'records', 'bar', 'line', 'pie']);
   const shown = blocks.map((b, i) => ({ b, i })).filter(({ b }) => KNOWN.has(b.type) && !(b.type === 'filter-bar' && hideFilters));
   const laid = layoutSpans(shown.map(({ b }) => b));
   const spanOf = new Map(shown.map(({ i }, k) => [i, laid[k]]));
@@ -59,6 +60,8 @@ export function BenchView({ result, loading, onParams, onSubmit, formDisabledRea
           const context = asTableContext(b.table_context);
           return tableBench && context ? <NativeTable key={i} {...props} bench={tableBench} context={context} disabled={tableDisabled} /> : <TableBlock key={i} {...props} />;
         }
+        if (b.type === 'records') return <RecordsBlock key={i} {...common} dense={dense} empty={str(b.empty_text) || undefined} linkTargets={b.link_targets} pageSize={typeof b.page_size === 'number' ? b.page_size : undefined}
+          spec={{ title_col: str(b.title_col), badges: b.badges as string[] | undefined, fields: b.fields as string[] | undefined, details: b.details as string[] | undefined, date_col: str(b.date_col) || undefined, links: b.links as { col: string; label: string }[] | undefined, value_labels: b.value_labels }} />;
         if (b.type === 'bar') return <BarBlock key={i} {...common} x={str(b.x)} y={(b.y as string | string[]) ?? []} series={str(b.series) || undefined} stacked={b.stacked === true} horizontal={b.horizontal === true} toneRules={b.tone_rules} />;
         if (b.type === 'line') return <LineBlock key={i} {...common} x={str(b.x)} y={(b.y as string | string[]) ?? []} series={str(b.series) || undefined} area={b.area === true} />;
         if (b.type === 'pie') return <PieBlock key={i} {...common} label={str(b.label)} value={str(b.value)} donut={b.donut === true} />;
