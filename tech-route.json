@@ -662,6 +662,9 @@
       "react-markdown",
       "react-resizable",
       "react-router-dom"
+    ],
+    "image": [
+      "ygl-trees"
     ]
   },
   "tests": {},

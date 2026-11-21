@@ -571,7 +571,8 @@ const RULES = [
     id: 'deps-registered', what: '没登记的运行时依赖', target: 0, proposed: 'redline',
     measure: (repo, list) => {
       const items = [];
-      for (const [name, file] of [['root', 'package.json'], ['server', 'server/package.json'], ['web', 'web/package.json']]) {
+      // image：市场镜像里另装的（deploy/ygl-trees 那份锁文件，Dockerfile.market 装进 /opt/ygl），一样要登记
+      for (const [name, file] of [['root', 'package.json'], ['server', 'server/package.json'], ['web', 'web/package.json'], ['image', 'deploy/ygl-trees/package.json']]) {
         let deps = {};
         try { deps = JSON.parse(repo.read(file) || '{}').dependencies || {}; } catch { /* 坏的 package.json 当作没有依赖 */ }
         const known = new Set(list?.deps?.[name] || []);
@@ -838,7 +839,7 @@ function tightenBaseline(old, m, tier) {
 }
 
 function writeList(root, rows, previous, mode) {
-  const packages = { root: 'package.json', server: 'server/package.json', web: 'web/package.json' };
+  const packages = { root: 'package.json', server: 'server/package.json', web: 'web/package.json', image: 'deploy/ygl-trees/package.json' };
   const deps = previous?.deps || Object.fromEntries(Object.entries(packages).map(([k, f]) => {
     try { return [k, Object.keys(JSON.parse(readFileSync(join(root, f), 'utf8')).dependencies || {}).sort()]; } catch { return [k, []]; }
   }));
