@@ -189,9 +189,9 @@ export default function Cockpit() {
       <Flex vertical gap={16} className="wm-w-full" align="start">
         {!canCreate && <Typography.Text type="secondary" className="wm-cockpit-readonly wm-caption">{READ_ONLY_LIST}</Typography.Text>}
         {listReq.data?.length ? (
-          <Flex gap={16} wrap="wrap" className="wm-w-full" style={{ rowGap: 16 }}>
+          <Flex gap={16} wrap="wrap" className="wm-w-full">
             {listReq.data.map((c) => (
-              <div key={c.id} style={{ flex: '1 1 260px', maxWidth: 360, minWidth: 240 }}>
+              <div key={c.id} className="wm-ck-item">
                 <Card hoverable onClick={() => nav(`/cockpit/${c.id}`)} styles={{ body: { padding: 16 } }}>
                   <Flex justify="space-between" align="start" gap={8}>
                     <Flex vertical gap={4}>
@@ -224,7 +224,7 @@ export default function Cockpit() {
             ))}
           </Flex>
         ) : (
-          <Empty description={!canCreate ? '还没有驾驶舱' : '还没有驾驶舱。建一个，就能一屏看住一条线或一个工作台的看板、等你拍板的事和办理过程'} style={{ marginTop: 48 }}>
+          <Empty description={!canCreate ? '还没有驾驶舱' : '还没有驾驶舱。建一个，就能一屏看住一条线或一个工作台的看板、等你拍板的事和办理过程'} className="wm-mt-12">
             {canCreate && <Button
               type="primary"
               onClick={() => api.createCockpit({ name: '我的驾驶舱' }).then((c) => nav(`/cockpit/${c.id}`))}
@@ -242,7 +242,7 @@ export default function Cockpit() {
   if (listReq.loading || !active || panels === null) {
     return (
       <WmPage detail={active?.name}>
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 48 }}>
+        <div className="wm-ck-loading">
           <Spin size="large" />
         </div>
       </WmPage>
@@ -259,7 +259,7 @@ export default function Cockpit() {
           {READ_ONLY ? null : renaming ? (
             <Input
               size="small"
-              style={{ width: 180 }}
+              className="wm-w-180"
               defaultValue={active.name}
               onChange={(e) => setRenameValue(e.target.value)}
               onPressEnter={submitRename}
@@ -279,7 +279,7 @@ export default function Cockpit() {
         {!READ_ONLY && <Select
           mode="multiple"
           placeholder="添加工作台面板"
-          style={{ minWidth: 260 }}
+          className="wm-ck-add-sel"
           value={[]}
           showSearch
           // optionFilterProp 被 antd-cli 标弃用（建议移入 showSearch 对象），但本机
@@ -311,7 +311,7 @@ export default function Cockpit() {
       {READ_ONLY && <Typography.Text type="secondary" className="wm-cockpit-readonly wm-caption">{READ_ONLY_HINT}</Typography.Text>}
 
       {panels.filter((p) => p.kind !== 'tasks').length === 0 ? (
-        <Empty description={READ_ONLY ? '这个驾驶舱里还没有要看的东西' : '这个驾驶舱里还没有要看的东西——点右上角「编辑」，加一个工作台进来'} style={{ marginTop: 48 }} />
+        <Empty description={READ_ONLY ? '这个驾驶舱里还没有要看的东西' : '这个驾驶舱里还没有要看的东西——点右上角「编辑」，加一个工作台进来'} className="wm-mt-12" />
       ) : (
         <div className="wm-ck-benches" data-testid="ck-benches">
           {[...panels].sort((a, b) => a.y - b.y || a.x - b.x).map((p) => {
@@ -341,7 +341,7 @@ export default function Cockpit() {
                   {w ? (
                     <GoFrame wid={w.id} name={w.name} frameKey={fk} url={w.url} />
                   ) : (
-                    <Empty description={`工作台 #${p.workbenchId} 已不存在`} style={{ marginTop: 32 }} />
+                    <Empty description={`工作台 #${p.workbenchId} 已不存在`} className="wm-mt-8" />
                   )}
                 </div>
               </div>
