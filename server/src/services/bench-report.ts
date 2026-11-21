@@ -18,6 +18,7 @@ import type { ReportDimensionService } from './report-dimension.ts';
 import type { GrantService } from './grant.ts';
 import { ReportError, actorKindOf, checkBinding, materialize, prepareInputs, sha256, slotSpecs, type TemplateV2 } from './report-compile.ts';
 import type { PrincipalService } from './principal.ts';
+import { scopeView } from '../grant-scope-view.ts';
 
 const dims = () => svc<ReportDimensionService>('reportDimensions');
 export const SUBJECT_RE = /^[a-z][a-z0-9-]{0,15}:[^\s]{1,200}$/;
@@ -39,6 +40,29 @@ export function positionOf(actor: string, now: number, bench: BenchEntry | null)
   const covers = (scope: string) => scope === '*' || (dep !== '' && (scope === `dept:${dep}` || scope === `area:${dep}`));
   const gs = svc<GrantService>('grants').activeFor(actor, now).filter((g) => covers(g.scope)).map((g) => `${g.role}@${g.scope}`).sort();
   return gs.join(',').slice(0, 500);
+}
+
+/**
+ * 报告页给人看的名字（#937 统筹：页面不露维度键、主体串、授予串、论断键、数据路径）。取不到的给 null，页面写「未命名」，不退回去显示内部串。
+ *   · 维度：维度的标题；
+ *   · 主体（产出方、回应者）：主体表里的显示名；
+ *   · 位置：每条「角色@范围」写成「角色名（范围名）」，范围 * 是全公司，领域、部门给名字（grant-scope-view 同一口径）；mcp 是 MCP 会话，内置身份是内置身份；
+ *     角色、范围的名字取不到的那一半写 null，页面照样写「未命名」。
+ * 读报告的人本来就能看到这些标识（报告和回应里都有），名字不多露什么；位置已经收窄到管得到这个台的授予。
+ */
+export type PositionPart = { role: string | null; scope: string | null };
+export function dimensionName(id: string): string | null { return dims().get(id)?.title ?? null; }
+export function actorName(id: string): string | null { return ((svc<PrincipalService>('principals').get(id) as { display_name?: string } | null)?.display_name ?? '').trim() || null; }
+export function positionParts(pos: string): PositionPart[] | 'mcp' | 'builtin' {
+  if (pos === 'mcp') return 'mcp';
+  if (pos.startsWith('builtin:')) return 'builtin';
+  if (!pos) return [];
+  const roles = new Map(svc<GrantService>('grants').roles().map((r) => [r.id, r.name]));
+  return pos.split(',').map((g) => {
+    const at = g.lastIndexOf('@');
+    const role = at > 0 ? g.slice(0, at) : g, scope = at > 0 ? g.slice(at + 1) : '';
+    return { role: roles.get(role) || null, scope: scope === '*' ? '全公司' : (scopeView(scope).scope_name || null) };
+  });
 }
 
 /** 这个台能用的维度和它生效的模板：维度不存在 404；撤了的、还没有生效模板的、属于别的领域的 409 */
@@ -112,7 +136,11 @@ export async function listReports(s: BenchStore, q: { dimension?: unknown; subje
   const subject = typeof q.subject === 'string' && q.subject ? q.subject : undefined;
   if (dimension !== undefined && !DIM_RE.test(dimension)) throw new BenchError('invalid', 'dimension 要是报告维度的标识');
   if (subject !== undefined && !SUBJECT_RE.test(subject)) throw new BenchError('invalid', 'subject 要写成「种类:标识」');
-  return { reports: await s.reportList({ dimension, subject, limit: q.limit }) };
+  const reports = await s.reportList({ dimension, subject, limit: q.limit });
+  // 给人看的名字（#937）：维度标题、产出方的显示名；取不到是 null
+  const names = { dimensions: Object.fromEntries([...new Set(reports.map((r) => r.dimension_id))].map((d) => [d, dimensionName(d)])),
+    actors: Object.fromEntries([...new Set(reports.map((r) => r.producer))].map((a) => [a, actorName(a)])) };
+  return { reports, names };
 }
 
 /** 一条论断（或整份报告，claim_key 为空）上人的回应链的链头里有没有反驳 */
@@ -122,8 +150,12 @@ function openDispute(responses: ReportResponseRow[], claimKey: string): boolean 
   return mine.some((r) => !replaced.has(r.id) && r.stance === 'dispute');
 }
 
-/** 一份报告：成品、来源、论断（各带回应和有没有未处理的反驳）、对整份报告的回应、验收声明、被谁更正了。没有是 404 */
-export async function readReport(s: BenchStore, idIn: unknown) {
+/**
+ * 一份报告：成品、来源、论断（各带回应和有没有未处理的反驳）、对整份报告的回应、验收声明、被谁更正了。没有是 404。
+ * 另带这一版模板里回应可选的立场、论断各类的名字（报告页据此出回应框、给论断标类别，PR D）；
+ * 给了 actor（读的人）时，每条回应标出是不是他自己的（mine），页面据此把「改主意」接在他自己的链头上
+ */
+export async function readReport(s: BenchStore, idIn: unknown, actor?: string) {
   const id = posInt(idIn);
   const r = id === undefined ? null : await s.reportGet(id);
   if (!r) throw new BenchError('not_found', '没有这份报告');
@@ -131,18 +163,38 @@ export async function readReport(s: BenchStore, idIn: unknown) {
   const same = await s.reportList({ dimension: r.report.dimension_id, subject: r.report.subject, limit: 200 });
   const supersededBy = same.find((x) => x.id === r.report.id)?.superseded_by ?? null;
   const t = dims().template(r.report.dimension_id, r.report.template_version);
-  const gate = (t?.body as { gate?: unknown } | undefined)?.gate ?? null;
+  const tb = (t?.body ?? {}) as { gate?: unknown; responses?: { stances?: unknown }; claims?: unknown };
+  const gate = tb.gate ?? null;
+  const stances = Array.isArray(tb.responses?.stances) ? tb.responses.stances.filter((x): x is string => typeof x === 'string') : [];
+  const kinds = Array.isArray(tb.claims) ? (tb.claims as { kind?: unknown; label?: unknown }[]).filter((c) => typeof c?.kind === 'string').map((c) => ({ kind: String(c.kind), label: typeof c.label === 'string' ? c.label : String(c.kind) })) : [];
+  const mark = (x: ReportResponseRow) => (actor === undefined ? x : { ...x, mine: x.responder === actor });
   const head = supersededBy === null;
   const { inputs, body, sources, ...meta } = r.report;
   const claims = r.claims.map((c) => ({
-    ...c, basis: JSON.parse(c.basis), responses: responses.filter((x) => x.claim_key === c.claim_key),
+    ...c, basis: JSON.parse(c.basis), responses: responses.filter((x) => x.claim_key === c.claim_key).map(mark),
     open_dispute: head && openDispute(responses, c.claim_key),
   }));
-  const whole = responses.filter((x) => x.claim_key === '');
+  const whole = responses.filter((x) => x.claim_key === '').map(mark);
   const openWhole = head && openDispute(responses, '');
+  const srcs = JSON.parse(sources) as { slot: string; view: string; block: number; view_version: number }[];
+  // 给人看的名字（#937）：维度、产出方和回应者、回应者的位置、每个来源的视图和块的标题（按冻结时的视图版本取）；取不到是 null
+  const viewDocs = new Map<number, { views?: { key?: string; title?: string; blocks?: { title?: string }[] }[] } | null>();
+  for (const v of new Set(srcs.map((x) => x.view_version))) viewDocs.set(v, ((await s.getView(v).catch(() => null))?.content ?? null) as never);
+  const allResponses = [...claims.flatMap((c) => c.responses), ...whole];
+  const names = {
+    dimension: dimensionName(meta.dimension_id),
+    actors: Object.fromEntries([...new Set([meta.producer, ...allResponses.map((x) => x.responder)])].map((a) => [a, actorName(a)])),
+    positions: Object.fromEntries([...new Set(allResponses.map((x) => x.position))].map((p) => [p, positionParts(p)])),
+    sources: srcs.map((x) => {
+      const v = viewDocs.get(x.view_version)?.views?.find((w) => w?.key === x.view);
+      const t = (u: unknown) => (typeof u === 'string' && u.trim() ? u : null);
+      return { slot: x.slot, view: t(v?.title), block: t(v?.blocks?.[x.block]?.title) };
+    }),
+  };
   return {
-    report: { ...meta, inputs: JSON.parse(inputs), body: JSON.parse(body), sources: JSON.parse(sources), superseded_by: supersededBy },
-    claims, responses: whole, gate,
+    names,
+    report: { ...meta, inputs: JSON.parse(inputs), body: JSON.parse(body), sources: srcs, superseded_by: supersededBy },
+    claims, responses: whole, gate, template: { stances, claims: kinds },
     open_disputes: claims.filter((c) => c.open_dispute).length + (openWhole ? 1 : 0),
   };
 }

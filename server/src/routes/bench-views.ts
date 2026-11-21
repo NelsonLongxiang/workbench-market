@@ -295,8 +295,9 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
       title: typeof doc.title === 'string' ? doc.title : bench.title,
       default_view: doc.views[0].key,
       views: doc.views.map((v) => ({ key: v.key, title: v.title })),
-      // 页面据此决定出不出「改名」按钮、「MCP 授权」入口和上面的批准驳回（#904）；和对应接口是同一个判法（PUT /title、mayRename / may）
-      can: { rename, mcp: may(actor, 'bench-store.mcp-list', bench), mcp_decide: may(actor, 'bench-store.mcp-decide', bench) },
+      // 页面据此决定出不出「改名」按钮、「MCP 授权」入口和上面的批准驳回（#904）、「报告」按钮和报告上的回应框（报告第 1 步 PR D）；
+      // 和对应接口是同一个判法（PUT /title、mayRename / may）
+      can: { rename, mcp: may(actor, 'bench-store.mcp-list', bench), mcp_decide: may(actor, 'bench-store.mcp-decide', bench), reports: may(actor, 'bench-store.report-read', bench), respond: may(actor, 'bench-store.report-respond', bench) },
     });
   }));
 
@@ -320,9 +321,9 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     const q = req.query as Record<string, unknown>;
     return listReports(s, { dimension: q.dimension, subject: q.subject, limit: qint(q.limit, 'limit') });
   }));
-  app.get('/api/bench-views/:bench/reports/:id', { action: 'bench-store.report-read', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-read', (req, _res, s) => {
+  app.get('/api/bench-views/:bench/reports/:id', { action: 'bench-store.report-read', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-read', (req, _res, s, actor) => {
     const id = qint(req.params.id, '报告编号');
-    return readReport(s, id);
+    return readReport(s, id, actor);
   }));
   // 回应（PR C）：能读这份报告的人表态（规格第六节评审定的推荐：随含取数的预设一起给，这里和读同一档）。
   // 能回应、却读不了这个台上的报告的人：和报告不存在一样回 404（规格第五节第 14 条：不泄露报告在不在；#932 独立验收）
