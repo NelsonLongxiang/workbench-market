@@ -154,7 +154,9 @@ export function listBenchMcp(bench: string, at = Date.now()) {
   const requests = (db.prepare(`SELECT q.*, s.name FROM bench_mcp_requests q LEFT JOIN mcp_sessions s ON s.id = q.session_id WHERE q.bench IN (${refs.map(() => '?').join(', ')}) ORDER BY q.id DESC LIMIT 100`).all(...refs) as Row[])
     .map((r) => ({ ...forSession(r), session_id: Number(r.session_id), session: r.name === null ? '' : String(r.name), decided_by: String(r.decided_by), tool_kinds: parseTools(r.tools).map((x) => ({ tool: x, category: CATEGORY.get(x) ?? 'write' })) }));
   // 卡片已对应了这个台（标识不是 wb-<卡片 id>），会话却写成 wb-<卡片 id>：这个台批不了（开不出第二个台库），只列出来说明原因
-  const stray = b && b.workbench_id !== null && b.slug !== cardSlug(b.workbench_id) ? cardSlug(b.workbench_id) : null;
+  // 只在 wb-<卡片 id> 不是任何登记了的台时才列：台自己就叫 wb-<卡片 id> 时它查得到自己；wb-<卡片 id> 是另一个登记了的台
+  // （卡片后来改对应到这个台）时，那些申请是那个台的，列出来就越界看到别的台的会话、理由和工具（#938 独立验收）
+  const stray = b && b.workbench_id !== null && !getBench(cardSlug(b.workbench_id)) ? cardSlug(b.workbench_id) : null;
   const unmatched = stray === null ? [] : (db.prepare('SELECT q.*, s.name FROM bench_mcp_requests q LEFT JOIN mcp_sessions s ON s.id = q.session_id WHERE q.bench = ? ORDER BY q.id DESC LIMIT 100').all(stray) as Row[])
     .map((r) => ({ ...forSession(r), session_id: Number(r.session_id), session: r.name === null ? '' : String(r.name), decided_by: String(r.decided_by), tool_kinds: parseTools(r.tools).map((x) => ({ tool: x, category: CATEGORY.get(x) ?? 'write' })),
       why: `会话写的是 ${stray}，这张卡片对应的台标识是 ${b!.slug}：这个台批不了，请让会话用 ${b!.slug} 重新申请` }));

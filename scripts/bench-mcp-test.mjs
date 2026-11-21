@@ -456,6 +456,24 @@ try {
   check(hx.json?.ok === true && linkX.status === 201 && xCard?.detail?.bench === 'linked-x' && xCard.detail.bench_registered === true && xCard.answer_via?.path === `/api/bench-views/linked-x/mcp-requests/${hx.json.request.id}`
       && xPage.json?.requests?.some((x) => x.id === hx.json.request.id && x.status === 'pending') && xApprove.status === 200 && xApprove.json?.status === 'approved' && !xUse.isError,
     '（#904 复现）先写卡片号申请、后给卡片登记自己起名的台：「关注」里按规范标识列出、台上的管理页里看得到、按规范标识批得成，会话随即调得了', { card: xCard?.detail, path: xCard?.answer_via?.path, page: xPage.json?.requests?.map((x) => `${x.id}:${x.status}`), approve: [xApprove.status, xApprove.text.slice(0, 120)], use: xUse.text.slice(0, 80) });
+  // #938 独立验收：标识正好是 wb-<卡片 id> 的台，是另一个登记了的台。卡片改对应到别的台以后，那个台的申请不能出现在新台的 unmatched 里
+  // （新台的管理员不一定进得了旧台：旧台在别的部门时就是越界看到别人的会话名、理由和工具）；台自己的申请也不进自己的 unmatched
+  const WY = mkCard('合成卡片庚');
+  const Y = await mk('sess-y'); // 自己一个会话：不占 sess-h 的待批名额
+  const y1 = await tool(srv, Y.token, 'access_request', { tools: [`dataset_list@bench:${WY}`], reason: '开台库那一条' });
+  const openY = await srv.call('POST', `/api/bench-views/${WY}/mcp-requests/${y1.json?.request?.id}`, { ...mgr, body: { approve: true } });
+  const y2 = await tool(srv, Y.token, 'access_request', { tools: [`dataset_snapshots@bench:wb-${WY}`], reason: '旧台上还没定的那一条' });
+  const ownPage = await srv.call('GET', `/api/bench-views/wb-${WY}/mcp-grants`, mgr);
+  const unlinkY = await srv.call('PUT', `/api/bench-views/wb-${WY}/workbench`, { ...mgr, body: { workbench_id: null } });
+  const linkY = await srv.call('POST', '/api/bench-views', { ...mgr, body: { slug: 'linked-y', title: '改对应过来的台', workbench_id: WY } });
+  const yPage = await srv.call('GET', '/api/bench-views/linked-y/mcp-grants', mgr);
+  const yOld = await srv.call('GET', `/api/bench-views/wb-${WY}/mcp-grants`, mgr);
+  check(openY.status === 200 && openY.json?.opened_bench?.slug === `wb-${WY}` && y2.json?.ok === true
+      && ownPage.status === 200 && ownPage.json?.requests?.some((x) => x.id === y2.json.request.id) && ownPage.json?.unmatched?.length === 0,
+    '（#938 验收 m10）标识就是 wb-<卡片 id> 的台：自己的申请在申请清单里，不进自己的 unmatched', { open: openY.status, own: ownPage.json?.unmatched?.length });
+  check(unlinkY.status === 200 && linkY.status === 201 && yPage.status === 200 && !yPage.json?.unmatched?.some((x) => x.id === y2.json?.request?.id) && !yPage.json?.requests?.some((x) => x.id === y2.json?.request?.id)
+      && yOld.json?.requests?.some((x) => x.id === y2.json?.request?.id && x.status === 'pending'),
+    '（#938 验收）wb-<卡片 id> 已经是登记了的台、卡片改对应到别的台：那个台的申请不出现在新台的 unmatched 和申请清单里，还在它自己的台上', { unlink: unlinkY.status, link: linkY.status, unmatched: yPage.json?.unmatched?.map((x) => x.id), old: yOld.json?.requests?.map((x) => `${x.id}:${x.status}`) });
   const WF = mkCard('合成卡片丁');
   const h7 = await tool(srv, H.token, 'access_request', { tools: [`dataset_list@bench:${WF}`], reason: '开库那一条' });
   const h8 = await tool(srv, H.token, 'access_request', { tools: [`dataset_snapshots@bench:${WF}`], reason: '开台库之前提的，留到删卡片' });
