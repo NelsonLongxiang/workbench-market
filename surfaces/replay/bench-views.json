@@ -262,6 +262,7 @@
       "env": { "WM_BENCH_VIEWS": "on", "ADMIN_TOKEN": "replay-synthetic-admin", "MCP_GATEWAY": "on" },
       "clock": "2030-01-01T00:00:00Z",
       "fixtures": ["identity-fake"],
+      "seed": [{ "table": "departments", "row": { "id": "sales", "name": "销售", "created_at": 0, "updated_at": 0 } }],
       "steps": [
         {
           "id": "seen-alpha",
@@ -3066,13 +3067,6 @@
             "headers": { "cache-control": "private, no-store", "content-length": "101", "etag": "W/\"65-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": { "ok": true, "session": "replay-seat", "tools": [], "added": [], "removed": ["dataset_append", "dataset_list"] }
           }
-        },
-        {
-          "id": "seat-dept-sales",
-          "what": "（准备）管理口令建一个部门",
-          "compare": "status",
-          "request": { "method": "PUT", "path": "/api/departments/sales", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "name": "销售" } },
-          "response": { "status": 201 }
         },
         {
           "id": "bind-anon",

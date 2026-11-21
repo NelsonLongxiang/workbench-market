@@ -25,6 +25,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
+import { legacySeed } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
@@ -395,7 +396,7 @@ try {
   check(r.status === 409 && !db.prepare('SELECT 1 FROM bench_views WHERE workbench_id = ?').get(WE), '提申请的会话已吊销：409，没有为这张卡片开台库', r.status);
   // 开台库之前写成卡片号、开了之后还没定的申请也算这个台的：台改绑部门、卡片删掉时和写台标识的一起驳回
   const h6pending = db.prepare('SELECT bench, status FROM bench_mcp_requests WHERE id = ?').get(h6.json?.request?.id);
-  await srv.call('PUT', '/api/departments/dv-sales', { ...admin, body: { name: 'dv-sales' } });
+  legacySeed(join(srv.data, 'workbench-market.db')).department('dv-sales', 'dv-sales'); // 部门已停写：停写前就有的部门，直接写库造
   const rebind = await srv.call('PUT', `/api/bench-views/wb-${WC}/binding`, { ...mgr, body: { department: 'dv-sales' } });
   const h6row = db.prepare('SELECT status, note FROM bench_mcp_requests WHERE id = ?').get(h6.json?.request?.id);
   check(h6pending?.bench === String(WC) && h6pending.status === 'pending' && rebind.status === 200 && rebind.json?.rejected_mcp_requests === 1 && h6row?.status === 'rejected' && /改绑/.test(h6row.note ?? ''),

@@ -10,6 +10,7 @@
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { legacyGrantIn, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
@@ -45,6 +46,8 @@ try {
   const cli = { by: 'cli', principal: null, owner: true };
   const insert = (id, kind = 'person', owner = '') => db.prepare('INSERT INTO principals (id, id_key, kind, owner) VALUES (?, ?, ?, ?)').run(id, id.toLowerCase(), kind, owner);
   const on = (principal, role, scope) => {
+    // 部门已停写：dept: 范围的授予新起草会被拒，造成「停写前就生效的」那种（scripts/lib/legacy-dept-seed.mjs）
+    if (scope.startsWith('dept:')) return void legacyGrantIn(db, principal, role, scope, { reason: '合成' });
     const d = grants.draft({ principal, role, scope, expiresAt: null, reason: '合成' }, cli);
     if (!d.ok) throw new Error(`起草 ${principal} ${role} ${scope}：${d.code}`);
     grants.submit(d.grant.id, cli, now);
@@ -61,6 +64,7 @@ try {
   insert('user:own2'); insert('seat:kb-bot2', 'seat', 'user:own2');
   on('user:own2', 'member', '*'); on('user:own2', 'dept-member', 'dept:sales');
   on('seat:kb-bot2', 'ai-staff', 'dept:sales');
+  { const rows = deptGrantRows(db); check(JSON.stringify(rows) === JSON.stringify(["seat:kb-bot ai-staff dept:sales active", "seat:kb-bot2 ai-staff dept:sales active", "user:own2 dept-member dept:sales active"]), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
 
   const seat = (id, owner) => visibility({ type: 'principal', id, kind: 'seat', status: 'active', owner });
   const v1 = seat('seat:kb-bot', 'user:own'), v2 = seat('seat:kb-bot2', 'user:own2');

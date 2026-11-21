@@ -19,11 +19,14 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import { seedDepartmentAsOwnerDid } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
 const ROOT = resolve(arg >= 0 ? process.argv[arg + 1] : join(HERE, '..'));
 const OUT = join(HERE, '..', 'tmp', `work-item-stuck-${process.pid}-${Date.now().toString(36)}`);
+// 部门已停写（docs/domains-step1.md 第六节）：部门、部门负责人直接写库造（停写前属主建好的样子）
+const DEPT_DB = () => join(OUT, 'data', 'workbench-market.db');
 const PRELOAD = pathToFileURL(join(HERE, 'identity-fake-preload.mjs')).href;
 const ADMIN_TOKEN = 'stuck-synthetic-admin';
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
@@ -143,8 +146,9 @@ try {
     db.close();
   }
   // 部门负责人、团队认领由属主（本机命令行）做：团队 A 有负责人（beta），团队 B 认领到没有负责人的部门
-  for (const [m2, p, b] of [['PUT', '/api/departments/sales', { name: '合成销售部', lead: 'user:beta' }], ['PUT', '/api/departments/nolead', { name: '合成没有负责人的部门' }],
-    ['POST', '/api/teams/claim', { host: HOST, team: TEAM, department: 'sales' }], ['POST', '/api/teams/claim', { host: HOST, team: VACANT, department: 'nolead' }]]) {
+  seedDepartmentAsOwnerDid(DEPT_DB(), 'sales', '合成销售部', 'user:beta');
+  seedDepartmentAsOwnerDid(DEPT_DB(), 'nolead', '合成没有负责人的部门');
+  for (const [m2, p, b] of [['POST', '/api/teams/claim', { host: HOST, team: TEAM, department: 'sales' }], ['POST', '/api/teams/claim', { host: HOST, team: VACANT, department: 'nolead' }]]) {
     const r = await call(m2, p, {}, b);
     if (r.status >= 300) throw new Error(`团队搭不起来：${p} ${show(r)}`);
   }

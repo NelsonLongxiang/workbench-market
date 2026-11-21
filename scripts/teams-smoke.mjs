@@ -10,7 +10,7 @@
  *       远程匿名、跨站都拒；收回之后再分，起止时间对得上（那时归谁查得到）
  *   五、可见范围：部门的人、负责人、被分到成员的人看得到；不相干的人看不到；管理层授予看全部认领的
  *   六、「我的 AI 员工」；读接口只给团队、人和计数，不带事项内容
- *   七、退回待认领：另外指定的负责人和生效的分配一起结束；有团队挂着的部门不能删
+ *   七、退回待认领：另外指定的负责人和生效的分配一起结束（部门已停写，删部门 410）
  *   八、关系函数（人和席位都答）：dept-member、dept-lead、team-lead、seat-owner、team-seat、router，另带显示用的名字
  *   八之二、别队的负责人冒用本队席位的 seat_id 或句柄，动不了本队的分配
  *   九、每一步留痕
@@ -25,6 +25,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
+import { legacySeed, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(join(HERE, '..'));
@@ -103,10 +104,13 @@ try {
   seatIns.run(HOST, OTHER, 'zone1/0000000d', 'seat-0000000d', '合成别队', 'router', now, now);
   seatIns.run(HOST, OTHER, 'zone1/0000000e', 'seat-0000000e', '合成别队成员', 'member', now, now);
   db.exec("INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, seat) VALUES ('wi_team_canary', 'CANARY-TEAM-ITEM-TITLE', 'user:alpha', 'user:alpha', 'agent', 'zone1/0000000b')");
-  // 部门：sales，负责人 beta，成员 alpha
-  await srv.call('PUT', '/api/departments/sales', { body: { name: '合成销售部', lead: 'user:beta' } }); // 属主（本机命令行）指定部门负责人
-  await srv.call('PUT', '/api/departments/sales/members/user:alpha', { headers: token });
-  await srv.call('PUT', '/api/departments/ops', { headers: token, body: { name: '合成运营部' } });
+  // 部门：sales，负责人 beta，成员 alpha。部门已停写：都是停写前就有的，直接写库造（scripts/lib/legacy-dept-seed.mjs）
+  const seed = legacySeed(join(data, 'workbench-market.db'));
+  seed.department('sales', '合成销售部');
+  seed.deptLead('sales', 'user:beta'); // 停写前属主指定的部门负责人（字段 + 生效的 dept-lead 授予）
+  seed.member('sales', 'user:alpha');
+  seed.department('ops', '合成运营部');
+  { const rows = deptGrantRows(join(data, 'workbench-market.db')); check(JSON.stringify(rows) === JSON.stringify(["user:beta dept-lead dept:sales active"]), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
   const team = { host: HOST, team: TEAM };
 
   // ---------- 一、待认领、认领 ----------
@@ -144,7 +148,7 @@ try {
     const t = await viewOf();
     check(t?.status === 'active' && show(t.leads) === show([{ principal: 'user:beta', display_name: t.leads[0]?.display_name, source: 'department' }]) && t.router?.seat === ROUTER.seat && t.members.length === 2 && t.name === 'Sales Team',
       '认领后：部门负责人 beta 自动是团队负责人（source=department），状态正常；总工单列，成员两个；团队名取画布名', show(t));
-    await srv.call('PUT', '/api/departments/sales', { headers: token, body: { name: '合成销售部', lead: null } });
+    seed.clearLead('sales'); // 部门已停写：停写前「负责人清掉」的样子，直接写库
     const t2 = await viewOf();
     check(t2?.status === 'lead-vacant' && t2.leads.length === 0, '部门负责人清掉、又没另外指定的：负责人缺位', show({ status: t2?.status, leads: t2?.leads }));
   }
@@ -155,7 +159,7 @@ try {
     const again = await srv.call('POST', '/api/teams/leads', { body: { ...team, principal: 'user:alpha' } });
     const notPerson = await srv.call('POST', '/api/teams/leads', { headers: token, body: { ...team, principal: 'user:nobody' } });
     const lastLead = await srv.call('POST', '/api/teams/leads/remove', { headers: token, body: { ...team, principal: 'user:alpha' } });
-    await srv.call('PUT', '/api/departments/sales', { body: { name: '合成销售部', lead: 'user:beta' } });
+    seed.deptLead('sales', 'user:beta'); // 停写前属主又把 beta 指回部门负责人
     const deptLead = await srv.call('POST', '/api/teams/leads/remove', { headers: token, body: { ...team, principal: 'user:beta' } });
     const staffAdd = await srv.call('POST', '/api/teams/leads', { ...as(SESSIONS.alpha), body: { ...team, principal: 'user:alpha' } });
     const t = await viewOf();
@@ -484,15 +488,16 @@ try {
     const tOther = { host: HOST, team: OTHER };
     const tMain = { host: HOST, team: TEAM };
     const asRoot = as(SESSIONS.admin); // 管理员登录（root-admin），只有系统管理员身份
-    await srv.call('PUT', '/api/departments/qa', { body: { name: '合成质检部' } });
+    seed.department('qa', '合成质检部'); // 部门已停写：停写前就有的部门
     const seatOther = { seat: 'zone1/0000000d', seat_id: 'seat-0000000d' }; // 别队在名册里的席位（开头铺的）
     const ownerBefore = inproc(`return svc('teams').ownerAt({ host: '${HOST}', team: ${JSON.stringify(TEAM)}, seat: '${MEMBER.seat}', seat_id: '${MEMBER.seat_id}' }, Date.now());`);
-    // 1) 管理口令、管理员登录做那几样：认领、指定团队负责人、指定部门负责人、给自己分成员
+    // 1) 管理口令、管理员登录做那几样：认领、指定团队负责人、给自己分成员；指定部门负责人停写了（410），停写前口令提的那条负责人提议直接写库造
     const claimTok = await srv.call('POST', '/api/teams/claim', { headers: token, body: { ...tOther, department: 'qa' } });
     const claimRoot = await srv.call('POST', '/api/teams/claim', { ...asRoot, body: { ...tOther, department: 'qa' } });
     const leadTok = await srv.call('POST', '/api/teams/leads', { headers: token, body: { ...tMain, principal: 'user:root-admin' } });
-    const deptTok = await srv.call('PUT', '/api/departments/qa', { headers: token, body: { name: '合成质检部', lead: 'user:root-admin' } });
-    await srv.call('PUT', '/api/departments/qa/members/user:root-admin', { headers: token }); // 部门成员表：管理员可写，只是组织信息
+    const deptTokPut = await srv.call('PUT', '/api/departments/qa', { headers: token, body: { name: '合成质检部', lead: 'user:root-admin' } });
+    const deptTok = { status: deptTokPut.status, json: { lead_proposal: { id: seed.deptLeadProposal('qa', 'user:root-admin', { by: 'admin-token' }), status: 'pending' } } };
+    seed.member('qa', 'user:root-admin'); // 部门成员表：只是组织信息（停写前管理员可写，这里直接写库）
     const assignTok = await srv.call('POST', '/api/teams/assign', { headers: token, body: { ...tMain, seat: MEMBER.seat, seat_id: MEMBER.seat_id, principal: 'user:root-admin' } });
     const assignRoot = await srv.call('POST', '/api/teams/assign', { ...asRoot, body: { ...tMain, seat: ROUTER.seat, seat_id: ROUTER.seat_id, principal: 'user:root-admin' } });
     const after = inproc(`return {
@@ -503,11 +508,11 @@ try {
       seatQa: ${seatOther ? `relationOf({ seat: { host: '${HOST}', team: ${JSON.stringify(OTHER)}, seat: ${JSON.stringify(seatOther.seat)}, seat_id: ${JSON.stringify(seatOther.seat_id ?? '')} } }, { department: 'qa' }).relations` : '[]'},
       owner: svc('teams').ownerAt({ host: '${HOST}', team: ${JSON.stringify(TEAM)}, seat: '${MEMBER.seat}', seat_id: '${MEMBER.seat_id}' }, Date.now()),
     };`);
-    check(claimTok.status === 202 && claimRoot.status === 202 && claimRoot.json?.proposal?.id === claimTok.json?.proposal?.id && leadTok.status === 202 && deptTok.json?.lead_proposal?.status === 'pending'
+    check(claimTok.status === 202 && claimRoot.status === 202 && claimRoot.json?.proposal?.id === claimTok.json?.proposal?.id && leadTok.status === 202 && deptTokPut.status === 410
       && assignTok.status === 403 && assignRoot.status === 403 && after.claimed === 0 && !after.rootTeam?.includes('team-lead') && !after.rootQa?.includes('dept-lead')
       && after.qaLead === null && Array.isArray(after.seatQa) && after.seatQa.length === 0 && after.owner === ownerBefore && !!seatOther,
-      '只有系统管理员身份（管理口令、管理员登录）：认领、指定团队负责人、指定部门负责人都只记成提议（同样的提议不重复记），分配成员 403；做完之后团队仍待认领、他不是负责人、席位不挂到部门、成员的主人没变（部门成员表照写，只是组织信息） [red-line:relations-need-confirmation]',
-      show({ claimTok: claimTok.status, claimRoot: claimRoot.status, leadTok: leadTok.status, dept: deptTok.json?.lead_proposal, assignTok: [assignTok.status, assignTok.json?.error], assignRoot: assignRoot.status, after, ownerBefore }));
+      '只有系统管理员身份（管理口令、管理员登录）：认领、指定团队负责人都只记成提议（同样的提议不重复记），指定部门负责人 410（部门已停写），分配成员 403；做完之后团队仍待认领、他不是负责人、席位不挂到部门、成员的主人没变（部门成员表照写，只是组织信息） [red-line:relations-need-confirmation]',
+      show({ claimTok: claimTok.status, claimRoot: claimRoot.status, leadTok: leadTok.status, dept: deptTokPut.status, assignTok: [assignTok.status, assignTok.json?.error], assignRoot: assignRoot.status, after, ownerBefore }));
     // 1b) 页面看得到「待确认」：管理员的视图带上待确认的认领、团队负责人和等谁确认；员工的视图不带
     const adminView = await srv.call('GET', '/api/teams', { headers: token });
     const staffView = await srv.call('GET', '/api/teams', as(SESSIONS.alpha));
@@ -516,7 +521,7 @@ try {
     const staffMain = staffView.json?.departments?.flatMap((d) => d.teams).find((t) => t.team === TEAM);
     check(otherCard?.pending_claim?.department === 'qa' && otherCard.pending_claim.confirm_by_text === '管理层或接收部门的负责人'
       && mainCard?.pending_leads?.some((p) => p.principal === 'user:root-admin' && p.confirm_by_text === '属主')
-      && claimTok.json?.proposal?.confirm_by_text === '管理层或接收部门的负责人' && leadTok.json?.proposal?.confirm_by_text === '属主' && deptTok.json?.lead_proposal?.confirm_by_text === '属主（同时放行这个部门负责人的权限）'
+      && claimTok.json?.proposal?.confirm_by_text === '管理层或接收部门的负责人' && leadTok.json?.proposal?.confirm_by_text === '属主'
       && staffMain && !('pending_leads' in staffMain),
       '页面用的「待确认」：管理员的视图里待认领的卡带待确认的认领、团队带待确认的负责人，都写等谁确认（认领等管理层或接收部门的负责人，负责人等属主）；提议的应答也带；员工的视图不带',
       show({ otherCard: otherCard?.pending_claim, mainPending: mainCard?.pending_leads, staff: staffMain && Object.keys(staffMain).filter((k) => k.startsWith('pending')) }));
@@ -536,13 +541,17 @@ try {
     const tokClaim = listTok.json?.proposals?.find((p) => p.id === pClaim), tokDept = listTok.json?.proposals?.find((p) => p.id === pDept);
     const names = seen && { mine: seen.mine, team: seen.team_name, node: seen.node_name, dept: seen.department_name, by: seen.proposed_by_name };
     check(show(names) === show({ mine: false, team: 'Other', node: '合成节点', dept: '合成质检部', by: '管理员（口令）' })
-      && tokClaim?.mine === true && tokDept?.mine === true && tokDept.principal_name === 'Synthetic root-admin' && tokDept.department_name === '合成质检部' && tokDept.decided_by_name === null
+      && tokClaim?.mine === true && tokDept?.mine === true && tokDept.confirm_by_text === '属主（确认后起草领域负责人，属主放行后生效）' && tokDept.principal_name === 'Synthetic root-admin' && tokDept.department_name === '合成质检部' && tokDept.decided_by_name === null
       && !show(seen).includes('"proposed_by_name":"admin-token"'),
       '提议列表给页面的：mine（管理层看口令提的是假，口令看自己提的是真）；团队、节点、部门、被提名的人、提议人都给显示名，口令说「管理员（口令）」；没处理的处理人为 null',
       show({ names, tokClaim: tokClaim?.mine, tokDept: tokDept && [tokDept.mine, tokDept.principal_name, tokDept.department_name, tokDept.decided_by_name] }));
     const claimByMgmt = await approve(pClaim, as(SESSIONS.noAdminFlag)); // 管理层（不是管理员）：经写请求总门的放行进来
     const leadByOwner = await approve(pLead, {}); // 属主（本机命令行）
+    // 部门负责人提议：部门已停写，确认改成起草领域负责人（dept-write-stop-test S5～S7）；qa 先迁成领域
+    const deptBeforeArea = await approve(pDept, {});
+    await srv.call('POST', '/api/areas', { body: { id: 'qa', name: '合成质检部' } });
     const deptByOwner = await approve(pDept, {});
+    const draftedLead = db.prepare('SELECT role, scope, status FROM grants WHERE id = ?').get(deptByOwner.json?.drafted_grant_id ?? -1);
     const confirmed = inproc(`return {
       claimed: svc('teams').registration({ host: '${HOST}', team: ${JSON.stringify(OTHER)} })?.department_id ?? null,
       rootTeam: relationOf({ principal: 'user:root-admin' }, { team: { host: '${HOST}', team: ${JSON.stringify(TEAM)} } }).relations,
@@ -551,15 +560,16 @@ try {
     const code = (r) => `${r.status}:${r.json?.error ?? r.json?.proposal?.status}`;
     check(show(Object.fromEntries(Object.entries(tries).map(([k, r]) => [k, code(r)]))) === show({ claimByToken: '403:business_confirm_required', claimByRoot: '404:proposal_missing', claimByAlpha: '404:proposal_missing', leadByMgmt: '404:proposal_missing', deptByMgmt: '404:proposal_missing' })
       && seen?.can_approve === true && !(listAlpha.json?.proposals ?? []).some((p) => p.id === pClaim) && (attnMgmt.json?.items ?? []).some((i) => i.source === 'relation-proposals' && i.source_id === String(pClaim) && i.link === '/team')
-      && code(claimByMgmt) === '200:approved' && code(leadByOwner) === '200:approved' && code(deptByOwner) === '200:approved'
-      && confirmed.claimed === 'qa' && confirmed.rootTeam?.includes('team-lead') && confirmed.rootQa?.includes('dept-lead'),
+      && code(claimByMgmt) === '200:approved' && code(leadByOwner) === '200:approved' && code(deptBeforeArea) === '409:area_not_migrated' && code(deptByOwner) === '200:approved'
+      && show(draftedLead) === show({ role: 'area-lead', scope: 'area:qa', status: 'pending' })
+      && confirmed.claimed === 'qa' && confirmed.rootTeam?.includes('team-lead') && !confirmed.rootQa?.includes('dept-lead'),
       '确认：认领要管理层或接收部门的负责人（提的人自己 403；只有系统管理员身份的登录、不相干的员工读不到，和不存在一样 404），负责人只有属主（管理层读不到，404）；管理层在列表和「等你拍板」里看得到、能确认；属主确认之后关系才生效',
-      show({ tries: Object.fromEntries(Object.entries(tries).map(([k, r]) => [k, code(r)])), seen: seen && [seen.can_approve, seen.approve_denied_text], claimByMgmt: code(claimByMgmt), leadByOwner: code(leadByOwner), deptByOwner: code(deptByOwner), confirmed }));
+      show({ tries: Object.fromEntries(Object.entries(tries).map(([k, r]) => [k, code(r)])), seen: seen && [seen.can_approve, seen.approve_denied_text], claimByMgmt: code(claimByMgmt), leadByOwner: code(leadByOwner), deptBeforeArea: code(deptBeforeArea), deptByOwner: code(deptByOwner), draftedLead, confirmed }));
     // 2b) 驳回只归能确认的人，提的人只能撤回自己提的；系统管理员不替业务驳回别人提的（管理口令、管理员登录都一样）
     {
       const reject = (id, who) => srv.call('POST', `/api/relations/proposals/${id}/reject`, { ...who, body: { reason: '合成' } });
       const pLeadRoot = (await srv.call('POST', '/api/teams/leads', { ...asRoot, body: { ...tMain, principal: 'user:beta' } })).json?.proposal?.id; // 管理员登录提的
-      const pDeptTok = (await srv.call('PUT', '/api/departments/qa', { headers: token, body: { name: '合成质检部', lead: 'user:beta' } })).json?.lead_proposal?.id; // 口令提的
+      const pDeptTok = seed.deptLeadProposal('qa', 'user:beta', { by: 'admin-token' }); // 口令提的（停写前收下的，直接写库）
       const pMoveTok = (await srv.call('POST', '/api/teams/claim', { headers: token, body: { ...tOther, department: 'sales' } })).json?.proposal?.id; // 口令提的认领
       const rootList = (await srv.call('GET', '/api/relations/proposals', asRoot)).json?.proposals ?? [];
       const rootSees = rootList.filter((p) => p.status === 'pending').map((p) => p.id).sort();
@@ -617,8 +627,7 @@ try {
         show({ mgmt: [pMoveTok, pDeptTok, pLeadRoot].map((id) => has(mgmtIds, id)), root: [pLeadRoot, pDeptTok, pMoveTok].map((id) => has(rootIds, id)), owner: [pLeadRoot, pDeptTok, pMoveTok].map((id) => has(ownerIds, id)) }));
     }
     // 3) 接收部门的负责人（dept:<部门> 有拍板授予）能确认挂到他部门的认领；没有授予的部门负责人（只在部门表里）不能
-    const g = await srv.call('POST', '/api/grants', { body: { principal: 'user:beta', role: 'dept-lead', scope: 'dept:ops', reason: '合成：ops 负责人' } });
-    await srv.call('POST', `/api/grants/${g.json?.grant?.id}/submit`); await srv.call('POST', `/api/grants/${g.json?.grant?.id}/approve`);
+    const g = { json: { grant: { id: seed.grant('user:beta', 'dept-lead', 'dept:ops', { reason: '合成：ops 负责人' }) } } }; // 停写前就生效的部门负责人授予
     const move = await srv.call('POST', '/api/teams/claim', { headers: token, body: { ...tOther, department: 'ops' } });
     const byQaLead = await approve(move.json?.proposal?.id, as(SESSIONS.alpha)); // alpha 只在部门表里（sales 成员），没有 dept:ops 的拍板授予
     const byOpsLead = await approve(move.json?.proposal?.id, as(SESSIONS.beta));
@@ -668,13 +677,14 @@ try {
       const m = /OUT (.*)/.exec(r.stdout ?? '');
       return m ? JSON.parse(m[1]) : { error: (r.stderr ?? '').slice(-400) };
     };
-    await srv.call('PUT', '/api/departments/tmp', { body: { name: '合成临时部' } });
-    const pGone = (await srv.call('PUT', '/api/departments/tmp', { headers: token, body: { name: '合成临时部', lead: 'user:beta' } })).json?.lead_proposal?.id;
-    await srv.call('DELETE', '/api/departments/tmp'); // 部门删了：提议的目标不在了
+    // 部门已停写：停写前收下的负责人提议、后来从库里没了的部门，直接写库造
+    seed.department('tmp', '合成临时部');
+    const pGone = seed.deptLeadProposal('tmp', 'user:beta', { by: 'admin-token' });
+    seed.run((d) => d.prepare("DELETE FROM departments WHERE id = 'tmp'").run()); // 部门没了：提议的目标不在了
     const pOld = (await srv.call('POST', '/api/teams/leads', { headers: token, body: { host: HOST, team: TEAM, principal: 'user:no-flag' } })).json?.proposal?.id;
     db.prepare('UPDATE relation_proposals SET proposed_at = ? WHERE id = ?').run(Date.now() - 20 * 86_400_000, pOld); // 20 天前提的
     const pLive = (await srv.call('POST', '/api/teams/claim', { headers: token, body: { host: HOST, team: OTHER, department: 'ops' } })).json?.proposal?.id;
-    const pBack = (await srv.call('PUT', '/api/departments/sales', { headers: token, body: { name: '合成销售部', lead: 'user:no-flag' } })).json?.lead_proposal?.id;
+    const pBack = seed.deptLeadProposal('sales', 'user:no-flag', { by: 'admin-token' }); // 停写前口令提的
     await srv.call('POST', `/api/relations/proposals/${pBack}/reject`, { headers: token, body: { reason: '合成：提错了' } }); // 提的人撤回
     const n = inproc('return svc("relationProposals").expireStale(Date.now());');
     const list = (await srv.call('GET', '/api/relations/proposals', { headers: token })).json?.proposals ?? [];
@@ -722,7 +732,7 @@ try {
       show({ shortGone, cameBack, longGone, nodeStale, nodeStaleOld }));
   }
 
-  // ---------- 八之六、部门负责人：字段和授予一起落；字段单独不带来任何权力 ----------
+  // ---------- 八之六、部门负责人：字段单独不带来任何权力；停写以后确认提议只起草领域负责人 ----------
   {
     const q = (sql, ...a) => db.prepare(sql).all(...a);
     // 旁路进程（同一个数据目录），照正式启动装角色表；noRoles 时角色表是空的（模拟部署方的 dept-lead 不能用）
@@ -752,109 +762,82 @@ try {
     const tryAssign = async (who) => { const r = await srv.call('POST', '/api/teams/assign', { ...as(who), body: { ...seatE, principal: 'user:beta' } }); if (r.status === 201) await srv.call('POST', '/api/teams/unassign', { body: seatE }); return r.status; };
     const otherView = async (who) => (await srv.call('GET', '/api/teams', who === null ? {} : as(who))).json?.departments?.flatMap((d) => d.teams).find((t) => t.team === OTHER);
 
-    await srv.call('PUT', '/api/departments/eng', { body: { name: '合成研发部' } });
+    // 部门已停写（docs/domains-step1.md 第六节）：eng 和它的负责人字段、授予、提议都是停写前就有的，直接写库造（scripts/lib/legacy-dept-seed.mjs）
+    seed.department('eng', '合成研发部');
     await srv.call('POST', '/api/teams/claim', { body: { ...tO, department: 'eng' } }); // 属主直接认领
-    // 1) 系统管理员（管理口令、管理员登录）能走的入口都只记成提议：被提名的人什么权力都没有
+    // 1) 系统管理员（管理口令、管理员登录）改部门负责人：410（停写），字段不变、不发授予、不记提议；被提名的人什么权力都没有
+    const proposalsOf = (dept) => q("SELECT COUNT(*) AS n FROM relation_proposals WHERE kind = 'dept-lead' AND department_id = ?", dept)[0].n;
     const byTok = await srv.call('PUT', '/api/departments/eng', { headers: token, body: { name: '合成研发部', lead: 'user:alpha' } });
     const byRoot = await srv.call('PUT', '/api/departments/eng', { ...as(SESSIONS.admin), body: { name: '合成研发部', lead: 'user:alpha' } });
-    const afterAdmin = { field: q("SELECT lead_principal FROM departments WHERE id = 'eng'")[0].lead_principal, grants: leadGrants('user:alpha').length, assign: await tryAssign(SESSIONS.alpha), rel: relAlpha() };
-    check(byTok.json?.lead_proposal?.status === 'pending' && byRoot.json?.lead_proposal?.id === byTok.json?.lead_proposal?.id && afterAdmin.field === '' && afterAdmin.grants === 0 && afterAdmin.assign === 403 && !afterAdmin.rel.includes('team-lead'),
-      '系统管理员（管理口令、管理员登录）改部门负责人：只记成提议，字段不变、不发授予；被提名的人分不了成员、不是团队负责人（事项、放行都跟着团队负责人走）', show({ byTok: byTok.json?.lead_proposal, afterAdmin }));
-    await srv.call('POST', `/api/relations/proposals/${byTok.json?.lead_proposal?.id}/reject`, { body: { reason: '合成：收掉' } });
-    // 2) 字段从别的来源写进来（存量、导入、将来的同步，这里直接写库）：只是「待属主放行」，不带任何权力 [red-line:dept-lead-field-no-power]
+    const afterAdmin = { field: q("SELECT lead_principal FROM departments WHERE id = 'eng'")[0].lead_principal, grants: leadGrants('user:alpha').length, proposals: proposalsOf('eng'), assign: await tryAssign(SESSIONS.alpha), rel: relAlpha() };
+    check(byTok.status === 410 && byRoot.status === 410 && afterAdmin.field === '' && afterAdmin.grants === 0 && afterAdmin.proposals === 0 && afterAdmin.assign === 403 && !afterAdmin.rel.includes('team-lead'),
+      '系统管理员（管理口令、管理员登录）改部门负责人：410（部门已停写），字段不变、不发授予、不记提议；被提名的人分不了成员、不是团队负责人', show({ byTok: byTok.status, byRoot: byRoot.status, afterAdmin }));
+    // 2) 字段从别的来源写进来（存量、导入、同步，这里直接写库）：只是组织信息，不带任何权力 [red-line:dept-lead-field-no-power]；停写以后也不再补记提议
     db.prepare("UPDATE departments SET lead_principal = 'user:alpha' WHERE id = 'eng'").run();
-    await srv.call('PUT', '/api/departments/eng/members/user:no-flag', { headers: token }); // eng 里放一个只在 eng 的成员，看「同部门看得到名字」
+    seed.member('eng', 'user:no-flag'); // eng 里放一个只在 eng 的成员，看「同部门看得到名字」
     const fieldOnly = {
       dept: (await srv.call('GET', '/api/departments/eng', as(SESSIONS.alpha))).json?.department?.lead,
       view: await otherView(null), alphaSees: !!(await otherView(SESSIONS.alpha)), assign: await tryAssign(SESSIONS.alpha), rel: relAlpha(),
       alphaDepts: (await srv.call('GET', '/api/departments/of/user:alpha', as(SESSIONS.alpha))).json?.departments?.map((d) => d.id),
       peerName: sidecar(`return nameResolver({ admin: false, principal: 'user:alpha' })('user:no-flag');`),
-      backfill: sidecar('return svc("relationProposals").proposeMissingLeadGrants(Date.now());'),
-      again: sidecar('return svc("relationProposals").proposeMissingLeadGrants(Date.now());'),
+      backfillGone: sidecar('return typeof svc("relationProposals").proposeMissingLeadGrants;'),
+      proposals: proposalsOf('eng'),
     };
-    const backfilled = ((await srv.call('GET', '/api/relations/proposals')).json?.proposals ?? []).find((p) => p.kind === 'dept-lead' && p.department_id === 'eng' && p.status === 'pending');
     check(fieldOnly.dept?.grant === 'missing' && fieldOnly.view && !fieldOnly.view.leads.some((l) => l.principal === 'user:alpha') && fieldOnly.view.lead_pending_grant?.principal === 'user:alpha'
       && fieldOnly.alphaSees === false && !fieldOnly.alphaDepts?.includes('eng') && fieldOnly.peerName === null
       && fieldOnly.assign === 403 && fieldOnly.rel.includes('dept-lead-pending') && !fieldOnly.rel.includes('dept-lead') && !fieldOnly.rel.includes('team-lead')
-      && fieldOnly.backfill === 1 && fieldOnly.again === 0 && backfilled?.proposed_by === 'system:migration' && backfilled.confirm_by_text === '属主（同时放行这个部门负责人的权限）',
-      '只有字段、没有授予的部门负责人（存量、导入、同步、直接写库）：部门上标 grant=missing，团队上是 lead_pending_grant、不在负责人里；读不到这个部门的团队、部门归属里没有它、看不到只在这个部门的同事的名字；分不了成员、不是团队负责人；启动补记一条负责人提议给属主（重复补不重复记），提议人是 system:migration [red-line:dept-lead-field-no-power]',
-      show({ fieldOnly, backfilled }));
-    // 3) 属主确认那条补记的提议：同一事务里发授予、记下来；他就有了团队层的权力
-    const ok = await srv.call('POST', `/api/relations/proposals/${backfilled?.id}/approve`, {});
-    const g1 = leadGrants('user:alpha');
-    const confirmed = { ok: ok.status, grants: g1, link: q("SELECT grant_id, principal_id FROM dept_lead_grants WHERE department_id = 'eng'"), approvedBy: q('SELECT approved_by FROM grants WHERE id = ?', g1[0]?.id)[0]?.approved_by, assign: await tryAssign(SESSIONS.alpha), rel: relAlpha(), dept: (await srv.call('GET', '/api/departments/eng')).json?.department?.lead?.grant,
-      alphaSees: !!(await otherView(SESSIONS.alpha)), peerName: sidecar(`return nameResolver({ admin: false, principal: 'user:alpha' })('user:no-flag');`) };
-    check(confirmed.ok === 200 && g1.length === 1 && g1[0].status === 'active' && confirmed.approvedBy === 'cli' && confirmed.link[0]?.grant_id === g1[0].id && confirmed.assign === 201 && confirmed.rel.includes('team-lead') && confirmed.dept === 'active' && confirmed.alphaSees === true && typeof confirmed.peerName === 'string',
-      '属主确认负责人：同一事务里发这个部门的 dept-lead 授予（属主放行）并记下来；之后他是团队负责人、能分配成员、读得到这个部门的团队和同事的名字', show(confirmed));
-    // 4) 属主（管理员也行，收紧）撤掉这条授予：团队层的权力当场没了，不等重启、不等缓存
-    const rv = await srv.call('POST', `/api/grants/${g1[0]?.id}/revoke`, { headers: token, body: { reason: '合成：撤掉看权力' } });
+      && fieldOnly.backfillGone === 'undefined' && fieldOnly.proposals === 0,
+      '只有字段、没有授予的部门负责人（存量、导入、同步、直接写库）：部门上标 grant=missing，团队上是 lead_pending_grant、不在负责人里；读不到这个部门的团队、部门归属里没有它、看不到只在这个部门的同事的名字；分不了成员、不是团队负责人；停写以后不再补记负责人提议',
+      show({ fieldOnly }));
+    // 3) 停写前补记的那条提议（提议人 system:migration），属主现在确认：不发 dept: 授予，改成起草领域负责人（领域要先在），他在团队层仍没有权力
+    const backfilled = seed.deptLeadProposal('eng', 'user:alpha', { by: 'system:migration' });
+    const noArea = await srv.call('POST', `/api/relations/proposals/${backfilled}/approve`, {});
+    await srv.call('POST', '/api/areas', { body: { id: 'eng', name: '合成研发部' } });
+    const ok = await srv.call('POST', `/api/relations/proposals/${backfilled}/approve`, {});
+    const drafted = q('SELECT role, scope, status, reason FROM grants WHERE id = ?', ok.json?.drafted_grant_id ?? -1)[0];
+    const confirmed = { noArea: `${noArea.status}:${noArea.json?.error}`, ok: ok.status, drafted, deptGrants: leadGrants('user:alpha').length, link: q("SELECT COUNT(*) AS n FROM dept_lead_grants WHERE department_id = 'eng'")[0].n, assign: await tryAssign(SESSIONS.alpha), rel: relAlpha() };
+    check(confirmed.noArea === '409:area_not_migrated' && confirmed.ok === 200 && show(drafted) === show({ role: 'area-lead', scope: 'area:eng', status: 'pending', reason: '由部门负责人提议转来' })
+      && confirmed.deptGrants === 0 && confirmed.link === 0 && confirmed.assign === 403 && !confirmed.rel.includes('team-lead'),
+      '属主确认停写前补记的负责人提议：领域没迁 409；迁了以后起草一条领域负责人（待核），不发 dept-lead 授予、不记随发；他在团队层仍没有权力（团队对应领域在第 3 步）', show(confirmed));
+    // 4) 停写前属主确认过的负责人（字段 + 生效的 dept-lead 授予）：有团队层的权力；撤掉这条授予，权力当场没了，不等重启、不等缓存
+    const g1 = seed.deptLead('eng', 'user:alpha');
+    const had = { assign: await tryAssign(SESSIONS.alpha), rel: relAlpha(), alphaSees: !!(await otherView(SESSIONS.alpha)), peerName: sidecar(`return nameResolver({ admin: false, principal: 'user:alpha' })('user:no-flag');`) };
+    const rv = await srv.call('POST', `/api/grants/${g1}/revoke`, { headers: token, body: { reason: '合成：撤掉看权力' } });
     const revoked = { rv: rv.status, assign: await tryAssign(SESSIONS.alpha), rel: relAlpha(), dept: (await srv.call('GET', '/api/departments/eng')).json?.department?.lead?.grant, view: (await otherView(null))?.lead_pending_grant?.principal, alphaSees: !!(await otherView(SESSIONS.alpha)) };
-    check(revoked.rv === 200 && revoked.assign === 403 && !revoked.rel.includes('team-lead') && revoked.dept === 'missing' && revoked.view === 'user:alpha' && revoked.alphaSees === false,
-      '撤掉随负责人发的授予：字段还在，权力当场没了（分不了成员、不是团队负责人、读不到这个部门的团队），状态回到待属主放行', show(revoked));
-    // 5) 属主直接指定（本机命令行）：再发一条；换人 A→B：A 那条收回，B 拿到新的
-    await srv.call('PUT', '/api/departments/eng', { body: { name: '合成研发部', lead: 'user:alpha' } });
-    const a2 = leadGrants('user:alpha').filter((g) => g.status === 'active');
-    await srv.call('PUT', '/api/departments/eng', { body: { name: '合成研发部', lead: 'user:beta' } });
-    const swap = { alpha: leadGrants('user:alpha').map((g) => g.status), beta: leadGrants('user:beta').map((g) => g.status), link: q("SELECT principal_id FROM dept_lead_grants WHERE department_id = 'eng'")[0]?.principal_id, alphaAssign: await tryAssign(SESSIONS.alpha) };
-    check(a2.length === 1 && show(swap.alpha) === show(['revoked', 'revoked']) && show(swap.beta) === show(['active']) && swap.link === 'user:beta' && swap.alphaAssign === 403,
-      '属主直接指定负责人也发授予；换人 A→B：A 随负责人拿到的那条收回、当场分不了成员，B 拿到新的一条', show({ a2, swap }));
-    // 6) 只改部门名称（没写 lead）：不发授予——属主改名不等于确认负责人
-    await srv.call('PUT', '/api/departments/eng', { body: { name: '合成研发部', lead: null } }); // 移除负责人：收回 B 那条
-    db.prepare("UPDATE departments SET lead_principal = 'user:alpha' WHERE id = 'eng'").run();
-    const rename = await srv.call('PUT', '/api/departments/eng', { body: { name: '合成研发二部' } });
-    check(rename.status === 200 && rename.json?.department?.lead?.grant === 'missing' && leadGrants('user:alpha').every((g) => g.status === 'revoked') && leadGrants('user:beta').every((g) => g.status === 'revoked'),
-      '移除负责人收回随发的授予；属主只改名称、没写 lead：不替只有字段的负责人发授予', show({ rename: rename.json?.department?.lead, alpha: leadGrants('user:alpha'), beta: leadGrants('user:beta') }));
-    // 7) 已经持有这个部门的 dept-lead（另外发的）：指定为负责人不再另发；移除负责人不碰他原有的那条
-    db.prepare("UPDATE departments SET lead_principal = '' WHERE id = 'eng'").run();
-    const own = await srv.call('POST', '/api/grants', { body: { principal: 'user:beta', role: 'dept-lead', scope: 'dept:eng', reason: '合成：另外发的' } });
-    await srv.call('POST', `/api/grants/${own.json?.grant?.id}/submit`); await srv.call('POST', `/api/grants/${own.json?.grant?.id}/approve`);
-    await srv.call('PUT', '/api/departments/eng', { body: { name: '合成研发部', lead: 'user:beta' } });
-    const held = { active: leadGrants('user:beta').filter((g) => g.status === 'active').map((g) => g.id), link: q("SELECT COUNT(*) AS n FROM dept_lead_grants WHERE department_id = 'eng'")[0].n };
-    await srv.call('PUT', '/api/departments/eng', { body: { name: '合成研发部', lead: null } });
-    const kept = q('SELECT status FROM grants WHERE id = ?', own.json?.grant?.id)[0]?.status;
-    check(show(held.active) === show([own.json?.grant?.id]) && held.link === 0 && kept === 'active',
-      '已经持有这个部门 dept-lead 的人被指定为负责人：不再另发、不记随发；移除负责人时他原有的那条不动', show({ held, kept }));
-    await srv.call('POST', `/api/grants/${own.json?.grant?.id}/revoke`, { body: { reason: '合成：收尾' } });
-    // 8) dept-lead 不能用（角色表里没有）：确认整体拒绝，部门、字段、授予都没落
-    const unusable = sidecar(`const r = lead.setDepartmentLead({ id: 'eng-x', name: '合成拒绝部', functionCode: null, lead: 'user:alpha' }, { by: 'cli', principal: null, owner: true }, Date.now());
-      return { ok: r.ok, code: r.code ?? null, dept: !!svc('departments').get('eng-x'), grants: db.prepare("SELECT COUNT(*) AS n FROM grants WHERE scope = 'dept:eng-x'").get().n };`, true);
-    check(unusable.ok === false && unusable.code === 'dept_lead_role_unusable' && unusable.dept === false && unusable.grants === 0,
-      'dept-lead 角色不能用时：确认负责人整体拒绝（422 dept_lead_role_unusable），部门、负责人字段、授予都没有落', show(unusable));
-    // 9) 属主驳回补记的提议：清掉只有字段的负责人（不然每一轮都会再补记）
-    db.prepare("UPDATE departments SET lead_principal = 'user:alpha' WHERE id = 'eng'").run();
-    // 9a) 只有字段的负责人同时是部门成员：成员列表里他不是负责人（is_lead 假），标 lead_pending；部门归属里同样
-    await srv.call('PUT', '/api/departments/eng/members/user:alpha', { headers: token });
+    check(had.assign === 201 && had.rel.includes('team-lead') && had.alphaSees === true && typeof had.peerName === 'string'
+      && revoked.rv === 200 && revoked.assign === 403 && !revoked.rel.includes('team-lead') && revoked.dept === 'missing' && revoked.view === 'user:alpha' && revoked.alphaSees === false,
+      '停写前确认过的负责人是团队负责人、能分配成员、读得到这个部门的团队和同事的名字；撤掉随负责人发的授予：字段还在，权力当场没了，状态回到待属主放行', show({ had, revoked }));
+    // 5) 只有字段的负责人同时是部门成员：成员列表里他不是负责人（is_lead 假），标 lead_pending；部门归属里同样
+    seed.member('eng', 'user:alpha');
     const mem = (await srv.call('GET', '/api/departments/eng', { headers: token })).json?.members?.find((m) => m.principal === 'user:alpha');
     const ofAlpha = (await srv.call('GET', '/api/departments/of/user:alpha', as(SESSIONS.alpha))).json?.departments?.find((d) => d.id === 'eng');
     const relAccess = (await srv.call('GET', '/api/principals/user:alpha/access', as(SESSIONS.alpha))).json?.relations?.departments?.find((d) => d.id === 'eng');
-    await srv.call('DELETE', '/api/departments/eng/members/user:alpha', { headers: token });
+    seed.run((d) => d.prepare("DELETE FROM department_members WHERE department_id = 'eng' AND principal_id = 'user:alpha'").run());
     check(mem?.is_lead === false && mem?.lead_pending === true && ofAlpha?.is_lead === false && ofAlpha?.is_member === true && ofAlpha?.lead_pending === true
       && relAccess?.lead === false && relAccess?.member === true && relAccess?.lead_pending === true,
       '只有字段的负责人又是成员：成员列表、部门归属、「谁能做什么」的关系摘要里都不算负责人（lead 假），标 lead_pending', show({ mem, ofAlpha, relAccess }));
-    sidecar('return svc("relationProposals").proposeMissingLeadGrants(Date.now());');
-    const again = ((await srv.call('GET', '/api/relations/proposals')).json?.proposals ?? []).find((p) => p.kind === 'dept-lead' && p.department_id === 'eng' && p.status === 'pending');
-    const rj = await srv.call('POST', `/api/relations/proposals/${again?.id}/reject`, { body: { reason: '合成：不认这个字段' } });
+    // 6) 属主驳回停写前补记的提议：清掉只有字段的负责人（收紧，只收不发）
+    const again = seed.deptLeadProposal('eng', 'user:alpha', { by: 'system:migration' });
+    const rj = await srv.call('POST', `/api/relations/proposals/${again}/reject`, { body: { reason: '合成：不认这个字段' } });
     const cleared = q("SELECT lead_principal FROM departments WHERE id = 'eng'")[0].lead_principal;
-    check(rj.status === 200 && cleared === '' && sidecar('return svc("relationProposals").proposeMissingLeadGrants(Date.now());') === 0,
-      '属主驳回补记的负责人提议：只有字段的负责人被清掉，不再补记', show({ rj: rj.status, cleared }));
-    // 收尾：别队退回待认领，eng 删掉（随负责人发的授予都收过了）
+    check(rj.status === 200 && cleared === '' && leadGrants('user:alpha').every((g) => g.status === 'revoked'),
+      '属主驳回停写前补记的负责人提议：只有字段的负责人被清掉，不发任何授予', show({ rj: rj.status, cleared, grants: leadGrants('user:alpha') }));
+    // 收尾：别队退回待认领
     await srv.call('POST', '/api/teams/release', { body: tO });
-    const del = await srv.call('DELETE', '/api/departments/eng');
-    check(del.status === 200, '收尾：随负责人发的授予都收回之后部门能删', show(del.json));
   }
 
-  // ---------- 七、退回待认领；有团队挂着的部门不能删 ----------
+  // ---------- 七、退回待认领（部门已停写，删部门 410） ----------
   {
-    const del = await srv.call('DELETE', '/api/departments/sales', { headers: token });
+    const del = await srv.call('DELETE', '/api/departments/sales', { headers: token }); // 部门已停写：410，不再走「有团队挂着 409」那一步
     const rel = await srv.call('POST', '/api/teams/release', { headers: token, body: team });
     const leadsLeft = Number(db.prepare('SELECT COUNT(*) AS n FROM team_leads WHERE ended_at IS NULL').get().n);
     const asgLeft = Number(db.prepare('SELECT COUNT(*) AS n FROM seat_assignments WHERE ended_at IS NULL').get().n);
     const staff = await srv.call('GET', '/api/teams', as(SESSIONS.alpha));
     const cli = await srv.call('GET', '/api/teams');
-    const del2 = await srv.call('DELETE', '/api/departments/sales', { headers: token });
-    check(del.status === 409 && del.json?.error === 'department_has_teams' && rel.status === 200 && rel.json?.leads_ended === 1 && rel.json?.assignments_ended === 2
-      && leadsLeft === 0 && asgLeft === 0 && show(staff.json?.departments) === '[]' && cli.json?.unclaimed?.length === 2 && del2.status === 200,
-      '有团队挂着的部门不能删 409；退回待认领：另外指定的负责人、生效的分配一起结束，员工看不到了，又回到待认领；之后部门能删', show({ del: del.status, rel: rel.json, del2: del2.status }));
+    const stillThere = !!db.prepare("SELECT 1 FROM departments WHERE id = 'sales'").get();
+    check(del.status === 410 && rel.status === 200 && rel.json?.leads_ended === 1 && rel.json?.assignments_ended === 2
+      && leadsLeft === 0 && asgLeft === 0 && show(staff.json?.departments) === '[]' && cli.json?.unclaimed?.length === 2 && stillThere,
+      '删部门 410（部门已停写），部门还在；退回待认领：另外指定的负责人、生效的分配一起结束，员工看不到了，又回到待认领', show({ del: del.status, rel: rel.json, stillThere }));
   }
 
   // ---------- 九、留痕 ----------

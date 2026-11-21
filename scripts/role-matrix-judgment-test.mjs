@@ -17,6 +17,7 @@
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { legacyGrantIn, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -56,6 +57,8 @@ try {
   const cli = { by: 'cli', principal: null, owner: true };
   const insert = (id, kind = 'person', owner = '') => db.prepare('INSERT INTO principals (id, id_key, kind, owner) VALUES (?, ?, ?, ?)').run(id, id.toLowerCase(), kind, owner);
   const give = (principal, role, scope) => {
+    // 部门已停写：dept: 范围的授予新起草会被拒，造成「停写前就生效的」那种（scripts/lib/legacy-dept-seed.mjs）
+    if (scope.startsWith('dept:')) return void legacyGrantIn(db, principal, role, scope, { reason: '合成：矩阵对照', expiresAt: role === 'guest' ? now + 86_400_000 : null });
     const d = grants.draft({ principal, role, scope, expiresAt: role === 'guest' ? now + 86_400_000 : null, reason: '合成：矩阵对照' }, cli);
     if (!d.ok) throw new Error(`起草 ${principal} ${role} 失败：${d.code}`);
     grants.submit(d.grant.id, cli);
@@ -75,6 +78,8 @@ try {
     give(id, r.id, roles.AREA_PRESETS.includes(r.id) ? 'area:sales' : byDept(r) ? 'dept:sales' : '*');
     holder.set(r.id, { type: 'principal', id, kind: nonPerson ? 'seat' : 'person', status: 'active', owner: nonPerson ? 'user:resp' : '' });
   }
+  { const rows = deptGrantRows(db); const want = all.filter((r) => !roles.AREA_PRESETS.includes(r.id) && byDept(r)).length;
+    check(want > 0 && rows.length === want && rows.every((x) => / dept:sales active$/.test(x)), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
 
   // 拿真实判定归拢出来的格子
   const derived = (r) => {

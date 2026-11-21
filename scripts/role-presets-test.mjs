@@ -11,6 +11,7 @@
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { legacyGrantIn, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
@@ -89,6 +90,8 @@ try {
   const cliActor = { by: 'cli', principal: null, owner: true };
   // 授予一律从草稿开始（表上的触发器管着）：起草、提交、放行
   const give = (principal, role, scope = '*') => {
+    // 部门已停写：dept: 范围的授予新起草会被拒，造成「停写前就生效的」那种（scripts/lib/legacy-dept-seed.mjs）
+    if (scope.startsWith('dept:')) return void legacyGrantIn(db, principal, role, scope, { reason: '合成' });
     const d = grants.draft({ principal, role, scope, expiresAt: null, reason: '合成' }, cliActor);
     if (!d.ok) throw new Error(`起草 ${principal} ${role} 失败：${d.code}`);
     grants.submit(d.grant.id, cliActor);
@@ -138,6 +141,8 @@ try {
     for (const id of ['user:dm', 'user:dl', 'user:pend', 'user:rel', 'user:gone', 'user:mg', 'user:sa', 'user:own']) insert(id);
     insert('seat:dept-bot', 'seat', 'user:own');
     const on = (principal, role, scope, expiresAt = null) => {
+      // 部门已停写：dept: 范围的授予造成「停写前就生效的」那种（scripts/lib/legacy-dept-seed.mjs）
+      if (scope.startsWith('dept:')) return { id: legacyGrantIn(db, principal, role, scope, { reason: '合成', expiresAt }) };
       const d = grants.draft({ principal, role, scope, expiresAt, reason: '合成' }, cli);
       if (!d.ok) throw new Error(`起草 ${principal} ${role} ${scope}：${d.code}`);
       grants.submit(d.grant.id, cli, now); return grants.approve(d.grant.id, cli, now).grant ?? d.grant;
@@ -148,10 +153,10 @@ try {
     on('user:sa', 'admin', '*');
     on('user:gone', 'dept-member', 'dept:sales');
     db.prepare("UPDATE principals SET status = 'disabled' WHERE id = 'user:gone'").run();
-    const pend = grants.draft({ principal: 'user:pend', role: 'dept-member', scope: 'dept:sales', expiresAt: null, reason: '合成' }, cli);
-    grants.submit(pend.grant.id, cli, now); // 待放行
+    legacyGrantIn(db, 'user:pend', 'dept-member', 'dept:sales', { reason: '合成', to: 'pending' }); // 待放行
     const brief = on('user:own', 'dept-member', 'dept:sales', now + 1000); // 一会儿就过期
     on('seat:dept-bot', 'ai-staff', 'dept:sales');
+    { const rows = deptGrantRows(db); check(JSON.stringify(rows) === JSON.stringify(["seat:dept-bot ai-staff dept:sales active", "user:dl dept-lead dept:sales active", "user:dm dept-member dept:sales active", "user:gone dept-member dept:sales active", "user:own dept-member dept:sales active", "user:pend dept-member dept:sales pending"]), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
     // 只有关系、没有授予：加进部门成员表，并指成部门负责人
     deps.addMember('sales', 'user:rel', 'cli', now);
     deps.upsert({ id: 'sales', name: '合成 sales', functionCode: null, lead: 'user:rel' }, 'cli', now);

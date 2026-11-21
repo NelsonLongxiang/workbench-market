@@ -1,8 +1,8 @@
 """「团队」页（规范 14；骨架照原型 3fbfd0b 的 #/team）浏览器回归；由 scripts/sider-menu-browser.mjs 起合成实例后调用，参数为配置 JSON 路径。
-团队的读接口（GET /api/teams）用合成的应答（经 page.route 截下：名册要节点报上来，实例里造不出）；部门、人用实例真的，建部门真的写进实例。
+团队的读接口（GET /api/teams）用合成的应答（经 page.route 截下：名册要节点报上来，实例里造不出）；部门、人用实例真的；部门已停写（410），测试直接写库造（scripts/lib/legacy-dept-seed.mjs）。
 认领、指定负责人两个写请求也截下，核对发了什么。
   · 没登录：说请先登录，不弹口令框；
-  · 管理员、还没有部门：说部门正在换成领域，不再给建部门的入口，指去「领域」页（领域第 1 步，统筹 11-20）；部门由测试直接调接口建进实例；
+  · 管理员、还没有部门：说部门正在换成领域，不再给建部门的入口，指去「领域」页（领域第 1 步，统筹 11-20）；部门由测试直接写库造进实例（停写前就有的部门）；
   · 待认领的团队：只有管理员的视图里有；挂到部门，发对了请求；
   · 关系确认制（#638）：口令管理员（系统管理员，不是管理层）认领只记成提议（202）——页面说「已提出，等〈谁〉确认」、那张卡标「待确认」，
     不出现部门分块（关系没生效）；管理层确认之后（截下的应答换成认领了的）才按部门分块；
@@ -21,7 +21,7 @@
     看的人由截下的 /api/auth/me 给，左下角不是「未登录」。
     环境变量 TEAM_SHOTS 指一个目录时，存 1440 截图（分配前、选人弹窗、分配后、收回确认、普通员工只读）；
   · 不是管理员的视图（应答里没有待认领这一栏）：没有待认领。"""
-import json, os, sys, urllib.request
+import json, os, subprocess, sys, urllib.request
 from datetime import datetime, timedelta, timezone
 from playwright.sync_api import sync_playwright
 cfg = json.load(open(sys.argv[1]))
@@ -111,11 +111,13 @@ with sync_playwright() as p:
     state['teams']['unclaimed'] = [UNCLAIMED]
     pg.reload(); set_token(pg); pg.wait_for_selector('[data-testid=team-empty]')
 
-    # 部门不再从页面建（换成领域了）：测试直接调旧接口建进实例（旧部门照旧读、照旧显示），重读页面
-    req = urllib.request.Request(M + '/api/departments/synthetic-ops', method='PUT', data=json.dumps({'name': '合成运营部'}).encode(), headers={'x-admin-token': TOK, 'content-type': 'application/json'})
-    with urllib.request.urlopen(req) as r: r.read()
+    # 部门不再从页面建（换成领域了），旧部门接口也停写了（410）：测试直接写库造进实例（停写前就有的部门，旧部门照旧读、照旧显示），重读页面。
+    # 和别的测试同一个写法：调 scripts/lib/legacy-dept-seed.mjs 的 legacySeed().department
+    seed = "const [db, id, name, at] = process.argv.slice(1); const m = await import(at); m.legacySeed(db).department(id, name);"
+    lib = 'file://' + os.path.join(os.path.dirname(os.path.abspath(__file__)), 'lib', 'legacy-dept-seed.mjs')
+    subprocess.run([cfg['node'], '--disable-warning=ExperimentalWarning', '--input-type=module', '-e', seed, cfg['db'], 'synthetic-ops', '合成运营部', lib], check=True)
     with urllib.request.urlopen(urllib.request.Request(M + '/api/departments', headers={'x-admin-token': TOK})) as r: real = json.load(r)
-    check('部门（接口建的）：实例里有了这个部门', [d['id'] for d in real['departments']] == ['synthetic-ops'], real)
+    check('部门（写库造的）：实例里有了这个部门', [d['id'] for d in real['departments']] == ['synthetic-ops'], real)
     pg.reload(); set_token(pg); pg.wait_for_selector('[data-testid=team-claim]')
     check('建好部门：空的说法没了，待认领的团队可以挂到部门', pg.locator('[data-testid=team-empty]').count() == 0 and pg.locator('[data-testid=team-claim]').is_disabled())
 
