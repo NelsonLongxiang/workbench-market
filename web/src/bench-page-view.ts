@@ -107,25 +107,6 @@ export function showFromCard(entry: BenchEntry): boolean {
   return entry.can.rename && typeof card === 'string' && card !== '' && card !== entry.bench.title;
 }
 
-/** 只认最后一次（#927）：连着发了几次同样的请求（改名后自动重取 + 手点「刷新」），先发的那次后到时不能盖掉新的。
- *  每次调用记一个序号；等到应答时，要是期间又发过新的，这一次的结果不用，改为等最后那一次、返回它的结果——
- *  调用方拿到的总是最新的，落到页面上的也只有最新的那一次（apply 只对最后一次调） */
-export function latestOnly<T>(run: () => Promise<T>, apply: (v: T) => void): () => Promise<T> {
-  let seq = 0;
-  let last: Promise<T> = Promise.resolve(undefined as T);
-  // 等到「等的这段时间里没有更新的请求」为止，返回那一次的结果（落到页面上由那一次自己做）
-  const latest = async (): Promise<T> => { for (;;) { const at = seq; const v = await last; if (at === seq) return v; } };
-  return async () => {
-    const mine = ++seq;
-    const p = run();
-    last = p;
-    const v = await p;
-    if (mine !== seq) return latest();
-    apply(v);
-    return v;
-  };
-}
-
 /** 标签页切回前台时要不要重新问一次入口（别人改了台名，切回来看到的是新名字）：离上一次至少 30 秒才问，免得来回切换一直发请求 */
 export const ENTRY_REFRESH_MIN_MS = 30_000;
 export const shouldRefreshEntry = (lastAt: number, now: number, minMs = ENTRY_REFRESH_MIN_MS): boolean => now - lastAt >= minMs;
