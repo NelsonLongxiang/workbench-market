@@ -120,8 +120,12 @@ function openDispute(responses: ReportResponseRow[], claimKey: string): boolean 
   return mine.some((r) => !replaced.has(r.id) && r.stance === 'dispute');
 }
 
-/** 一份报告：成品、来源、论断（各带回应和有没有未处理的反驳）、对整份报告的回应、验收声明、被谁更正了。没有是 404 */
-export async function readReport(s: BenchStore, idIn: unknown) {
+/**
+ * 一份报告：成品、来源、论断（各带回应和有没有未处理的反驳）、对整份报告的回应、验收声明、被谁更正了。没有是 404。
+ * 另带这一版模板里回应可选的立场、论断各类的名字（报告页据此出回应框、给论断标类别，PR D）；
+ * 给了 actor（读的人）时，每条回应标出是不是他自己的（mine），页面据此把「改主意」接在他自己的链头上
+ */
+export async function readReport(s: BenchStore, idIn: unknown, actor?: string) {
   const id = posInt(idIn);
   const r = id === undefined ? null : await s.reportGet(id);
   if (!r) throw new BenchError('not_found', '没有这份报告');
@@ -129,18 +133,22 @@ export async function readReport(s: BenchStore, idIn: unknown) {
   const same = await s.reportList({ dimension: r.report.dimension_id, subject: r.report.subject, limit: 200 });
   const supersededBy = same.find((x) => x.id === r.report.id)?.superseded_by ?? null;
   const t = dims().template(r.report.dimension_id, r.report.template_version);
-  const gate = (t?.body as { gate?: unknown } | undefined)?.gate ?? null;
+  const tb = (t?.body ?? {}) as { gate?: unknown; responses?: { stances?: unknown }; claims?: unknown };
+  const gate = tb.gate ?? null;
+  const stances = Array.isArray(tb.responses?.stances) ? tb.responses.stances.filter((x): x is string => typeof x === 'string') : [];
+  const kinds = Array.isArray(tb.claims) ? (tb.claims as { kind?: unknown; label?: unknown }[]).filter((c) => typeof c?.kind === 'string').map((c) => ({ kind: String(c.kind), label: typeof c.label === 'string' ? c.label : String(c.kind) })) : [];
+  const mark = (x: ReportResponseRow) => (actor === undefined ? x : { ...x, mine: x.responder === actor });
   const head = supersededBy === null;
   const { inputs, body, sources, ...meta } = r.report;
   const claims = r.claims.map((c) => ({
-    ...c, basis: JSON.parse(c.basis), responses: responses.filter((x) => x.claim_key === c.claim_key),
+    ...c, basis: JSON.parse(c.basis), responses: responses.filter((x) => x.claim_key === c.claim_key).map(mark),
     open_dispute: head && openDispute(responses, c.claim_key),
   }));
-  const whole = responses.filter((x) => x.claim_key === '');
+  const whole = responses.filter((x) => x.claim_key === '').map(mark);
   const openWhole = head && openDispute(responses, '');
   return {
     report: { ...meta, inputs: JSON.parse(inputs), body: JSON.parse(body), sources: JSON.parse(sources), superseded_by: supersededBy },
-    claims, responses: whole, gate,
+    claims, responses: whole, gate, template: { stances, claims: kinds },
     open_disputes: claims.filter((c) => c.open_dispute).length + (openWhole ? 1 : 0),
   };
 }

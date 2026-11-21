@@ -18,6 +18,7 @@
  *   R3 MCP 生成、回应记 AI，AI 的反驳不算；R4 被更正之后旧报告上的不算；R5 回应、报告、论断不能改不能删
  *   R6（#932 独立验收）能回应读不了的 404 和不存在一样；MCP 回应要有 report_get 授予；一个人一条链；接别人链头 409；对整份报告的反驳算
  *   R6d（属主 2026-11-21：收窄）回应记的位置只含管得到这个台的授予：别的领域的不记，台绑到那个领域以后才记
+ *   R7（PR D）入口的 can.reports、can.respond 和接口同一套判法；读报告带回模板的立场和论断类别名、回应标出 mine
  *   G11（#930 独立验收）只能看台的人读报告 403；三张冻结的表在库里 UPDATE、DELETE、INSERT OR REPLACE 都拒
  *   G10 产出方由服务端填：登录的那个人，记 human（数据视图的台只认人，本机命令行、管理口令进不来是既有规矩）
  *
@@ -432,6 +433,46 @@ try {
         && w1?.responses?.some((x) => x.stance === 'dispute') && wholeBack.status === 201 && w2?.open_disputes === 0,
       'R6c 已经回应过的不带 supersedes 再发 409；接别人的链头 409；对整份报告的反驳算一处未处理的反驳（论断上都没有），本人改成认可后为 0',
       { head: head?.id, fresh: fresh.status, othersHead: othersHead.status, whole: whole.status, w1: w1?.open_disputes, wholeBack: wholeBack.status, w2: w2?.open_disputes });
+    // 收回 beta 的「只能回应」，下面入口 can 的对照从干净的 beta 开始
+    const gid = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = 'respond-only' AND status = 'active'").get()?.id;
+    const rv = await cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：R6 用完收回' });
+    check(rv.status === 200, '（收尾）收回 beta 的只能回应', rv.status);
+  }
+
+  console.log('R7 报告页要的：入口的 can、读报告带回的模板信息和 mine（报告第 1 步 PR D）');
+  {
+    // 入口：能读报告、能回应的人 can.reports / can.respond 为 true。
+    // 对照要进得了入口：普通员工先授一个只点名「取数、读视图」的自定义角色（入口 200，两项都 false），再加一个只点名「读报告」的（reports true、respond 还是 false）
+    const role = async (id, actions) => {
+      const c = await cli('POST', '/api/roles/guest/copy', { id, name: `合成·${id}` });
+      const n = await cli('PUT', `/api/roles/${id}`, { permissions: [{ actions }] });
+      await cli('POST', `/api/roles/${id}/approve`);
+      return c.status === 201 && n.status === 200;
+    };
+    const prep = await role('rp-viewer', ['bench-store.render', 'bench-store.view-get']) && await activate({ principal: 'user:beta', role: 'rp-viewer', scope: '*' });
+    const eBoss = await bv(boss, 'GET', '/synth-orders/entry'), eMember = await bv(member, 'GET', '/synth-orders/entry');
+    const prep2 = await role('rp-reader', ['bench-store.report-read']) && await activate({ principal: 'user:beta', role: 'rp-reader', scope: '*' });
+    const eReader = await bv(member, 'GET', '/synth-orders/entry');
+    const canM = eMember.json?.can, canR = eReader.json?.can;
+    check(prep && prep2 && eMember.status === 200 && canM?.reports === false && canM?.respond === false && eReader.status === 200 && canR?.reports === true && canR?.respond === false,
+      'R7 入口的 can 对照：只能取数、读视图的人 reports、respond 都是 false；再授读报告：reports true、respond 仍是 false（和接口的判法一致）', { prep, prep2, member: [eMember.status, canM], reader: [eReader.status, canR] });
+    // 读：带回这一版模板可选的立场、论断各类的名字；自己的回应 mine 为 true，MCP 会话的为 false
+    const list = (await bv(boss, 'GET', '/synth-orders/reports?subject=card:synth-orders@mcp')).json?.reports ?? [];
+    const old = list.find((x) => x.superseded_by !== null);
+    const r = old ? (await bv(boss, 'GET', `/synth-orders/reports/${old.id}`)).json : null;
+    const rs = r?.claims?.[0]?.responses ?? [];
+    const mineOk = rs.length >= 2 && rs.every((x) => x.mine === (x.responder === 'user:alpha')) && rs.some((x) => x.mine) && rs.some((x) => !x.mine && x.responder_kind === 'ai');
+    check(eBoss.status === 200 && eBoss.json?.can?.reports === true && eBoss.json?.can?.respond === true
+        && JSON.stringify(r?.template) === JSON.stringify({ stances: ['agree', 'dispute', 'supplement'], claims: [{ kind: 'conclusion', label: '结论' }] }) && mineOk,
+      'R7 入口的 can.reports、can.respond：管理层 true；读报告带回这份报告那一版模板（第 2 版只有「结论」一类）可选的立场和论断类别名；回应标出是不是读的人自己的（AI 会话的不是）',
+      { boss: eBoss.json?.can, template: r?.template, mine: rs.map((x) => [x.responder, x.mine]) });
+    // 收回 beta 的 rp-viewer、rp-reader：后面 G11「只能看台、不能读报告」从干净的 beta 开始
+    const rvs = [];
+    for (const role of ['rp-viewer', 'rp-reader']) {
+      const gid = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = ? AND status = 'active'").get(role)?.id;
+      rvs.push((await cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：R7 用完收回' })).status);
+    }
+    check(rvs.every((x) => x === 200), '（收尾）收回 beta 的 rp-viewer、rp-reader', rvs);
   }
 
   console.log('R6d 回应记的位置只含管得到这个台的授予（属主 2026-11-21：收窄）');
