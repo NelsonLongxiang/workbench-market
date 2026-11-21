@@ -440,8 +440,8 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
 
   app.post('/api/work-items/:id/decision', {
     action: 'work-items.accept', kind: 'decide', statusNotVerdict: CREATOR_DECIDES,
-    // 领域的验收：第 1 步只登记、恒为假，第 2 步改成「事项带了领域」
-    refine: [{ action: 'area.accept', kind: 'decide', why: '在领域里验收任务，第 1 步只登记（恒为假），第 2 步按事项带了领域判', when: () => false }],
+    // 领域的验收：仍只登记、恒为假；代验连同「领域成员按领域看事项」排在 4b（docs/domains-step1.md 第七节第 11 条）
+    refine: [{ action: 'area.accept', kind: 'decide', why: '在领域里验收任务，只登记（恒为假），4b 按事项带了领域判', when: () => false }],
   }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });

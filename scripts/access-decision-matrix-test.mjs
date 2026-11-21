@@ -152,7 +152,7 @@ try {
   check(rep?.verdict === 'allow' && rep?.via === 'area' && /按领域判/.test(rep?.scope_note ?? '') && !/还不认/.test(rep?.scope_note ?? ''),
     '#914 复现：只持 area-member（area:zeta）的人问 area.read，答 allow、按领域判，说明不再写「带范围的还不认」', rep);
   const steps = await A.cli('GET', '/api/principals/user:alice/access?action=area.accept&scope=area:zeta');
-  check(steps.json?.decision?.verdict === 'deny' && steps.json?.decision?.rule === 'area-step1-not-routed', '还没接到路由上的领域动作（area.accept）：答 deny，写明还没接到路由上', steps.json?.decision);
+  check(steps.json?.decision?.verdict === 'deny' && steps.json?.decision?.rule === 'area-step1-not-routed', '还没接到路由上的领域动作（area.accept，排在 4b）：答 deny，写明还没接到路由上', steps.json?.decision);
   const trig = { alice: await v('alice', 'area.trigger'), leo: await v('leo', 'area.trigger'), mona: await v('mona', 'area.trigger'), olga: await v('olga', 'area.trigger'), tom: await v('tom', 'area.trigger'), sid: await v('sid', 'area.trigger'), sam: await v('sam', 'area.trigger'), lex: await v('lex', 'area.trigger') };
   check(JSON.stringify(trig) === JSON.stringify({ alice: 'allow', leo: 'allow', mona: 'allow', olga: 'allow', tom: 'deny', sid: 'deny', sam: 'deny', lex: 'deny' }),
     '写死的预期（任务带领域 4a）：领域成员、负责人、管理层、属主能在 zeta 触发；只有 member * 的、只持定规范的、系统管理员、停用的负责人不能', trig);
