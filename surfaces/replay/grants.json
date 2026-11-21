@@ -54,7 +54,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "4426", "etag": "W/\"114a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "4455", "etag": "W/\"1167-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "source": "initial",
               "roles": [
@@ -214,7 +214,8 @@
                         "knowledge.read",
                         "bench-store.report-bind",
                         "bench-store.report-generate",
-                        "bench-store.report-read"
+                        "bench-store.report-read",
+                        "bench-store.report-respond"
                       ]
                     }
                   ],

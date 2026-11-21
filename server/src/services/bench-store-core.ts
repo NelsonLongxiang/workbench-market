@@ -54,7 +54,8 @@ export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
   ['appDigest', 'read'], ['appCounts', 'read'], ['appDataPage', 'read'], ['appDataByIdem', 'read'], ['appFileById', 'read'], ['appFileIdsExisting', 'read'], ['appFilePage', 'read'], ['appFileCount', 'read'],
   ['appDataPut', 'write'], ['appFilePut', 'write'], ['appDataDrop', 'write'], ['appFileDrop', 'write'], ['appReplace', 'write'],
   ['reportBindingGet', 'read'], ['reportSlots', 'read'], ['reportGet', 'read'], ['reportList', 'read'], ['reportCounts', 'read'],
-  ['reportBindingPut', 'write'], ['reportInsert', 'write'],
+  ['responsesOf', 'read'],
+  ['reportBindingPut', 'write'], ['reportInsert', 'write'], ['responseInsert', 'write'],
 ]);
 
 /** 卡片的一个常量或变量（和主库 workbench_vars 的一行同形，只是不带 workbench_id） */
@@ -249,6 +250,10 @@ export type ReportRow = {
   inputs: string; body: string; sources: string; content_sha256: string; producer: string; producer_kind: 'human' | 'ai'; supersedes: number | null; created_at: number;
 };
 export type ReportClaimRow = { claim_key: string; kind: string; text: string; basis: string };
+export type ReportResponseRow = {
+  id: number; report_id: number; claim_key: string; stance: 'agree' | 'dispute' | 'supplement'; reason: string;
+  responder: string; responder_kind: 'human' | 'ai'; position: string; supersedes: number | null; created_at: number;
+};
 export type ReportListItem = Omit<ReportRow, 'inputs' | 'body' | 'sources' | 'template_sha256'> & { superseded_by: number | null };
 /** 一个数据槽按绑定取回来的数：视图的版本、这一版视图描述的 sha256 由台库填 */
 export type ReportSlotData = { slot: string; view: string; block: number; block_type: string; view_version: number; view_sha256: string; columns: { name: string; type: string; label?: string }[]; rows: Record<string, unknown>[]; truncated: boolean };
@@ -1455,6 +1460,40 @@ export class BenchStoreCore {
         id: Number(x.id), dimension_id: String(x.dimension_id), template_version: Number(x.template_version), binding_version: Number(x.binding_version), subject: String(x.subject),
         content_sha256: String(x.content_sha256), producer: String(x.producer), producer_kind: String(x.producer_kind) as 'human' | 'ai',
         supersedes: x.supersedes === null ? null : Number(x.supersedes), superseded_by: x.superseded_by === null ? null : Number(x.superseded_by), created_at: Number(x.created_at),
+      }));
+    });
+  }
+  /**
+   * 存一条回应（报告第 1 步 PR C）：报告要在；claim_key 空是对整份报告，否则要是这份报告的论断。
+   * 改主意就接自己的链头：supersedes 要是同一个回应者、同一份报告、同一条论断上还没被接过的那条，否则 409（唯一索引另外兜着不分叉）
+   */
+  responseInsert(r: Omit<ReportResponseRow, 'id'>): Promise<number> {
+    return this.tx(async () => {
+      await this.ensureReports();
+      if (!(await this.conn.all('SELECT 1 AS x FROM bs_reports WHERE id = ?', [r.report_id])).length) throw new BenchError('not_found', '没有这份报告');
+      if (r.claim_key !== '' && !(await this.conn.all('SELECT 1 AS x FROM bs_report_claims WHERE report_id = ? AND claim_key = ?', [r.report_id, r.claim_key])).length) throw new BenchError('not_found', `这份报告没有论断 ${r.claim_key.slice(0, 40)}`);
+      if (r.supersedes !== null) {
+        const t = await this.conn.all('SELECT report_id, claim_key, responder FROM bs_report_responses WHERE id = ?', [r.supersedes]);
+        if (!t.length) throw new BenchError('not_found', `没有第 ${r.supersedes} 条回应`);
+        if (Number(t[0].report_id) !== r.report_id || String(t[0].claim_key) !== r.claim_key || String(t[0].responder) !== r.responder) throw new BenchError('conflict', '只能接自己对同一条论断的回应');
+        if ((await this.conn.all('SELECT 1 AS x FROM bs_report_responses WHERE supersedes = ?', [r.supersedes])).length) throw new BenchError('conflict', `第 ${r.supersedes} 条回应已经被接过了，只能接链头`);
+      } else if ((await this.conn.all('SELECT 1 AS x FROM bs_report_responses WHERE report_id = ? AND claim_key = ? AND responder = ?', [r.report_id, r.claim_key, r.responder])).length) {
+        // 一个人对一条论断只有一条链：已经回应过的，改主意要带 supersedes 接自己的链头。不然「最新一条」和链头对不上，未处理的反驳会算错（规格第五节第 15 条；#932 独立验收）
+        throw new BenchError('conflict', '你对这条论断已经回应过了：改主意要带 supersedes 接你最新的那一条');
+      }
+      const ins = await this.conn.all('INSERT INTO bs_report_responses (report_id, claim_key, stance, reason, responder, responder_kind, position, supersedes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+        [r.report_id, r.claim_key, r.stance, r.reason, r.responder, r.responder_kind, r.position, r.supersedes, r.created_at]);
+      return Number(ins[0].id);
+    });
+  }
+  /** 一份报告的全部回应，按先后 */
+  responsesOf(reportId: number): Promise<ReportResponseRow[]> {
+    return this.serial(async () => {
+      if (!(await this.hasReports()) || !Number.isSafeInteger(reportId)) return [];
+      return (await this.conn.all('SELECT * FROM bs_report_responses WHERE report_id = ? ORDER BY id', [reportId])).map((x) => ({
+        id: Number(x.id), report_id: Number(x.report_id), claim_key: String(x.claim_key), stance: String(x.stance) as ReportResponseRow['stance'], reason: String(x.reason),
+        responder: String(x.responder), responder_kind: String(x.responder_kind) === 'ai' ? 'ai' : 'human', position: String(x.position),
+        supersedes: x.supersedes === null ? null : Number(x.supersedes), created_at: Number(x.created_at),
       }));
     });
   }

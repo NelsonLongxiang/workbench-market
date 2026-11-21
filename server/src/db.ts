@@ -2212,8 +2212,9 @@ function benchStoreAppSchema(): string[] {
  * 附加的表（开库不建，第一次绑模板、生成报告时才建；不升版本号）：报告（docs/report-step1.md 第二节第 2 小节，报告第 1 步 PR B）。
  *   bs_report_bindings：这个台对一个维度的绑定（每个数据槽对应本台哪份视图的哪个块、参数和列怎么对应），改了就加一版，旧版留着（报告引用）；
  *   bs_reports：生成时冻结的报告（模板版本、绑定版本、事物、输入、成品、来源由服务端填）；supersedes 是更正的哪一份，更正链不分叉（唯一索引）；
- *   bs_report_claims：随报告一起写、一起冻结的论断。
- * 三张表都不能改、不能删、不能用同一个键覆盖（SQLite 各三个触发器；PostgreSQL 那一份成对的到搬库时登记，和主库领域的表一样）。时间是毫秒整数，由代码给
+ *   bs_report_claims：随报告一起写、一起冻结的论断；
+ *   bs_report_responses：对论断（claim_key 空是对整份报告）的认可、反驳、补充，必须写理由；只追加，改主意就接自己的链头（supersedes，唯一索引防分叉，报告第 1 步 PR C）。
+ * 四张表都不能改、不能删、不能用同一个键覆盖（SQLite 各三个触发器；PostgreSQL 那一份成对的到搬库时登记，和主库领域的表一样）。时间是毫秒整数，由代码给
  */
 function benchStoreReportSchema(d: BenchDialect): string[] {
   const big = d === 'postgres' ? 'BIGINT' : 'INTEGER';
@@ -2229,9 +2230,14 @@ function benchStoreReportSchema(d: BenchDialect): string[] {
     `CREATE INDEX IF NOT EXISTS idx_bs_reports_subject ON bs_reports (subject, dimension_id, id)`,
     `CREATE TABLE IF NOT EXISTS bs_report_claims (
       report_id ${big} NOT NULL, claim_key TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, basis TEXT NOT NULL, PRIMARY KEY (report_id, claim_key))`,
+    `CREATE TABLE IF NOT EXISTS bs_report_responses (
+      id ${benchAutoId(d)}, report_id ${big} NOT NULL, claim_key TEXT NOT NULL, stance TEXT NOT NULL, reason TEXT NOT NULL,
+      responder TEXT NOT NULL, responder_kind TEXT NOT NULL, position TEXT NOT NULL, supersedes ${big}, created_at ${big} NOT NULL)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_bs_report_responses_supersedes ON bs_report_responses (supersedes) WHERE supersedes IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_bs_report_responses_report ON bs_report_responses (report_id, claim_key, id)`,
   ];
   // 主键：INSERT OR REPLACE 删旧行时不触发 DELETE 触发器（除非开了 recursive_triggers），所以键已存在的插入一律拦下（#930 独立验收；同 work_item_log_no_replace）
-  const keys: [string, string][] = [['bs_report_bindings', 'dimension_id = NEW.dimension_id AND version = NEW.version'], ['bs_reports', 'id = NEW.id'], ['bs_report_claims', 'report_id = NEW.report_id AND claim_key = NEW.claim_key']];
+  const keys: [string, string][] = [['bs_report_bindings', 'dimension_id = NEW.dimension_id AND version = NEW.version'], ['bs_reports', 'id = NEW.id'], ['bs_report_claims', 'report_id = NEW.report_id AND claim_key = NEW.claim_key'], ['bs_report_responses', 'id = NEW.id']];
   if (d === 'sqlite') for (const [t, key] of keys) {
     out.push(`CREATE TRIGGER IF NOT EXISTS ${t}_no_update BEFORE UPDATE ON ${t} BEGIN SELECT RAISE(ABORT, '${t} 建好不能改'); END`);
     out.push(`CREATE TRIGGER IF NOT EXISTS ${t}_no_delete BEFORE DELETE ON ${t} BEGIN SELECT RAISE(ABORT, '${t} 不能删'); END`);
@@ -2259,7 +2265,7 @@ export type BenchSqlKit = {
   appSchema: string[];
   appProbes: string[];
   appExists: string;
-  /** 附加的表 bs_report_bindings、bs_reports、bs_report_claims（同 bs_vars：开库不建，第一次绑模板、生成报告时才建）、试读、在不在 */
+  /** 附加的表 bs_report_bindings、bs_reports、bs_report_claims、bs_report_responses（同 bs_vars：开库不建，第一次绑模板、生成报告时才建）、试读、在不在 */
   reportSchema: string[];
   reportProbes: string[];
   reportExists: string;
@@ -2309,10 +2315,11 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
       'SELECT dimension_id, version, template_version, slots, created_by, created_at FROM bs_report_bindings WHERE 1 = 0',
       'SELECT id, dimension_id, template_version, template_sha256, binding_version, subject, inputs, body, sources, content_sha256, producer, producer_kind, supersedes, created_at FROM bs_reports WHERE 1 = 0',
       'SELECT report_id, claim_key, kind, text, basis FROM bs_report_claims WHERE 1 = 0',
+      'SELECT id, report_id, claim_key, stance, reason, responder, responder_kind, position, supersedes, created_at FROM bs_report_responses WHERE 1 = 0',
     ],
     reportExists: d === 'postgres'
-      ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_report_claims'"
-      : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_report_claims'",
+      ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_report_responses'"
+      : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_report_responses'",
     schema: benchStoreSchema(d),
     probes: [
       'SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_datasets WHERE 1 = 0',
