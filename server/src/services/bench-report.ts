@@ -10,7 +10,7 @@
  */
 import { svc } from '../context.ts';
 import { BenchError } from '../bench-query.ts';
-import type { BenchEntry } from './bench-registry.ts';
+import { getBench, type BenchEntry } from './bench-registry.ts';
 import type { BenchStore } from './bench-store.ts';
 import type { ReportResponseRow } from './bench-store-core.ts';
 import type { ReportDimensionService } from './report-dimension.ts';
@@ -25,11 +25,17 @@ type Row = Record<string, unknown>;
 
 /** 调用方的身份算 AI 还是人：席位、MCP 会话是 AI */
 export const kindOf = (actor: string): 'human' | 'ai' => (actor.startsWith('seat:') || actor.startsWith('mcp:') ? 'ai' : 'human');
-/** 回应者回应时的位置：按他生效的授予记（角色@范围，排好序），MCP 会话记 mcp，内置身份记它自己 */
-function positionOf(actor: string, now: number): string {
+/**
+ * 回应者回应时的位置：只记管得到这个台的那几条生效授予（角色@范围，排好序）——范围是全公司（*），或者正好是这个台绑的部门、领域。
+ * 别的地方的授予和这次表态无关，读报告的人（含 AI 会话）不该借此看到回应者在别处的全部授予（属主 2026-11-21 定：收窄）。
+ * MCP 会话记 mcp，内置身份记它自己；一条都不沾的记空串
+ */
+export function positionOf(actor: string, now: number, bench: BenchEntry | null): string {
   if (actor.startsWith('mcp:')) return 'mcp';
   if (actor.startsWith('builtin:')) return actor;
-  const gs = svc<GrantService>('grants').activeFor(actor, now).map((g) => `${g.role}@${g.scope}`).sort();
+  const dep = bench?.department_id ?? '';
+  const covers = (scope: string) => scope === '*' || (dep !== '' && (scope === `dept:${dep}` || scope === `area:${dep}`));
+  const gs = svc<GrantService>('grants').activeFor(actor, now).filter((g) => covers(g.scope)).map((g) => `${g.role}@${g.scope}`).sort();
   return gs.join(',').slice(0, 500);
 }
 
@@ -158,7 +164,7 @@ export async function respondReport(s: BenchStore, idIn: unknown, body: unknown,
   if (supersedes === undefined) throw new BenchError('invalid', 'supersedes 要写成你上一条回应的编号');
   const row = {
     report_id: r.report.id, claim_key: claimKey, stance: b.stance as ReportResponseRow['stance'], reason: b.reason,
-    responder: actor, responder_kind: kindOf(actor), position: positionOf(actor, now), supersedes, created_at: now,
+    responder: actor, responder_kind: kindOf(actor), position: positionOf(actor, now, getBench(s.slug)), supersedes, created_at: now,
   };
   return { response: { id: await s.responseInsert(row), ...row } };
 }
