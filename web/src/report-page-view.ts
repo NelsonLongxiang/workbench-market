@@ -1,9 +1,9 @@
 /** 报告页（/use/<卡片 id>/reports，报告第 1 步 PR D）的纯函数：清单怎么分组、同一事物取哪几份并排、回应接在谁后面、错误怎么说。
  *  不碰网络、不碰 DOM，单测见 scripts/report-page-unit.mjs。 */
-import type { ReportListItem, ReportResponse, ReportStance } from './api';
+import type { ReportListItem, ReportNames, ReportPositionPart, ReportResponse, ReportStance } from './api';
 
 export const STANCE_TEXT: Record<ReportStance, string> = { agree: '认可', dispute: '反驳', supplement: '补充' };
-export const stanceText = (s: string): string => (s in STANCE_TEXT ? STANCE_TEXT[s as ReportStance] : s);
+export const stanceText = (s: string): string => (s in STANCE_TEXT ? STANCE_TEXT[s as ReportStance] : UNNAMED);
 
 /** 地址里的状态：?report=<编号> 看一份；?subject=<事物> 看这件事的几个维度并排；都没有是清单。认不出的当没写 */
 export type ReportRoute = { kind: 'list' } | { kind: 'subject'; subject: string } | { kind: 'one'; id: number };
@@ -69,8 +69,31 @@ export function reportError(status: number, body: unknown): string {
   return '这次没成，稍后再试';
 }
 
-/** 论断类别的名字：模板里有就用模板的，没有就照写类别本身 */
-export const kindLabel = (claims: { kind: string; label: string }[], kind: string): string => claims.find((c) => c.kind === kind)?.label ?? kind;
+/** 论断类别的名字：模板里有就用模板的；没有写「未命名」，不显示类别的键 */
+export const kindLabel = (claims: { kind: string; label: string }[], kind: string): string => nameOr(claims.find((c) => c.kind === kind)?.label);
+
+/**
+ * 给人看的名字（#937 统筹）：页面不显示维度键、主体串（user:…）、授予串（…@area:…）、论断键、数据路径（槽名、视图键）。
+ * 名字由服务端给（names），取不到的写「未命名」，不退回去显示内部串。
+ */
+export const UNNAMED = '未命名';
+export const nameOr = (x: string | null | undefined): string => (typeof x === 'string' && x.trim() ? x : UNNAMED);
+/** 位置：「角色名（范围名）」，几条用顿号连；MCP 会话、内置身份各一个说法；没有位置是空串 */
+export function positionText(p: ReportPositionPart[] | 'mcp' | 'builtin' | undefined): string {
+  if (p === 'mcp') return 'MCP 会话';
+  if (p === 'builtin') return '内置身份';
+  if (!p) return '';
+  return p.map((x) => `${nameOr(x.role)}（${nameOr(x.scope)}）`).join('、');
+}
+/** 来源一行：视图名（块名）第 v 版，n 行；视图、块的名字取不到写「未命名」，不写视图键、槽名 */
+export function sourceText(names: ReportNames['sources'][number] | undefined, s: { view_version: number; rows: number }): string {
+  return `${nameOr(names?.view)}${names?.block ? `（${names.block}）` : ''} 第 ${s.view_version} 版，${s.rows} 行`;
+}
+/** 依据：取自哪个来源（按槽找到视图名）、哪几行（行键的值，是数据本身） */
+export function basisText(names: ReportNames['sources'] | undefined, b: { slot: string; key: unknown[] }): string {
+  const src = names?.find((x) => x.slot === b.slot);
+  return `${nameOr(src?.view)}：${b.key.map((k) => String(k)).join(' / ')}`;
+}
 
 /** 产出方、回应者是人还是 AI 的标记文字 */
 export const actorKindText = (k: 'human' | 'ai'): string => (k === 'ai' ? 'AI' : '人');

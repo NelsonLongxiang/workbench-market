@@ -4156,11 +4156,12 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "315", "etag": "W/\"13b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "407", "etag": "W/\"197-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "reports": [
                 { "id": 1, "dimension_id": "monthly", "template_version": 1, "binding_version": 1, "subject": "card:demo@replay", "content_sha256": "20e10360ab3d6d298467cbe0dc3ccef505ef7cbe5f7a1c53eca5222d59748ba4", "producer": "user:alpha", "producer_kind": "human", "supersedes": null, "superseded_by": null, "created_at": 1893456000000 }
-              ]
+              ],
+              "names": { "dimensions": { "monthly": "回放月报" }, "actors": { "user:alpha": "Synthetic alpha" } }
             }
           }
         },
@@ -4200,8 +4201,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1435", "etag": "W/\"59b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1588", "etag": "W/\"634-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
+              "names": { "dimension": "回放月报", "actors": { "user:alpha": "Synthetic alpha" }, "positions": {}, "sources": [{ "slot": "orders", "view": "总览", "block": null }] },
               "report": {
                 "id": 1,
                 "dimension_id": "monthly",
@@ -4307,8 +4309,14 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1676", "etag": "W/\"68c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1932", "etag": "W/\"78c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
+              "names": {
+                "dimension": "回放月报",
+                "actors": { "user:alpha": "Synthetic alpha" },
+                "positions": { "management@*,owner@*": [{ "role": "管理层", "scope": "全公司" }, { "role": "属主", "scope": "全公司" }] },
+                "sources": [{ "slot": "orders", "view": "总览", "block": null }]
+              },
               "report": {
                 "id": 1,
                 "dimension_id": "monthly",

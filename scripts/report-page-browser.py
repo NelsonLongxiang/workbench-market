@@ -5,7 +5,9 @@
   三、并排：同一事物的几个维度宽屏并排、窄屏上下排；正文、来源、产出方（AI 标出）、论断类别、未处理的反驳；
   四、回应：立场和理由都有才能交；交上去请求带论断编号、立场、理由，不带回应者；未处理的反驳随之变；
       改主意接在自己的链头上（带 supersedes），旧的划掉；409 照服务端说；AI 的回应另外标出；
-  五、单看一份：被更正过的旧报告标出、链到新的；服务端没说能回应（can.respond）时不出回应框。"""
+  五、单看一份：被更正过的旧报告标出、链到新的；服务端没说能回应（can.respond）时不出回应框；
+  六、纯文本、不露内部标识（#937 统筹）：正文、论断、回应理由、名字里带 <script>、<img onerror> 的原样显示成文字、脚本不跑；
+      页面上不出维度键、主体串、授予串、论断键、槽名、视图键，只写服务端给的名字，取不到写「未命名」。"""
 import json, sys
 from urllib.parse import urlparse, parse_qs
 from playwright.sync_api import sync_playwright
@@ -24,6 +26,11 @@ VIEW = {'title': '合成经营总览', 'version': 3, 'view': {'key': 'vk-board',
 can = {'rename': False, 'reports': True, 'respond': True}
 TEMPLATE = {'stances': ['agree', 'dispute', 'supplement'], 'claims': [{'kind': 'conclusion', 'label': '结论'}, {'kind': 'risk', 'label': '风险'}]}
 ME = 'user:alpha'
+XSS = '<script>window.__xss=1</script><img src=x onerror="window.__xss=2">'
+# 服务端给的名字（#937）：取不到的是 None，页面写「未命名」
+DIM_NAMES = {'finance': '合成财务', 'risk': '合成风险', 'xss-dim': XSS}
+ACTOR_NAMES = {ME: '合成甲', 'mcp:synth-seat': None, 'user:beta': None}
+POSITIONS = {'management@*': [{'role': '管理层', 'scope': '全公司'}], 'mcp': 'mcp', 'area-member@area:zeta': [{'role': '领域成员', 'scope': None}]}
 
 def body_of(title, n):
     return {'schema_version': 2, 'title': title, 'body': [
@@ -44,9 +51,14 @@ REPORTS = {
     2: rep(2, 'risk', 'item:7', T0 + 1000, kind='ai', title='合成·风险'),
     3: rep(3, 'finance', 'item:7', T0 + 2000, supersedes=1, title='合成·财务'),
     4: rep(4, 'finance', 'item:9', T0 - 5000, title='合成·另一件'),
+    5: rep(5, 'xss-dim', 'item:x', T0 - 9000, title='合成·纯文本'),
 }
+# 第 5 份：正文的文字、论断都带 XSS；有一条 user:beta 的回应，理由带 XSS，名字和范围名都取不到
+REPORTS[5]['body']['body'].append({'id': 'note', 'type': 'text', 'content': XSS})
+REPORTS[5]['claims'][0]['text'] = XSS
 RESP = [  # 风险那份上已有一条 AI 的反驳（不算未处理）
     {'id': 50, 'report_id': 2, 'claim_key': 'conclusion-1', 'stance': 'dispute', 'reason': '合成：AI 觉得口径不对', 'responder': 'mcp:synth-seat', 'responder_kind': 'ai', 'position': 'mcp', 'supersedes': None, 'created_at': T0 + 3000},
+    {'id': 51, 'report_id': 5, 'claim_key': 'conclusion-1', 'stance': 'supplement', 'reason': XSS, 'responder': 'user:beta', 'responder_kind': 'human', 'position': 'area-member@area:zeta', 'supersedes': None, 'created_at': T0 - 8000},
 ]
 mode = {'respond': 'ok'}
 log = {'respond': []}
@@ -65,7 +77,9 @@ def read(id):
     claims = [c | {'responses': [x for x in rs if x['claim_key'] == c['claim_key']], 'open_dispute': head and open_dispute(rs, c['claim_key'])} for c in r['claims']]
     whole = [x for x in rs if x['claim_key'] == '']
     meta = {k: v for k, v in r.items() if k != 'claims'} | {'superseded_by': superseded_by(id)}
-    return {'report': meta, 'claims': claims, 'responses': whole, 'gate': {'open_dispute_blocks_acceptance': True}, 'template': TEMPLATE,
+    names = {'dimension': DIM_NAMES.get(r['dimension_id']), 'actors': {a: ACTOR_NAMES.get(a) for a in {r['producer'], *[x['responder'] for x in rs]}},
+             'positions': {x['position']: POSITIONS.get(x['position'], []) for x in rs}, 'sources': [{'slot': 'orders', 'view': '经营看板', 'block': '本月订单'}]}
+    return {'names': names, 'report': meta, 'claims': claims, 'responses': whole, 'gate': {'open_dispute_blocks_acceptance': True}, 'template': TEMPLATE,
             'open_disputes': sum(1 for c in claims if c['open_dispute']) + (1 if head and open_dispute(rs, '') else 0)}
 
 def fake(route, body, status=200): route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
@@ -77,7 +91,8 @@ def on_bv(route):
     if rest == 'render': return fake(route, VIEW)
     if rest == 'reports' and method == 'GET':
         subject = parse_qs(u.query).get('subject', [None])[0]
-        return fake(route, {'reports': [list_item(r) for r in sorted(REPORTS.values(), key=lambda r: -r['id']) if subject is None or r['subject'] == subject]})
+        items = [list_item(r) for r in sorted(REPORTS.values(), key=lambda r: -r['id']) if subject is None or r['subject'] == subject]
+        return fake(route, {'reports': items, 'names': {'dimensions': {i['dimension_id']: DIM_NAMES.get(i['dimension_id']) for i in items}, 'actors': {i['producer']: ACTOR_NAMES.get(i['producer']) for i in items}}})
     if len(parts) == 6 and parts[4] == 'reports' and method == 'GET':
         id = int(parts[5]); return fake(route, read(id)) if id in REPORTS else fake(route, {'error': 'not_found', 'message': '没有这份报告'}, 404)
     if len(parts) == 7 and parts[4] == 'reports' and parts[6] == 'responses' and method == 'POST':
@@ -112,10 +127,12 @@ with sync_playwright() as p:
     pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-testid=bench-page-reports]')
     pg.locator('[data-testid=bench-page-reports]').click(); pg.wait_for_selector('[data-testid=report-group]')
     groups = pg.locator('[data-testid=report-group]')
-    check('按事物分组：最近有新报告的事物在前', groups.count() == 2 and groups.nth(0).get_attribute('data-subject') == 'item:7' and groups.nth(1).get_attribute('data-subject') == 'item:9', [groups.nth(i).get_attribute('data-subject') for i in range(groups.count())])
+    check('按事物分组：最近有新报告的事物在前', groups.count() == 3 and groups.nth(0).get_attribute('data-subject') == 'item:7' and groups.nth(1).get_attribute('data-subject') == 'item:9', [groups.nth(i).get_attribute('data-subject') for i in range(groups.count())])
     dims = groups.nth(0).locator('[data-testid=report-group-dim]')
     texts = [dims.nth(i).inner_text() for i in range(dims.count())]
-    check('一件事下每个维度一份：被更正过的旧财务报告不出，出更正版；AI 产出的标出', dims.count() == 2 and 'finance' in texts[0] and '更正版' in texts[0] and 'risk' in texts[1] and 'AI' in texts[1], texts)
+    check('一件事下每个维度一份：被更正过的旧财务报告不出，出更正版；AI 产出的标出；写维度名和产出方的名字（取不到写「未命名」），不写维度键、主体串',
+          dims.count() == 2 and '合成财务' in texts[0] and '更正版' in texts[0] and '合成甲' in texts[0] and '合成风险' in texts[1] and 'AI' in texts[1] and '未命名' in texts[1]
+          and not any(k in ' '.join(texts) for k in ['finance', 'risk', 'user:', 'mcp:']), texts)
     check('有两个维度：给「并排看」；只有一个维度的事物不给', groups.nth(0).locator('[data-testid=report-group-side]').count() == 1 and groups.nth(1).locator('[data-testid=report-group-side]').count() == 0)
 
     print('三、并排')
@@ -174,5 +191,21 @@ with sync_playwright() as p:
     check('服务端没说能回应：不出回应框', pg.locator('[data-testid=report-respond-open]').count() == 0)
     pg.goto(f'{M}/use/{CARD}/reports?report=99'); pg.wait_for_selector('[data-testid=report-page-msg]')
     check('没有这份报告：照服务端说', '没有这份报告' in pg.locator('[data-testid=report-page-msg]').inner_text())
+
+    print('六、纯文本、不露内部标识（#937 统筹）')
+    pg.goto(f'{M}/use/{CARD}/reports?report=5'); pg.wait_for_selector('[data-testid=report-doc][data-report="5"] [data-testid=report-response]')
+    d5 = docs(pg); t5 = d5.inner_text()
+    check('带 <script>、<img onerror> 的维度名、正文文字、论断、回应理由：原样显示成文字（4 处），报告里没有 script、img 元素，脚本没跑',
+          t5.count(XSS) == 4 and d5.locator('script, img').count() == 0 and pg.evaluate('() => window.__xss === undefined'), (t5.count(XSS), d5.locator('script, img').count()))
+    pg.goto(f'{M}/use/{CARD}/reports?subject=item%3A7'); wait_n(pg, '[data-testid=report-doc]', 2)
+    t7 = pg.locator('[data-testid=report-cols]').inner_text()
+    check('并排的两份：写维度名、产出方名、位置名（「管理层（全公司）」），来源写视图名和块名；论断写「第 1 条」',
+          '合成财务' in t7 and '合成风险' in t7 and '合成甲' in t7 and '经营看板（本月订单） 第 3 版，2 行' in t7 and '第 1 条' in t7 and '依据：经营看板：1' in t7, t7[:400])
+    check('页面上不出内部标识：维度键、主体串（user:、mcp:）、授予串（@）、论断键、槽名、视图键都没有；取不到的名字写「未命名」',
+          not any(k in t7 for k in ['finance', 'risk', 'user:', 'mcp:', '@', 'conclusion-1', 'orders', 'vk-board']) and '未命名' in t7, t7[:400])
+    pg.goto(f'{M}/use/{CARD}/reports?report=5'); pg.wait_for_selector('[data-testid=report-doc][data-report="5"] [data-testid=report-response]')
+    t5 = docs(pg).inner_text()
+    check('回应者名字、范围名取不到：写「未命名」「领域成员（未命名）」，不写 user:beta、area-member@area:zeta、xss-dim',
+          '领域成员（未命名）' in t5 and not any(k in t5 for k in ['user:', 'area-member', '@area', 'xss-dim', 'zeta']), t5[-300:])
     b.close()
 print(f'\nreport-page-browser: {ok} 过 / {fail} 败'); sys.exit(1 if fail else 0)

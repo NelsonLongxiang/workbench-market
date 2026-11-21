@@ -6,11 +6,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Alert, Button, Empty, Input, Radio, Result, Skeleton, Tag, Typography } from 'antd';
 import { ArrowLeftOutlined, FileTextOutlined } from '@ant-design/icons';
-import { getBenchEntry, getBenchReport, listBenchReports, respondBenchReport, type BenchEntry, type ReportListItem, type ReportNode, type ReportRead, type ReportResponse } from '../api';
+import { getBenchEntry, getBenchReport, listBenchReports, respondBenchReport, type BenchEntry, type ReportListItem, type ReportListNames, type ReportNames, type ReportNode, type ReportRead, type ReportResponse } from '../api';
 import { entryOutcome } from '../bench-page-view';
 import { fmtNumber } from '../bench-blocks/blocks-view';
 import { BarBlock } from '../bench-blocks/Chart';
-import { actorKindText, gateText, groupBySubject, headsOf, kindLabel, myHead, replacedIds, reportError, reportRoute, respondProblem, stanceText, timeText } from '../report-page-view';
+import { actorKindText, basisText, gateText, groupBySubject, headsOf, kindLabel, myHead, nameOr, positionText, replacedIds, reportError, reportRoute, respondProblem, sourceText, stanceText, timeText } from '../report-page-view';
 
 type Load<T> = { phase: 'loading' } | { phase: 'ok'; data: T } | { phase: 'error'; text: string };
 
@@ -60,19 +60,19 @@ export default function BenchReports() {
 
 /** 清单：按事物分组，每组里各维度一份（被更正过的取更正后的那份） */
 function ReportList({ cardId }: { cardId: string }) {
-  const [s, setS] = useState<Load<ReportListItem[]>>({ phase: 'loading' });
+  const [s, setS] = useState<Load<{ list: ReportListItem[]; names: ReportListNames }>>({ phase: 'loading' });
   useEffect(() => {
     let live = true;
     void listBenchReports(cardId).then((r) => {
       if (!live) return;
-      const list = (r.body as { reports?: ReportListItem[] } | null)?.reports;
-      setS(r.status === 200 && Array.isArray(list) ? { phase: 'ok', data: list } : { phase: 'error', text: reportError(r.status, r.body) });
+      const b = r.body as { reports?: ReportListItem[]; names?: ReportListNames } | null;
+      setS(r.status === 200 && Array.isArray(b?.reports) ? { phase: 'ok', data: { list: b.reports, names: b.names ?? { dimensions: {}, actors: {} } } } : { phase: 'error', text: reportError(r.status, r.body) });
     });
     return () => { live = false; };
   }, [cardId]);
   if (s.phase === 'loading') return <Skeleton active />;
   if (s.phase === 'error') return <Alert type="error" showIcon message={s.text} data-testid="report-page-msg" />;
-  const groups = groupBySubject(s.data);
+  const groups = groupBySubject(s.data.list), names = s.data.names;
   if (!groups.length) return <div data-testid="report-page-empty"><Empty description="这个台上还没有报告" /></div>;
   const base = `/use/${encodeURIComponent(cardId)}/reports`;
   return (
@@ -86,8 +86,8 @@ function ReportList({ cardId }: { cardId: string }) {
           <ul className="wm-rp-dims">
             {g.dims.map((d) => (
               <li key={d.dimension_id} data-testid="report-group-dim">
-                <Link to={`${base}?report=${d.head.id}`}>{d.dimension_id}</Link>
-                <span className="wm-rp-meta">{timeText(d.head.created_at)} · 产出方 {d.head.producer}</span>
+                <Link to={`${base}?report=${d.head.id}`}>{nameOr(names.dimensions[d.dimension_id])}</Link>
+                <span className="wm-rp-meta">{timeText(d.head.created_at)} · 产出方 {nameOr(names.actors[d.head.producer])}</span>
                 {d.head.producer_kind === 'ai' ? <Tag color="purple">AI</Tag> : null}
                 {d.head.supersedes !== null ? <Tag>更正版</Tag> : null}
                 {d.others > 0 ? <span className="wm-rp-meta">另有 {d.others} 份</span> : null}
@@ -139,12 +139,13 @@ function OneReport({ cardId, reportId, entry, column }: { cardId: string; report
   const d = s.data, rep = d.report;
   const base = `/use/${encodeURIComponent(cardId)}/reports`;
   const canRespond = entry.can.respond;
+  const names: ReportNames = d.names ?? { dimension: null, actors: {}, positions: {}, sources: [] };
   return (
     <article className={column ? 'wm-rp-col wm-rp-doc' : 'wm-rp-doc'} data-testid="report-doc" data-report={rep.id} data-dimension={rep.dimension_id}>
       <header className="wm-rp-doc-head">
-        <div className="wm-rp-doc-dim">{rep.dimension_id}<span className="wm-rp-meta"> · 模板第 {rep.template_version} 版 · {rep.subject}</span></div>
+        <div className="wm-rp-doc-dim" data-testid="report-dimension">{nameOr(names.dimension)}<span className="wm-rp-meta"> · 模板第 {rep.template_version} 版 · {rep.subject}</span></div>
         <div className="wm-rp-meta" data-testid="report-producer">
-          {timeText(rep.created_at)} 生成 · 产出方 {rep.producer} <Tag color={rep.producer_kind === 'ai' ? 'purple' : undefined}>{actorKindText(rep.producer_kind)}</Tag>
+          {timeText(rep.created_at)} 生成 · 产出方 {nameOr(names.actors[rep.producer])} <Tag color={rep.producer_kind === 'ai' ? 'purple' : undefined}>{actorKindText(rep.producer_kind)}</Tag>
         </div>
         {rep.superseded_by !== null ? <Alert type="warning" showIcon data-testid="report-superseded" message={<>这份报告已被更正，<Link to={`${base}?report=${rep.superseded_by}`}>看更正后的那份</Link></>} /> : null}
         {rep.supersedes !== null ? <div className="wm-rp-meta" data-testid="report-supersedes">更正了 <Link to={`${base}?report=${rep.supersedes}`}>之前那份</Link></div> : null}
@@ -155,26 +156,26 @@ function OneReport({ cardId, reportId, entry, column }: { cardId: string; report
       </header>
       <div className="wm-rp-body"><Nodes nodes={rep.body.body} level={1} /></div>
       <footer className="wm-rp-meta wm-rp-sources" data-testid="report-sources">
-        来源：{rep.sources.map((x) => `${x.slot}（视图 ${x.view} 第 ${x.view_version} 版，${x.rows} 行）`).join('；')}
+        来源：{rep.sources.map((x, i) => sourceText(names.sources[i], x)).join('；')}
       </footer>
       <section className="wm-rp-claims" aria-label="论断">
         <h2 className="wm-rp-h">论断</h2>
-        {d.claims.map((c) => (
+        {d.claims.map((c, ci) => (
           <div key={c.claim_key} className={c.open_dispute ? 'wm-rp-claim wm-rp-open' : 'wm-rp-claim'} data-testid="report-claim" data-claim={c.claim_key}>
             <div className="wm-rp-claim-head">
               <Tag>{kindLabel(d.template.claims, c.kind)}</Tag>
-              <span className="wm-rp-claim-key">{c.claim_key}</span>
+              <span className="wm-rp-claim-key">第 {ci + 1} 条</span>
               {c.open_dispute ? <Tag color="error" data-testid="report-claim-open">有未处理的反驳</Tag> : null}
             </div>
             <p className="wm-rp-claim-text">{c.text}</p>
-            {c.basis.length ? <div className="wm-rp-meta">依据：{c.basis.map((b) => `${b.slot} ${b.key.join('/')}`).join('；')}</div> : null}
-            <Responses list={c.responses} />
+            {c.basis.length ? <div className="wm-rp-meta">依据：{c.basis.map((b) => basisText(names.sources, b)).join('；')}</div> : null}
+            <Responses list={c.responses} names={names} />
             {canRespond ? <RespondBox cardId={cardId} reportId={rep.id} claimKey={c.claim_key} stances={d.template.stances} mine={myHead(c.responses, c.claim_key)} onDone={load} /> : null}
           </div>
         ))}
         <div className="wm-rp-claim" data-testid="report-whole" data-claim="">
           <div className="wm-rp-claim-head"><Tag>整份报告</Tag></div>
-          <Responses list={d.responses} />
+          <Responses list={d.responses} names={names} />
           {canRespond ? <RespondBox cardId={cardId} reportId={rep.id} claimKey="" stances={d.template.stances} mine={myHead(d.responses, '')} onDone={load} /> : null}
         </div>
       </section>
@@ -183,7 +184,7 @@ function OneReport({ cardId, reportId, entry, column }: { cardId: string; report
 }
 
 /** 回应列表：改过主意的旧回应划掉；AI 的回应另外标出 */
-function Responses({ list }: { list: ReportResponse[] }) {
+function Responses({ list, names }: { list: ReportResponse[]; names: ReportNames }) {
   if (!list.length) return null;
   const replaced = replacedIds(list);
   return (
@@ -193,7 +194,7 @@ function Responses({ list }: { list: ReportResponse[] }) {
           <Tag color={r.stance === 'dispute' ? 'error' : r.stance === 'agree' ? 'success' : 'processing'}>{stanceText(r.stance)}</Tag>
           {r.responder_kind === 'ai' ? <Tag color="purple" data-testid="report-response-ai">AI</Tag> : null}
           <span className="wm-rp-reason">{r.reason}</span>
-          <span className="wm-rp-meta"> — {r.responder}{r.position ? `（${r.position}）` : ''} · {timeText(r.created_at)}{r.mine ? ' · 我' : ''}</span>
+          <span className="wm-rp-meta"> — {nameOr(names.actors[r.responder])}{positionText(names.positions[r.position]) ? `（${positionText(names.positions[r.position])}）` : ''} · {timeText(r.created_at)}{r.mine ? ' · 我' : ''}</span>
         </li>
       ))}
     </ul>
@@ -243,7 +244,7 @@ function Nodes({ nodes, level }: { nodes: ReportNode[]; level: number }) {
       const p = n.props ?? {};
       if (n.component === 'stat') {
         const name = String(p.value ?? ''), col = n.data.columns.find((c) => c.name === name);
-        return <div key={n.id} className="wm-rp-stat" data-node={n.id}><span>{col?.label ?? name}</span><strong>{fmtNumber(n.data.rows[0]?.[name])}{p.unit ? <small> {String(p.unit)}</small> : null}</strong></div>;
+        return <div key={n.id} className="wm-rp-stat" data-node={n.id}><span>{nameOr(col?.label)}</span><strong>{fmtNumber(n.data.rows[0]?.[name])}{p.unit ? <small> {String(p.unit)}</small> : null}</strong></div>;
       }
       if (n.component === 'bar') return <div key={n.id} data-node={n.id}><BarBlock frame="none" data={n.data as never} x={String(p.x ?? '')} y={(p.y as string[] | undefined) ?? []} /></div>;
       const names = Array.isArray(p.columns) ? (p.columns as string[]) : n.data.columns.map((c) => c.name);
@@ -251,7 +252,7 @@ function Nodes({ nodes, level }: { nodes: ReportNode[]; level: number }) {
       const num = (t: string) => t === 'integer' || t === 'decimal';
       return (
         <table key={n.id} className="wm-rp-table" data-node={n.id}>
-          <thead><tr>{cols.map((c) => <th key={c.name}>{c.label ?? c.name}</th>)}</tr></thead>
+          <thead><tr>{cols.map((c) => <th key={c.name}>{nameOr(c.label)}</th>)}</tr></thead>
           <tbody>{n.data.rows.map((r, i) => <tr key={i}>{cols.map((c) => <td key={c.name} className={num(c.type) ? 'wm-rp-num' : undefined}>{num(c.type) ? fmtNumber(r[c.name]) : String(r[c.name] ?? '—')}</td>)}</tr>)}</tbody>
         </table>
       );

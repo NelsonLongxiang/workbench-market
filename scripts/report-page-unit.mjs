@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** 报告页（/use/<卡片 id>/reports，报告第 1 步 PR D）的纯函数单测（web/src/report-page-view.ts）：地址、分组、并排取哪几份、回应接在谁后面、错误说法。数据都是合成的。 */
-import { STANCE_TEXT, actorKindText, gateText, groupBySubject, headsOf, kindLabel, myHead, replacedIds, reportError, reportRoute, respondProblem, stanceText } from '../web/src/report-page-view.ts';
+import { readFileSync } from 'node:fs';
+import { STANCE_TEXT, UNNAMED, actorKindText, basisText, gateText, nameOr, positionText, sourceText, groupBySubject, headsOf, kindLabel, myHead, replacedIds, reportError, reportRoute, respondProblem, stanceText } from '../web/src/report-page-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -44,8 +45,29 @@ ok('回应框：立场要是模板允许的；理由必填（空白不算）、�
 ok('没成的说法：400、404、409 照服务端说，它没说给一句默认的；401、403、断网各一句；500 不透露原文',
   reportError(400, { message: '理由必填：1～4000 个字' }) === '理由必填：1～4000 个字' && reportError(409, { message: '只能接在你自己回应链的链头上' }).includes('链头') && reportError(409, null).includes('刷新')
   && reportError(404, {}) === '没有这份报告' && reportError(401, null) === '请先登录' && reportError(403, { message: 'x' }).includes('权限') && reportError(0, null).includes('连不上') && reportError(500, { message: 'SQLITE_ERROR raw' }) === '这次没成，稍后再试');
-ok('立场、类别、人或 AI、验收声明的说法', STANCE_TEXT.dispute === '反驳' && stanceText('agree') === '认可' && stanceText('other') === 'other' && kindLabel([{ kind: 'conclusion', label: '结论' }], 'conclusion') === '结论' && kindLabel([], 'risk') === 'risk'
+ok('立场、类别、人或 AI、验收声明的说法（认不出的立场、模板里没有的类别写「未命名」，不显示键）', STANCE_TEXT.dispute === '反驳' && stanceText('agree') === '认可' && stanceText('other') === UNNAMED && kindLabel([{ kind: 'conclusion', label: '结论' }], 'conclusion') === '结论' && kindLabel([], 'risk') === UNNAMED
   && actorKindText('ai') === 'AI' && actorKindText('human') === '人' && gateText(null) === '' && gateText({ open_dispute_blocks_acceptance: true }).includes('不能验收') && gateText({ open_dispute_blocks_acceptance: false }).includes('也可以验收'));
+
+// 不露内部标识（#937 统筹）：名字由服务端给，取不到写「未命名」，不退回去显示维度键、主体串、授予串、槽名、视图键
+ok('名字：有就用；null、空白、没给都写「未命名」', nameOr('月度经营') === '月度经营' && nameOr(null) === UNNAMED && nameOr('  ') === UNNAMED && nameOr(undefined) === UNNAMED && UNNAMED === '未命名');
+ok('位置：「角色名（范围名）」顿号连；取不到的那一半写「未命名」；MCP 会话、内置身份各一个说法；没有位置是空串',
+  positionText([{ role: '管理层', scope: '全公司' }, { role: '领域成员', scope: null }]) === '管理层（全公司）、领域成员（未命名）' && positionText([{ role: null, scope: '合成领域' }]) === '未命名（合成领域）'
+  && positionText('mcp') === 'MCP 会话' && positionText('builtin') === '内置身份' && positionText([]) === '' && positionText(undefined) === '');
+ok('来源一行：视图名（块名）第几版、几行；名字取不到写「未命名」，不写视图键、槽名',
+  sourceText({ slot: 'orders', view: '订单总览', block: '本月订单' }, { view_version: 3, rows: 12 }) === '订单总览（本月订单） 第 3 版，12 行'
+  && sourceText({ slot: 'orders', view: null, block: null }, { view_version: 3, rows: 12 }) === '未命名 第 3 版，12 行' && !sourceText(undefined, { view_version: 1, rows: 0 }).includes('orders'));
+ok('依据：按槽找到视图名，后面是行键的值；找不到写「未命名」，不写槽名',
+  basisText([{ slot: 'orders', view: '订单总览', block: null }], { slot: 'orders', key: ['A-1', 2] }) === '订单总览：A-1 / 2' && basisText([], { slot: 'orders', key: ['A-1'] }) === '未命名：A-1');
+
+// 纯文本（#937 统筹，照 #939）：带 <script>、<img onerror> 的值原样当文字给出；页面不用 innerHTML
+const XSS = '<script>window.__xss=1</script><img src=x onerror="window.__xss=2">';
+ok('XSS：名字、来源、依据、位置里的 <script>、<img onerror> 原样当文字给出，不转换',
+  nameOr(XSS) === XSS && basisText([{ slot: 's', view: XSS, block: null }], { slot: 's', key: [XSS] }) === `${XSS}：${XSS}` && positionText([{ role: XSS, scope: XSS }]) === `${XSS}（${XSS}）`
+  && kindLabel([{ kind: 'k', label: XSS }], 'k') === XSS && reportError(400, { message: XSS }) === XSS);
+const pageSrc = readFileSync(new URL('../web/src/pages/BenchReports.tsx', import.meta.url), 'utf8') + readFileSync(new URL('../web/src/report-page-view.ts', import.meta.url), 'utf8');
+ok('源码：报告页和它的纯函数里不出现 dangerouslySetInnerHTML、innerHTML、outerHTML、insertAdjacentHTML、document.write', !/dangerouslySetInnerHTML|\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write/.test(pageSrc));
+ok('源码：报告页不把维度键、产出方、回应者、位置、论断键、槽名、视图键直接写成文字（都经 nameOr、positionText、sourceText、basisText；属性值 attr={…} 不显示，不算）',
+  !/(?<!=)\{\s*(rep|d\.head|r|c|x|b)\.(dimension_id|producer|responder|position|claim_key|slot|view)\s*\}/.test(pageSrc) && !/\$\{\s*(rep|d\.head|r|c|x|b)\.(dimension_id|producer|responder|position|claim_key|slot|view)\s*\}/.test(pageSrc));
 
 console.log(`\nreport-page-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
