@@ -55,12 +55,36 @@
 | `dimension_id`、`version` | 复合主键 | 版本号每个维度各自从 1 连续 |
 | `body` | TEXT 非空 | 模板 JSON，形状见第三节。上限 200 KB（同视图描述） |
 | `sha256` | TEXT | 正文摘要 |
-| `kind` | TEXT | `layout`（只动版式、措辞、组件）/ `criteria`（动了论断要求、回应要求、数据口径或验收声明）。由服务端比对上一版算出，不由提交方声明 |
+| `criteria_sha256` | TEXT | 判据部分的摘要（`claims`、`responses`、`gate`、`slots`、`parameters` 按键排序的规范写法取 sha256），由服务端算。#926 独立验收后加 |
+| `kind` | TEXT | `layout`：判据和这个维度某个**复核过的**版本一样（只动版式、措辞、组件）；`criteria`：否则（第一版没有可比的，也是 `criteria`）。由服务端算，不由提交方声明。是发版那一刻的说法，生效不看它（见下） |
 | `note` | TEXT | 这一版改了什么 |
-| `reviewed_by`、`reviewed_at` | 可空 | 作者以外的复核人和时间。`criteria` 版本没有复核人时只能建、不能移成生效（属主 2026-11-21 定）；复核人不能是 `created_by` 本人，同一主体换会话也不算 |
-| `created_at`、`created_by` | | |
+| `created_at`、`created_by`、`created_by_principal` | | 作者的留痕写法和主体（本机命令行、只带管理口令的主体为空） |
 
 规则：版本建好就不能改、不能删（触发器拒 UPDATE、DELETE），**不按条数修剪**：报告引用着它。撤维度只改 `status`，模板留着。
+
+**`report_template_reviews`（复核记录）**：实现时从 `report_templates` 的 `reviewed_by`、`reviewed_at` 两列改成单独一张表（PR A 评审对齐）。模板正文建好就不能改，复核是后来的事，放在同一行就得改那一行；单独一张表也是只增不改。
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| `dimension_id`、`version` | 复合主键 | 一版只复核一次 |
+| `reviewed_by`、`reviewed_by_principal`、`reviewed_at`、`note` | | 复核人的留痕写法、主体、时间、说明 |
+
+复核人的口径（属主 2026-11-21 定「必须有作者以外的复核人」；怎么算「作者以外」由统筹 2026-11-21 按严格口径裁定，见 PR A 的评审）：
+
+- 复核人必须**认得出是谁**：主体不为空、主体是人、启用着。本机命令行、只带管理口令的主体为空，**不能复核**（403）。
+- 复核人不能是作者：主体相同就算本人，换个留痕写法（比如带管理口令）也算；留痕写法相同也算（403）。
+- 复核按判据内容生效，所以「作者」也按判据内容认：这个维度里判据和被复核那一版一样的**任何一版**的作者，都算本人（403）。不然自己写的判据可以借别人只改标题的那一版、自己复核后生效（#926 独立验收 E1）。
+- 作者认不出是谁，就判不了谁是本人，所以**本机命令行、只带管理口令的不能发 `criteria` 版本**（第一版也算 `criteria`），403；`layout` 版本照常能发。
+- 跨领域的维度只有属主能定，属主自己发的 `criteria` 版本要**另一位**持属主授予的人复核。
+- 库这一层也守着：复核人主体为空、作者本人复核、`criteria` 版本作者主体为空，触发器都拒。
+
+生效按判据内容判，不按 `kind` 判（#926 独立验收）：
+
+- 起初 `kind` 是和**上一版**比出来的，上一版可能没复核过。在没复核的判据类版本上再发一版只改标题的，它会被记成 `layout`，没复核的判据就跟着它生效了；把已生效的判据偷换掉也是同一条路。
+- 现在：移生效指针时，目标版本的 `criteria_sha256` 要等于这个维度**某个复核过的版本**的 `criteria_sha256`，不然 409。服务和触发器都这么判。
+- 复核认的是判据内容：两版判据一样，复核了其中一版，另一版也能生效。只改版式、措辞的版本不用另外复核。
+- 库这一层还守着：记成 `layout` 的版本，判据要和某个复核过的版本一样，否则触发器拒。
+- 摘要和正文对不对得上，库这一层核不了（SQLite 里没有 sha256）。服务发版时算，移指针时按正文重算一遍再比，对不上 409。直接改库移指针的人绕得过这一步，和直接改库能写复核记录一样，不在这一层的防线里。
 
 ### 2. 台库（附加的表，开库不建、不升台库版本，第一次用到才建；和 `bs_vars`、`bs_app_data` 同一种做法）
 
@@ -123,7 +147,7 @@
 - `gate`：属主定的「验收不强制报告、由维度的模板声明」。这一步只存、只算状态，不接验收。
 - 论断的正文从哪来：生成请求里给，按 `claims` 校验。论断的 `basis` 指向的数据槽和行键必须在这份报告里，指不到的拒。
 
-`kind` 的判法：和上一版比，`claims`、`responses`、`gate`、`slots`（列和类型）、`parameters` 有任何不同就是 `criteria`，只有 `body` 和文字不同是 `layout`。
+`kind` 的判法：`claims`、`responses`、`gate`、`slots`（列和类型）、`parameters` 这几块和这个维度某个**复核过的**版本完全一样，就是 `layout`；否则是 `criteria`。不和上一版比（第二节第 1 小节，#926 独立验收）。
 
 ## 四、授权
 
@@ -131,7 +155,8 @@
 
 | 动作 | 类别 | 路由 | 谁 |
 |---|---|---|---|
-| `report.dimension-read` | read | `GET /api/report-dimensions`、`GET /api/report-dimensions/:id`、`…/templates/:version` | 登录的人（模板是协议，不是业务数据）。评审定 |
+| `report.dimension-list` | read | `GET /api/report-dimensions`（清单） | 同下。实现时从 `report.dimension-read` 里分出来（PR A 评审对齐）：清单和单条各报一个动作，判法相同；`area-report` 预设两个都带，权限没有扩大 |
+| `report.dimension-read` | read | `GET /api/report-dimensions/:id`、`…/templates/:version` | 登录的人（模板是协议，不是业务数据）。评审定 |
 | `report.dimension-set` | decide | `POST /api/report-dimensions`（建）、`POST …/:id/templates`（发一版）、`POST …/:id/templates/:version/review`（复核）、`POST …/:id/activate`（移生效指针）、`POST …/:id/retire` | **硬规则，不走角色覆盖**（和 `area.spec-set` 同一种机制）：领域维度认属主、本机命令行和持本领域 `area-report` 授予的人；跨领域维度只认属主和本机命令行 |
 | `report.bind` | write | `PUT /api/bench-views/:bench/reports/:dimension/binding` | 和 `bench-store.view-put` 同一档：管理层；台所在领域有写授予的人 |
 | `report.generate` | write | `POST /api/bench-views/:bench/reports` | 同上 |
@@ -140,7 +165,7 @@
 
 ### 2. 角色
 
-- 新预设 `area-report`（定义本领域的维度）：只含 `report.dimension-read`、`report.dimension-set`，范围必须正好是 `area:<领域>`。和 `area-spec` 一样单独授予，不随领域负责人一起给（属主 2026-11-21：单独授予）。
+- 新预设 `area-report`（定义本领域的维度）：只含 `report.dimension-list`、`report.dimension-read`、`report.dimension-set`，范围必须正好是 `area:<领域>`。和 `area-spec` 一样单独授予，不随领域负责人一起给（属主 2026-11-21：单独授予）。
 - `report.dimension-set` 写进判定的收窄规则（`narrowed`），和 `area.spec-set` 一样：管理层范围 `*`、自定义角色列了这个动作，都不算。
 
 ### 3. MCP
@@ -153,8 +178,8 @@
 2. 持 A 领域 `area-report` 的人：给 B 领域、给跨领域维度发模板 403；给 A 领域发成。
 3. 改、删一个已有的模板版本：接口没有入口；直接对库 UPDATE、DELETE 被触发器拒（两种库各一条）。
 4. 模板 `reason_required` 写成 `false`、`claims` 的 `min` 大于 `max`、未知键：400。
-5. 发模板时请求里写 `kind`：拒（由服务端算）；论断要求变了而服务端判成 `layout`：用例守住判法。
-5a. `criteria` 版本没有复核就移成生效：409；作者自己复核：403；复核人没有这个维度的 `report.dimension-set`：403；`layout` 版本不要复核也能生效。
+5. 发模板时请求里写 `kind`：拒（由服务端算）；论断要求变了而服务端判成 `layout`：用例守住判法。在没复核的判据类版本上只改标题，仍判成 `criteria`、不能生效；已生效的判据不能借「先发判据类、再发只改标题的」偷换（#926 独立验收）。
+5a. `criteria` 版本没有复核就移成生效：409；作者自己复核：403（换个留痕写法、主体相同也算）；复核人没有这个维度的 `report.dimension-set`：403；本机命令行、只带管理口令的复核：403；本机命令行发 `criteria` 版本：403；`layout` 版本不要复核也能生效。
 6. 生成请求里带来源版本、哈希、行数、`producer_kind`：拒（未知键），不被采纳。
 7. 数据槽取到的数据被截断、行数超上限、列类型和模板不合：拒，不出半份报告（P0 的拒收照搬到服务端）。
 8. 论断数目不在模板范围内、`basis` 指向报告里没有的行：400。
