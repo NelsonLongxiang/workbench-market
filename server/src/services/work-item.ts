@@ -193,6 +193,7 @@ export type WorkItemRow = {
   id: string; title: string; created_at: string; created_by: string; creator_principal: string | null; source_kind: SourceKind; source_ref: string; context: string;
   event_id: number | null; task_ids: string; target_team: string; seat: string; eval: string; eval_reason: string; state: WorkItemState;
   handoff: Handoff; review_by: ReviewBy; directed_seat_id: string; seat_id: string; seat_at: string; cockpit_id: number | null; due_at: string;
+  area_id: string | null; area_source: 'chosen' | 'inferred' | null; area_reason: string;
   progress_summary: string; progress_at: string; open_asks: string; receipt_outcome: string; receipt_at: string;
   outputs: string; evidence: string; object: string; phase: string; updated_at: string;
 };
@@ -866,6 +867,14 @@ export class WorkItemService extends Service {
     return row?.seq ?? null;
   }
 
+  /**
+   * 事项落到领域上（任务带领域，第 2 步）：只在还没有领域时写一次，写过就不改（4b 的「提出人可以改」另走一条）。
+   * 在调用方的写事务里跑（「安排一件事」建事项的那个事务）；改到了返回 true
+   */
+  setArea(id: string, area: string, source: 'chosen' | 'inferred', reason: string): boolean {
+    return db.prepare('UPDATE work_items SET area_id = ?, area_source = ?, area_reason = ? WHERE id = ? AND area_id IS NULL').run(area, source, reason.slice(0, 500), id).changes === 1;
+  }
+
   log(id: string): WorkItemLogRow[] {
     return db.prepare('SELECT * FROM work_item_log WHERE item_id = ? ORDER BY seq').all(id) as WorkItemLogRow[];
   }
@@ -959,7 +968,7 @@ export class WorkItemService extends Service {
    * 列表一页（给事项列表的读接口）：按 updated_at、id 倒序，游标翻页；同时给这个视角里按状态的计数。
    * 范围由 scope 定（scopeWhere）；看不到的不出现，也不计数。每行带最后一条事项日志（谁、做了什么、什么时候）。
    */
-  page(opts: { scope: ViewScope; state?: WorkItemState; object?: string; phase?: string; seat?: string; cockpit?: number; limit: number; after?: { updated_at: string; id: string } }): {
+  page(opts: { scope: ViewScope; state?: WorkItemState; object?: string; phase?: string; seat?: string; cockpit?: number; area?: string; limit: number; after?: { updated_at: string; id: string } }): {
     items: (WorkItemRow & { last_log: { actor: string; fact: string; text: string; at: string } | null })[];
     counts: Record<WorkItemState, number>; total: number; next: { updated_at: string; id: string } | null;
   } {
@@ -972,6 +981,8 @@ export class WorkItemService extends Service {
     if (typeof opts.seat === 'string') { extra.push("(seat_id = ? OR (seat_id = '' AND seat = ?))"); extraArgs.push(opts.seat, opts.seat); }
     // 按驾驶舱筛：只在视角里面收窄；驾驶舱不存在就是没有命中，不报错
     if (typeof opts.cockpit === 'number') { extra.push('cockpit_id = ?'); extraArgs.push(opts.cockpit); }
+    // 按领域筛：只在视角里面收窄（不放宽谁看得到什么）；领域不存在就是没有命中
+    if (typeof opts.area === 'string') { extra.push('area_id = ?'); extraArgs.push(opts.area); }
     // 计数：这个视角里、按 object、phase 筛过（不按 state 筛）之后按状态分组
     for (const r of db.prepare(`SELECT state, COUNT(*) AS n FROM work_items WHERE ${[...filt, ...extra].join(' AND ')} GROUP BY state`).all(...filtArgs, ...extraArgs) as { state: WorkItemState; n: number }[]) {
       if (r.state in counts) counts[r.state] = Number(r.n);

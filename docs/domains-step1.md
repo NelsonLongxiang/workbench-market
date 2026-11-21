@@ -122,8 +122,8 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 | `area.spec-list`、`area.spec-read` | read | `GET /api/areas/:id/specs`、`GET /api/areas/:id/specs/:version` | 对这个领域有授予的人 |
 | `area.spec-set` | decide | `POST /api/areas/:id/specs`（新加一版）、`POST /api/areas/:id/specs/activate`（移生效指针） | 持本领域 `area-spec` 授予的人（定规范）；属主 |
 | `area.migrate` | decide | `POST /api/areas/migrate` | 只有属主 |
-| `area.trigger` | write | 第 2 步接到「建事项」上 | 对这个领域有触发授予的人 |
-| `area.accept` | decide | 第 2 步接到「验收事项」上 | 对这个领域有验收授予的人 |
+| `area.trigger` | write | 第 2 步 4a 已接到「建事项」上（`POST /api/work-items` 带 `area`，见第七节第 11 条） | 属主、管理层，或对这个领域有触发授予的人（不认 `dept:`） |
+| `area.accept` | decide | 4b 接到「验收事项」上（代验连同「领域成员按领域看事项」一起，统筹 11-20 定甲） | 对这个领域有验收授予的人（是否收成只有 `area-lead`，4b 开工前定） |
 
 **触发、验收、定规范是三个动作。** 前两个第 1 步只登记名字和类别，还不接到事项上。
 - **问题：** 第 1 步路由上没有它们。角色声明引用了不存在的动作，启动校验不让过。
@@ -286,6 +286,7 @@ seq（自增）, area_id, kind ∈ {create, retire, spec-add, spec-activate, mig
 8. **负责人专有动作挂在 `/api/areas/:id/` 下的路由上**（统筹 11-20），用恒为假的 `refine` 登记（第 1 条同理）。具体挂哪条、动作名用不用建议的 `area.release`、`area.reassign`、`area.access-approve`，在 PR2 的描述里写明，验收按那里核用例 24、27。
 9. **迁移去重按「人 + 角色 + 范围」，不看理由**（统筹 11-20，阶段四验收的跟进）：已有没结束的同三样授予（手工的也算），或者迁移起草后被收回、否决过的，都不再起草。理由：属主的否决不能因为再跑一次迁移就被推翻；手工已经指定的，迁移不该再起草一条。
 10. **停写前已有的 `dept-lead` 提议**（统筹 11-20）：照旧能确认、驳回。属主确认时不再落字段、发 `dept:` 授予，改成在同一个写事务里替这个人起草一条 `area-lead`（`area:<同标识>`，理由「由部门负责人提议转来」），停在待核等属主放行，应答带 `drafted_grant_id`。同标识的领域不在或撤了，409 `area_not_migrated`，提议保持待确认。去重沿用第 9 条：已有没结束的同三样授予，不另起草，指回那一条（`skipped: already_open`）；迁移起草的那条被否决过，属主这次是明确确认，照样起草，带 `refused_before_overridden: true`，理由里写明。驳回照旧：驳回停写前补记的提议，清掉只有字段的负责人（收紧）。团队页的确认、「等你拍板」里的关系提议都只走这一处。
+11. **任务带领域拆成 4a、4b**（统筹 11-20，定甲）：4a 只做显式选领域，不碰任何人的可见范围。具体是：`work_items` 加 `area_id`、`area_source`、`area_reason` 三列；建事项带 `area`，`area.trigger` 按 `AreaService.decide` 判，领域的门（没负责人、撤了、不存在）在建事项的写事务里再核一次；建事项、验收两条路由声明「状态码不代表授权」，不交给判定切换开关；列表 `?area=` 在视角里收窄；详情、列表带领域。验收照旧只有建立人和管理层，`area.accept` 的 `refine` 仍恒为假。代验和「领域成员按领域看事项」一起挪到 4b；4b 开工前先定「所有领域成员都能代验」要不要收成只有 `area-lead`。
 
 ## 八、实现拆成五个 PR
 
