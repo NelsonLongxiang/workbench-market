@@ -10,6 +10,7 @@
  *      建维度、发模板：403，库里没有变化；属主（浏览器）、本机命令行：201
  *   R2 （#2）持 zeta 的 area-report：在 zeta 建维度、发模板成；在 eta、跨领域的建或发 403；持 area-spec 的不算（硬规则按角色名）；
  *      area-report、只列定报告维度的自定义角色带领域范围：起草只有属主（和定规范同一条红线，按权限覆盖判）
+ *   R2c 持一个标识正好是 null 的领域的 area-report：定不了跨领域的维度（跨领域不会被拼成 area:null）
  *   R3 （#3）库里直接改、删模板版本、复核、留痕：触发器拒；同 (维度, 版本) 再插：拒；生效指针指没复核的判据类版本或不存在的版本：拒；
  *      作者本人复核（直接写库）：拒；撤了的维度直接改：拒
  *   R4 （#4）模板形状不对：reason_required 不是 true、min 大于 max、kind 重复、不认识的键、schema_version 不是 2、不是对象、超 200 KB、sha256 对不上：400
@@ -158,15 +159,19 @@ try {
   const rexG = await cliGrant('user:rex', 'area-report', 'area:zeta');
   const riaG = await cliGrant('user:ria', 'area-report', 'area:zeta');
   const sidG = await cliGrant('user:sid', 'area-spec', 'area:zeta');
+  // 一个标识正好是 null 的领域，rex 持它的 area-report：跨领域的维度（area 为空）不能被它冒充成 area:null（R2c）
+  await A.cli('POST', '/api/areas', { id: 'null', name: '名叫 null 的领域' });
+  const leadNull = await cliGrant('user:leo', 'area-lead', 'area:null');
+  const rexNull = await cliGrant('user:rex', 'area-report', 'area:null');
   // 只列 report.dimension-set 的自定义角色：一条范围 *，一条范围 area:zeta
   await A.cli('POST', '/api/roles/guest/copy', { id: 'report-setter', name: '合成只定报告维度' });
   await A.cli('PUT', '/api/roles/report-setter', { permissions: [{ actions: ['report.dimension-set'] }] });
   await A.cli('POST', '/api/roles/report-setter/approve');
   const calStar = await cliGrant('user:cal', 'report-setter', '*');
   const calZeta = await cliGrant('user:cal', 'report-setter', 'area:zeta');
-  check([go, gm, gs, gt, lead, leadEta, rexG, riaG, sidG, calStar, calZeta].every((g) => g.status === 200),
+  check([go, gm, gs, gt, lead, leadEta, rexG, riaG, sidG, calStar, calZeta, leadNull, rexNull].every((g) => g.status === 200),
     '（准备）属主、管理层、系统管理员、普通员工；zeta、eta 的负责人；rex、ria 持 zeta 的 area-report；sid 持 zeta 的 area-spec；cal 持只列定报告维度的自定义角色（* 和 area:zeta）',
-    { go, gm, gs, gt, lead, leadEta, rexG, riaG, sidG, calStar, calZeta });
+    { go, gm, gs, gt, lead, leadEta, rexG, riaG, sidG, calStar, calZeta, leadNull, rexNull });
 
   // ---- R1 只有属主、本机命令行和本领域 area-report 持有人能定 ----
   {
@@ -215,6 +220,17 @@ try {
         && monaDraft.status === 403 && leoDraft.status === 403 && starDraft.status === 422 && starDraft.json?.error === 'area_scope_required' && rexG.draft === 201,
       'R2b area-report 和只列定报告维度的自定义角色带领域范围：系统管理员起草 403 area_owner_only（和定规范同一条红线）；管理层、领域负责人 403；area-report 不能带范围 *（422 area_scope_required）；属主起草得了',
       { sam: `${samDraft.status}:${samDraft.json?.error}`, custom: `${customDraft.status}:${customDraft.json?.error}`, mona: monaDraft.status, leo: leoDraft.status, star: `${starDraft.status}:${starDraft.json?.error}`, owner: rexG.draft });
+  }
+
+  // ---- R2c 跨领域不会被冒充成一个叫 null 的领域 ----
+  {
+    const before = counts(A);
+    const crossCreate = await rex.go('POST', '/api/report-dimensions', { json: { id: 'rex-cross-2', title: '合成' } });
+    const crossTpl = await rex.go('POST', '/api/report-dimensions/company/templates', { json: { body: tpl() } });
+    const inNull = await rex.go('POST', '/api/report-dimensions', { json: { id: 'in-null', title: '建在 null 领域', area: 'null' } });
+    const after = counts(A);
+    check(crossCreate.status === 403 && crossTpl.status === 403 && inNull.status === 201 && after.dims === before.dims + 1 && after.tpls === before.tpls,
+      'R2c 持「名叫 null 的领域」的 area-report：建跨领域维度、给跨领域维度发模板仍然 403；建在 null 领域里的照常 201', { crossCreate: crossCreate.status, crossTpl: crossTpl.status, inNull: inNull.status });
   }
 
   // ---- R3 触发器 ----
