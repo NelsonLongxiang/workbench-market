@@ -15,8 +15,9 @@
  *      作者本人复核（直接写库）：拒；撤了的维度直接改：拒
  *   R4 （#4）模板形状不对：reason_required 不是 true、min 大于 max、kind 重复、不认识的键、schema_version 不是 2、不是对象、超 200 KB、sha256 对不上：400
  *   R5 （#5）请求里写 kind：400；第一版算 criteria；只改标题和文档结构是 layout；改论断要求、验收声明、数据槽是 criteria
- *   R5a（属主 2026-11-21）判据类版本没复核就移成生效 409；作者本人复核 409（同一个人、本机命令行复核本机命令行发的都算）；
- *      别的持有人复核 200、再复核 409；复核过后生效 200；版式类不复核也能生效
+ *   R5a（属主 2026-11-21）判据类版本没复核就移成生效 409；别的持有人复核 200、再复核 409；复核过后生效 200；版式类不复核也能生效
+ *   R5b～R5e（复核人口径，统筹 11-21 裁定）：作者本人 403（换个留痕写法、主体相同也算）；本机命令行、管理口令不能复核 403；
+ *      本机命令行不能发判据类版本 403；跨领域维度属主自己发的，属主自己、本机命令行都复核不了
  *   R6 读：登录的人都能读（普通员工、没授予的人也行）；远程匿名读、写 401；跨站来的写 403
  *   R7 不存在的维度、版本 404；撤了的维度：发版、复核、移指针、再撤 409，读照常
  *
@@ -235,14 +236,17 @@ try {
 
   // ---- R3 触发器 ----
   {
-    await A.cli('POST', '/api/report-dimensions/ops/templates', { body: tpl(), note: '本机发的第一版' });
+    // 判据类版本作者要认得出是谁（统筹 11-21 裁定）：第一版由属主在浏览器里发，不再由本机命令行发
+    await olga.go('POST', '/api/report-dimensions/ops/templates', { json: { body: tpl(), note: '属主发的第一版' } });
     const t = [
       ['改模板', sqlThrows(A, "UPDATE report_templates SET note = 'x' WHERE dimension_id = 'ops' AND version = 1")],
       ['删模板', sqlThrows(A, "DELETE FROM report_templates WHERE dimension_id = 'ops' AND version = 1")],
       ['同版本再插', sqlThrows(A, "INSERT INTO report_templates (dimension_id, version, body, sha256, kind, note, created_at, created_by) VALUES ('ops', 1, '{}', ?, 'layout', '', 1, 'x')", 'a'.repeat(64))],
       ['指针指没复核的判据类', sqlThrows(A, "UPDATE report_dimensions SET active_version = 1 WHERE id = 'ops'")],
       ['指针指不存在的版本', sqlThrows(A, "UPDATE report_dimensions SET active_version = 99 WHERE id = 'ops'")],
-      ['作者本人复核（写库）', sqlThrows(A, "INSERT INTO report_template_reviews (dimension_id, version, reviewed_by, reviewed_by_principal, reviewed_at) VALUES ('ops', 1, 'cli', NULL, 1)")],
+      ['作者本人复核（写库）', sqlThrows(A, "INSERT INTO report_template_reviews (dimension_id, version, reviewed_by, reviewed_by_principal, reviewed_at) VALUES ('ops', 1, 'user:olga', 'user:olga', 1)")],
+      ['复核人主体为空（写库，本机命令行那种）', sqlThrows(A, "INSERT INTO report_template_reviews (dimension_id, version, reviewed_by, reviewed_by_principal, reviewed_at) VALUES ('ops', 1, 'cli', NULL, 1)")],
+      ['判据类版本作者主体为空（写库）', sqlThrows(A, "INSERT INTO report_templates (dimension_id, version, body, sha256, kind, note, created_at, created_by, created_by_principal) VALUES ('ops', 2, '{}', ?, 'criteria', '', 1, 'cli', NULL)", 'b'.repeat(64))],
       ['复核不存在的版本', sqlThrows(A, "INSERT INTO report_template_reviews (dimension_id, version, reviewed_by, reviewed_at) VALUES ('ops', 9, 'user:ria', 1)")],
       ['删留痕', sqlThrows(A, "DELETE FROM report_dimension_events WHERE dimension_id = 'ops'")],
       ['改留痕', sqlThrows(A, "UPDATE report_dimension_events SET detail = 'x' WHERE dimension_id = 'ops'")],
@@ -254,7 +258,7 @@ try {
       ['改复核', sqlThrows(A, "UPDATE report_template_reviews SET note = 'x' WHERE dimension_id = 'ops' AND version = 1")],
       ['删复核', sqlThrows(A, "DELETE FROM report_template_reviews WHERE dimension_id = 'ops' AND version = 1")],
     ];
-    check(t.every(([, x]) => x) && okReview.status === 200 && t2.every(([, x]) => x), 'R3 库里直接改删模板、复核、留痕、维度，同版本再插，指针指没复核的判据类或不存在的版本，作者本人复核：触发器都拒', { t, okReview: okReview.status, t2 });
+    check(t.every(([, x]) => x) && okReview.status === 200 && t2.every(([, x]) => x), 'R3 库里直接改删模板、复核、留痕、维度，同版本再插，指针指没复核的判据类或不存在的版本，作者本人复核，复核人或判据类作者主体为空：触发器都拒', { t, okReview: okReview.status, t2 });
   }
 
   // ---- R4 模板形状 ----
@@ -293,27 +297,43 @@ try {
       'R5 请求里写 kind：400；第一版 criteria；只改标题和文档结构 layout；改论断要求、验收声明、数据槽 criteria；回 sha256', { withKind: withKind.status, kinds });
   }
 
-  // ---- R5a 判据类版本要作者以外的人复核过才能生效 ----
+  // ---- R5a 判据类版本要作者以外、认得出的人复核过才能生效（属主 2026-11-21；复核人口径按统筹 11-21 裁定） ----
   {
+    const err = (r) => `${r.status}:${r.json?.error ?? ''}`;
     const unreviewed = await rex.go('POST', '/api/report-dimensions/shape/activate', { json: { version: 1 } });
-    const selfReview = await rex.go('POST', '/api/report-dimensions/shape/templates/1/review', { json: {} });
     const layoutNoReview = await rex.go('POST', '/api/report-dimensions/shape/activate', { json: { version: 2 } });
-    // 本机命令行发的版本，本机命令行自己复核：也算作者本人
-    await A.cli('POST', '/api/report-dimensions/company-cli/templates', { body: tpl() });
-    const cliSelf = await A.cli('POST', '/api/report-dimensions/company-cli/templates/1/review', {});
+    // 作者本人：浏览器里复核自己发的；同一个人换个写法（带管理口令，留痕写法不同、主体相同）也算本人
+    const selfReview = await rex.go('POST', '/api/report-dimensions/shape/templates/1/review', { json: {} });
+    const crossWay = await rex.go('POST', '/api/report-dimensions/shape/templates/1/review', { json: {}, headers: { 'x-admin-token': ADMIN_TOKEN } });
+    // 认不出是谁的不能复核：本机命令行（属主那一档，权限过得了）、只带管理口令的
+    const cliReview = await A.cli('POST', '/api/report-dimensions/shape/templates/1/review', {});
+    const tokenReview = await A.remote('POST', '/api/report-dimensions/shape/templates/1/review', { json: {}, token: ADMIN_TOKEN });
+    // 认不出是谁的不能发判据类版本（判不了谁是本人）：本机命令行发第一版（第一版也算判据类）403，库里没有多一版
+    const before = counts(A);
+    const cliPublish = await A.cli('POST', '/api/report-dimensions/company-cli/templates', { body: tpl() });
+    const afterCli = counts(A);
+    // 跨领域的维度只有属主能定：属主自己发的，属主自己、本机命令行都复核不了（要另一位持属主授予的人）
+    const ownerPub = await olga.go('POST', '/api/report-dimensions/company/templates', { json: { body: tpl() } });
+    const ownerSelf = await olga.go('POST', '/api/report-dimensions/company/templates/1/review', { json: {} });
+    const cliOnOwner = await A.cli('POST', '/api/report-dimensions/company/templates/1/review', {});
     const tomReview = await tom.go('POST', '/api/report-dimensions/shape/templates/1/review', { json: {} });
     const riaReview = await ria.go('POST', '/api/report-dimensions/shape/templates/1/review', { json: { note: '看过了' } });
     const again = await olga.go('POST', '/api/report-dimensions/shape/templates/1/review', { json: {} });
     const activate = await rex.go('POST', '/api/report-dimensions/shape/activate', { json: { version: 1 } });
-    const ownerReviewsCli = await olga.go('POST', '/api/report-dimensions/company-cli/templates/1/review', { json: {} });
-    const cliActivates = await A.cli('POST', '/api/report-dimensions/company-cli/activate', { version: 1 });
     const meta = (await nina.go('GET', '/api/report-dimensions/shape')).json;
     const v1 = meta?.templates?.find((t) => t.version === 1);
-    check(unreviewed.status === 409 && selfReview.status === 409 && layoutNoReview.status === 200 && cliSelf.status === 409 && tomReview.status === 403
-        && riaReview.status === 200 && again.status === 409 && activate.status === 200 && ownerReviewsCli.status === 200 && cliActivates.status === 200
-        && meta?.dimension?.active_version === 1 && v1?.review?.reviewed_by === 'user:ria' && v1?.active === true,
-      'R5a 判据类没复核就生效 409；作者本人复核 409（本机命令行复核本机命令行发的也算）；没有定报告维度权限的人复核 403；别的持有人复核 200、再复核 409；复核过后生效 200；版式类不复核也能生效',
-      { unreviewed: unreviewed.status, selfReview: selfReview.status, layoutNoReview: layoutNoReview.status, cliSelf: cliSelf.status, tomReview: tomReview.status, riaReview: riaReview.status, again: again.status, activate: activate.status, ownerReviewsCli: ownerReviewsCli.status, cliActivates: cliActivates.status, active: meta?.dimension?.active_version, v1 });
+    check(unreviewed.status === 409 && layoutNoReview.status === 200 && tomReview.status === 403
+        && riaReview.status === 200 && again.status === 409 && activate.status === 200 && meta?.dimension?.active_version === 1 && v1?.review?.reviewed_by === 'user:ria' && v1?.active === true,
+      'R5a 判据类没复核就生效 409；版式类不复核也能生效；没有定报告维度权限的人复核 403；别的持有人复核 200、再复核 409；复核过后生效 200',
+      { unreviewed: unreviewed.status, layoutNoReview: layoutNoReview.status, tomReview: tomReview.status, riaReview: riaReview.status, again: again.status, activate: activate.status, active: meta?.dimension?.active_version, v1 });
+    check(err(selfReview) === '403:report_template_self_review' && err(crossWay) === '403:report_template_self_review',
+      'R5b 作者本人复核 403（规格 5a）；同一个人带管理口令换个留痕写法复核自己的，主体相同，也算本人 403', { selfReview: err(selfReview), crossWay: err(crossWay) });
+    check(err(cliReview) === '403:report_template_reviewer_unidentified' && tokenReview.status === 403,
+      'R5c 认不出是谁的不能复核：本机命令行（权限过得了）403 reviewer_unidentified；只带管理口令的 403', { cliReview: err(cliReview), tokenReview: err(tokenReview) });
+    check(err(cliPublish) === '403:report_template_author_unidentified' && same(before, afterCli),
+      'R5d 认不出是谁的不能发判据类版本：本机命令行发第一版 403 author_unidentified，库里没有变化', { cliPublish: err(cliPublish), before, afterCli });
+    check(ownerPub.status === 201 && err(ownerSelf) === '403:report_template_self_review' && err(cliOnOwner) === '403:report_template_reviewer_unidentified',
+      'R5e 跨领域维度：属主发的判据类版本，属主自己复核 403（本人），本机命令行复核 403（认不出是谁）——要另一位持属主授予的人', { ownerPub: ownerPub.status, ownerSelf: err(ownerSelf), cliOnOwner: err(cliOnOwner) });
   }
 
   // ---- R6 读、匿名、跨站 ----
