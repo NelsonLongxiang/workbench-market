@@ -147,6 +147,7 @@ try {
     '相对路径': ['meet-teams', /绝对路径/],
     '是文件不是目录': [join(dir, 'a-file'), /不是目录/],
     'TMPDIR=/ 时用外面的目录': [outside, /要在 DATA_DIR 之下（按软链展开/, { TMPDIR: '/' }],
+    '目录写成 DATA_DIR 本身（库文件会算进人数）': [dir, /不能是 DATA_DIR 本身/],
     'DATA_DIR=/': [outside, /DATA_DIR 是 \/ 或只有一层的根/, { DATA_DIR: '/' }],
     'DATA_DIR 只有一层（/usr）': [outside, /DATA_DIR 是 \/ 或只有一层的根/, { DATA_DIR: '/usr' }],
     // 只靠「在 DATA_DIR 之下」挡不住这一种：/usr/bin 确实在 /usr 下面。要靠「DATA_DIR 不能只有一层」这一条

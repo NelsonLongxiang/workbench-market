@@ -16,7 +16,7 @@ const here = dirname(fileURLToPath(import.meta.url));
  */
 /**
  * 集合点的目录：各进程要往里写文件，所以在读配置时就收紧（不拖到启动中途才报错）：
- *   绝对路径、不带 ..；已经存在、是目录；按 realpath（软链展开以后）落在 DATA_DIR 之下，软链逃不出去。
+ *   绝对路径、不带 ..；已经存在、是目录；按 realpath（软链展开以后）是 DATA_DIR 下面的子目录（不能是 DATA_DIR 本身），软链逃不出去。
  *   只认 DATA_DIR（不认系统临时目录：TMPDIR 可以被设成 /）；DATA_DIR 自己是 / 或只有一层的根（比如 /data）也不收，那样等于不设限。
  * 不满足的拒绝启动。返回 realpath 之后的目录。这一段放在打开主库之前：DATA_DIR 不对时先报这一条，不先撞上建库失败。
  */
@@ -30,7 +30,8 @@ function barrierDir(raw: string, env: Readonly<Record<string, string | undefined
   let real = '';
   try { real = realpathSync(raw); } catch { refuse('不存在'); }
   if (!statSync(real).isDirectory()) refuse('不是目录');
-  if (real !== root && !real.startsWith(root + sep)) refuse('要在 DATA_DIR 之下（按软链展开以后的真实路径算）');
+  // 要是 DATA_DIR 下面的子目录，不能是 DATA_DIR 本身：DATA_DIR 里有库文件，凑人数时会被算进去，集合点就提前放行了
+  if (!real.startsWith(root + sep)) refuse(real === root ? '要是 DATA_DIR 下面的子目录，不能是 DATA_DIR 本身（库文件会算进人数）' : '要在 DATA_DIR 之下（按软链展开以后的真实路径算）');
   return real;
 }
 export const SchemaTestConfig = defineConfig((env) => {
