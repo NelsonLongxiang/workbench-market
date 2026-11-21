@@ -568,6 +568,14 @@ try {
     const kinds = { person: actorKindOf('person'), seat: actorKindOf('seat'), app: actorKindOf('app'), node: actorKindOf('node'), system: actorKindOf('system'), service: actorKindOf('service'), none: actorKindOf(null), undef: actorKindOf(undefined), empty: actorKindOf('') };
     check(kinds.person === 'human' && Object.entries(kinds).filter(([k]) => k !== 'person').every(([, v]) => v === 'ai'),
       'G12 产出方算人还是 AI：只有主体 kind 为 person 的记 human；席位、应用、节点、系统、服务、查不到的都记 ai', kinds);
+    // 非人走不到生成：本机命令行（回环、不带浏览器标记）、本机页面（回环、同源浏览器）都是内置身份，生成 403——
+    // 今天只有人的会话能走到产出方那一步；哪天内置身份被放进来，这里先红（#930 统筹增量验收）
+    const before = (await bv(boss, 'GET', '/synth-orders/reports')).json?.reports?.length;
+    const byCli = await srv.call('POST', '/api/bench-views/synth-orders/reports', { body: G({ subject: 'card:synth-orders@cli' }) });
+    const byPage = await srv.call('POST', '/api/bench-views/synth-orders/reports', { headers: same, body: G({ subject: 'card:synth-orders@page' }) });
+    const after = (await bv(boss, 'GET', '/synth-orders/reports')).json?.reports?.length;
+    check(byCli.status === 403 && byPage.status === 403 && before === after,
+      'G12 本机命令行、本机页面（内置身份，非人）生成报告：403，没出报告——走得到产出方的只有人的会话', { cli: `${byCli.status} ${byCli.text?.slice(0, 80)}`, page: `${byPage.status} ${byPage.text?.slice(0, 80)}`, n: [before, after] });
     // 两人制：管理口令改自定义角色只记成提议，属主放行前不生效；授予只起草、提交、没放行，也不生效
     const adminTok = { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } };
     await cli('POST', '/api/roles/guest/copy', { id: 'rep-two', name: '合成·两人制' });
