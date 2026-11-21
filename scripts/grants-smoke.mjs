@@ -24,7 +24,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
-import { legacySeed } from './lib/legacy-dept-seed.mjs';
+import { legacySeed, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
@@ -487,6 +487,7 @@ try {
     seed.department('syn-sales', '合成销售部');
     const issue = async (body) => { const d = await draft(body); await step(d.json?.grant?.id, 'submit'); const a = await step(d.json?.grant?.id, 'approve'); return { id: d.json?.grant?.id, draft: d.status, approve: a.status }; };
     const dept = { id: seed.grant('user:beta', 'dept-lead', 'dept:syn-sales', { reason: '合成' }), draft: 201, approve: 200 };
+    { const rows = deptGrantRows(join(srv.data, 'workbench-market.db')); check(["user:beta dept-lead dept:syn-sales active"].every((x) => rows.includes(x)), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
     const wide = await issue({ principal: 'user:beta', role: 'member', scope: '*' });
     const list = (await srv.call('GET', '/api/grants?principal=user:beta')).json?.grants ?? [];
     const byId = (id) => list.find((g) => g.id === id);

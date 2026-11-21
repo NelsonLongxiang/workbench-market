@@ -17,7 +17,7 @@
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { legacyGrantIn } from './lib/legacy-dept-seed.mjs';
+import { legacyGrantIn, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -78,6 +78,8 @@ try {
     give(id, r.id, roles.AREA_PRESETS.includes(r.id) ? 'area:sales' : byDept(r) ? 'dept:sales' : '*');
     holder.set(r.id, { type: 'principal', id, kind: nonPerson ? 'seat' : 'person', status: 'active', owner: nonPerson ? 'user:resp' : '' });
   }
+  { const rows = deptGrantRows(db); const want = all.filter((r) => !roles.AREA_PRESETS.includes(r.id) && byDept(r)).length;
+    check(want > 0 && rows.length === want && rows.every((x) => / dept:sales active$/.test(x)), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
 
   // 拿真实判定归拢出来的格子
   const derived = (r) => {

@@ -22,7 +22,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
-import { legacySeed } from './lib/legacy-dept-seed.mjs';
+import { legacySeed, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
@@ -130,6 +130,7 @@ try {
   for (const p of ['user:alpha', 'user:beta', 'seat:bot']) srv.seed.member('sales', p);
   srv.seed.member('ops', 'user:alpha');
   srv.seed.deptLead('rnd', 'user:beta');
+  { const rows = deptGrantRows(db); check(JSON.stringify(rows) === JSON.stringify(["user:alpha dept-lead dept:sales active", "user:beta dept-lead dept:rnd active"]), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
 
   // ---------- 四、读的输入 ----------
   {

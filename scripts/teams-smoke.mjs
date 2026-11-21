@@ -25,7 +25,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
-import { legacySeed } from './lib/legacy-dept-seed.mjs';
+import { legacySeed, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(join(HERE, '..'));
@@ -110,6 +110,7 @@ try {
   seed.deptLead('sales', 'user:beta'); // 停写前属主指定的部门负责人（字段 + 生效的 dept-lead 授予）
   seed.member('sales', 'user:alpha');
   seed.department('ops', '合成运营部');
+  { const rows = deptGrantRows(join(data, 'workbench-market.db')); check(JSON.stringify(rows) === JSON.stringify(["user:beta dept-lead dept:sales active"]), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
   const team = { host: HOST, team: TEAM };
 
   // ---------- 一、待认领、认领 ----------

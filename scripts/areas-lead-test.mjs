@@ -20,7 +20,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { legacyDepartmentIn, legacyGrantIn } from './lib/legacy-dept-seed.mjs';
+import { legacyDepartmentIn, legacyGrantIn, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 import { spawn } from 'node:child_process'; // 子进程不起服务、跑完自己退出，不用固定端口的夹具
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -206,6 +206,7 @@ try {
     svc('departments').upsert({ id: 'kold', name: '合成没迁的部门', functionCode: null, lead: null }, 'cli', Date.now());
     issue('user:km', 'area-member', 'area:kx');
     legacyGrantIn(db, 'user:kd', 'dept-member', 'dept:kold', { reason: '合成' }); // 停写前就有的部门授予
+    { const rows = deptGrantRows(db); check(["user:kd dept-member dept:kold active"].every((x) => rows.includes(x)), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
     const actor = (id) => ({ type: 'principal', id, kind: 'person', status: 'active', owner: '' });
     const before = { kmKx: visibility(actor('user:km'))('dept:kx'), kmOld: visibility(actor('user:km'))('dept:kold'), kdOld: visibility(actor('user:kd'))('dept:kold'), kdKx: visibility(actor('user:kd'))('dept:kx') };
     areas.retire('kx', '合成', { ...cli, owner: true }, Date.now());

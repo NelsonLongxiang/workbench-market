@@ -117,3 +117,15 @@ export function legacyDepartmentIn(db, id, name, lead = '') {
   db.prepare('INSERT INTO dept_lead_grants (department_id, grant_id, principal_id, created_at) VALUES (?, ?, ?, ?) ON CONFLICT (department_id) DO UPDATE SET grant_id = excluded.grant_id, principal_id = excluded.principal_id, created_at = excluded.created_at').run(id, g, lead, t);
   return g;
 }
+
+/**
+ * 前置存在断言用：库里 dept: 范围的授予，按「主体 角色 范围 状态」排好的字符串列表（db 是已开着的连接或库文件路径）。
+ * 测试拿它和预期比，确认写库造的前置确实在、状态对——前置没造出来时，后面「被拒 / 不认」的断言不能白白成立
+ */
+export function deptGrantRows(dbOrFile) {
+  const read = (d) => d.prepare("SELECT principal_id, role, scope, status FROM grants WHERE scope LIKE 'dept:%' ORDER BY principal_id, role, scope, status").all()
+    .map((r) => `${r.principal_id} ${r.role} ${r.scope} ${r.status}`);
+  if (typeof dbOrFile !== 'string') return read(dbOrFile);
+  const d = new DatabaseSync(dbOrFile, { timeout: 10000 });
+  try { return read(d); } finally { d.close(); }
+}

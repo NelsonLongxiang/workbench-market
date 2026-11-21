@@ -20,7 +20,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
-import { legacySeed } from './lib/legacy-dept-seed.mjs';
+import { legacySeed, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -80,6 +80,7 @@ try {
     benches.push((await call('POST', '/api/bench-views', { session: P.boss, body: { slug, title: slug, department } })).status);
     await call('PUT', `/api/bench-views/${slug}/datasets/d`, { session: P.boss, body: { columns: [{ name: 'a', type: 'text' }] } });
   }
+  { const rows = deptGrantRows(join(data, 'workbench-market.db')); check(JSON.stringify(rows) === JSON.stringify(["user:no-flag dept-member dept:legacy active", "user:no-flag dept-member dept:ops active"]), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
   check(prep.every((s) => s === 200) && benches.every((s) => s === 201), '（准备）领域 sales、ops 有负责人；beta 持 area:sales；no-flag 持 dept:ops、dept:legacy；三个台各绑一个标识', { prep, benches });
   const reads = async (session, slug) => (await call('GET', `/api/bench-views/${slug}/datasets`, { session })).status;
 

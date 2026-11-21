@@ -25,7 +25,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
-import { legacySeed } from './lib/legacy-dept-seed.mjs';
+import { legacySeed, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
@@ -113,6 +113,7 @@ try {
     legacy('user:strasse', 'dept-lead', 'dept:sales'),
     legacy('user:no-flag', 'dept-member', 'dept:ops'),
   ];
+  { const rows = deptGrantRows(join(srv.data, 'workbench-market.db')); check(JSON.stringify(rows) === JSON.stringify(["user:beta dept-member dept:sales active", "user:no-flag dept-member dept:ops active", "user:strasse dept-lead dept:sales active"]), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
   check(prep.every(Boolean) && otherId === 'user:no-flag', '（准备）两个部门；管理层一人；sales 的部门成员、部门负责人各一人；ops 的部门成员一人（授予都由属主放行）', { prep, otherId });
   const st = async (opts, method, path, body) => (await srv.call(method, `/api/bench-views${path}`, { ...opts, ...(body === undefined ? {} : { body }) })).status;
   const COLS = { columns: [{ name: 'a', type: 'text' }] };

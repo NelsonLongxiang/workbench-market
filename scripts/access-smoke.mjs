@@ -20,7 +20,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
-import { legacySeed } from './lib/legacy-dept-seed.mjs';
+import { legacySeed, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(join(HERE, '..'));
@@ -155,6 +155,7 @@ try {
     // 停写前跑的向导、还没放行的那一批里有部门负责人授予（统筹 11-20 Q1：停写前就在草稿里的照常走完）：挂一条到这次运行上
     const preStop = seed.grant('user:beta', 'dept-lead', 'dept:sales', { reason: '首次安装向导（标准）', to: 'draft' });
     seed.run((d) => d.prepare('INSERT INTO setup_wizard_grants (run_id, grant_id) VALUES (?, ?)').run(std.json?.run, preStop));
+    { const rows = deptGrantRows(join(data, 'workbench-market.db')); check(JSON.stringify(rows) === JSON.stringify(["user:beta dept-lead dept:sales draft"]), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
     // 管理员登录的人自己跑小团队：给自己的那条记成跳过（不能给自己授予）
     const small = await srv.call('POST', '/api/setup/wizard', { ...as(SESSIONS.admin), body: { shape: 'small' } });
     const smallSkip = (small.json?.skipped ?? []).map((c) => [c.principal, c.reason]).sort();

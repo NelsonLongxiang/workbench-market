@@ -31,7 +31,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
-import { legacySeed } from './lib/legacy-dept-seed.mjs';
+import { legacySeed, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
@@ -143,6 +143,7 @@ try {
   const issue = async (principal, role, scope) => { const d = await srv.call('POST', '/api/grants', { body: { principal, role, scope, reason: '合成：经验库对抗' } }); await srv.call('POST', `/api/grants/${d.json?.grant?.id}/submit`); return (await srv.call('POST', `/api/grants/${d.json?.grant?.id}/approve`)).status; };
   const issued = [await issue('user:alpha', 'member', '*'), await issue('user:beta', 'member', '*'), (seed.grant('user:beta', 'dept-lead', 'dept:sales', { reason: '合成：经验库对抗' }), 200),
     await issue('user:root-admin', 'member', '*'), await issue('user:root-admin', 'admin', '*'), await issue('user:no-flag', 'management', '*')];
+  { const rows = deptGrantRows(join(srv.dataDir, 'workbench-market.db')); check(JSON.stringify(rows) === JSON.stringify(["user:beta dept-lead dept:sales active"]), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
   const titles = (r) => (r.json?.items ?? []).map((i) => i.title).sort();
   const list = async (who) => srv.call('GET', '/api/knowledge', who);
 

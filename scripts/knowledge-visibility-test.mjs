@@ -10,7 +10,7 @@
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { legacyGrantIn } from './lib/legacy-dept-seed.mjs';
+import { legacyGrantIn, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
@@ -64,6 +64,7 @@ try {
   insert('user:own2'); insert('seat:kb-bot2', 'seat', 'user:own2');
   on('user:own2', 'member', '*'); on('user:own2', 'dept-member', 'dept:sales');
   on('seat:kb-bot2', 'ai-staff', 'dept:sales');
+  { const rows = deptGrantRows(db); check(JSON.stringify(rows) === JSON.stringify(["seat:kb-bot ai-staff dept:sales active", "seat:kb-bot2 ai-staff dept:sales active", "user:own2 dept-member dept:sales active"]), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
 
   const seat = (id, owner) => visibility({ type: 'principal', id, kind: 'seat', status: 'active', owner });
   const v1 = seat('seat:kb-bot', 'user:own'), v2 = seat('seat:kb-bot2', 'user:own2');

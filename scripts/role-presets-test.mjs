@@ -11,7 +11,7 @@
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { legacyGrantIn } from './lib/legacy-dept-seed.mjs';
+import { legacyGrantIn, deptGrantRows } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
@@ -156,6 +156,7 @@ try {
     legacyGrantIn(db, 'user:pend', 'dept-member', 'dept:sales', { reason: '合成', to: 'pending' }); // 待放行
     const brief = on('user:own', 'dept-member', 'dept:sales', now + 1000); // 一会儿就过期
     on('seat:dept-bot', 'ai-staff', 'dept:sales');
+    { const rows = deptGrantRows(db); check(JSON.stringify(rows) === JSON.stringify(["seat:dept-bot ai-staff dept:sales active", "user:dl dept-lead dept:sales active", "user:dm dept-member dept:sales active", "user:gone dept-member dept:sales active", "user:own dept-member dept:sales active", "user:pend dept-member dept:sales pending"]), '（前置）停写前就有的 dept: 授予确实在、状态对（直接写库造；没造出来时后面「被拒 / 不认」的断言不能白白成立）', rows); }
     // 只有关系、没有授予：加进部门成员表，并指成部门负责人
     deps.addMember('sales', 'user:rel', 'cli', now);
     deps.upsert({ id: 'sales', name: '合成 sales', functionCode: null, lead: 'user:rel' }, 'cli', now);
