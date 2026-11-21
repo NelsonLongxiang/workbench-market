@@ -1098,7 +1098,7 @@
           "response": {
             "status": 200,
             "type": "text/plain",
-            "headers": { "content-disposition": "inline; filename*=UTF-8''a.txt", "content-length": "22", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-disposition": "inline; filename*=UTF-8''a.txt", "content-length": "22", "content-security-policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
             "body": "第一行\nsecond line\n"
           }
         },
@@ -1111,7 +1111,7 @@
           "response": {
             "status": 200,
             "type": "text/plain",
-            "headers": { "content-disposition": "attachment; filename*=UTF-8''b.xlsx", "content-length": "20", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename*=UTF-8''b.xlsx", "content-length": "20", "content-security-policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
             "body": "pretend spreadsheet\n"
           }
         },
@@ -1124,7 +1124,7 @@
           "response": {
             "status": 200,
             "type": "image/png",
-            "headers": { "content-disposition": "inline; filename*=UTF-8''pic.png", "content-length": "35", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-disposition": "inline; filename*=UTF-8''pic.png", "content-length": "35", "content-security-policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
             "body": "not really a png but stored as one\n"
           }
         },
@@ -1137,7 +1137,7 @@
           "response": {
             "status": 200,
             "type": "text/html",
-            "headers": { "content-disposition": "attachment; filename*=UTF-8''evil.html", "content-length": "26", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename*=UTF-8''evil.html", "content-length": "26", "content-security-policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
             "body": "<script>alert(1)</script>\n"
           }
         },
@@ -1150,7 +1150,7 @@
           "response": {
             "status": 200,
             "type": "text/csv; charset=utf-8",
-            "headers": { "content-disposition": "attachment; filename*=UTF-8''%E6%8A%A5%E8%A1%A8.csv", "content-length": "8", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-disposition": "attachment; filename*=UTF-8''%E6%8A%A5%E8%A1%A8.csv", "content-length": "8", "content-security-policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
             "body": "a,b\n1,2\n"
           }
         },
@@ -1636,7 +1636,7 @@
           "response": {
             "status": 200,
             "type": "text/plain",
-            "headers": { "content-disposition": "inline; filename*=UTF-8''a.txt", "content-length": "22", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-disposition": "inline; filename*=UTF-8''a.txt", "content-length": "22", "content-security-policy": "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
             "body": "第一行\nsecond line\n"
           }
         }
