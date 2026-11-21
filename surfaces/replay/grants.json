@@ -54,7 +54,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "4035", "etag": "W/\"fc3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "4344", "etag": "W/\"10f8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "source": "initial",
               "roles": [
@@ -250,6 +250,19 @@
                   "approval_text": "只有属主能放行"
                 },
                 {
+                  "id": "area-report",
+                  "name": "定报告维度",
+                  "includes": [],
+                  "permissions": [{ "actions": ["report.dimension-list", "report.dimension-read", "report.dimension-set"] }],
+                  "platform": true,
+                  "custom": false,
+                  "admin_level": false,
+                  "decides": true,
+                  "business_write": false,
+                  "approval": "owner",
+                  "approval_text": "只有属主能放行"
+                },
+                {
                   "id": "dept-member",
                   "name": "部门成员",
                   "includes": [],
@@ -289,7 +302,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "14109", "etag": "W/\"371d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "15245", "etag": "W/\"3b8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "blocks": [
                 { "key": "overview", "name": "全景" },
@@ -483,6 +496,24 @@
                     "system": { "read": "some", "write": "some", "decide": "none", "admin": "none" }
                   },
                   "summary": { "see": "能看：全景（全部）、事项与对话（部分）、关注（全部）、工作台数据（范围内）、经验库（范围内）、领域（范围内）、权限与角色（部分）、系统与节点（部分）", "do": "能做：事项与对话（部分）、工作台数据（部分）、领域（范围内）、系统与节点（部分）；能管：无", "decide": "能拍板：工作台数据（范围内）、领域（范围内）", "cannot": "一律不能管理；碰不到团队与 AI 员工" }
+                },
+                {
+                  "id": "area-report",
+                  "name": "定报告维度",
+                  "preset": true,
+                  "custom": false,
+                  "cells": {
+                    "overview": { "read": "all", "write": "na", "decide": "na", "admin": "none" },
+                    "work": { "read": "some", "write": "some", "decide": "none", "admin": "none" },
+                    "attention": { "read": "all", "write": "na", "decide": "none", "admin": "na" },
+                    "bench-data": { "read": "none", "write": "some", "decide": "none", "admin": "none" },
+                    "knowledge": { "read": "none", "write": "na", "decide": "none", "admin": "none" },
+                    "area": { "read": "scoped", "write": "none", "decide": "scoped", "admin": "na" },
+                    "team": { "read": "none", "write": "none", "decide": "none", "admin": "none" },
+                    "access": { "read": "some", "write": "na", "decide": "na", "admin": "none" },
+                    "system": { "read": "some", "write": "some", "decide": "none", "admin": "none" }
+                  },
+                  "summary": { "see": "能看：全景（全部）、事项与对话（部分）、关注（全部）、领域（范围内）、权限与角色（部分）、系统与节点（部分）", "do": "能做：事项与对话（部分）、工作台数据（部分）、系统与节点（部分）；能管：无", "decide": "能拍板：领域（范围内）", "cannot": "一律不能管理；碰不到经验库、团队与 AI 员工" }
                 },
                 {
                   "id": "dept-member",
