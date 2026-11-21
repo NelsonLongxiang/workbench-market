@@ -122,5 +122,16 @@ ok('有说明名用说明名；没有（空、空白、没给）写「第 N 列�
 const tableSrc = (await import('node:fs')).readFileSync(new URL('../web/src/bench-blocks/Table.tsx', import.meta.url), 'utf8');
 ok('表格组件的表头经 tableHead，没有「label || name」的兜底', /title: head\b/.test(tableSrc) && /const head = tableHead\(c, i\)/.test(tableSrc) && !/label \|\| c\.name/.test(tableSrc));
 
+// 筛选栏的值（连着改两个筛选，第一个不丢）
+{
+  const F = [{ name: 'month', default: '2026-01' }, { name: 'site' }, { name: 'owner', default: '' }];
+  ok('筛选栏的值：视图缺省值打底，人选的盖上去；空值不算', JSON.stringify(v.filterBarValue(F, { site: '北区', owner: '' })) === JSON.stringify({ month: '2026-01', site: '北区' }));
+  ok('……人选的月份盖过缺省值', v.filterBarValue(F, { month: '2026-03' }).month === '2026-03');
+  // 第一个筛选改完、取数还在路上：上一次取数回来的 params 还是旧的 {}；按人选的算，第二次改动不会冲掉第一个
+  const chosenAfterFirst = { site: '北区' };
+  const next = { ...v.filterBarValue(F, chosenAfterFirst), owner: '合成甲' };
+  ok('连着改两个筛选：第二次改动基于人选的值，第一个还在', next.site === '北区' && next.owner === '合成甲', next);
+}
+
 console.log(`\nbench-blocks-ui-unit: ${pass} passed / ${fail} failed`);
 process.exit(fail ? 1 : 0);

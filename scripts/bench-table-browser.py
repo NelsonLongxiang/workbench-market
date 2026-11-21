@@ -1,6 +1,7 @@
 """Native-table real-backend browser regression, synthetic identity/data only. No business route interception."""
 
 import csv
+from urllib.parse import parse_qs, urlparse
 import io
 import json
 import sys
@@ -44,9 +45,15 @@ with sync_playwright() as p:
         "() => new URLSearchParams(location.search).get('p.sku') === 'Sample Cup'"
     )
     page.locator("[data-filter=warehouse] input").fill("TestWest")
-    page.locator("[data-filter=warehouse] input").press("Enter")
+    # 两个筛选都生效了才往下走：地址里两个都在，而且按两个筛选取的那一次数已经回来（等不到就超时失败）
+    with page.expect_response(
+        lambda r: "/render" in r.url
+        and parse_qs(urlparse(r.url).query).get("p.sku") == ["Sample Cup"]
+        and parse_qs(urlparse(r.url).query).get("p.warehouse") == ["TestWest"]
+    ):
+        page.locator("[data-filter=warehouse] input").press("Enter")
     page.wait_for_function(
-        "() => new URLSearchParams(location.search).get('p.warehouse') === 'TestWest'"
+        "() => { const q = new URLSearchParams(location.search); return q.get('p.sku') === 'Sample Cup' && q.get('p.warehouse') === 'TestWest'; }"
     )
     page.wait_for_function(
         "() => !Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes('导出全部匹配结果'))?.disabled"

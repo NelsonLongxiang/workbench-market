@@ -26,12 +26,13 @@ ENTRY2 = {**ENTRY, 'version': 6, 'title': '合成巡检总览·二',
           'views': [{'key': 'vk-board', 'title': '巡检看板'}, {'key': 'vk-rows', 'title': '巡检明细'}, {'key': 'vk-extra', 'title': '新加的视角'}]}
 ENTRY3 = {**ENTRY, 'version': 7, 'title': '合成巡检总览·三', 'views': [ENTRY['views'][0]]}
 SITE = {'name': 'site', 'kind': 'search', 'label': '区域'}
+OWNER = {'name': 'owner', 'kind': 'search', 'label': '负责人'}
 FORM = {'type': 'form', 'title': '登记一次巡检', 'span': 6, 'columns': [{'name': 'site', 'type': 'text', 'label': '区域', 'required': True}, {'name': 'n', 'type': 'integer', 'label': '件数'}], 'submit_label': '登记'}
 def view_result(view, params):
     vt = next(v['title'] for v in ENTRY['views'] if v['key'] == view)
     n = 63 if not params.get('site') else 7
     rows = [{'site': '东区', 'n': 21, 'state': '正常'}, {'site': '西区', 'n': 42, 'state': '待查'}] if not params.get('site') else [{'site': params['site'], 'n': 7, 'state': '正常'}]
-    blocks = [{'type': 'filter-bar', 'fields': [SITE], 'span': 12},
+    blocks = [{'type': 'filter-bar', 'fields': [SITE, OWNER] if mode['filters'] == 'two' else [SITE], 'span': 12},
               {'type': 'stat', 'title': '本月巡检', 'unit': '次', 'value': 'v', 'span': 3, 'data': {'columns': [{'name': 'v', 'type': 'integer'}], 'rows': [{'v': n}]}},
               {'type': 'progress', 'title': '完成度', 'value': 'v', 'total': 80, 'span': 3, 'data': {'columns': [{'name': 'v', 'type': 'integer'}], 'rows': [{'v': n}]}}]
     if view == 'vk-board':
@@ -45,8 +46,13 @@ def view_result(view, params):
         blocks += [{'type': 'table', 'title': '明细', 'span': 12, 'data': {'columns': [{'name': 'site', 'type': 'text'}, {'name': 'n', 'type': 'integer'}], 'rows': rows}}]
     return {'title': ENTRY['title'], 'version': 5, 'view': {'key': view, 'title': vt}, 'params': params, 'blocks': blocks}
 
-log = {'entry': 0, 'render': [], 'form': []}
-mode = {'entry': 'ok', 'render': 'ok', 'form': 'ok'}
+log = {'entry': 0, 'render': [], 'form': [], 'title': []}
+mode = {'entry': 'ok', 'render': 'ok', 'form': 'ok', 'title': 'ok', 'filters': 'one'}
+held = []  # 压住不回的取数（render 应答由测试自己放行）
+held_entry = []  # 压住不回的入口应答
+# 改台名（#905）：管理层的入口带 can.rename；台名改了以后入口照新名字回
+mgr = {'title': ENTRY['bench']['title']}
+def mgr_entry(): return {**ENTRY, 'bench': {**ENTRY['bench'], 'title': mgr['title']}, 'can': {'rename': True}}
 def fake(route, body, status=200): route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
 def on_bv(route):
     u = urlparse(route.request.url); parts = u.path.split('/')
@@ -60,11 +66,14 @@ def on_bv(route):
         if mode['entry'] == 'one': return fake(route, {**ENTRY, 'views': ENTRY['views'][:1]})
         if mode['entry'] == 'v2': return fake(route, ENTRY2)
         if mode['entry'] == 'v3': return fake(route, ENTRY3)
+        if mode['entry'] == 'mgr': return fake(route, mgr_entry())
+        if mode['entry'] == 'hold': held_entry.append((route, mgr_entry())); return None  # 应答照发出那一刻的名字，由测试晚些放行
         return fake(route, ENTRY)
     if rest == 'render':
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         params = {k[2:]: v for k, v in q.items() if k.startswith('p.')}
         log['render'].append((q.get('view'), params))
+        if mode['render'] == 'hold': held.append((route, q.get('view') or 'vk-board', params)); return None
         if mode['render'] == '403': return fake(route, {'error': 'bench_views_forbidden'}, 403)
         if mode['render'] == 'off': return fake(route, {'error': 'bench_views_off'}, 404)
         return fake(route, view_result(q.get('view') or 'vk-board', params))
@@ -73,6 +82,11 @@ def on_bv(route):
         if mode['form'] == '409': return fake(route, {'error': 'conflict', 'message': '版本变了'}, 409)
         if mode['form'] == '403': return fake(route, {'error': 'bench_views_forbidden'}, 403)
         return fake(route, {'ok': True})
+    if rest == 'title':
+        body = json.loads(route.request.post_data or '{}'); log['title'].append(body)
+        if mode['title'] == '409': return fake(route, {'error': 'conflict', 'message': '台的名字已经被改过了，先重新读一次再改'}, 409)
+        changed = body.get('title') != mgr['title']; mgr['title'] = body.get('title', mgr['title'])
+        return fake(route, {'bench': mgr_entry()['bench'], 'changed': changed})
     return fake(route, {'error': 'not_found'}, 404)
 
 def q_of(pg): return {k: v[0] for k, v in parse_qs(urlparse(pg.url).query).items()}
@@ -81,6 +95,8 @@ def body_text(pg): return pg.locator('body').inner_text()
 with sync_playwright() as p:
     b = p.chromium.launch()
     ctx = b.new_context(viewport={'width': 1440, 'height': 900})
+    # 切回标签页重新取入口有 30 秒节流：测试里把页面的 Date.now 往后拨（window.__wmShift 毫秒），不真等
+    ctx.add_init_script("(() => { const real = Date.now.bind(Date); window.__wmShift = 0; Date.now = () => real() + window.__wmShift; })()")
     ctx.add_cookies([{'name': 'session_id', 'value': cfg['alpha_session'], 'url': M}])
     pg = ctx.new_page(); pg.set_default_timeout(10000)
     pg.route('**/api/bench-views/**', on_bv)
@@ -200,6 +216,106 @@ with sync_playwright() as p:
     pg.wait_for_timeout(800)
     check('入口这次读不到（500）：页面保持现状不换，正文照常重新取数，不整页报错', len(log['render']) > r2 and pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览·三' and pg.locator('[data-testid=use-entry-error]').count() == 0, (len(log['render']) - r2))
     mode['entry'] = 'ok'
+
+    print('七、改台名（#905）')
+    mode['render'] = 'ok'; mode['entry'] = 'ok'
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    check('入口没给 can.rename（不是管理层）：顶栏不出「改名」', pg.locator('[data-testid=bench-page-rename]').count() == 0)
+    mode['entry'] = 'mgr'; mgr['title'] = ENTRY['bench']['title']
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-testid=bench-page-rename]')
+    check('入口给了 can.rename：顶栏台名旁出「改名」，和「详情」在一处', pg.locator('.wm-bp-bar-extra [data-testid=bench-page-rename]').count() == 1)
+    pg.locator('[data-testid=bench-page-rename]').click(); inp = pg.locator('[data-testid=bench-rename-input]'); inp.wait_for()
+    check('点开：输入框预填现在的台名', inp.input_value() == '合成·巡检台', inp.input_value())
+    inp.fill('合成·巡检台（新）'); pg.locator('[data-testid=bench-rename-save]').click()
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '合成·巡检台（新）'")
+    # 对话框关的时候有收起动画，输入框在动画结束后才从页面上拿掉：等它真没了再断言（等不到就超时失败）
+    pg.wait_for_selector('[data-testid=bench-rename-input]', state='detached')
+    check('保存：请求带新名字和点开时看到的名字（base_title）；对话框关了，顶栏和标签页标题换成新名字',
+          log['title'][-1:] == [{'title': '合成·巡检台（新）', 'base_title': '合成·巡检台'}] and pg.locator('[data-testid=bench-rename-input]').count() == 0 and pg.title() == '合成巡检总览 · 合成·巡检台（新）', (log['title'][-1:], pg.title()))
+    # 409：别人在这之间改过
+    mode['title'] = '409'
+    pg.locator('[data-testid=bench-page-rename]').click(); inp = pg.locator('[data-testid=bench-rename-input]'); inp.wait_for()
+    inp.fill('我想改成这个'); pg.locator('[data-testid=bench-rename-save]').click()
+    pg.wait_for_selector('[data-testid=bench-rename-msg]')
+    msg = pg.locator('[data-testid=bench-rename-msg]').inner_text()
+    check('409：照服务端的说法提示，带「重新读一次」；对话框不关、输入框不动', '台的名字已经被改过了，先重新读一次再改' in msg and pg.locator('[data-testid=bench-rename-reload]').count() == 1 and inp.input_value() == '我想改成这个', msg)
+    mgr['title'] = '合成·别人改的名字'; mode['title'] = 'ok'
+    pg.locator('[data-testid=bench-rename-reload]').click()
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-rename-input]')?.value === '合成·别人改的名字'")
+    check('「重新读一次」：输入框换成现在的名字，顶栏也跟上', pg.locator('[data-testid=bench-page-name]').inner_text() == '合成·别人改的名字')
+    # 「重新读一次」这一次没取到（入口 500）：输入框不动、说一句；之后后台再取到新名字，也不改输入框
+    mode['title'] = '409'
+    inp.fill('又想改成这个'); pg.locator('[data-testid=bench-rename-save]').click()
+    pg.wait_for_selector('[data-testid=bench-rename-reload]')
+    mode['entry'] = '500'; mgr['title'] = '合成·读不到时别人又改的'
+    pg.locator('[data-testid=bench-rename-reload]').click()
+    pg.wait_for_function("() => (document.querySelector('[data-testid=bench-rename-msg]')?.textContent ?? '').includes('读不到现在的名字')")
+    check('「重新读一次」没取到：输入框还是自己填的那个，说读不到、还能再点', inp.input_value() == '又想改成这个' and pg.locator('[data-testid=bench-rename-reload]').count() == 1, inp.input_value())
+    mode['entry'] = 'mgr'; e1 = log['entry']
+    pg.evaluate("() => { window.__wmShift += 31000; window.dispatchEvent(new Event('focus')); }")
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '合成·读不到时别人又改的'")
+    check('……之后后台重取到了新名字：顶栏换了，对话框里的输入仍然不被覆盖', log['entry'] > e1 and inp.input_value() == '又想改成这个', inp.input_value())
+    mode['title'] = 'ok'; mgr['title'] = '合成·别人改的名字'
+    pg.locator('[data-testid=bench-rename-reload]').click()
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-rename-input]')?.value === '合成·别人改的名字'")
+    pg.locator('[data-testid=bench-rename-save]').click()
+    pg.wait_for_function("() => (document.querySelector('[data-testid=bench-rename-msg]')?.textContent ?? '').includes('名字没变')")
+    check('没改名字就保存：说「名字没变」，请求的 base_title 是重新读到的名字', '名字没变' in pg.locator('[data-testid=bench-rename-msg]').inner_text() and log['title'][-1].get('base_title') == '合成·别人改的名字', log['title'][-1:])
+    # 对话框开着时，页面在后台重新取了入口：输入框不被覆盖
+    inp.fill('正在输入的名字')
+    e0 = log['entry']
+    pg.evaluate("() => window.dispatchEvent(new Event('focus'))"); pg.wait_for_timeout(400)
+    check('切回标签页不到 30 秒：不重新取入口', log['entry'] == e0, (e0, log['entry']))
+    mgr['title'] = '合成·后台又改了'
+    pg.evaluate("() => { window.__wmShift += 31000; window.dispatchEvent(new Event('focus')); }")
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '合成·后台又改了'")
+    check('过了 30 秒再切回来：重新取了一次入口，顶栏换成别人改的新名字', log['entry'] == e0 + 1, (e0, log['entry']))
+    check('……对话框开着：输入框还是正在输入的那个，没被覆盖', inp.input_value() == '正在输入的名字', inp.input_value())
+    pg.keyboard.press('Escape'); mode['entry'] = 'ok'
+
+    print('七之二、连着重取两次入口，先发出的那次晚到')
+    mode['entry'] = 'mgr'; mgr['title'] = '合成·旧名'; held_entry.clear()
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    mode['entry'] = 'hold'
+    pg.locator('[data-testid=bench-page-refresh]').click()
+    for _ in range(250):  # 等到第一次重取确实压在半路，等不到就失败
+        if held_entry: break
+        pg.wait_for_timeout(20)
+    check('（前提）第一次重取入口压在半路，它带的还是旧名', len(held_entry) == 1 and held_entry[0][1]['bench']['title'] == '合成·旧名', len(held_entry))
+    mgr['title'] = '合成·新名'; mode['entry'] = 'mgr'
+    pg.locator('[data-testid=bench-page-refresh]').click()
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '合成·新名'")
+    with pg.expect_event('requestfinished', lambda r: r.url.endswith('/entry')):
+        route, body = held_entry.pop(); fake(route, body)
+    pg.evaluate("() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))")  # 晚到的应答交给页面以后，再等两帧让它画完
+    check('先发出的那次晚到（带旧名）：顶栏仍是后一次的新名字，不退回旧名', pg.locator('[data-testid=bench-page-name]').inner_text() == '合成·新名' and pg.title().endswith('合成·新名'), (pg.locator('[data-testid=bench-page-name]').inner_text(), pg.title()))
+    mode['entry'] = 'ok'
+
+    print('八、连着改两个筛选（第一次取数还没回来就改第二个）')
+    mode['render'] = 'ok'; mode['entry'] = 'ok'; mode['filters'] = 'two'
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    mode['render'] = 'hold'; held.clear()
+    s1 = pg.locator('[data-filter=site] input'); s1.fill('北区'); s1.press('Enter')
+    pg.wait_for_function("() => new URLSearchParams(location.search).get('p.site') === '北区'")
+    for _ in range(250):  # 等到第一次取数确实压在半路（不回应答），等不到就失败
+        if held: break
+        pg.wait_for_timeout(20)
+    check('（前提）改了第一个筛选：地址带上了，它的取数压在半路还没回来', len(held) == 1 and held[0][2] == {'site': '北区'}, [h[2] for h in held])
+    s2 = pg.locator('[data-filter=owner] input'); s2.fill('合成甲'); s2.press('Enter')
+    pg.wait_for_function("() => new URLSearchParams(location.search).get('p.owner') === '合成甲'")
+    q = q_of(pg)
+    check('紧接着改第二个筛选：第一个没被冲掉，地址里两个都在', q.get('p.site') == '北区' and q.get('p.owner') == '合成甲', q)
+    for _ in range(250):
+        if len(held) >= 2: break
+        pg.wait_for_timeout(20)
+    check('第二次取数带着两个筛选', len(held) >= 2 and held[-1][2] == {'site': '北区', 'owner': '合成甲'}, [h[2] for h in held])
+    mode['render'] = 'ok'
+    for route, view, params in held: fake(route, view_result(view, params))
+    held.clear()
+    pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    q = q_of(pg)
+    check('压着的取数放行以后：地址里两个筛选仍在，筛选栏里两个框都是填的值', q.get('p.site') == '北区' and q.get('p.owner') == '合成甲' and pg.locator('[data-filter=site] input').input_value() == '北区' and pg.locator('[data-filter=owner] input').input_value() == '合成甲', (q, pg.locator('[data-filter=site] input').input_value()))
+    mode['filters'] = 'one'
 
     print('五、入口')
     mode['entry'] = '403'; pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('.wm-use-frame')
