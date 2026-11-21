@@ -136,7 +136,7 @@ export default function OwnerPending() {
 
   return <WmPage>
     <AlsoInAttention what="待你答复的事项" />
-    <Space direction="vertical" style={{ width: '100%' }}>
+    <Space direction="vertical" className="wm-w-full">
       <Typography.Text type="secondary" className="wm-caption">
         本页答复由属主本人登录后写入，可作为属主对该事项的答复；涉及生产或不可逆动作的授权，仍须在授权登记表里引用本条答复登记后才生效。
       </Typography.Text>
@@ -149,11 +149,11 @@ export default function OwnerPending() {
       {admin && boardId && !config && !error && (viewer
         ? <Alert type="warning" showIcon message="看板还没登记属主" description={<Space direction="vertical">
             <span>只有属主本人能登记，登记后本页只认你（{loginLabel(me ?? '')}）的答复，以及下面这些登记身份写的事项。</span>
-            <Form.Item label="登记身份" style={{ marginBottom: 0 }}><Input aria-label="登记身份" value={writers} onChange={(e) => setWriters(e.target.value)} autoComplete="off" style={{ width: 360 }} /></Form.Item>
+            <Form.Item label="登记身份" className="wm-mb-0"><Input aria-label="登记身份" value={writers} onChange={(e) => setWriters(e.target.value)} autoComplete="off" className="wm-w-360" /></Form.Item>
             <Button type="primary" loading={busy} onClick={() => void register()}>我是属主，登记</Button>
           </Space>} />
         : <Alert type="warning" showIcon message="看板还没登记属主" description="需要属主本人用站内账号登录后打开本页完成登记。" />)}
-      {anomalies.length > 0 && <Alert type="warning" showIcon message={`${anomalies.length} 条记录来源不符，未采信`} description={<ul style={{ margin: 0, paddingLeft: 18 }}>{anomalies.map((a) => <li key={a.key}><code>{a.key}</code>：{a.reason}</li>)}</ul>} />}
+      {anomalies.length > 0 && <Alert type="warning" showIcon message={`${anomalies.length} 条记录来源不符，未采信`} description={<ul className="wm-list-compact">{anomalies.map((a) => <li key={a.key}><code>{a.key}</code>：{a.reason}</li>)}</ul>} />}
       {config && <Table<BoardRow> rowKey="no" size="middle" loading={loading} columns={columns} dataSource={rows} pagination={false}
         locale={{ emptyText: '没有待属主的事项' }} scroll={{ x: 1100 }} />}
     </Space>

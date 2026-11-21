@@ -52,7 +52,29 @@ body {
 .wm-mb-2 { margin-bottom: var(--wm-space-2); }
 .wm-mb-3 { margin-bottom: var(--wm-space-3); }
 .wm-mb-4 { margin-bottom: var(--wm-space-4); }
+.wm-mb-0 { margin-bottom: 0; }
 .wm-m-0 { margin: 0; }
+.wm-mt-2 { margin-top: var(--wm-space-2); }
+.wm-mt-6 { margin-top: var(--wm-space-6); }
+.wm-mt-8 { margin-top: var(--wm-space-8); }
+.wm-mt-12 { margin-top: var(--wm-space-12); }
+.wm-sop-flex-1 { flex: 1; }
+.wm-sop-flex-2 { flex: 2; }
+.wm-col-gap-1 { display: flex; flex-direction: column; gap: var(--wm-space-1); }
+.wm-list-compact { margin: 0; padding-left: var(--wm-space-4); }
+.wm-w-110 { width: 110px; }
+.wm-w-130 { width: 130px; }
+.wm-w-140 { width: 140px; }
+.wm-w-150 { width: 150px; }
+.wm-w-180 { width: 180px; }
+.wm-w-240 { width: 240px; }
+.wm-w-360 { width: 360px; }
+.wm-max-w-300 { max-width: 300px; }
+.wm-max-w-640 { max-width: 640px; }
+.wm-max-w-720 { max-width: 720px; }
+.wm-ck-item { flex: 1 1 260px; max-width: 360px; min-width: 240px; }
+.wm-ck-loading { display: flex; justify-content: center; padding: var(--wm-space-12); }
+.wm-ck-add-sel { min-width: 260px; }
 /* 原生输入框（少数非 antd 表单，如 SOP 网络暴露抽屉、Cookie 粘贴框） */
 .wm-input {
   padding: var(--wm-space-1) var(--wm-space-3);
