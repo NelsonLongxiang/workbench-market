@@ -1522,7 +1522,7 @@
           "id": "area-member",
           "route": "POST /api/work-items",
           "class": "normal",
-          "what": "持 area:sales 的领域成员带领域 sales 建事项",
+          "what": "持 area:sales 的领域成员带领域 sales 建事项：201，事项落到领域上",
           "request": {
             "method": "POST",
             "path": "/api/work-items",
@@ -1533,14 +1533,14 @@
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "item_id": "wi_wbe-b7c5385961782624", "task_id": 1, "event_id": "wbe-b7c5385961782624", "state": "held", "held": true, "duplicate": false }
+            "body": { "item_id": "wi_wbe-31dc3753ecda06c0", "task_id": 1, "event_id": "wbe-31dc3753ecda06c0", "state": "held", "held": true, "duplicate": false }
           }
         },
         {
           "id": "area-dept-only",
           "route": "POST /api/work-items",
-          "class": "normal",
-          "what": "只持 dept:sales（停写前的部门授予）的人带领域 sales 建事项",
+          "class": "unauthorized",
+          "what": "只持 dept:sales（停写前的部门授予）的人带领域 sales 建事项：403（新的 area.* 不认 dept:）",
           "request": {
             "method": "POST",
             "path": "/api/work-items",
@@ -1548,17 +1548,17 @@
             "json": { "title": "合成：area-dept-only", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000002", "area": "sales" }
           },
           "response": {
-            "status": 201,
+            "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "item_id": "wi_wbe-0c7b83084e3c5ff3", "task_id": 2, "event_id": "wbe-0c7b83084e3c5ff3", "state": "held", "held": true, "duplicate": false }
+            "headers": { "cache-control": "private, no-store", "content-length": "162", "etag": "W/\"a2-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_trigger_forbidden", "message": "在领域 sales 里建事项要有这个领域的授予（领域成员、负责人），或者是属主、管理层" }
           }
         },
         {
           "id": "area-no-grant",
           "route": "POST /api/work-items",
-          "class": "normal",
-          "what": "领域 old 已经撤了：持 area:sales 的人带它建事项",
+          "class": "unauthorized",
+          "what": "持 area:sales 的人带已撤的领域 old 建事项：403（看不到全部领域的人，撤了的和没授予一样答）",
           "request": {
             "method": "POST",
             "path": "/api/work-items",
@@ -1566,17 +1566,17 @@
             "json": { "title": "合成：area-no-grant", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000003", "area": "old" }
           },
           "response": {
-            "status": 201,
+            "status": 403,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "item_id": "wi_wbe-4b950224b2fccc80", "task_id": 3, "event_id": "wbe-4b950224b2fccc80", "state": "held", "held": true, "duplicate": false }
+            "headers": { "cache-control": "private, no-store", "content-length": "160", "etag": "W/\"a0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_trigger_forbidden", "message": "在领域 old 里建事项要有这个领域的授予（领域成员、负责人），或者是属主、管理层" }
           }
         },
         {
           "id": "area-pending-lead",
           "route": "POST /api/work-items",
-          "class": "normal",
-          "what": "管理层带还没有负责人的领域 ops 建事项",
+          "class": "invalid",
+          "what": "管理层带还没有负责人的领域 ops 建事项：409 area_no_lead",
           "request": {
             "method": "POST",
             "path": "/api/work-items",
@@ -1584,17 +1584,17 @@
             "json": { "title": "合成：area-pending-lead", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000004", "area": "ops" }
           },
           "response": {
-            "status": 201,
+            "status": 409,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "item_id": "wi_wbe-1970a3948663065f", "task_id": 4, "event_id": "wbe-1970a3948663065f", "state": "held", "held": true, "duplicate": false }
+            "headers": { "cache-control": "private, no-store", "content-length": "120", "etag": "W/\"78-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_no_lead", "message": "领域 ops 还没有负责人：等属主指定负责人之后才能触发、验收" }
           }
         },
         {
           "id": "area-retired",
           "route": "POST /api/work-items",
-          "class": "normal",
-          "what": "管理层带已经撤了的领域 old 建事项",
+          "class": "invalid",
+          "what": "管理层带已经撤了的领域 old 建事项：409 area_retired",
           "request": {
             "method": "POST",
             "path": "/api/work-items",
@@ -1602,17 +1602,17 @@
             "json": { "title": "合成：area-retired", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000005", "area": "old" }
           },
           "response": {
-            "status": 201,
+            "status": 409,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "item_id": "wi_wbe-c88c5e9f2e27894b", "task_id": 5, "event_id": "wbe-c88c5e9f2e27894b", "state": "held", "held": true, "duplicate": false }
+            "headers": { "cache-control": "private, no-store", "content-length": "69", "etag": "W/\"45-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_retired", "message": "领域 old 已经撤了，只读" }
           }
         },
         {
           "id": "area-missing",
           "route": "POST /api/work-items",
-          "class": "normal",
-          "what": "管理层带不存在的领域 nope 建事项",
+          "class": "invalid",
+          "what": "管理层带不存在的领域 nope 建事项：404 area_missing",
           "request": {
             "method": "POST",
             "path": "/api/work-items",
@@ -1620,17 +1620,17 @@
             "json": { "title": "合成：area-missing", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000006", "area": "nope" }
           },
           "response": {
-            "status": 201,
+            "status": 404,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "item_id": "wi_wbe-e2944ecfe381a35a", "task_id": 6, "event_id": "wbe-e2944ecfe381a35a", "state": "held", "held": true, "duplicate": false }
+            "headers": { "cache-control": "private, no-store", "content-length": "58", "etag": "W/\"3a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_missing", "message": "领域 nope 不存在" }
           }
         },
         {
           "id": "area-bad",
           "route": "POST /api/work-items",
-          "class": "normal",
-          "what": "领域标识写法不对",
+          "class": "invalid",
+          "what": "领域标识写法不对：400 area_invalid",
           "request": {
             "method": "POST",
             "path": "/api/work-items",
@@ -1638,17 +1638,17 @@
             "json": { "title": "合成：area-bad", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000007", "area": "Bad_Area!" }
           },
           "response": {
-            "status": 201,
+            "status": 400,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "item_id": "wi_wbe-59828f5a0bb45184", "task_id": 7, "event_id": "wbe-59828f5a0bb45184", "state": "held", "held": true, "duplicate": false }
+            "headers": { "cache-control": "private, no-store", "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_invalid", "message": "领域标识要是小写字母开头的字母、数字、连字符，最多 48 个字符" }
           }
         },
         {
           "id": "area-number",
           "route": "POST /api/work-items",
-          "class": "normal",
-          "what": "领域给成数字",
+          "class": "invalid",
+          "what": "领域给成数字：400 area_invalid",
           "request": {
             "method": "POST",
             "path": "/api/work-items",
@@ -1656,10 +1656,10 @@
             "json": { "title": "合成：area-number", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000008", "area": 7 }
           },
           "response": {
-            "status": 201,
+            "status": 400,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "item_id": "wi_wbe-8f50dd447835a525", "task_id": 8, "event_id": "wbe-8f50dd447835a525", "state": "held", "held": true, "duplicate": false }
+            "headers": { "cache-control": "private, no-store", "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_invalid", "message": "领域标识要是小写字母开头的字母、数字、连字符，最多 48 个字符" }
           }
         },
         {
@@ -1677,7 +1677,7 @@
             "status": 201,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "item_id": "wi_wbe-3449b0f61e8db1c5", "task_id": 9, "event_id": "wbe-3449b0f61e8db1c5", "state": "held", "held": true, "duplicate": false }
+            "body": { "item_id": "wi_wbe-d76ffcec9a7302f7", "task_id": 2, "event_id": "wbe-d76ffcec9a7302f7", "state": "held", "held": true, "duplicate": false }
           }
         },
         {
@@ -1689,13 +1689,13 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1405", "etag": "W/\"57d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "731", "etag": "W/\"2db-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "mine",
-              "views": { "mine": { "available": true, "count": 3, "decide": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
+              "views": { "mine": { "available": true, "count": 2, "decide": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
               "items": [
                 {
-                  "id": "wi_wbe-b7c5385961782624",
+                  "id": "wi_wbe-31dc3753ecda06c0",
                   "title": "合成：area-member",
                   "state": "held",
                   "object": "po:7",
@@ -1706,39 +1706,12 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
-                  "release_by": { "kind": "management", "text": "管理层" }
-                },
-                {
-                  "id": "wi_wbe-4b950224b2fccc80",
-                  "title": "合成：area-no-grant",
-                  "state": "held",
-                  "object": "po:7",
-                  "phase": "对账",
-                  "seat": "",
-                  "cockpit_id": null,
-                  "last_progress": { "actor": "market", "fact": "submit", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss",
-                  "due": null,
-                  "overdue": false,
-                  "release_by": { "kind": "management", "text": "管理层" }
-                },
-                {
-                  "id": "wi_wbe-3449b0f61e8db1c5",
-                  "title": "合成：area-empty",
-                  "state": "held",
-                  "object": "po:7",
-                  "phase": "对账",
-                  "seat": "",
-                  "cockpit_id": null,
-                  "last_progress": { "actor": "market", "fact": "submit", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss",
-                  "due": null,
-                  "overdue": false,
-                  "release_by": { "kind": "management", "text": "管理层" }
+                  "release_by": { "kind": "management", "text": "管理层" },
+                  "area": "sales"
                 }
               ],
-              "counts": { "draft": 0, "held": 3, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
-              "total": 3,
+              "counts": { "draft": 0, "held": 1, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
+              "total": 1,
               "next_cursor": null
             }
           }
@@ -1746,64 +1719,14 @@
         {
           "id": "list-area-bad",
           "route": "GET /api/work-items",
-          "class": "normal",
-          "what": "按领域筛，标识写法不对（停写前的代码不认 area 参数，照常列出）",
+          "class": "invalid",
+          "what": "按领域筛，标识写法不对：400 area_invalid",
           "request": { "method": "GET", "path": "/api/work-items?area=Bad!", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
           "response": {
-            "status": 200,
+            "status": 400,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1405", "etag": "W/\"57d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": {
-              "view": "mine",
-              "views": { "mine": { "available": true, "count": 3, "decide": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
-              "items": [
-                {
-                  "id": "wi_wbe-b7c5385961782624",
-                  "title": "合成：area-member",
-                  "state": "held",
-                  "object": "po:7",
-                  "phase": "对账",
-                  "seat": "",
-                  "cockpit_id": null,
-                  "last_progress": { "actor": "market", "fact": "submit", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss",
-                  "due": null,
-                  "overdue": false,
-                  "release_by": { "kind": "management", "text": "管理层" }
-                },
-                {
-                  "id": "wi_wbe-4b950224b2fccc80",
-                  "title": "合成：area-no-grant",
-                  "state": "held",
-                  "object": "po:7",
-                  "phase": "对账",
-                  "seat": "",
-                  "cockpit_id": null,
-                  "last_progress": { "actor": "market", "fact": "submit", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss",
-                  "due": null,
-                  "overdue": false,
-                  "release_by": { "kind": "management", "text": "管理层" }
-                },
-                {
-                  "id": "wi_wbe-3449b0f61e8db1c5",
-                  "title": "合成：area-empty",
-                  "state": "held",
-                  "object": "po:7",
-                  "phase": "对账",
-                  "seat": "",
-                  "cockpit_id": null,
-                  "last_progress": { "actor": "market", "fact": "submit", "text": "", "at": "YYYY-MM-DD hh:mm:ss" },
-                  "updated_at": "YYYY-MM-DD hh:mm:ss",
-                  "due": null,
-                  "overdue": false,
-                  "release_by": { "kind": "management", "text": "管理层" }
-                }
-              ],
-              "counts": { "draft": 0, "held": 3, "delivered": 0, "accepted": 0, "progress": 0, "waiting": 0, "ready": 0, "blocked": 0, "done": 0, "failed": 0, "dropped": 0, "cancelled": 0 },
-              "total": 3,
-              "next_cursor": null
-            }
+            "headers": { "cache-control": "private, no-store", "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "area_invalid", "message": "领域标识要是小写字母开头的字母、数字、连字符，最多 48 个字符" }
           }
         }
       ]
