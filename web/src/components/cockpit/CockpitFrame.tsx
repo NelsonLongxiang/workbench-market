@@ -18,9 +18,11 @@ export default function CockpitFrame({ storageKey, bar, extra, left, main, botto
   const [max, setMax] = useState<string | null>(null);
   const onToggleMax = useCallback((id: string) => setMax((cur) => toggleMax(cur, id)), []);
   const drag = useRef<{ which: keyof Sizes; x: number; y: number; start: Sizes } | null>(null);
+  const stopDrag = useRef<(() => void) | null>(null);
 
   const latest = useRef(sizes);
   latest.current = sizes;
+  useEffect(() => () => stopDrag.current?.(), []);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = document.activeElement as HTMLElement | null;
@@ -46,6 +48,7 @@ export default function CockpitFrame({ storageKey, bar, extra, left, main, botto
     const up = () => {
       if (!drag.current) return;
       drag.current = null;
+      stopDrag.current = null;
       try { if (el.hasPointerCapture?.(pid)) el.releasePointerCapture(pid); } catch {}
       try { localStorage.setItem(key, JSON.stringify(latest.current)); } catch { /* 存不了就只在本页有效 */ }
       window.removeEventListener('pointermove', move);
@@ -53,6 +56,7 @@ export default function CockpitFrame({ storageKey, bar, extra, left, main, botto
       window.removeEventListener('pointercancel', up);
       window.removeEventListener('blur', up);
     };
+    stopDrag.current = up;
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
     window.addEventListener('pointercancel', up);

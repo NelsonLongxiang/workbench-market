@@ -56,9 +56,12 @@ export default function Market() {
   // 连接器只给管理员：别人地址里带 ?k=连接器 也落「全部」
   const asked = tabFromQuery(params.get('k'));
   const tab: MarketTab = tabsFor(admin).includes(asked) ? asked : '全部';
-  const [q, setQ] = useState(() => (params.get('q') ?? '').slice(0, 100));
+  const urlQ = (params.get('q') ?? '').slice(0, 100);
+  const [q, setQ] = useState(urlQ);
   const [src, setSrc] = useState<Sources>(NONE);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => setQ(urlQ), [urlQ]);
 
   useEffect(() => subscribeAdminToken(() => setAdmin(adminActive())), []);
   useEffect(() => {
