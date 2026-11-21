@@ -143,6 +143,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
         { id: 'market.bench-views.var-render-anonymous', target: m, surface: 'market' as const, method: 'GET', path: '/api/bench-views/wm-self-probe/render?var=wm-self-probe', headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.table-export-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/table/export', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.table-row-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/table/row', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
+        // 报告（docs/report-step1.md，报告第 1 步 PR B）：远程匿名生成不了报告（路由自己认不出人，401）
+        { id: 'market.bench-views.report-generate-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/reports', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.anonymous-write', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views', body: '{"slug":"wm-self-probe","title":"x"}', headers: REMOTE_ANON, status: 401 },
       ] : []),
       // 授予管理面：远程匿名列不出授予（GET 不经写请求总门，拒的是路由自己的管理门；登录门开着时登录门先拦 401）

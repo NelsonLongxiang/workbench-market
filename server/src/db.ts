@@ -2188,6 +2188,35 @@ function benchStoreAppSchema(): string[] {
 }
 
 /**
+ * 附加的表（开库不建，第一次绑模板、生成报告时才建；不升版本号）：报告（docs/report-step1.md 第二节第 2 小节，报告第 1 步 PR B）。
+ *   bs_report_bindings：这个台对一个维度的绑定（每个数据槽对应本台哪份视图的哪个块、参数和列怎么对应），改了就加一版，旧版留着（报告引用）；
+ *   bs_reports：生成时冻结的报告（模板版本、绑定版本、事物、输入、成品、来源由服务端填）；supersedes 是更正的哪一份，更正链不分叉（唯一索引）；
+ *   bs_report_claims：随报告一起写、一起冻结的论断。
+ * 三张表都不能改、不能删（SQLite 两边各一个触发器；PostgreSQL 那一份成对的到搬库时登记，和主库领域的表一样）。时间是毫秒整数，由代码给
+ */
+function benchStoreReportSchema(d: BenchDialect): string[] {
+  const big = d === 'postgres' ? 'BIGINT' : 'INTEGER';
+  const out = [
+    `CREATE TABLE IF NOT EXISTS bs_report_bindings (
+      dimension_id TEXT NOT NULL, version INTEGER NOT NULL, template_version INTEGER NOT NULL, slots TEXT NOT NULL,
+      created_by TEXT NOT NULL, created_at ${big} NOT NULL, PRIMARY KEY (dimension_id, version))`,
+    `CREATE TABLE IF NOT EXISTS bs_reports (
+      id ${benchAutoId(d)}, dimension_id TEXT NOT NULL, template_version INTEGER NOT NULL, template_sha256 TEXT NOT NULL, binding_version INTEGER NOT NULL,
+      subject TEXT NOT NULL, inputs TEXT NOT NULL, body TEXT NOT NULL, sources TEXT NOT NULL, content_sha256 TEXT NOT NULL,
+      producer TEXT NOT NULL, producer_kind TEXT NOT NULL, supersedes ${big}, created_at ${big} NOT NULL)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_bs_reports_supersedes ON bs_reports (supersedes) WHERE supersedes IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_bs_reports_subject ON bs_reports (subject, dimension_id, id)`,
+    `CREATE TABLE IF NOT EXISTS bs_report_claims (
+      report_id ${big} NOT NULL, claim_key TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, basis TEXT NOT NULL, PRIMARY KEY (report_id, claim_key))`,
+  ];
+  if (d === 'sqlite') for (const t of ['bs_report_bindings', 'bs_reports', 'bs_report_claims']) {
+    out.push(`CREATE TRIGGER IF NOT EXISTS ${t}_no_update BEFORE UPDATE ON ${t} BEGIN SELECT RAISE(ABORT, '${t} 建好不能改'); END`);
+    out.push(`CREATE TRIGGER IF NOT EXISTS ${t}_no_delete BEFORE DELETE ON ${t} BEGIN SELECT RAISE(ABORT, '${t} 不能删'); END`);
+  }
+  return out;
+}
+
+/**
  * 台库用到的、属于表结构或随库不同的写法，打成一份纯数据。
  *
  * 台库的读写在工作线程里跑（services/bench-store-worker.ts）。线程不能引用这个文件：一引用就会在线程里再开一次主库。
@@ -2206,6 +2235,10 @@ export type BenchSqlKit = {
   appSchema: string[];
   appProbes: string[];
   appExists: string;
+  /** 附加的表 bs_report_bindings、bs_reports、bs_report_claims（同 bs_vars：开库不建，第一次绑模板、生成报告时才建）、试读、在不在 */
+  reportSchema: string[];
+  reportProbes: string[];
+  reportExists: string;
   /** 固定的几张表 */
   schema: string[];
   /** 打开库时逐条试一遍：哪条跑不通，就是库文件的结构和这份代码对不上（比如还没定稿时旧代码建的文件），明确拒绝，不静默照用 */
@@ -2247,6 +2280,15 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
     appExists: d === 'postgres'
       ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_app_files'"
       : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_app_files'",
+    reportSchema: benchStoreReportSchema(d),
+    reportProbes: [
+      'SELECT dimension_id, version, template_version, slots, created_by, created_at FROM bs_report_bindings WHERE 1 = 0',
+      'SELECT id, dimension_id, template_version, template_sha256, binding_version, subject, inputs, body, sources, content_sha256, producer, producer_kind, supersedes, created_at FROM bs_reports WHERE 1 = 0',
+      'SELECT report_id, claim_key, kind, text, basis FROM bs_report_claims WHERE 1 = 0',
+    ],
+    reportExists: d === 'postgres'
+      ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_report_claims'"
+      : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_report_claims'",
     schema: benchStoreSchema(d),
     probes: [
       'SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_datasets WHERE 1 = 0',

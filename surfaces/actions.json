@@ -63,6 +63,11 @@
       "POST /api/bench-views/:bench/datasets/:name/snapshots  -> bench-store.snapshot-take  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "POST /api/bench-views/:bench/restore  -> bench-store.snapshot-restore  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "GET /api/bench-views/:bench/entry  -> bench-store.view-get  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "GET /api/bench-views/:bench/reports/:dimension/binding  -> bench-store.report-read  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "PUT /api/bench-views/:bench/reports/:dimension/binding  -> bench-store.report-bind  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "POST /api/bench-views/:bench/reports  -> bench-store.report-generate  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "GET /api/bench-views/:bench/reports  -> bench-store.report-read  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "GET /api/bench-views/:bench/reports/:id  -> bench-store.report-read  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "GET /api/bench-views/:bench/view  -> bench-store.view-get  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "PUT /api/bench-views/:bench/view  -> bench-store.view-put  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "GET /api/bench-views/:bench/view/versions  -> bench-store.view-versions  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
@@ -810,6 +815,21 @@
         "scoped": "write"
       },
       {
+        "action": "bench-store.report-bind",
+        "global": "write",
+        "scoped": "write"
+      },
+      {
+        "action": "bench-store.report-generate",
+        "global": "write",
+        "scoped": "write"
+      },
+      {
+        "action": "bench-store.report-read",
+        "global": "write",
+        "scoped": "write"
+      },
+      {
         "action": "bench-store.rows-write",
         "global": "write",
         "scoped": "write"
@@ -885,7 +905,10 @@
       "bench-store.mcp-list",
       "bench-store.mcp-grant",
       "bench-store.mcp-decide",
-      "knowledge.read"
+      "knowledge.read",
+      "bench-store.report-bind",
+      "bench-store.report-generate",
+      "bench-store.report-read"
     ]
   },
   "domains": {
@@ -1125,7 +1148,10 @@
             "bench-store.mcp-list",
             "bench-store.mcp-grant",
             "bench-store.mcp-decide",
-            "knowledge.read"
+            "knowledge.read",
+            "bench-store.report-bind",
+            "bench-store.report-generate",
+            "bench-store.report-read"
           ]
         }
       ]
