@@ -26,12 +26,13 @@ ENTRY2 = {**ENTRY, 'version': 6, 'title': '合成巡检总览·二',
           'views': [{'key': 'vk-board', 'title': '巡检看板'}, {'key': 'vk-rows', 'title': '巡检明细'}, {'key': 'vk-extra', 'title': '新加的视角'}]}
 ENTRY3 = {**ENTRY, 'version': 7, 'title': '合成巡检总览·三', 'views': [ENTRY['views'][0]]}
 SITE = {'name': 'site', 'kind': 'search', 'label': '区域'}
+OWNER = {'name': 'owner', 'kind': 'search', 'label': '负责人'}
 FORM = {'type': 'form', 'title': '登记一次巡检', 'span': 6, 'columns': [{'name': 'site', 'type': 'text', 'label': '区域', 'required': True}, {'name': 'n', 'type': 'integer', 'label': '件数'}], 'submit_label': '登记'}
 def view_result(view, params):
     vt = next(v['title'] for v in ENTRY['views'] if v['key'] == view)
     n = 63 if not params.get('site') else 7
     rows = [{'site': '东区', 'n': 21, 'state': '正常'}, {'site': '西区', 'n': 42, 'state': '待查'}] if not params.get('site') else [{'site': params['site'], 'n': 7, 'state': '正常'}]
-    blocks = [{'type': 'filter-bar', 'fields': [SITE], 'span': 12},
+    blocks = [{'type': 'filter-bar', 'fields': [SITE, OWNER] if mode['filters'] == 'two' else [SITE], 'span': 12},
               {'type': 'stat', 'title': '本月巡检', 'unit': '次', 'value': 'v', 'span': 3, 'data': {'columns': [{'name': 'v', 'type': 'integer'}], 'rows': [{'v': n}]}},
               {'type': 'progress', 'title': '完成度', 'value': 'v', 'total': 80, 'span': 3, 'data': {'columns': [{'name': 'v', 'type': 'integer'}], 'rows': [{'v': n}]}}]
     if view == 'vk-board':
@@ -46,7 +47,8 @@ def view_result(view, params):
     return {'title': ENTRY['title'], 'version': 5, 'view': {'key': view, 'title': vt}, 'params': params, 'blocks': blocks}
 
 log = {'entry': 0, 'render': [], 'form': []}
-mode = {'entry': 'ok', 'render': 'ok', 'form': 'ok'}
+mode = {'entry': 'ok', 'render': 'ok', 'form': 'ok', 'filters': 'one'}
+held = []  # 压住不回的取数（render 应答由测试自己放行）
 def fake(route, body, status=200): route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
 def on_bv(route):
     u = urlparse(route.request.url); parts = u.path.split('/')
@@ -65,6 +67,7 @@ def on_bv(route):
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         params = {k[2:]: v for k, v in q.items() if k.startswith('p.')}
         log['render'].append((q.get('view'), params))
+        if mode['render'] == 'hold': held.append((route, q.get('view') or 'vk-board', params)); return None
         if mode['render'] == '403': return fake(route, {'error': 'bench_views_forbidden'}, 403)
         if mode['render'] == 'off': return fake(route, {'error': 'bench_views_off'}, 404)
         return fake(route, view_result(q.get('view') or 'vk-board', params))
@@ -200,6 +203,32 @@ with sync_playwright() as p:
     pg.wait_for_timeout(800)
     check('入口这次读不到（500）：页面保持现状不换，正文照常重新取数，不整页报错', len(log['render']) > r2 and pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览·三' and pg.locator('[data-testid=use-entry-error]').count() == 0, (len(log['render']) - r2))
     mode['entry'] = 'ok'
+
+    print('八、连着改两个筛选（第一次取数还没回来就改第二个）')
+    mode['render'] = 'ok'; mode['entry'] = 'ok'; mode['filters'] = 'two'
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    mode['render'] = 'hold'; held.clear()
+    s1 = pg.locator('[data-filter=site] input'); s1.fill('北区'); s1.press('Enter')
+    pg.wait_for_function("() => new URLSearchParams(location.search).get('p.site') === '北区'")
+    for _ in range(250):  # 等到第一次取数确实压在半路（不回应答），等不到就失败
+        if held: break
+        pg.wait_for_timeout(20)
+    check('（前提）改了第一个筛选：地址带上了，它的取数压在半路还没回来', len(held) == 1 and held[0][2] == {'site': '北区'}, [h[2] for h in held])
+    s2 = pg.locator('[data-filter=owner] input'); s2.fill('合成甲'); s2.press('Enter')
+    pg.wait_for_function("() => new URLSearchParams(location.search).get('p.owner') === '合成甲'")
+    q = q_of(pg)
+    check('紧接着改第二个筛选：第一个没被冲掉，地址里两个都在', q.get('p.site') == '北区' and q.get('p.owner') == '合成甲', q)
+    for _ in range(250):
+        if len(held) >= 2: break
+        pg.wait_for_timeout(20)
+    check('第二次取数带着两个筛选', len(held) >= 2 and held[-1][2] == {'site': '北区', 'owner': '合成甲'}, [h[2] for h in held])
+    mode['render'] = 'ok'
+    for route, view, params in held: fake(route, view_result(view, params))
+    held.clear()
+    pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    q = q_of(pg)
+    check('压着的取数放行以后：地址里两个筛选仍在，筛选栏里两个框都是填的值', q.get('p.site') == '北区' and q.get('p.owner') == '合成甲' and pg.locator('[data-filter=site] input').input_value() == '北区' and pg.locator('[data-filter=owner] input').input_value() == '合成甲', (q, pg.locator('[data-filter=site] input').input_value()))
+    mode['filters'] = 'one'
 
     print('五、入口')
     mode['entry'] = '403'; pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('.wm-use-frame')
