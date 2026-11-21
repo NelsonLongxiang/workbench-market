@@ -323,11 +323,18 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     const id = qint(req.params.id, '报告编号');
     return readReport(s, id, actor);
   }));
-  // 回应（PR C）：能读这份报告的人表态（规格第六节评审定的推荐：随含取数的预设一起给，这里和读同一档）
-  app.post('/api/bench-views/:bench/reports/:id/responses', { action: 'bench-store.report-respond', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-respond', async (req, res, s, actor) => {
-    const out = await respondReport(s, qint(req.params.id, '报告编号'), req.body, actor, Date.now());
-    res.status(201);
-    return out;
+  // 回应（PR C）：能读这份报告的人表态（规格第六节评审定的推荐：随含取数的预设一起给，这里和读同一档）。
+  // 能回应、却读不了这个台上的报告的人：和报告不存在一样回 404（规格第五节第 14 条：不泄露报告在不在；#932 独立验收）
+  app.post('/api/bench-views/:bench/reports/:id/responses', { action: 'bench-store.report-respond', kind: 'write', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const bench = getBench(req.params.bench);
+    const actor = await allowActor(req, res, 'bench-store.report-respond', bench);
+    if (!actor) return;
+    if (!bench) return void res.status(404).json({ error: 'bench_not_found' });
+    if (!may(actor, 'bench-store.report-read', bench)) return void fail(res, new BenchError('not_found', '没有这份报告'));
+    try {
+      const out = await respondReport(await benchStore(req.params.bench), qint(req.params.id, '报告编号'), req.body, idOf(actor), Date.now());
+      res.status(201).json(out);
+    } catch (e) { fail(res, e); }
   }));
 
   // —— 视图描述 ——
