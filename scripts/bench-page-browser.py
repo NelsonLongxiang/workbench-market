@@ -104,6 +104,12 @@ def on_bv(route):
 
 def q_of(pg): return {k: v[0] for k, v in parse_qs(urlparse(pg.url).query).items()}
 def body_text(pg): return pg.locator('body').inner_text()
+def until(pg, pred, timeout_ms=10000):
+    """等这边记下的状态（请求日志之类，页面看不到）成立：每 20 毫秒看一次，期间照常处理截下的请求；等到了返回 True，到点返回 False（由后面的断言报）"""
+    for _ in range(max(1, timeout_ms // 20)):
+        if pred(): return True
+        pg.wait_for_timeout(20)
+    return pred()
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -117,8 +123,8 @@ with sync_playwright() as p:
     print('一、视图台')
     pg.goto(f'{M}/use/{CARD}')
     pg.wait_for_selector('[data-testid=bench-page] [data-bb=stat][data-bb-state=ready]')
-    pg.wait_for_selector('[data-bb=bar][data-bb-state=ready]'); pg.wait_for_timeout(600)
-    if SHOT: pg.screenshot(path=SHOT)
+    pg.wait_for_selector('[data-bb=bar][data-bb-state=ready]')
+    if SHOT: pg.wait_for_timeout(600); pg.screenshot(path=SHOT)  # 只为截图等图表的动画走完，不影响后面的断言
     tabs = [t.inner_text() for t in pg.locator('[data-testid=bench-page-tab]').all()]
     check('进的是数据视图页：顶栏台名「合成·巡检台」，标题「合成巡检总览」', pg.locator('[data-testid=bench-page-name]').inner_text() == '合成·巡检台' and pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览')
     check('两个视图页签，按入口的次序；默认那一份选中', tabs == ['巡检看板', '巡检明细'] and pg.locator('[data-testid=bench-page-tab][aria-selected=true]').inner_text() == '巡检看板', tabs)
@@ -180,7 +186,7 @@ with sync_playwright() as p:
     n2 = len(log['render'])
     form.locator('button[type=submit]').click()
     form.locator('.ant-alert-success').wait_for()
-    pg.wait_for_function(f"() => true"); pg.wait_for_timeout(500)
+    until(pg, lambda: len(log['form']) > 0 and len(log['render']) > n2)  # 等交表单的请求记下了、整页的重新取数也发出去了（不固定睡）
     check('请求带视图、第几块（从 0 数）、版本、填的值', log['form'][-1:] == [{'view': 'vk-board', 'block': 5, 'version': 5, 'values': {'site': '南区', 'n': 3}}], log['form'])
     check('交上去了：说「已经交上去了」，整页按现在的视图重新取了一次', '已经交上去了' in form.inner_text() and len(log['render']) > n2 and log['render'][-1] == ('vk-board', {}), log['render'][n2:])
     mode['form'] = '409'
@@ -225,8 +231,9 @@ with sync_playwright() as p:
     check('标题换成第三版，页签不再出（只剩一份）', pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览·三' and pg.locator('[data-testid=bench-page-tab]').count() == 0)
     mode['entry'] = '500'
     r2 = len(log['render'])
-    pg.locator('[data-testid=bench-page-refresh]').click()
-    pg.wait_for_timeout(800)
+    # 等条件成立，不固定睡：入口那次（500）的应答回来了、正文的重新取数也发了而且画好了，再看页面有没有被换掉
+    with pg.expect_response(lambda r: r.url.endswith('/entry')): pg.locator('[data-testid=bench-page-refresh]').click()
+    until(pg, lambda: len(log['render']) > r2); pg.wait_for_selector('[data-bb=bar][data-bb-state=ready]')
     check('入口这次读不到（500）：页面保持现状不换，正文照常重新取数，不整页报错', len(log['render']) > r2 and pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览·三' and pg.locator('[data-testid=use-entry-error]').count() == 0, (len(log['render']) - r2))
     mode['entry'] = 'ok'
 
