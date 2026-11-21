@@ -126,6 +126,9 @@ try {
   const sysId = db.prepare("SELECT id FROM principals WHERE id LIKE '%root-admin%'").get()?.id;
   const g1 = await activate({ principal: 'user:alpha', role: 'management', scope: '*' });
   const g2 = await activate({ principal: sysId, role: 'owner', scope: '*' });
+  // 判据类模板版本要作者以外、认得出的人复核（#926 验收）：本机命令行不能发判据类版本，所以由 alpha（另授属主）在浏览器里发、sys 复核
+  const g3 = await activate({ principal: 'user:alpha', role: 'owner', scope: '*' });
+  const pub = (id, body) => srv.call('POST', `/api/report-dimensions/${id}/templates`, { ...boss, body });
   const bv = (opts, method, path, body) => srv.call(method, `/api/bench-views${path}`, { ...opts, ...(body === undefined ? {} : { body }) });
   const cli = (method, path, body) => srv.call(method, path, body === undefined ? {} : { body });
   // 台、数据集、视图
@@ -134,19 +137,19 @@ try {
   const rows = (data, op = 'replace') => srv.call('POST', `/api/bench-views/synth-orders/datasets/orders/rows?op=${op}`, { ...boss, raw: JSON.stringify(data) });
   await rows([{ id: 1, day: '2026-11-03', amount: 100.5 }, { id: 2, day: '2026-11-09', amount: 20 }, { id: 3, day: '2026-10-30', amount: 7 }]);
   const vput = await bv(boss, 'PUT', '/synth-orders/view', { doc: VIEW, base: 0, note: '合成' });
-  // 维度：跨领域的 monthly（本机命令行建、发模板，属主 sys 复核后生效）；属于 zeta 领域的 zdim
+  // 维度：跨领域的 monthly（本机命令行建，alpha 发模板，属主 sys 复核后生效）；属于 zeta 领域的 zdim
   await cli('POST', '/api/report-dimensions', { id: 'monthly', title: '合成月度经营' });
-  const t1 = await cli('POST', '/api/report-dimensions/monthly/templates', { body: tpl() });
+  const t1 = await pub('monthly', { body: tpl() });
   const rv = await srv.call('POST', '/api/report-dimensions/monthly/templates/1/review', { ...sys, body: {} });
   const ac = await cli('POST', '/api/report-dimensions/monthly/activate', { version: 1 });
   await cli('POST', '/api/report-dimensions', { id: 'pending', title: '合成还没生效' });
   await cli('POST', '/api/areas', { id: 'zeta', name: '合成己领域' });
   await cli('POST', '/api/report-dimensions', { id: 'zdim', title: '合成 zeta 的维度', area: 'zeta' });
   // zdim 也给一版生效的模板：G1 里它被拒，只能是因为「属于别的领域」，不是因为没有生效模板（变异 b7 存活后补）
-  await cli('POST', '/api/report-dimensions/zdim/templates', { body: tpl() });
+  await pub('zdim', { body: tpl() });
   const zrv = await srv.call('POST', '/api/report-dimensions/zdim/templates/1/review', { ...sys, body: {} });
   const zac = await cli('POST', '/api/report-dimensions/zdim/activate', { version: 1 });
-  check(g1 && g2 && mk.status === 201 && vput.status === 200 && t1.status === 201 && rv.status === 200 && ac.status === 200 && zrv.status === 200 && zac.status === 200,
+  check(g1 && g2 && g3 && mk.status === 201 && vput.status === 200 && t1.status === 201 && rv.status === 200 && ac.status === 200 && zrv.status === 200 && zac.status === 200,
     '（准备）管理层、属主；台、数据集（11 月两行、10 月一行）、视图；跨领域维度 monthly 第 1 版复核后生效', { g1, g2, mk: mk.status, vput: vput.status, t1: t1.status, rv: rv.text?.slice(0, 160), ac: ac.status });
 
   console.log('G1 绑定');
@@ -252,7 +255,7 @@ try {
 
   console.log('G7 模板换版');
   {
-    const t2 = await cli('POST', '/api/report-dimensions/monthly/templates', { body: tpl({ claims: [{ kind: 'conclusion', label: '结论', min: 1, max: 1 }] }) });
+    const t2 = await pub('monthly', { body: tpl({ claims: [{ kind: 'conclusion', label: '结论', min: 1, max: 1 }] }) });
     await srv.call('POST', '/api/report-dimensions/monthly/templates/2/review', { ...sys, body: {} });
     const ac2 = await cli('POST', '/api/report-dimensions/monthly/activate', { version: 2 });
     const stale = await gen(boss, G({ subject: 'card:synth-orders@2026-11d' }));

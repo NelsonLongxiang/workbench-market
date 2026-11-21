@@ -3760,36 +3760,6 @@
           }
         },
         {
-          "id": "rep-setup-tpl",
-          "what": "准备：本机命令行发第一版模板",
-          "vary": { "template.created_at": 60000 },
-          "request": {
-            "method": "POST",
-            "path": "/api/report-dimensions/monthly/templates",
-            "json": {
-              "body": {
-                "schema_version": 2,
-                "title": "回放月报",
-                "parameters": {},
-                "fields": {},
-                "slots": { "orders": { "columns": [{ "name": "id", "type": "integer", "label": "编号" }, { "name": "amount", "type": "decimal", "label": "金额", "nullable": true }], "key": ["id"], "max_rows": 50, "completeness": "all" } },
-                "body": [{ "id": "cover", "type": "cover", "title": ["回放月报"] }, { "id": "tbl", "type": "data-view", "component": "table", "data": "orders", "props": { "columns": ["id", "amount"] } }],
-                "claims": [{ "kind": "conclusion", "label": "结论", "min": 1, "max": 1 }],
-                "responses": { "stances": ["agree", "dispute"], "reason_required": true },
-                "gate": { "open_dispute_blocks_acceptance": false }
-              }
-            }
-          },
-          "response": {
-            "status": 201,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "245", "etag": "W/\"f5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": {
-              "template": { "version": 1, "sha256": "22b049d6b367be14ae595854f236d910b2a408e6f0ada4f025444653e179c51c", "bytes": 617, "kind": "criteria", "note": "", "created_at": 1893456000000, "created_by": "cli", "created_by_principal": null, "review": null, "active": false }
-            }
-          }
-        },
-        {
           "id": "rep-setup-grant",
           "what": "准备：给 beta 起草属主（复核用）",
           "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
@@ -3833,14 +3803,88 @@
           }
         },
         {
-          "id": "rep-setup-review",
-          "what": "准备：beta 复核第一版",
-          "vary": { "template.created_at": 60000, "template.review.reviewed_at": 60000 },
-          "request": { "method": "POST", "path": "/api/report-dimensions/monthly/templates/1/review", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": {} },
+          "id": "rep-setup-tpl",
+          "what": "准备：属主 beta 在浏览器里发第一版模板（判据类版本要认得出的作者，本机命令行不能发）",
+          "vary": { "template.created_at": 60000 },
+          "request": {
+            "method": "POST",
+            "path": "/api/report-dimensions/monthly/templates",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" },
+            "json": {
+              "body": {
+                "schema_version": 2,
+                "title": "回放月报",
+                "parameters": {},
+                "fields": {},
+                "slots": { "orders": { "columns": [{ "name": "id", "type": "integer", "label": "编号" }, { "name": "amount", "type": "decimal", "label": "金额", "nullable": true }], "key": ["id"], "max_rows": 50, "completeness": "all" } },
+                "body": [{ "id": "cover", "type": "cover", "title": ["回放月报"] }, { "id": "tbl", "type": "data-view", "component": "table", "data": "orders", "props": { "columns": ["id", "amount"] } }],
+                "claims": [{ "kind": "conclusion", "label": "结论", "min": 1, "max": 1 }],
+                "responses": { "stances": ["agree", "dispute"], "reason_required": true },
+                "gate": { "open_dispute_blocks_acceptance": false }
+              }
+            }
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "258", "etag": "W/\"102-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "template": { "version": 1, "sha256": "22b049d6b367be14ae595854f236d910b2a408e6f0ada4f025444653e179c51c", "bytes": 617, "kind": "criteria", "note": "", "created_at": 1893456000000, "created_by": "user:beta", "created_by_principal": "user:beta", "review": null, "active": false }
+            }
+          }
+        },
+        {
+          "id": "rep-setup-grant-2",
+          "what": "准备：给 alpha 起草属主（复核 beta 发的版本：作者以外、认得出的人）",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:alpha", "role": "owner", "scope": "*", "reason": "回放" } },
+          "save": { "rg2": "grant.id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "293", "etag": "W/\"125-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 5, "principal_id": "user:alpha", "role": "owner", "scope": "*", "expires_at": null, "reason": "回放", "status": "draft", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "rep-setup-submit-2",
+          "what": "准备：提交",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants/{{rg2}}/submit" },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "306", "etag": "W/\"132-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "295", "etag": "W/\"127-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 5, "principal_id": "user:alpha", "role": "owner", "scope": "*", "expires_at": null, "reason": "回放", "status": "pending", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "rep-setup-approve-2",
+          "what": "准备：放行",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants/{{rg2}}/approve" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "295", "etag": "W/\"127-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 5, "principal_id": "user:alpha", "role": "owner", "scope": "*", "expires_at": null, "reason": "回放", "status": "active", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "rep-setup-review",
+          "what": "准备：alpha 复核第一版",
+          "vary": { "template.created_at": 60000, "template.review.reviewed_at": 60000 },
+          "request": { "method": "POST", "path": "/api/report-dimensions/monthly/templates/1/review", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "320", "etag": "W/\"140-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "template": {
                 "version": 1,
@@ -3849,9 +3893,9 @@
                 "kind": "criteria",
                 "note": "",
                 "created_at": 1893456000000,
-                "created_by": "cli",
-                "created_by_principal": null,
-                "review": { "reviewed_by": "user:beta", "reviewed_at": 1893456000000, "note": "" },
+                "created_by": "user:beta",
+                "created_by_principal": "user:beta",
+                "review": { "reviewed_by": "user:alpha", "reviewed_at": 1893456000000, "note": "" },
                 "active": false
               }
             }
