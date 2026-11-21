@@ -12,6 +12,8 @@
  *   五、视图台页面的入口 GET /api/bench-views/:bench/entry：写卡片 id 拿到台名、版本、默认视图、各视图的键和标题；
  *       读不到的、不存在的、卡片没有台的、还没有视图描述的，应答逐字一样（404 bench_not_found）；没登录 401
  *   五之二、取数时表单块带 can_submit：管理层 true；只授了「取数、读视图」的自定义角色 false（这时交表单确实 403）；不是表单的块不带
+ *   五之三、只改台名（#905）：PUT /api/bench-views/:bench/title，{ title } 或 { from_card: true }，base_title 核看到的名字；只有管理层（和改对应关系同一个动作）；
+ *       只动名字（登记其余各列、授予和申请、视图、数据集都不变），留痕前后两个名字；同名不留痕；并发只成一个；经同一个入口改回原名
  *   四之二、删台（DELETE /api/apps/:slug）也走同一道门、同一条路：台的卡片的台库有数据时，只有管理口令的 409、什么都没删（台、卡片、台库都在）；
  *       属主不带确认 409、带了确认删成——卡片、台的登记、常量变量、驾驶舱面板一起没了，台库删前备份；台库空的台照旧直接删，卡片的常量变量也一起删（原来留成孤儿）
  *   四之三、main 档（缺省）只删卡片：台的提交记录照旧留在主库（第 6 步的语义变化只在 shadow、bench 档）
@@ -174,6 +176,65 @@ try {
   check(copied.status === 201 && narrowed.status === 200 && viewerOk, '（准备）只点名取数、读视图的自定义角色，授给普通员工', { copied: copied.text.slice(0, 120), narrowed: narrowed.text.slice(0, 120), viewerOk });
   check(rBoss.status === 200 && formOf(rBoss)?.can_submit === true && rView.status === 200 && formOf(rView)?.can_submit === false && submitDenied.status === 403 && !('can_submit' in (tableOf(rBoss) ?? {})),
     '管理层取数：表单块 can_submit 为 true；只能取数的人：false，这时交表单确实 403；表格块不带这个字段', { boss: formOf(rBoss), view: formOf(rView), denied: submitDenied.status, rView: rView.status });
+
+  console.log('五之三、只改台名（#905）');
+  {
+    const title = (opts, ref, body) => srv.call('PUT', `/api/bench-views/${ref}/title`, { ...opts, ...(body === undefined ? {} : { body }) });
+    const regRow = () => db.prepare('SELECT slug, created_by, created_at, department_id, team_host, team, workbench_id FROM bench_views WHERE slug = ?').get('legacy-a');
+    const sideCounts = () => ({ grants: db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE bench = 'legacy-a'").get().n, requests: db.prepare("SELECT COUNT(*) AS n FROM bench_mcp_requests WHERE bench = 'legacy-a'").get().n });
+    const audits = () => db.prepare("SELECT before, after, actor, note FROM bench_bind_audit WHERE slug = 'legacy-a' AND action = 'title' ORDER BY id").all();
+    const reg0 = JSON.stringify(regRow()), side0 = JSON.stringify(sideCounts());
+    const view0 = await bv(boss, 'GET', '/legacy-a/view'), ds0 = await bv(boss, 'GET', '/legacy-a/datasets');
+    // 卡片改名：台名不跟着变（复现 #905）
+    const cardRenamed = await srv.call('PUT', `/api/workbenches/${W2}`, { ...token, body: { name: '合成·旧台改名' } });
+    const stale = await entry(boss, W2);
+    check(cardRenamed.status === 200 && stale.json?.bench?.title === '旧台', '（复现）卡片改了名，入口里台名还是旧的', { card: cardRenamed.text.slice(0, 160), bench: stale.json?.bench });
+    // 拒：没登录、普通员工（有取数授予也一样）、管理口令和改对应关系同一个结果、跨站
+    const anonT = await srv.call('PUT', `/api/bench-views/${W2}/title`, { headers: REMOTE, body: { title: '匿名改' } });
+    const memberT = await title(member, W2, { title: '员工改' });
+    const tokT = await title(token, W2, { title: '口令改' }), tokLink = await bv(token, 'PUT', `/${W2}/workbench`, { workbench_id: W2 });
+    const crossT = await srv.call('PUT', `/api/bench-views/${W2}/title`, { headers: { ...REMOTE, origin: 'http://evil.example', 'sec-fetch-site': 'cross-site' }, session: P.boss, body: { title: '跨站改' } });
+    check(anonT.status === 401 && memberT.status === 403 && tokT.status === tokLink.status && tokT.status !== 200 && crossT.status === 403 && audits().length === 0 && regRow() && db.prepare("SELECT title FROM bench_views WHERE slug = 'legacy-a'").get().title === '旧台',
+      '没登录 401；普通员工 403；管理口令和改对应关系同一个结果（不是 200）；跨站 403；台名没变、没留痕', { anon: anonT.status, member: memberT.status, token: [tokT.status, tokLink.status], cross: crossT.status });
+    // 拒：写法不对、对象不对
+    const badT = {
+      empty: (await title(boss, W2, { title: '   ' })).status, long: (await title(boss, W2, { title: '名'.repeat(65) })).status,
+      unknown: (await title(boss, W2, { title: '新名', slug: 'other' })).status, both: (await title(boss, W2, { title: '新名', from_card: true })).status,
+      neither: (await title(boss, W2, {})).status, notTrue: (await title(boss, W2, { from_card: 'yes' })).status, notString: (await title(boss, W2, { title: 7 })).status,
+      array: (await title(boss, W2, ['新名'])).status, baseNotString: (await title(boss, W2, { title: '新名', base_title: 1 })).status,
+    };
+    const missing = { ghost: (await title(boss, 'ghost-bench', { title: '新名' })).status, noBench: (await title(boss, W3, { title: '新名' })).status, noCard: (await title(boss, 999999, { title: '新名' })).status };
+    check(Object.values(badT).every((x) => x === 400) && Object.values(missing).every((x) => x === 404) && audits().length === 0, '空白、超 64 字、不认识的键、title 和 from_card 同时给或都不给、from_card 不是 true、名字不是文字、不是对象、base_title 不是文字：400；没登记的台、卡片没有台、卡片不存在：404；都没留痕', { badT, missing });
+    // 看到的名字对不上：409，不覆盖
+    const staleBase = await title(boss, W2, { title: '新名', base_title: '不是现在的名字' });
+    check(staleBase.status === 409 && audits().length === 0, 'base_title 和现在的名字对不上：409，台名没变', staleBase.text.slice(0, 160));
+    // 照卡片的名字抄：成；入口和刷新后的页面读到新名
+    const synced = await title(boss, W2, { from_card: true, base_title: '旧台', note: '合成：跟卡片同名' });
+    const fresh = await entry(boss, W2), freshBySlug = await entry(boss, 'legacy-a');
+    const a1 = audits();
+    check(synced.status === 200 && synced.json?.changed === true && synced.json?.bench?.title === '合成·旧台改名' && fresh.json?.bench?.title === '合成·旧台改名' && freshBySlug.json?.bench?.title === '合成·旧台改名'
+      && a1.length === 1 && a1[0].before === '旧台' && a1[0].after === '合成·旧台改名' && a1[0].actor && a1[0].note === '合成：跟卡片同名',
+      'from_card：台名换成卡片现在的名字；写卡片 id 和台标识读到的都是新名；留痕一行（前后两个名字、谁、备注）', { synced: synced.text.slice(0, 200), audit: a1 });
+    // 只动了名字：标识、对应、绑定、授予和申请、视图和数据集都没变
+    const view1 = await bv(boss, 'GET', '/legacy-a/view'), ds1 = await bv(boss, 'GET', '/legacy-a/datasets');
+    check(JSON.stringify(regRow()) === reg0 && JSON.stringify(sideCounts()) === side0 && view1.text === view0.text && ds1.text === ds0.text
+      && fresh.json?.version === stale.json?.version && JSON.stringify(fresh.json?.views) === JSON.stringify(stale.json?.views) && fresh.json?.title === stale.json?.title,
+      '只动了名字：台的登记其余各列、MCP 授予和申请、视图描述（版本、页签、正文标题）、数据集都没变', { reg: regRow(), side: sideCounts() });
+    // 同名再写：不变、不留痕
+    const sameAgain = await title(boss, W2, { title: '合成·旧台改名' });
+    check(sameAgain.status === 200 && sameAgain.json?.changed === false && audits().length === 1, '和现在一样的名字：200、changed 为 false、不多留痕', sameAgain.text.slice(0, 160));
+    // 两个人基于同一个名字同时改：只成一个，另一个 409
+    const race = await Promise.all([title(boss, W2, { title: '并发甲', base_title: '合成·旧台改名' }), title(boss, W2, { title: '并发乙', base_title: '合成·旧台改名' })]);
+    const nowTitle = db.prepare("SELECT title FROM bench_views WHERE slug = 'legacy-a'").get().title;
+    check(race.filter((r) => r.status === 200).length === 1 && race.filter((r) => r.status === 409).length === 1 && ['并发甲', '并发乙'].includes(nowTitle) && audits().length === 2,
+      '两人基于同一个名字同时改：一个 200、一个 409，台名是成了的那个，只多一行留痕', { race: race.map((r) => r.status), nowTitle });
+    // 经同一个入口改回原名（恢复）；没有对应卡片的台不能 from_card
+    const restore = await title(boss, 'legacy-a', { title: ' 旧台 ' });
+    const lone = await bv(boss, 'POST', '', { slug: 'lone-a', title: '独立台' });
+    const loneSync = await title(boss, 'lone-a', { from_card: true });
+    check(restore.status === 200 && restore.json?.bench?.title === '旧台' && audits().length === 3 && lone.status === 201 && loneSync.status === 409 && db.prepare("SELECT title FROM bench_views WHERE slug = 'lone-a'").get().title === '独立台',
+      '经同一个入口改回原名（前后空白去掉）；没有对应卡片的台 from_card：409，名字不变', { restore: restore.text.slice(0, 160), lone: lone.status, loneSync: loneSync.text.slice(0, 160) });
+  }
 
   console.log('二、删卡片的把关（台库里有数据）');
   const tok = await srv.call('DELETE', `/api/workbenches/${W1}`, { ...token, body: { confirm_bench_data: true } });
