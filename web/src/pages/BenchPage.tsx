@@ -9,11 +9,12 @@ import { ArrowLeftOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-desi
 import { BenchView, type ViewResult } from '../bench-blocks/BenchView';
 import { getBenchView, submitBenchForm, type BenchEntry } from '../api';
 import { BENCH_VIEWS_OFF, benchViewError, isBenchViewsOff } from '../cockpit-frame-view';
-import { formError, pageTitle, paramsFromQuery, toQuery, viewFromQuery } from '../bench-page-view';
+import { formError, pageTitle, paramsFromQuery, shouldRefreshEntry, toQuery, viewFromQuery } from '../bench-page-view';
+import BenchRename from './BenchRename';
 
 type State = { phase: 'loading' } | { phase: 'ok'; result: ViewResult; requestKey: string } | { phase: 'off' } | { phase: 'error'; text: string };
 
-export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: string; entry: BenchEntry; refreshEntry: () => void }) {
+export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: string; entry: BenchEntry; refreshEntry: () => Promise<BenchEntry | null> }) {
   const nav = useNavigate();
   const [q, setQ] = useSearchParams();
   const view = viewFromQuery(entry, q);
@@ -24,6 +25,18 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
   const seq = useRef(0);
 
   useEffect(() => { document.title = pageTitle(entry); }, [entry]);
+  // 标签页切回前台：重新问一次入口（别人改了台名，回来看到的是新名字）；30 秒内只问一次，不轮询
+  const lastEntryAt = useRef(Date.now());
+  useEffect(() => {
+    const onBack = () => {
+      if (document.visibilityState !== 'visible' || !shouldRefreshEntry(lastEntryAt.current, Date.now())) return;
+      lastEntryAt.current = Date.now();
+      void refreshEntry();
+    };
+    document.addEventListener('visibilitychange', onBack);
+    window.addEventListener('focus', onBack);
+    return () => { document.removeEventListener('visibilitychange', onBack); window.removeEventListener('focus', onBack); };
+  }, [refreshEntry]);
 
   const load = useCallback(async () => {
     const mine = ++seq.current;
@@ -62,6 +75,7 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
         <Button type="text" icon={<ArrowLeftOutlined />} onClick={back} aria-label="返回" />
         <Typography.Title level={5} className="wm-use-title" data-testid="bench-page-name">{entry.bench.title}</Typography.Title>
         <div className="wm-bp-bar-extra">
+          <BenchRename cardId={cardId} entry={entry} refreshEntry={refreshEntry} />
           <Link to={`/market/wb/${encodeURIComponent(cardId)}`} data-testid="bench-page-detail"><Button type="text" size="small" icon={<InfoCircleOutlined />}>详情</Button></Link>
         </div>
       </div>
@@ -76,13 +90,13 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
             ))}
           </div>
         ) : null}
-        <Button size="small" type="text" icon={<ReloadOutlined />} loading={refreshing && s.phase === 'ok'} onClick={() => { setRefreshing(true); refreshEntry(); void load(); }} className="wm-bp-refresh" data-testid="bench-page-refresh">刷新</Button>
+        <Button size="small" type="text" icon={<ReloadOutlined />} loading={refreshing && s.phase === 'ok'} onClick={() => { setRefreshing(true); void refreshEntry(); void load(); }} className="wm-bp-refresh" data-testid="bench-page-refresh">刷新</Button>
       </div>
       <main className="wm-bp-body">
         {s.phase === 'loading' ? <div className="wm-dash-card" data-testid="bench-page-loading"><Skeleton active paragraph={{ rows: 6 }} /></div>
           : s.phase === 'off' ? <div className="wm-bp-state" data-testid="bench-page-off"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={BENCH_VIEWS_OFF} /></div>
             : s.phase === 'error' ? <div className="wm-bp-state" data-testid="bench-page-error"><Result status="warning" title={s.text} extra={<Button onClick={() => { setS({ phase: 'loading' }); void load(); }}>再试一次</Button>} /></div>
-              : <BenchView result={s.result} tableBench={cardId} tableDisabled={refreshing || s.requestKey !== key} frame="card" onParams={(p) => go(view, p)} onSubmit={submit} />}
+              : <BenchView result={s.result} tableBench={cardId} tableDisabled={refreshing || s.requestKey !== key} frame="card" filterValue={params} onParams={(p) => go(view, p)} onSubmit={submit} />}
       </main>
     </div>
   );

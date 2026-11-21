@@ -155,6 +155,8 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   }
   /** 这个人能不能在这个台上做这件事（不回应答，只给真假） */
   const may = (actor: JudgedActor, action: string, bench: BenchEntry | null): boolean => everywhere(actor, action) || within(actor, action, bench);
+  /** 能不能改台名（#905）：PUT /title 拒不拒、入口给不给 can.rename，都只问这一处——页面的按钮和接口不会一个说能一个说不能 */
+  const mayRename = (actor: JudgedActor): boolean => everywhere(actor, 'bench-store.bench-link');
 
   benchMcpDecider = async (req, res, bench) => {
     if (!deps.on) { res.status(404).json({ error: 'bench_views_off' }); return null; }
@@ -237,7 +239,7 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   app.put('/api/bench-views/:bench/title', { action: 'bench-store.bench-link', kind: 'write', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
     const actor = await who(req, res);
     if (!actor) return;
-    if (!everywhere(actor, 'bench-store.bench-link')) return void forbid(res);
+    if (!mayRename(actor)) return void forbid(res);
     if (!getBench(req.params.bench)) return void res.status(404).json({ error: 'bench_not_found' });
     try { res.json(renameBench(req.params.bench, req.body, idOf(actor), Date.now())); } catch (e) { fail(res, e); }
   }));
@@ -291,6 +293,8 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
       title: typeof doc.title === 'string' ? doc.title : bench.title,
       default_view: doc.views[0].key,
       views: doc.views.map((v) => ({ key: v.key, title: v.title })),
+      // 页面据此决定出不出「改名」按钮；和 PUT /title 是同一个判法
+      can: { rename: mayRename(actor) },
     });
   }));
 

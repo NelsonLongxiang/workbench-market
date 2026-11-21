@@ -43,6 +43,6 @@ export default function BenchViewPanel({ refItem, params, shared, heading, onLoa
   if (s.phase === 'off') return <>{head}<div className="wm-ck-pad" data-testid="ck-bench-view-off"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={BENCH_VIEWS_OFF} /></div></>;
   if (s.phase === 'error') return <>{head}<div className="wm-ck-pad" data-testid="ck-bench-view-error"><Typography.Text type="secondary">{s.text}</Typography.Text></div></>;
   return <>{head}<div className="wm-ck-pad" data-testid="ck-bench-view">
-    <BenchView result={s.result} frame="none" dense hideFilters={shared} onParams={setOwn} onSubmit={() => Promise.reject(new Error('驾驶舱里不能提交'))} formDisabledReason="要填这张表，请到这个台自己的页面" />
+    <BenchView result={s.result} frame="none" dense hideFilters={shared} filterValue={{ ...params, ...own }} onParams={setOwn} onSubmit={() => Promise.reject(new Error('驾驶舱里不能提交'))} formDisabledReason="要填这张表，请到这个台自己的页面" />
   </div></>;
 }
