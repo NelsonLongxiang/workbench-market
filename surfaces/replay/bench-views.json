@@ -3827,9 +3827,9 @@
           "response": {
             "status": 201,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "258", "etag": "W/\"102-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "343", "etag": "W/\"157-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
-              "template": { "version": 1, "sha256": "22b049d6b367be14ae595854f236d910b2a408e6f0ada4f025444653e179c51c", "bytes": 617, "kind": "criteria", "note": "", "created_at": 1893456000000, "created_by": "user:beta", "created_by_principal": "user:beta", "review": null, "active": false }
+              "template": { "version": 1, "sha256": "22b049d6b367be14ae595854f236d910b2a408e6f0ada4f025444653e179c51c", "criteria_sha256": "e48d027034cd3bfdd788f96c83a50787299e03347d95b6468c8adfc6a9c9cfdb", "bytes": 617, "kind": "criteria", "note": "", "created_at": 1893456000000, "created_by": "user:beta", "created_by_principal": "user:beta", "review": null, "active": false }
             }
           }
         },
@@ -3884,11 +3884,12 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "320", "etag": "W/\"140-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "405", "etag": "W/\"195-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "template": {
                 "version": 1,
                 "sha256": "22b049d6b367be14ae595854f236d910b2a408e6f0ada4f025444653e179c51c",
+                "criteria_sha256": "e48d027034cd3bfdd788f96c83a50787299e03347d95b6468c8adfc6a9c9cfdb",
                 "bytes": 617,
                 "kind": "criteria",
                 "note": "",
