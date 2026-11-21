@@ -31,7 +31,8 @@
     "PUT /api/bench-views/:bench/reports/:dimension/binding",
     "POST /api/bench-views/:bench/reports",
     "GET /api/bench-views/:bench/reports",
-    "GET /api/bench-views/:bench/reports/:id"
+    "GET /api/bench-views/:bench/reports/:id",
+    "PUT /api/bench-views/:bench/title"
   ],
   "exempt": [],
   "scenarios": [
@@ -241,6 +242,14 @@
           "class": "invalid",
           "what": "开关关着：这条路由回 404，登录的管理层也一样",
           "request": { "method": "PUT", "path": "/api/bench-views/demo/workbench", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "workbench_id": null } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-put-bench-title",
+          "route": "PUT /api/bench-views/:bench/title",
+          "class": "invalid",
+          "what": "开关关着：这条路由回 404，登录的管理层也一样",
+          "request": { "method": "PUT", "path": "/api/bench-views/demo/title", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "title": "新名" } },
           "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
         },
         {
@@ -3479,6 +3488,167 @@
           "what": "同样的再设一次：没有变化",
           "vary": { "bench.created_at": 60000 },
           "request": { "method": "PUT", "path": "/api/bench-views/demo/workbench", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "workbench_id": 1 } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "175", "etag": "W/\"af-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "bench": { "slug": "demo", "title": "示例台", "created_by": "user:alpha", "created_at": 1893456000000, "department_id": "", "team_host": "", "team": "", "workbench_id": 1 }, "changed": false }
+          }
+        },
+        {
+          "id": "title-anon",
+          "route": "PUT /api/bench-views/:bench/title",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "PUT", "path": "/api/bench-views/demo/title", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "title": "新名" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "title-token",
+          "route": "PUT /api/bench-views/:bench/title",
+          "class": "unauthorized",
+          "what": "管理口令改台名：403（和改对应同一个结果）",
+          "request": { "method": "PUT", "path": "/api/bench-views/demo/title", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" }, "json": { "title": "新名" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "154", "etag": "W/\"9a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_admin_token_denied", "message": "台里是业务数据，管理口令看不了、也改不了；用有管理层授予的账号登录" }
+          }
+        },
+        {
+          "id": "title-member",
+          "route": "PUT /api/bench-views/:bench/title",
+          "class": "unauthorized",
+          "what": "普通员工改台名：403",
+          "request": { "method": "PUT", "path": "/api/bench-views/demo/title", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": { "title": "新名" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "title-blank",
+          "route": "PUT /api/bench-views/:bench/title",
+          "class": "invalid",
+          "what": "名字是空白",
+          "request": { "method": "PUT", "path": "/api/bench-views/demo/title", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "title": "   " } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "67", "etag": "W/\"43-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "台的名字须为 1～64 个字符" }
+          }
+        },
+        {
+          "id": "title-both",
+          "route": "PUT /api/bench-views/:bench/title",
+          "class": "invalid",
+          "what": "title 和 from_card 同时给",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/title",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "新名", "from_card": true }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "61", "etag": "W/\"3d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "title 和 from_card 二选一" }
+          }
+        },
+        {
+          "id": "title-extra-key",
+          "route": "PUT /api/bench-views/:bench/title",
+          "class": "invalid",
+          "what": "多了不认识的键",
+          "request": { "method": "PUT", "path": "/api/bench-views/demo/title", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "title": "新名", "slug": "x" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "57", "etag": "W/\"39-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "有不认识的键：slug" }
+          }
+        },
+        {
+          "id": "title-ghost",
+          "route": "PUT /api/bench-views/:bench/title",
+          "class": "invalid",
+          "what": "没登记的视图台",
+          "request": { "method": "PUT", "path": "/api/bench-views/ghost/title", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "title": "新名" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_not_found" }
+          }
+        },
+        {
+          "id": "title-stale-base",
+          "route": "PUT /api/bench-views/:bench/title",
+          "class": "invalid",
+          "what": "base_title 和现在的名字对不上：409",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/title",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "新名", "base_title": "不是现在的名字" }
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "90", "etag": "W/\"5a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "conflict", "message": "台的名字已经被改过了，先重新读一次再改" }
+          }
+        },
+        {
+          "id": "title-from-card",
+          "route": "PUT /api/bench-views/:bench/title",
+          "class": "normal",
+          "what": "照对应的卡片（登记台 1）现在的名字抄",
+          "vary": { "bench.created_at": 60000 },
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/title",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "from_card": true, "base_title": "示例台", "note": "合成" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "177", "etag": "W/\"b1-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "bench": { "slug": "demo", "title": "任务中心", "created_by": "user:alpha", "created_at": 1893456000000, "department_id": "", "team_host": "", "team": "", "workbench_id": 1 }, "changed": true }
+          }
+        },
+        {
+          "id": "title-restore",
+          "route": "PUT /api/bench-views/:bench/title",
+          "class": "normal",
+          "what": "经同一个入口改回原名",
+          "vary": { "bench.created_at": 60000 },
+          "request": { "method": "PUT", "path": "/api/bench-views/demo/title", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "title": "示例台" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "174", "etag": "W/\"ae-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "bench": { "slug": "demo", "title": "示例台", "created_by": "user:alpha", "created_at": 1893456000000, "department_id": "", "team_host": "", "team": "", "workbench_id": 1 }, "changed": true }
+          }
+        },
+        {
+          "id": "title-same",
+          "route": "PUT /api/bench-views/:bench/title",
+          "class": "normal",
+          "what": "同样的名字再写一次：没有变化",
+          "vary": { "bench.created_at": 60000 },
+          "request": { "method": "PUT", "path": "/api/bench-views/demo/title", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "title": "示例台" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
