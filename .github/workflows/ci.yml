@@ -531,6 +531,8 @@ jobs:
         run: node scripts/gateway-default-smoke.mjs && node scripts/gateway-smoke.mjs
       - name: MCP 上传完整性（base64 截断检测：size/sha256 不符拒收、64KB 边界疑似截断拒收、坏 base64 拒收、被拒不落库）
         run: node scripts/mcp-upload-integrity-smoke.mjs
+      - name: 台的文件数上限（缺省 main 模式·浏览器上传与 MCP 原始字节同时抢最后一个名额·只进一笔其余 413·库里不超上限·磁盘不留多余文件）
+        run: node scripts/app-files-cap-race-test.mjs
       - name: ygl-trees 作为 MCP 上游（#474：stdio 子进程·配置校验·环境不含口令·命令执行关闭·按会话授权·超时重启）
         run: node scripts/ygl-upstream-smoke.mjs
       - name: 全站登录门（WM_LOGIN_GATE：enforce 匿名 302/401·口令登录 cookie·限频退避·next 防外跳·台令牌/查看凭证·/mcp 网关·本机命令行·假身份来源·off 不变·坏值拒启）

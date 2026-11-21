@@ -36,13 +36,17 @@ def set_token(pg):
 BENCHES = [{'slug': 'synth-a', 'title': '合成·巡检台'}, {'slug': 'synth-b', 'title': '合成·报修台'}]
 DOCS = {'synth-a': [{'key': 'board', 'title': '巡检看板'}, {'key': 'rows', 'title': '巡检明细'}], 'synth-b': [{'key': 'main', 'title': '报修概况'}]}
 MONTH = {'name': 'month', 'kind': 'month', 'label': '月份'}
+SITE = {'name': 'site', 'kind': 'search', 'label': '区域'}
+flags = {'two': False, 'hold': False}
+held = []  # 压住不回的取数（应答由测试自己放行）
 def view_result(bench, view, params):
     title = next(b['title'] for b in BENCHES if b['slug'] == bench)
     vt = next(v['title'] for v in DOCS[bench] if v['key'] == view)
-    eff = {'month': params.get('month', '2026-01')}
+    eff = {'month': params.get('month', '2026-01'), **({'site': params['site']} if flags['two'] and params.get('site') else {})}
+    fields = [{**MONTH, 'default': '2026-01'}] + ([SITE] if flags['two'] else [])
     n = 63 if eff['month'] == '2026-01' else 42
-    return {'title': title, 'version': 1, 'active_version': 1, 'views': DOCS[bench], 'view': {'key': view, 'title': vt}, 'filters': [MONTH], 'params': eff,
-            'blocks': [{'type': 'filter-bar', 'fields': [{**MONTH, 'default': '2026-01'}], 'span': 12},
+    return {'title': title, 'version': 1, 'active_version': 1, 'views': DOCS[bench], 'view': {'key': view, 'title': vt}, 'filters': [MONTH] + ([SITE] if flags['two'] else []), 'params': eff,
+            'blocks': [{'type': 'filter-bar', 'fields': fields, 'span': 12},
                        {'type': 'stat', 'title': '合成计数', 'unit': '次', 'value': 'v', 'span': 3, 'data': {'columns': [{'name': 'v', 'type': 'integer'}], 'rows': [{'v': n}]}}]}
 renders = []
 def fake(route, body, status=200): route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
@@ -56,6 +60,7 @@ def on_bv(route):
         q = {k: v[0] for k, v in parse_qs(u.query).items()}
         params = {k[2:]: v for k, v in q.items() if k.startswith('p.')}
         renders.append((bench, q.get('view'), params))
+        if flags['hold']: held.append((route, bench, q.get('view'), params)); return None
         return fake(route, view_result(bench, q.get('view'), params))
     return fake(route, {'error': 'not_found'}, 404)
 
@@ -126,6 +131,28 @@ with sync_playwright() as p:
     check('两份显示的都是新月份的数', all('42' in s.inner_text() for s in pg.locator('[data-testid=ck-bench-view] [data-bb=stat]').all()))
     pg.wait_for_timeout(1500)
     check('改完之后不再来回取数（1.5 秒内没有多余的请求）', len(renders) - before <= 4, renders[before:])
+
+    print('五、连着改两个共用筛选（第一次取数还没回来就改第二个）')
+    flags['two'] = True
+    inp.click(); inp.fill('2026-01'); inp.press('Enter'); pg.mouse.click(800, 26)  # 换回去重取一次：这一回视图认「区域」了
+    pg.wait_for_selector('[data-testid=ck-bv-filters] [data-filter=site]')
+    flags['hold'] = True; held.clear(); before = len(renders)
+    inp.click(); inp.fill('2026-03'); inp.press('Enter'); pg.mouse.click(800, 26)
+    for _ in range(250):  # 等到改月份引起的取数确实压在半路，等不到就失败
+        if any(ps.get('month') == '2026-03' for _, _, _, ps in held): break
+        pg.wait_for_timeout(20)
+    check('（前提）改了月份：取数压在半路还没回来', any(ps.get('month') == '2026-03' for _, _, _, ps in held), [h[3] for h in held])
+    site = pg.locator('[data-testid=ck-bv-filters] [data-filter=site] input'); site.fill('北区'); site.press('Enter')
+    for _ in range(250):
+        if any(ps.get('site') == '北区' for _, _, _, ps in held): break
+        pg.wait_for_timeout(20)
+    last = {}
+    for _, bn, v, ps in held: last[(bn, v)] = ps
+    check('紧接着改区域：两份视图最后一次取数都同时带着新月份和区域（月份没被冲掉）', bool(last) and all(ps.get('month') == '2026-03' and ps.get('site') == '北区' for ps in last.values()), last)
+    flags['hold'] = False
+    for route, bn, v, ps in held: fake(route, view_result(bn, v, ps))
+    held.clear()
+    check('放行以后：顶上一排两个框都是选的值', site.input_value() == '北区' and inp.input_value() == '2026-03', (inp.input_value(), site.input_value()))
     b.close()
 
 print(f'cockpit-bench-view-browser: {ok} 过 / {fail} 败')
