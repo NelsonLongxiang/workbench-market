@@ -422,11 +422,29 @@ export async function exportBenchTable(bench: string, target: TableContext): Pro
 export const listBenchViews = () => benchViewsGet('/api/bench-views');
 export const getBenchViewDoc = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/view`);
 /** 视图台页面的入口：ref 写卡片 id 或台标识。200 时 body 是 BenchEntry；读不到的、不存在的、没开台库的、还没有视图描述的都是同一个 404（页面照原来的方式打开卡片）；没登录 401 */
-export type BenchEntry = { bench: { slug: string; title: string; workbench_id: number | null }; version: number; title: string; default_view: string; views: { key: string; title: string }[]; can: { rename: boolean } };
+export type BenchEntry = { bench: { slug: string; title: string; workbench_id: number | null }; version: number; title: string; default_view: string; views: { key: string; title: string }[]; can: { rename: boolean; /** 能进这个台的 MCP 管理页（#904） */ mcp: boolean; /** 能批台上的 MCP 申请 */ mcp_decide: boolean } };
 /** 改台名（#905）：PUT /api/bench-views/<卡片 id>/title，{ title } 或 { from_card: true }，带 base_title（页面看到的名字）防覆盖。返回状态码和应答体；断网当状态码 0 */
 export async function renameBenchTitle(ref: string | number, body: { title?: string; from_card?: true; base_title: string }): Promise<{ status: number; body: unknown }> {
   try {
     const r = await fetch(`/api/bench-views/${encodeURIComponent(String(ref))}/title`, { method: 'PUT', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+/** 台的 MCP 管理页（#904）：会话在这个台上的授予、申请、写法对不上的申请、留痕；can.decide 是能不能批（和批准接口同一个判法） */
+export type BenchMcpTool = { tool: string; category: string };
+export type BenchMcpRequest = { id: number; bench: string; tools: string[]; tool_kinds: BenchMcpTool[]; reason: string; status: 'pending' | 'approved' | 'rejected' | 'expired'; note: string; created_at: number; decided_at: number | null; session_id: number; session: string; decided_by: string };
+export type BenchMcpPage = {
+  bench: { slug: string; title: string; workbench_id: number | null };
+  grants: { session_id: number; session: string; revoked: boolean; tools: (BenchMcpTool & { granted_by: string; granted_at: number; request_id: number | null })[] }[];
+  requests: BenchMcpRequest[]; unmatched: (BenchMcpRequest & { why: string })[];
+  log: { id: number; session_id: number; action: string; tools: string[]; actor: string; request_id: number | null; note: string; at: number }[];
+  can: { decide: boolean };
+};
+export const getBenchMcp = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/mcp-grants`);
+/** 批准或驳回台上的一条申请（驳回要写理由，服务端核）。返回状态码和应答体；断网当状态码 0 */
+export async function decideBenchMcp(bench: string, id: number, approve: boolean, note: string): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(`/api/bench-views/${encodeURIComponent(bench)}/mcp-requests/${id}`, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ approve, ...(note.trim() ? { note: note.trim() } : {}) }) });
     return { status: r.status, body: await r.json().catch(() => null) };
   } catch { return { status: 0, body: null }; }
 }

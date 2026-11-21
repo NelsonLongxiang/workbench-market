@@ -13,6 +13,7 @@ import Access from './pages/access/Access';
 import Types from './pages/Types';
 import Settings from './pages/Settings';
 import UseEntry from './pages/UseEntry';
+import BenchMcp from './pages/BenchMcp';
 import Cockpit from './pages/Cockpit';
 import Sops from './pages/Sops';
 import SopSpace from './pages/SopSpace';
@@ -155,6 +156,7 @@ export default function App() {
         {WEB_EXTENSIONS.flatMap((e) => (e.routes ?? []).map((r) => <Route key={`${e.name}:${r.path}`} path={r.path} element={r.element} />))}
         <Route path="/owner-pending" element={<OwnerPending />} />
         <Route path="/mcp-gateways" element={<McpGateways />} />
+        <Route path="/bench-mcp/:bench" element={<BenchMcp />} />
         <Route path="/vault" element={<Vault />} />
         <Route path="/types" element={<Types />} />
         <Route path="/settings" element={<Settings />} />
