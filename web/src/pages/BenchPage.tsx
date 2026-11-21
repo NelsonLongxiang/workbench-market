@@ -14,7 +14,7 @@ import BenchRename from './BenchRename';
 
 type State = { phase: 'loading' } | { phase: 'ok'; result: ViewResult; requestKey: string } | { phase: 'off' } | { phase: 'error'; text: string };
 
-export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: string; entry: BenchEntry; refreshEntry: () => void }) {
+export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: string; entry: BenchEntry; refreshEntry: () => Promise<BenchEntry | null> }) {
   const nav = useNavigate();
   const [q, setQ] = useSearchParams();
   const view = viewFromQuery(entry, q);
@@ -31,7 +31,7 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
     const onBack = () => {
       if (document.visibilityState !== 'visible' || !shouldRefreshEntry(lastEntryAt.current, Date.now())) return;
       lastEntryAt.current = Date.now();
-      refreshEntry();
+      void refreshEntry();
     };
     document.addEventListener('visibilitychange', onBack);
     window.addEventListener('focus', onBack);
@@ -90,7 +90,7 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
             ))}
           </div>
         ) : null}
-        <Button size="small" type="text" icon={<ReloadOutlined />} loading={refreshing && s.phase === 'ok'} onClick={() => { setRefreshing(true); refreshEntry(); void load(); }} className="wm-bp-refresh" data-testid="bench-page-refresh">刷新</Button>
+        <Button size="small" type="text" icon={<ReloadOutlined />} loading={refreshing && s.phase === 'ok'} onClick={() => { setRefreshing(true); void refreshEntry(); void load(); }} className="wm-bp-refresh" data-testid="bench-page-refresh">刷新</Button>
       </div>
       <main className="wm-bp-body">
         {s.phase === 'loading' ? <div className="wm-dash-card" data-testid="bench-page-loading"><Skeleton active paragraph={{ rows: 6 }} /></div>

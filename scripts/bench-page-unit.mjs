@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 视图台页面（/use/<卡片 id>）的纯函数单测（web/src/bench-page-view.ts）：入口应答怎么走、地址里的视图和筛选、表单没交上去时说什么。数据都是合成的。 */
-import { ENTRY_REFRESH_MIN_MS, ENTRY_TEXT, asEntry, entryOutcome, formError, pageTitle, paramsFromQuery, renameOutcome, shouldRefreshEntry, toQuery, viewFromQuery } from '../web/src/bench-page-view.ts';
+import { ENTRY_REFRESH_MIN_MS, ENTRY_TEXT, asEntry, entryOutcome, formError, pageTitle, paramsFromQuery, reloadOutcome, renameOutcome, shouldRefreshEntry, toQuery, viewFromQuery } from '../web/src/bench-page-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -36,6 +36,8 @@ ok('改名成了：带回变没变和新名字', J(renameOutcome(200, { changed:
 ok('409：照服务端的说法；它没说就给一句默认的', J(renameOutcome(409, { error: 'conflict', message: '台的名字已经被改过了，先重新读一次再改' })) === J({ kind: 'conflict', text: '台的名字已经被改过了，先重新读一次再改' }) && renameOutcome(409, null).text.includes('重新读一次'));
 ok('400 照服务端的说法；没登录、不让改、断网、别的各一句人话', renameOutcome(400, { message: '台的名字须为 1～64 个字符' }).text === '台的名字须为 1～64 个字符' && renameOutcome(401, null).text === '请先登录' && renameOutcome(403, {}).kind === 'error' && renameOutcome(0, null).text.includes('连不上') && renameOutcome(500, { message: 'raw' }).text === '这次没改成，稍后再试');
 ok('200 但应答不像样：不当成了', renameOutcome(200, { changed: true }).kind === 'error');
+ok('「重新读一次」取到了：输入框和 base 换成现在的名字', J(reloadOutcome({ ...E, bench: { ...E.bench, title: '别人改的' } })) === J({ title: '别人改的', type: 'info', text: '现在的名字是「别人改的」' }));
+ok('「重新读一次」没取到（读不到、断网）：title 为 null，对话框里的输入不被覆盖，只说一句、还能再点', (() => { const o = reloadOutcome(null); return o.title === null && o.type === 'warning' && o.text.includes('输入框没动'); })());
 ok('切回标签页重新取入口：离上一次不到 30 秒不取，满了才取', ENTRY_REFRESH_MIN_MS === 30_000 && !shouldRefreshEntry(1_000, 1_000 + 29_999) && shouldRefreshEntry(1_000, 1_000 + 30_000));
 
 console.log(`\nbench-page-unit: ${pass} 过 / ${fail} 败`);

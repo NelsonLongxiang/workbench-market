@@ -238,6 +238,21 @@ with sync_playwright() as p:
     pg.locator('[data-testid=bench-rename-reload]').click()
     pg.wait_for_function("() => document.querySelector('[data-testid=bench-rename-input]')?.value === '合成·别人改的名字'")
     check('「重新读一次」：输入框换成现在的名字，顶栏也跟上', pg.locator('[data-testid=bench-page-name]').inner_text() == '合成·别人改的名字')
+    # 「重新读一次」这一次没取到（入口 500）：输入框不动、说一句；之后后台再取到新名字，也不改输入框
+    mode['title'] = '409'
+    inp.fill('又想改成这个'); pg.locator('[data-testid=bench-rename-save]').click()
+    pg.wait_for_selector('[data-testid=bench-rename-reload]')
+    mode['entry'] = '500'; mgr['title'] = '合成·读不到时别人又改的'
+    pg.locator('[data-testid=bench-rename-reload]').click()
+    pg.wait_for_function("() => (document.querySelector('[data-testid=bench-rename-msg]')?.textContent ?? '').includes('读不到现在的名字')")
+    check('「重新读一次」没取到：输入框还是自己填的那个，说读不到、还能再点', inp.input_value() == '又想改成这个' and pg.locator('[data-testid=bench-rename-reload]').count() == 1, inp.input_value())
+    mode['entry'] = 'mgr'; e1 = log['entry']
+    pg.evaluate("() => { window.__wmShift += 31000; window.dispatchEvent(new Event('focus')); }")
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '合成·读不到时别人又改的'")
+    check('……之后后台重取到了新名字：顶栏换了，对话框里的输入仍然不被覆盖', log['entry'] > e1 and inp.input_value() == '又想改成这个', inp.input_value())
+    mode['title'] = 'ok'; mgr['title'] = '合成·别人改的名字'
+    pg.locator('[data-testid=bench-rename-reload]').click()
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-rename-input]')?.value === '合成·别人改的名字'")
     pg.locator('[data-testid=bench-rename-save]').click()
     pg.wait_for_function("() => (document.querySelector('[data-testid=bench-rename-msg]')?.textContent ?? '').includes('名字没变')")
     check('没改名字就保存：说「名字没变」，请求的 base_title 是重新读到的名字', '名字没变' in pg.locator('[data-testid=bench-rename-msg]').inner_text() and log['title'][-1].get('base_title') == '合成·别人改的名字', log['title'][-1:])

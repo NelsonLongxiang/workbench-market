@@ -90,6 +90,12 @@ export function renameOutcome(status: number, body: unknown): RenameOutcome {
   return { kind: 'error', text: '这次没改成，稍后再试' };
 }
 
+/** 改名对话框里点了「重新读一次」之后：取到了新入口，输入框和 base 换成现在的名字；没取到（读不到、断网），名字给 null——输入框和 base 都不动，说一句，还能再点 */
+export function reloadOutcome(next: BenchEntry | null): { title: string | null; type: 'info' | 'warning'; text: string } {
+  if (!next) return { title: null, type: 'warning', text: '这会儿读不到现在的名字，输入框没动，稍后再点「重新读一次」' };
+  return { title: next.bench.title, type: 'info', text: `现在的名字是「${next.bench.title}」` };
+}
+
 /** 标签页切回前台时要不要重新问一次入口（别人改了台名，切回来看到的是新名字）：离上一次至少 30 秒才问，免得来回切换一直发请求 */
 export const ENTRY_REFRESH_MIN_MS = 30_000;
 export const shouldRefreshEntry = (lastAt: number, now: number, minMs = ENTRY_REFRESH_MIN_MS): boolean => now - lastAt >= minMs;
