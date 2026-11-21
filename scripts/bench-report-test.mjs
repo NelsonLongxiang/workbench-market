@@ -14,6 +14,11 @@
  *   G7 模板换了版本（判据类、复核后生效）：旧绑定生成 409，要重新绑
  *   G8 读：管理层读得到清单和单份；普通员工 403；没登录 401；不存在的 404
  *   G9 （#17）删卡片：台库里只有报告也算有数据，409 的规模里有报告份数，不带正文
+ *   R1 回应：理由必填、立场照模板、回应者／类别／位置由服务端填；R2 未处理的反驳（人的链头、改主意接链头、不分叉）；
+ *   R3 MCP 生成、回应记 AI，AI 的反驳不算；R4 被更正之后旧报告上的不算；R5 回应、报告、论断不能改不能删
+ *   R6（#932 独立验收）能回应读不了的 404 和不存在一样；MCP 回应要有 report_get 授予；一个人一条链；接别人链头 409；对整份报告的反驳算
+ *   R6e（#932 统筹）报告清单不越界：别的台的清单、按事物筛都 403、没有条数；MCP 只能列有授予的台
+ *   R6d（属主 2026-11-21：收窄）回应记的位置只含管得到这个台的授予：别的领域的不记，台绑到那个领域以后才记
  *   G12（#930 统筹验收）产出方只有 person 记 human；带报告动作的自定义角色两人放行：提议没放行、授予没放行都不生效
  *   G11（#930 独立验收）只能看台的人读报告、生成、绑定 403；冻结后补论断、论断挂到不存在的报告都拒；三张冻结的表在库里 UPDATE、DELETE、INSERT OR REPLACE 都拒
  *   G10 产出方由服务端填：登录的那个人，记 human（数据视图的台只认人，本机命令行、管理口令进不来是既有规矩）
@@ -301,6 +306,201 @@ try {
     check(r?.producer === 'user:alpha' && r?.producer_kind === 'human' && stored?.producer === 'user:alpha' && stored?.producer_kind === 'human',
       'G10 产出方由服务端填：登录的管理层 user:alpha，记 human（存下来的也一样）', { producer: r?.producer, kind: r?.producer_kind, stored: stored?.producer });
   }
+
+  // ================= R：回应、未处理的反驳、MCP（报告第 1 步 PR C） =================
+  console.log('R1 回应');
+  // 现在 monthly 生效的是第 2 版（结论 1 条），台已重新绑。先出一份新报告做回应
+  const rep = await gen(boss, G({ subject: 'card:synth-orders@resp' }));
+  const rid = rep.json?.report?.id;
+  const respond = (opts, body, id = rid) => bv(opts, 'POST', `/synth-orders/reports/${id}/responses`, body);
+  const read = async (id = rid) => (await bv(boss, 'GET', `/synth-orders/reports/${id}`)).json;
+  {
+    const bad = {
+      noReason: (await respond(boss, { claim_key: 'conclusion-1', stance: 'agree', reason: '  ' })).status,
+      longReason: (await respond(boss, { claim_key: 'conclusion-1', stance: 'agree', reason: '理'.repeat(4001) })).status,
+      badStance: (await respond(boss, { claim_key: 'conclusion-1', stance: 'like', reason: '合成' })).status,
+      smuggledKind: (await respond(boss, { claim_key: 'conclusion-1', stance: 'agree', reason: '合成', responder_kind: 'human' })).status,
+      smuggledPos: (await respond(boss, { claim_key: 'conclusion-1', stance: 'agree', reason: '合成', position: 'owner@*' })).status,
+      badKey: (await respond(boss, { claim_key: 'Conclusion', stance: 'agree', reason: '合成' })).status,
+    };
+    const nf = {
+      claim: (await respond(boss, { claim_key: 'risk-9', stance: 'agree', reason: '合成' })).status,
+      report: (await respond(boss, { claim_key: 'conclusion-1', stance: 'agree', reason: '合成' }, 99999)).status,
+    };
+    const deny = {
+      member: (await respond(member, { claim_key: 'conclusion-1', stance: 'dispute', reason: '合成' })).status,
+      anon: (await srv.call('POST', `/api/bench-views/synth-orders/reports/${rid}/responses`, { headers: REMOTE, body: { claim_key: 'conclusion-1', stance: 'dispute', reason: '合成' } })).status,
+    };
+    const okR = await respond(boss, { claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：口径不对' });
+    const resp = okR.json?.response;
+    check(Object.values(bad).every((x) => x === 400) && nf.claim === 404 && nf.report === 404 && deny.member === 403 && deny.anon === 401
+        && okR.status === 201 && resp?.responder === 'user:alpha' && resp?.responder_kind === 'human' && /management@\*/.test(resp?.position ?? ''),
+      'R1 理由空、太长、立场不在模板里、请求里写回应者类别或位置、论断编号写法不对：400；没有这条论断、没有这份报告：404；普通员工 403、没登录 401；管理层反驳成：回应者、记人、位置（授予）由服务端填',
+      { bad, nf, deny, resp });
+  }
+
+  console.log('R2 未处理的反驳');
+  let firstResp;
+  {
+    const r1 = await read();
+    firstResp = r1?.claims?.[0]?.responses?.[0]?.id;
+    const c1 = r1?.claims?.[0];
+    // 改主意：接自己的链头改成认可；再接同一条（分叉）409；接别人的、对不同论断的 409
+    const change = await respond(boss, { claim_key: 'conclusion-1', stance: 'agree', reason: '合成：看错了', supersedes: firstResp });
+    const fork = await respond(boss, { claim_key: 'conclusion-1', stance: 'agree', reason: '合成', supersedes: firstResp });
+    const otherClaim = await respond(boss, { stance: 'agree', reason: '合成：对整份', supersedes: change.json?.response?.id });
+    const r2 = await read();
+    check(c1?.open_dispute === true && r1?.open_disputes === 1 && change.status === 201 && fork.status === 409 && otherClaim.status === 409
+        && r2?.claims?.[0]?.open_dispute === false && r2?.open_disputes === 0 && r2?.gate?.open_dispute_blocks_acceptance === false,
+      'R2 人的反驳是链头：这条论断有未处理的反驳（1 处）；本人改成认可（接链头）后没有了；同一条再接（分叉）、接到对整份报告上：409；读的时候带着模板的验收声明', { c1: c1?.open_dispute, n1: r1?.open_disputes, change: change.status, fork: fork.status, otherClaim: otherClaim.status, r2: r2?.claims?.[0]?.open_dispute });
+  }
+
+  console.log('R3 MCP：经会话生成、回应记 AI；AI 的反驳不算未处理');
+  {
+    const admin = { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } };
+    const sess = (await srv.call('POST', '/api/mcp/sessions', { ...admin, body: { name: 'synth-report-seat' } })).json;
+    const tools = ['report_list', 'report_get', 'report_generate', 'report_respond'];
+    const grant = await bv(boss, 'PUT', '/synth-orders/mcp-grants', { session: 'synth-report-seat', tools });
+    const call = async (name, args) => {
+      const r = await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${sess?.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } } });
+      const res = r.json?.result, text = res?.content?.[0]?.text ?? '';
+      let json = null; try { json = JSON.parse(text); } catch { /* 出错时是一句话 */ }
+      return { isError: res?.isError === true, rpcError: r.json?.error?.code ?? null, json, text };
+    };
+    const made = await call('report_generate', { bench: 'synth-orders', ...G({ subject: 'card:synth-orders@mcp' }) });
+    const mid = made.json?.report?.id;
+    const aiDispute = await call('report_respond', { bench: 'synth-orders', id: mid, claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：AI 觉得不对' });
+    const got = await call('report_get', { bench: 'synth-orders', id: mid });
+    const listed = await call('report_list', { bench: 'synth-orders', subject: 'card:synth-orders@mcp' });
+    const smuggle = await call('report_generate', { bench: 'synth-orders', ...G({ subject: 'card:synth-orders@mcp2' }), sources: [] });
+    const other = await call('report_get', { bench: 'synth-orders-other', id: mid });
+    check(!!sess?.token && grant.status === 200 && !made.isError && made.json?.report?.producer === 'mcp:synth-report-seat' && made.json?.report?.producer_kind === 'ai'
+        && !aiDispute.isError && aiDispute.json?.response?.responder_kind === 'ai' && aiDispute.json?.response?.position === 'mcp'
+        && got.json?.claims?.[0]?.open_dispute === false && got.json?.open_disputes === 0 && listed.json?.reports?.length === 1
+        && smuggle.isError && (other.isError || other.rpcError !== null),
+      'R3 MCP 会话生成：producer 是 mcp:会话名、记 AI；AI 反驳记 AI、位置 mcp，不算未处理的反驳；带来源的拒；没授予的台调不到',
+      { made: made.text?.slice(0, 200), ai: aiDispute.json?.response, got: got.json?.claims?.[0]?.open_dispute, listed: listed.json?.reports?.length, smuggle: smuggle.isError, other: other.text?.slice(0, 80) });
+    // 人在 AI 那份上反驳：算；报告被更正之后旧报告上的不算
+    const human = await respond(boss, { claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：人也觉得不对' }, mid);
+    const before = await read(mid);
+    const fix = await gen(boss, G({ subject: 'card:synth-orders@mcp', supersedes: mid }));
+    const after = await read(mid);
+    check(human.status === 201 && before?.claims?.[0]?.open_dispute === true && fix.status === 201 && after?.report?.superseded_by === fix.json?.report?.id && after?.claims?.[0]?.open_dispute === false && after?.open_disputes === 0,
+      'R4 人的反驳算未处理；这份报告被更正之后，旧报告上的反驳不再算（看新报告）', { human: human.status, before: before?.claims?.[0]?.open_dispute, after: after?.claims?.[0]?.open_dispute, sb: after?.report?.superseded_by });
+  }
+
+  console.log('R6 回应要读得了（第 14 条）；一个人一条链（第 15 条）；接别人的链头、对整份报告的反驳（#932 独立验收）');
+  {
+    // 只能回应、读不了报告的人（自定义角色只列 report-respond，范围 *）：和报告不存在一样 404，应答一字不差，库里没多一行
+    await cli('POST', '/api/roles/guest/copy', { id: 'respond-only', name: '合成只能回应' });
+    await cli('PUT', '/api/roles/respond-only', { permissions: [{ actions: ['bench-store.report-respond'] }] });
+    await cli('POST', '/api/roles/respond-only/approve');
+    const gR = await activate({ principal: 'user:beta', role: 'respond-only', scope: '*' });
+    const beforeN = (await read())?.claims?.[0]?.responses?.length;
+    const onReal = await respond(member, { claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：读不了也想反驳' });
+    const onGhost = await respond(member, { claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：读不了也想反驳' }, 99999);
+    const readDenied = await bv(member, 'GET', `/synth-orders/reports/${rid}`);
+    const afterR = await read();
+    check(gR && readDenied.status === 403 && onReal.status === 404 && onReal.status === onGhost.status && onReal.text === onGhost.text
+        && afterR?.claims?.[0]?.responses?.length === beforeN && afterR?.open_disputes === 0,
+      'R6a 能回应、读不了报告的人：回应存在的报告和不存在的报告一样 404、应答一字不差（探不出报告在不在）；没写进去，不算未处理的反驳',
+      { gR, readDenied: readDenied.status, onReal: `${onReal.status} ${onReal.text?.slice(0, 80)}`, onGhost: `${onGhost.status} ${onGhost.text?.slice(0, 80)}`, n: [beforeN, afterR?.claims?.[0]?.responses?.length] });
+    // MCP：只授了 report_respond、没授 report_get 的会话回应不了；两个都授了才行
+    const admin = { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } };
+    const sess = (await srv.call('POST', '/api/mcp/sessions', { ...admin, body: { name: 'synth-respond-only' } })).json;
+    const call = async (name, args) => {
+      const r = await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${sess?.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } } });
+      const res = r.json?.result;
+      return { isError: res?.isError === true, rpcError: r.json?.error?.code ?? null, text: res?.content?.[0]?.text ?? JSON.stringify(r.json?.error ?? '') };
+    };
+    const g1 = await bv(boss, 'PUT', '/synth-orders/mcp-grants', { session: 'synth-respond-only', tools: ['report_respond'] });
+    const only = await call('report_respond', { bench: 'synth-orders', id: rid, claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：没授读' });
+    const g2 = await bv(boss, 'PUT', '/synth-orders/mcp-grants', { session: 'synth-respond-only', tools: ['report_respond', 'report_get'] });
+    const both = await call('report_respond', { bench: 'synth-orders', id: rid, stance: 'supplement', reason: '合成：授了读，对整份补充' });
+    check(g1.status === 200 && (only.isError || only.rpcError !== null) && g2.status === 200 && !both.isError && both.rpcError === null,
+      'R6b MCP：只授了 report_respond 的会话回应不了（要能读）；report_get 也授了才回应得了', { g1: g1.status, only: only.text.slice(0, 100), g2: g2.status, both: both.text.slice(0, 100) });
+    // 一个人一条链：已经回应过的，不带 supersedes 再发 409（不然先反驳、后另起一条认可，反驳还算着）
+    const mineHead = (r) => { const m = (r?.claims?.[0]?.responses ?? []).filter((x) => x.responder === 'user:alpha'); const rep = new Set(m.map((x) => x.supersedes)); return m.find((x) => !rep.has(x.id)); };
+    const head = mineHead(await read());
+    const fresh = await respond(boss, { claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：另起一条' });
+    // 接别人的链头：409
+    const othersHead = await respond(sys, { claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：接别人的', supersedes: head?.id });
+    // 对整份报告的反驳算进未处理的反驳；本人改成认可后不算
+    const whole = await respond(boss, { stance: 'dispute', reason: '合成：整份口径不对' });
+    const w1 = await read();
+    const wholeBack = await respond(boss, { stance: 'agree', reason: '合成：整份没问题', supersedes: whole.json?.response?.id });
+    const w2 = await read();
+    check(!!head && fresh.status === 409 && othersHead.status === 409 && whole.status === 201 && w1?.open_disputes === 1 && w1?.claims?.every((c) => c.open_dispute === false)
+        && w1?.responses?.some((x) => x.stance === 'dispute') && wholeBack.status === 201 && w2?.open_disputes === 0,
+      'R6c 已经回应过的不带 supersedes 再发 409；接别人的链头 409；对整份报告的反驳算一处未处理的反驳（论断上都没有），本人改成认可后为 0',
+      { head: head?.id, fresh: fresh.status, othersHead: othersHead.status, whole: whole.status, w1: w1?.open_disputes, wholeBack: wholeBack.status, w2: w2?.open_disputes });
+  }
+
+  console.log('R6d 回应记的位置只含管得到这个台的授予（属主 2026-11-21：收窄）');
+  {
+    // alpha 另有一条只管 zeta 领域的授予：和这个台无关，不进位置；全公司（*）的照记
+    const gZ = await activate({ principal: 'user:alpha', role: 'area-lead', scope: 'area:zeta' });
+    const posRep = await gen(boss, G({ subject: 'card:synth-orders@pos' }));
+    const pr = await respond(boss, { claim_key: 'conclusion-1', stance: 'agree', reason: '合成：看位置' }, posRep.json?.report?.id);
+    const pos = pr.json?.response?.position ?? '';
+    check(gZ && pr.status === 201 && pos === 'management@*,owner@*' && !pos.includes('zeta'),
+      'R6d 回应记的位置只含管得到这个台的授予：全公司的 management、owner 记上，只管 zeta 领域的 area-lead 不记', { gZ, status: pr.status, pos });
+    // 台绑到 zeta 以后，zeta 的授予就管得到这个台了：记上。用完解绑，后面照旧
+    const bind = await bv(boss, 'PUT', '/synth-orders/binding', { department: 'zeta' });
+    const pw = await respond(boss, { stance: 'supplement', reason: '合成：绑了 zeta 再看位置' }, posRep.json?.report?.id);
+    const unbind = await bv(boss, 'PUT', '/synth-orders/binding', { department: '' });
+    const posZ = pw.json?.response?.position ?? '';
+    check(bind.status === 200 && pw.status === 201 && posZ === 'area-lead@area:zeta,management@*,owner@*' && unbind.status === 200,
+      'R6d 台绑到 zeta 以后，zeta 的 area-lead 管得到这个台，记进位置', { bind: [bind.status, bind.text?.slice(0, 120)], pw: pw.status, posZ, unbind: unbind.status });
+  }
+
+  console.log('R6e 报告清单不越界：只列这一个台里的、读者能读的台（#932 统筹：用例 16 挪到后续 PR 的前提）');
+  {
+    // 持 zeta 领域成员授予的人：台绑到 zeta 时读得了这个台的清单；另一个没绑 zeta 的台（有报告）读不了清单、按事物筛也读不了，数目也看不到
+    const other = await bv(boss, 'POST', '', { slug: 'synth-other', title: '合成别的台' });
+    await cli('POST', '/api/areas', { id: 'eta', name: '合成庚领域' });
+    const be = await bv(boss, 'PUT', '/synth-other/binding', { department: 'eta' }); // 别的台绑在别的领域：按台判时这一道要拦住 zeta 的人
+    const ga = await activate({ principal: 'user:beta', role: 'area-member', scope: 'area:zeta' });
+    const bz = await bv(boss, 'PUT', '/synth-orders/binding', { department: 'zeta' });
+    const mine = await bv(member, 'GET', '/synth-orders/reports');
+    const otherList = await bv(member, 'GET', '/synth-other/reports');
+    const otherSubject = await bv(member, 'GET', '/synth-other/reports?subject=card:synth-orders@resp');
+    const ub = await bv(boss, 'PUT', '/synth-orders/binding', { department: '' });
+    const gid = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = 'area-member' AND status = 'active'").get()?.id;
+    const rv = await cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：R6e 用完收回' });
+    // 清单里每一条都是这个台自己的报告（台库是一台一个，清单只读这一个台库）
+    const ids = (mine.json?.reports ?? []).map((r) => r.id);
+    check(other.status === 201 && be.status === 200 && ga && bz.status === 200 && mine.status === 200 && ids.length > 0
+        && otherList.status === 403 && !('reports' in (otherList.json ?? {})) && otherSubject.status === 403 && ub.status === 200 && rv.status === 200,
+      'R6e 持 zeta 领域授予的人：绑到 zeta 的台清单 200；没绑 zeta 的别的台清单、按事物筛都 403，应答里没有报告也没有条数（用完解绑、收回）',
+      { other: other.status, be: [be.status, be.text?.slice(0, 80)], ga, bz: bz.status, mine: [mine.status, ids.length], otherList: `${otherList.status} ${otherList.text?.slice(0, 80)}`, otherSubject: otherSubject.status, ub: ub.status, rv: rv.status });
+    // MCP：会话只在 synth-orders 上有 report_list，到别的台列清单调不到
+    const admin = { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } };
+    const sess = (await srv.call('POST', '/api/mcp/sessions', { ...admin, body: { name: 'synth-list-scope' } })).json;
+    const g = await bv(boss, 'PUT', '/synth-orders/mcp-grants', { session: 'synth-list-scope', tools: ['report_list'] });
+    const call = async (args) => { const r = await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${sess?.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'report_list', arguments: args } } }); const res = r.json?.result; return { isError: res?.isError === true, rpcError: r.json?.error?.code ?? null, text: res?.content?.[0]?.text ?? '' }; };
+    const own = await call({ bench: 'synth-orders' });
+    const cross = await call({ bench: 'synth-other' });
+    check(g.status === 200 && !own.isError && own.rpcError === null && (cross.isError || cross.rpcError !== null) && !/"reports"/.test(cross.text),
+      'R6e MCP：会话只在本台有 report_list，列本台成、列别的台调不到（不回清单）', { g: g.status, own: own.text.slice(0, 60), cross: cross.text.slice(0, 80) });
+  }
+
+  console.log('R5 回应不能改不能删');
+  {
+    // 台库是单独的文件，经主库查不到：直接开台库
+    const { DatabaseSync } = await import('node:sqlite');
+    const store = new DatabaseSync(join(srv.data, 'bench-stores', 'synth-orders.sqlite'));
+    const tr = (sql) => { try { store.prepare(sql).run(); return false; } catch { return true; } };
+    // 先确认表在、有行：不然改删报「没有这张表」也算拒，测不出触发器
+    let rows = -1; try { rows = Number(store.prepare('SELECT COUNT(*) AS n FROM bs_report_responses').get().n); } catch { rows = -1; }
+    const r = { upd: tr("UPDATE bs_report_responses SET stance = 'agree'"), del: tr('DELETE FROM bs_report_responses'), updReport: tr("UPDATE bs_reports SET subject = 'x'"), delClaim: tr('DELETE FROM bs_report_claims'),
+      // 同键覆盖（INSERT OR REPLACE 删旧行不触发 DELETE 触发器）：回应也拒（#930 独立验收）
+      repResp: tr("INSERT OR REPLACE INTO bs_report_responses (id, report_id, claim_key, stance, reason, responder, responder_kind, position, supersedes, created_at) SELECT id, report_id, claim_key, 'agree', '偷换', responder, responder_kind, position, supersedes, created_at FROM bs_report_responses ORDER BY id LIMIT 1") };
+    let after = -1; try { after = Number(store.prepare('SELECT COUNT(*) AS n FROM bs_report_responses').get().n); } catch { after = -1; }
+    store.close();
+    check(rows > 0 && after === rows && Object.values(r).every(Boolean), 'R5 台库里直接改、删、同键覆盖回应，改报告、删论断：触发器都拒，回应一行没少', { rows, after, r });
+  }
+
   console.log('G11 只能看台、不能读报告的人；冻结的三张表在库里不能改、删、覆盖（#930 独立验收）');
   {
     // 只授了「取数、读视图」的人（进得了台，没有读报告）：读报告 403（m11）

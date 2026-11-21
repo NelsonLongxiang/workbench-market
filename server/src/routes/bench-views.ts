@@ -34,8 +34,7 @@ import { relationOf } from '../team-relation.ts';
 import { checkBenchRequest, decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 import { viaBegin, viaSettle } from '../attention-via.ts';
 import { assertBenchBinding, renderBenchView } from '../services/bench-render.ts';
-import type { ReportDimensionService } from '../services/report-dimension.ts';
-import { ReportError, actorKindOf, checkBinding, materialize, prepareInputs, sha256, slotSpecs, type TemplateV2 } from '../services/report-compile.ts';
+import { bindReport, generateReport, listReports, readReport, respondReport } from '../services/bench-report.ts';
 
 export type BenchViewsConfig = { on: boolean };
 /** 启动时读一次：WM_BENCH_VIEWS（on / off，缺省 on；不需要时显式 off 关掉）。不合法拒绝启动 */
@@ -80,8 +79,6 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     return fn(req, res);
   });
   const principals = () => svc<PrincipalService>('principals');
-  /** 产出方算人还是 AI：按主体表里的 kind，只有 person 记 human（report-compile.ts 的 actorKindOf） */
-  const producerKind = (actor: string): 'human' | 'ai' => actorKindOf((principals().get(actor) as { kind?: string } | null)?.kind);
   const resolve = identity().cachedResolver({ ttlMs: 60_000, max: 1000 });
 
   /** Origin 是本站（和判定比对里认「本机页面」的口径一样） */
@@ -303,93 +300,42 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     });
   }));
 
-  // —— 报告（docs/report-step1.md 第四节；报告第 1 步 PR B）——
-  // 台对一个维度的绑定、按绑定生成并冻结报告、读报告。三个动作和视图描述、取数同一档（ASKED 里 global、scoped 都按「写」问）：
-  // 管理层，和台所绑的领域上有授予的人。维度属于某个领域时，只有绑在这个领域的台能用它（跨领域的维度哪个台都能用）
-  const reportDims = () => svc<ReportDimensionService>('reportDimensions');
-  /** 这个台能用的维度和它生效的模板：维度不存在 404；撤了的、还没有生效模板的 409；领域不对 409 */
-  const usableDimension = (bench: BenchEntry, dimension: unknown): { id: string; version: number; sha256: string; template: TemplateV2 } => {
-    if (typeof dimension !== 'string' || !/^[a-z][a-z0-9-]{0,47}$/.test(dimension)) throw new BenchError('invalid', 'dimension 要是报告维度的标识');
-    const d = reportDims().get(dimension);
-    if (!d) throw new BenchError('not_found', `没有报告维度 ${dimension}`);
-    if (d.status === 'retired') throw new BenchError('conflict', `报告维度 ${dimension} 已经撤了`);
-    if (d.area_id !== null && d.area_id !== bench.department_id) throw new BenchError('conflict', `报告维度 ${dimension} 属于别的领域，这个台用不了`);
-    if (d.active_version === null) throw new BenchError('conflict', `报告维度 ${dimension} 还没有生效的模板`);
-    const t = reportDims().template(dimension, d.active_version);
-    if (!t) throw new BenchError('conflict', `报告维度 ${dimension} 的生效模板读不到`);
-    return { id: dimension, version: d.active_version, sha256: t.sha256, template: t.body as TemplateV2 };
-  };
-  /** 编排的拒收转成 400（代号前面加 report_，说是哪一处），别的照原样抛 */
-  const compiled = <T>(fn: () => T): T => {
-    try { return fn(); } catch (e) { if (e instanceof ReportError) throw new BenchError('invalid', `报告没过校验：${e.code}（${e.path}）`, [`report_${e.code}`]); throw e; }
-  };
-  const SUBJECT_RE = /^[a-z][a-z0-9-]{0,15}:[^\s]{1,200}$/;
+  // —— 报告（docs/report-step1.md 第四节；报告第 1 步 PR B、C）——
+  // 规矩都在 services/bench-report.ts（和 MCP 的 report_* 工具共用）；这里只按动作判谁能做。四个动作和视图描述、取数同一档
+  // （ASKED 里 global、scoped 都按「写」问）：管理层，和台所绑的领域上有授予的人
   const benchOf = (req: express.Request): BenchEntry => getBench(req.params.bench) as BenchEntry;
   app.get('/api/bench-views/:bench/reports/:dimension/binding', { action: 'bench-store.report-read', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-read', async (req, _res, s) => {
     const b = await s.reportBindingGet(String(req.params.dimension));
     if (!b) throw new BenchError('not_found', '这个台还没有绑这个维度');
     return { binding: b };
   }));
-  app.put('/api/bench-views/:bench/reports/:dimension/binding', { action: 'bench-store.report-bind', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-bind', async (req, _res, s, actor) => {
-    const body = req.body as Record<string, unknown> | undefined;
-    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BenchError('invalid', '要给一个对象：{ base, slots }');
-    const extra = Object.keys(body).filter((k) => !['base', 'slots'].includes(k));
-    if (extra.length) throw new BenchError('invalid', `有不认识的键：${extra.map((k) => k.slice(0, 40)).join('、')}`);
-    const base = int(body.base);
-    if (base === undefined) throw new BenchError('invalid', 'base 要写成整数：看到的最新绑定版本，没绑过写 0');
-    const dim = usableDimension(benchOf(req), req.params.dimension);
-    const slots = compiled(() => checkBinding(dim.template, body.slots));
-    // 绑的块要在、要是取数的块：照生效的视图描述核一遍（生成时还会再核）
-    const view = await s.getView();
-    const doc = view?.content as { views?: { key: string; blocks: { type: string; query?: unknown }[] }[] } | undefined;
-    for (const [name, sb] of Object.entries(slots)) {
-      const blk = doc?.views?.find((v) => v.key === sb.view)?.blocks[sb.block];
-      if (!blk) throw new BenchError('invalid', `数据槽 ${name} 绑的视图 ${sb.view} 第 ${sb.block} 个块不存在`);
-      if (blk.type === 'form' || blk.type === 'filter-bar' || blk.query === undefined) throw new BenchError('invalid', `数据槽 ${name} 绑的块不是取数的块（${blk.type}）`);
-    }
-    return { binding: await s.reportBindingPut(dim.id, { base, template_version: dim.version, slots, actor, at: Date.now() }) };
-  }));
+  app.put('/api/bench-views/:bench/reports/:dimension/binding', { action: 'bench-store.report-bind', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-bind',
+    (req, _res, s, actor) => bindReport(benchOf(req), s, req.params.dimension, req.body, actor, Date.now())));
   app.post('/api/bench-views/:bench/reports', { action: 'bench-store.report-generate', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-generate', async (req, res, s, actor) => {
-    const body = req.body as Record<string, unknown> | undefined;
-    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BenchError('invalid', '要给一个对象：{ dimension, subject, inputs, claims, supersedes? }');
-    // 来源（视图版本、哈希、行数）和产出方由服务端填：请求里写了就拒，不采纳（docs/report-step1.md 用例 6）
-    const extra = Object.keys(body).filter((k) => !['dimension', 'subject', 'inputs', 'claims', 'supersedes'].includes(k));
-    if (extra.length) throw new BenchError('invalid', `有不认识的键：${extra.map((k) => k.slice(0, 40)).join('、')}`);
-    if (typeof body.subject !== 'string' || !SUBJECT_RE.test(body.subject)) throw new BenchError('invalid', 'subject 要写成「种类:标识」，比如 item:123');
-    const supersedes = body.supersedes === undefined ? null : int(body.supersedes);
-    if (supersedes === undefined || supersedes === 0) throw new BenchError('invalid', 'supersedes 要写成被更正的那份报告的编号');
-    const dim = usableDimension(benchOf(req), body.dimension);
-    const binding = await s.reportBindingGet(dim.id);
-    if (!binding) throw new BenchError('conflict', '这个台还没有绑这个维度，先绑再生成');
-    if (binding.template_version !== dim.version) throw new BenchError('conflict', `模板已经换到第 ${dim.version} 版，绑定还是照第 ${binding.template_version} 版绑的，先重新绑`);
-    const slots = compiled(() => checkBinding(dim.template, binding.slots));
-    const inputs = compiled(() => prepareInputs(dim.template, body.inputs));
-    const data = await s.reportSlots(compiled(() => slotSpecs(dim.template, slots, inputs)));
-    const frozen = compiled(() => materialize(dim.template, slots, data, inputs, body.claims));
-    const text = JSON.stringify(frozen.body);
-    const row = {
-      dimension_id: dim.id, template_version: dim.version, template_sha256: dim.sha256, binding_version: binding.version, subject: body.subject,
-      inputs: JSON.stringify(inputs), body: text, sources: JSON.stringify(frozen.sources), content_sha256: sha256(text),
-      producer: actor, producer_kind: producerKind(actor), supersedes, created_at: Date.now(),
-    };
-    const id = await s.reportInsert(row, frozen.claims.map((c) => ({ claim_key: c.claim_key, kind: c.kind, text: c.text, basis: JSON.stringify(c.basis) })));
+    const out = await generateReport(benchOf(req), s, req.body, actor, Date.now());
     res.status(201);
-    return { report: { id, ...row, inputs, body: frozen.body, sources: frozen.sources }, claims: frozen.claims };
+    return out;
   }));
-  app.get('/api/bench-views/:bench/reports', { action: 'bench-store.report-read', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-read', async (req, _res, s) => {
+  app.get('/api/bench-views/:bench/reports', { action: 'bench-store.report-read', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-read', (req, _res, s) => {
     const q = req.query as Record<string, unknown>;
-    const dimension = typeof q.dimension === 'string' && q.dimension ? q.dimension : undefined;
-    const subject = typeof q.subject === 'string' && q.subject ? q.subject : undefined;
-    if (dimension !== undefined && !/^[a-z][a-z0-9-]{0,47}$/.test(dimension)) throw new BenchError('invalid', 'dimension 要是报告维度的标识');
-    if (subject !== undefined && !SUBJECT_RE.test(subject)) throw new BenchError('invalid', 'subject 要写成「种类:标识」');
-    return { reports: await s.reportList({ dimension, subject, limit: qint(q.limit, 'limit') }) };
+    return listReports(s, { dimension: q.dimension, subject: q.subject, limit: qint(q.limit, 'limit') });
   }));
-  app.get('/api/bench-views/:bench/reports/:id', { action: 'bench-store.report-read', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-read', async (req, _res, s) => {
+  app.get('/api/bench-views/:bench/reports/:id', { action: 'bench-store.report-read', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-read', (req, _res, s) => {
     const id = qint(req.params.id, '报告编号');
-    const r = id === undefined || id === 0 ? null : await s.reportGet(id);
-    if (!r) throw new BenchError('not_found', '没有这份报告');
-    const { inputs, body, sources, ...meta } = r.report;
-    return { report: { ...meta, inputs: JSON.parse(inputs), body: JSON.parse(body), sources: JSON.parse(sources) }, claims: r.claims.map((c) => ({ ...c, basis: JSON.parse(c.basis) })) };
+    return readReport(s, id);
+  }));
+  // 回应（PR C）：能读这份报告的人表态（规格第六节评审定的推荐：随含取数的预设一起给，这里和读同一档）。
+  // 能回应、却读不了这个台上的报告的人：和报告不存在一样回 404（规格第五节第 14 条：不泄露报告在不在；#932 独立验收）
+  app.post('/api/bench-views/:bench/reports/:id/responses', { action: 'bench-store.report-respond', kind: 'write', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const bench = getBench(req.params.bench);
+    const actor = await allowActor(req, res, 'bench-store.report-respond', bench);
+    if (!actor) return;
+    if (!bench) return void res.status(404).json({ error: 'bench_not_found' });
+    if (!may(actor, 'bench-store.report-read', bench)) return void fail(res, new BenchError('not_found', '没有这份报告'));
+    try {
+      const out = await respondReport(await benchStore(req.params.bench), qint(req.params.id, '报告编号'), req.body, idOf(actor), Date.now());
+      res.status(201).json(out);
+    } catch (e) { fail(res, e); }
   }));
 
   // —— 视图描述 ——
