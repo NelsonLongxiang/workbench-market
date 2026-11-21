@@ -243,6 +243,81 @@ export function nowrapWidth(kind: CellKind, title: string, values: string[]): nu
 export function snapSpan(span: unknown, type: string): 3 | 4 | 6 | 12 {
   if (typeof span === 'number') return span <= 3 ? 3 : span <= 4 ? 4 : span <= 6 ? 6 : 12;
   if (type === 'stat' || type === 'progress') return 3;
-  if (type === 'table' || type === 'filter-bar') return 12;
+  if (type === 'table' || type === 'records' || type === 'filter-bar') return 12;
   return 6;
 }
+
+// —— 记录卡（records，#858）——
+
+/**
+ * 来源链接只认 http(s) 的完整网址，规则和服务端 server/src/bench-views.ts 的 safeLink 一样（两边各核一次）：
+ * javascript:、data:、相对地址、以 // 开头的协议相对地址、带账号密码的都不认。认的给 { href, host }（host 只是主机名），不认的给 null。
+ */
+export function safeLink(v: unknown): { href: string; host: string } | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  if (!/^https?:\/\/[^/\s]/i.test(t) || t.length > 2000) return null;
+  let u: URL;
+  try { u = new URL(t); } catch { return null; }
+  if ((u.protocol !== 'http:' && u.protocol !== 'https:') || !u.hostname || u.username || u.password) return null;
+  return { href: u.href, host: u.hostname };
+}
+
+export type RecordField = { name: string; label: string; text: string; empty: boolean };
+export type RecordBadge = { text: string; tone: 'success' | 'warning' | 'danger' | 'default'; undefinedValue: boolean };
+export type RecordLink = { label: string; href: string; host: string } | { label: string; invalid: true };
+export type RecordCard = { key: string; title: string; badges: RecordBadge[]; date: string | null; fields: RecordField[]; details: RecordField[]; links: RecordLink[] };
+export type RecordsSpec = { title_col: string; badges?: string[]; fields?: string[]; details?: string[]; date_col?: string; links?: { col: string; label: string }[]; value_labels?: unknown };
+
+const fmtDate = (v: unknown, kind: CellKind): string => {
+  if (typeof v !== 'string' || !v) return '未填';
+  if (kind === 'date') return v.slice(0, 10);
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? v : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+/**
+ * 一行数据 → 一张卡片要显示的东西。全部是纯文本：页面原样当文字显示，不解析 HTML、markdown。
+ * 空值写「—」（日期写「未填」），不当成完成；取值在 value_labels 里有说法的照说法，没有的照原值、标「未定义的取值」。
+ * linkTargets 是服务端核过的这一行的链接（[{ href, host } | null]）；页面再用 safeLink 核一次，两边都认才渲染成链接。
+ */
+export function recordCards(data: BlockData | null | undefined, spec: RecordsSpec, linkTargets?: unknown): RecordCard[] {
+  if (!data) return [];
+  const col = (name: string) => data.columns.find((c) => c.name === name);
+  const label = (name: string) => col(name)?.label || '';
+  const field = (row: Record<string, unknown>, name: string): RecordField => {
+    const c = col(name), v = row[name];
+    const hit = valueLabel(spec.value_labels, name, v);
+    const empty = v === null || v === undefined || v === '';
+    const kind = c ? cellKind(c) : 'text';
+    const text = empty ? (kind === 'date' || kind === 'time' ? '未填' : '—') : hit ? hit.text : kind === 'date' || kind === 'time' ? fmtDate(v, kind) : cellText(v, kind === 'status' ? 'text' : kind);
+    return { name, label: label(name), text, empty };
+  };
+  const targets = Array.isArray(linkTargets) ? linkTargets : [];
+  return data.rows.map((row, i) => {
+    const t = row[spec.title_col];
+    const title = t === null || t === undefined || t === '' ? '（没有标题）' : typeof t === 'string' ? t : String(t);
+    const badges = (spec.badges ?? []).map((name): RecordBadge | null => {
+      const v = row[name];
+      if (v === null || v === undefined || v === '') return null;
+      const hit = valueLabel(spec.value_labels, name, v);
+      return hit ? { text: hit.text, tone: hit.tone ?? 'default', undefinedValue: false } : { text: String(v), tone: 'default', undefinedValue: true };
+    }).filter((b): b is RecordBadge => !!b);
+    const dc = spec.date_col ? col(spec.date_col) : undefined;
+    const date = spec.date_col ? fmtDate(row[spec.date_col], dc ? cellKind(dc) : 'date') : null;
+    const rowTargets = Array.isArray(targets[i]) ? targets[i] as unknown[] : [];
+    const links = (spec.links ?? []).map((l, li): RecordLink | null => {
+      const raw = row[l.col];
+      if (raw === null || raw === undefined || raw === '') return null; // 这一行没有这项来源：不显示
+      const server = rowTargets[li] as { href?: unknown } | null | undefined;
+      const mine = safeLink(raw);
+      // 两边都认、而且认出来是同一个地址，才给链接
+      return mine && server && server.href === mine.href ? { label: l.label, href: mine.href, host: mine.host } : { label: l.label, invalid: true };
+    }).filter((x): x is RecordLink => !!x);
+    return { key: String(i), title, badges, date, fields: (spec.fields ?? []).map((n) => field(row, n)), details: (spec.details ?? []).map((n) => field(row, n)), links };
+  });
+}
+
+/** 长文字要不要先收起：超过这么多字，或者有换行 */
+export const RECORD_CLAMP_CHARS = 120;
+export const isLongText = (s: string): boolean => s.length > RECORD_CLAMP_CHARS || s.includes('\n');

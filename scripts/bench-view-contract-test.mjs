@@ -60,6 +60,7 @@ for (const br of branches) {
 const datasets = new Map([
   ['d', { name: 'd', columns: [{ name: 'a', type: 'text', label: 'A' }, { name: 'n', type: 'decimal', label: 'N' }] }],
   ['d2', { name: 'd2', columns: [{ name: 'r', type: 'text', required: true, label: 'R' }, { name: 'n', type: 'decimal', label: 'N' }] }],
+  ['d3', { name: 'd3', columns: [{ name: 't', type: 'text', label: '事项' }, { name: 'st', type: 'text', label: '状态' }, { name: 'who', type: 'text', label: '负责人' }, { name: 'note', type: 'text', label: '说明' }, { name: 'day', type: 'date', label: '约定日期' }, { name: 'url', type: 'text', label: '来源' }, { name: 'raw', type: 'text' }, { name: 'n', type: 'decimal', label: 'N' }], key: [] }],
 ]);
 const docOf = (blocks) => ({ title: '契约台', views: [{ key: 'v', title: '总览', blocks }] });
 const agg = { dataset: 'd', group: ['a'], measures: [{ fn: 'sum', col: 'n', as: 's', label: 'S' }] };
@@ -72,6 +73,7 @@ const positives = {
   pie: { type: 'pie', query: agg, label: 'a', value: 's' },
   progress: { type: 'progress', query: agg, value: 's', total: 100 },
   form: { type: 'form', dataset: 'd', fields: ['a', 'n'] },
+  records: { type: 'records', query: { dataset: 'd3' }, title_col: 't', badges: ['st'], fields: ['who'], details: ['note'], date_col: 'day', links: [{ col: 'url', label: '查看依据' }], page_size: 20, value_labels: { st: { open: '进行中' } }, empty_text: '暂无事项' },
 };
 for (const t of BLOCK_TYPES) assert.deepEqual(validateViewDoc(docOf([positives[t]]), datasets), [], `${t} 正例须过`);
 // stat 独立取值（本台引用）也是合法形态（#777 引入）
@@ -86,6 +88,17 @@ const negatives = [
   ['$参数未声明', [{ type: 'stat', query: { dataset: 'd', filter: [{ col: 'a', op: '=', value: '$p' }] }, value: 'n' }]],
   ['必填列不在表单', [{ type: 'form', dataset: 'd2', fields: ['n'] }]],
   ['独立取值还写 query', [{ type: 'stat', value: { var: 'k' }, query: agg }]],
+  ['记录卡缺 title_col', [{ type: 'records', query: { dataset: 'd3' } }]],
+  ['记录卡同一列放进两处', [{ type: 'records', query: { dataset: 'd3' }, title_col: 't', fields: ['who'], details: ['who'] }]],
+  ['记录卡标题列又当徽标', [{ type: 'records', query: { dataset: 'd3' }, title_col: 't', badges: ['t'] }]],
+  ['记录卡日期列又当主要字段', [{ type: 'records', query: { dataset: 'd3' }, title_col: 't', fields: ['day'], date_col: 'day' }]],
+  ['记录卡 date_col 不是日期', [{ type: 'records', query: { dataset: 'd3' }, title_col: 't', date_col: 'who' }]],
+  ['记录卡的列没有说明名', [{ type: 'records', query: { dataset: 'd3' }, title_col: 't', fields: ['raw'] }]],
+  ['记录卡链接 label 太长', [{ type: 'records', query: { dataset: 'd3' }, title_col: 't', links: [{ col: 'url', label: '这是一个超过十二个字的链接说法啊' }] }]],
+  ['记录卡链接指向数值列', [{ type: 'records', query: { dataset: 'd3' }, title_col: 't', links: [{ col: 'n', label: '打开' }] }]],
+  ['记录卡链接多余键', [{ type: 'records', query: { dataset: 'd3' }, title_col: 't', links: [{ col: 'url', label: '打开', href: 'x' }] }]],
+  ['记录卡徽标超过 3 个', [{ type: 'records', query: { dataset: 'd3' }, title_col: 't', badges: ['st', 'who', 'note', 'url'] }]],
+  ['记录卡 page_size 超上限', [{ type: 'records', query: { dataset: 'd3' }, title_col: 't', page_size: 201 }]],
 ];
 for (const [name, blocks] of negatives) {
   const errs = validateViewDoc(docOf(blocks), datasets);
@@ -101,4 +114,4 @@ for (const [name, blocks] of negatives) {
   const top = validateViewDoc({ title: 'x', views: [{ key: 'v', title: 't', blocks: [] }], theme: 'dark' }, datasets).find((e) => e.includes('有不认识的键 theme'));
   assert.ok(top?.includes('这里能用的键：title、views'), `顶层也列出能用的键（${top}）`);
 }
-console.log('bench-view-contract-test: 8 个契约分支同构 + 正反例全部通过；不认识的键报出能用的键');
+console.log(`bench-view-contract-test: ${BLOCK_TYPES.length} 个契约分支同构 + 正反例全部通过；不认识的键报出能用的键`);

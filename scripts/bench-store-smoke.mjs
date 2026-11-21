@@ -788,6 +788,29 @@ try {
   const busy = flood.filter((x) => x?.code === 'busy').length;
   ok('T8 排队的读写有上限：超出的报 busy，排上的都做完', busy === 49 && flood.filter((x) => x === null).length === BENCH_LIMITS.queue + 1, { busy });
   ok('T8 之后照常可用', await count() === N && benchRuntimeStats().queued === 0);
+
+  // 记录卡（records，#858）：取数和表格一样跑查询、带列的说明名；来源链接在服务端核过一遍（只认 http(s)）
+  {
+    const rc = await benchStore('records-demo');
+    await rc.defineDataset({ name: 'items', columns: [{ name: 'id', type: 'integer', label: '编号' }, { name: 't', type: 'text', label: '事项' }, { name: 'st', type: 'text', label: '状态' }, { name: 'note', type: 'text' }, { name: 'day', type: 'date', label: '约定日期' }, { name: 'url', type: 'text', label: '来源' }], key: ['id'] }, ctx());
+    await rc.replace('items', [
+      { id: 1, t: '合成事项一', st: 'open', note: '<script>alert(1)</script>', day: '2026-11-21', url: 'https://ok.example/doc' },
+      { id: 2, t: '合成事项二', st: 'done', note: null, day: null, url: 'javascript:alert(1)' },
+      { id: 3, t: '合成事项三', st: 'open', note: '短', day: null, url: '//evil.example/x' },
+    ], ctx());
+    const rdoc = { title: '记录卡台', views: [{ key: 'list', title: '事项', blocks: [{ type: 'filter-bar', fields: [{ name: 'st', kind: 'select', options: ['open', 'done'] }] },
+      { type: 'records', query: { dataset: 'items', filter: [{ col: 'st', op: '=', value: '$st' }], sort: [{ col: 'id' }] }, title_col: 't', badges: ['st'], details: ['note'], date_col: 'day', links: [{ col: 'url', label: '查看依据' }], column_labels: { note: '说明' }, page_size: 10 }] }] };
+    const put = await refused(() => rc.putView(rdoc, ctx({ base: 0, note: '记录卡' })));
+    ok('RC1 记录卡的视图描述过核对', put === null, put);
+    const all = await rc.renderView({ view: 'list' });
+    const blk = all.blocks.find((b) => b.type === 'records');
+    ok('RC2 取数：每行一份数据，列带说明名（数据集的 label 或 column_labels）', blk?.data?.rows?.length === 3 && blk.data.columns.find((c) => c.name === 'note')?.label === '说明' && blk.data.columns.find((c) => c.name === 't')?.label === '事项', blk?.data?.columns);
+    ok('RC3 来源链接服务端核过：http(s) 给 href 和主机名，javascript: 和 // 开头的给 null', JSON.stringify(blk?.link_targets) === JSON.stringify([[{ href: 'https://ok.example/doc', host: 'ok.example' }], [null], [null]]), blk?.link_targets);
+    ok('RC4 字段原样回来，不做任何转换（页面当纯文本显示）', blk?.data?.rows?.[0]?.note === '<script>alert(1)</script>');
+    const open = await rc.renderView({ view: 'list', params: { st: 'open' } });
+    const ob = open.blocks.find((b) => b.type === 'records');
+    ok('RC5 筛选之后：卡片的行和链接一一对应', ob?.data?.rows?.length === 2 && ob?.link_targets?.length === 2 && ob.data.rows.every((r) => r.st === 'open'), ob?.link_targets);
+  }
 } finally {
   onBenchChange(null);
   await closeBenchStores();
