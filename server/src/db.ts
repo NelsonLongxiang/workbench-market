@@ -2214,7 +2214,7 @@ function benchStoreAppSchema(): string[] {
  *   bs_reports：生成时冻结的报告（模板版本、绑定版本、事物、输入、成品、来源由服务端填）；supersedes 是更正的哪一份，更正链不分叉（唯一索引）；
  *   bs_report_claims：随报告一起写、一起冻结的论断；
  *   bs_report_responses：对论断（claim_key 空是对整份报告）的认可、反驳、补充，必须写理由；只追加，改主意就接自己的链头（supersedes，唯一索引防分叉，报告第 1 步 PR C）。
- * 四张表都不能改、不能删（SQLite 两边各一个触发器；PostgreSQL 那一份成对的到搬库时登记，和主库领域的表一样）。时间是毫秒整数，由代码给
+ * 四张表都不能改、不能删、不能用同一个键覆盖（SQLite 各三个触发器；PostgreSQL 那一份成对的到搬库时登记，和主库领域的表一样）。时间是毫秒整数，由代码给
  */
 function benchStoreReportSchema(d: BenchDialect): string[] {
   const big = d === 'postgres' ? 'BIGINT' : 'INTEGER';
@@ -2236,9 +2236,12 @@ function benchStoreReportSchema(d: BenchDialect): string[] {
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_bs_report_responses_supersedes ON bs_report_responses (supersedes) WHERE supersedes IS NOT NULL`,
     `CREATE INDEX IF NOT EXISTS idx_bs_report_responses_report ON bs_report_responses (report_id, claim_key, id)`,
   ];
-  if (d === 'sqlite') for (const t of ['bs_report_bindings', 'bs_reports', 'bs_report_claims', 'bs_report_responses']) {
+  // 主键：INSERT OR REPLACE 删旧行时不触发 DELETE 触发器（除非开了 recursive_triggers），所以键已存在的插入一律拦下（#930 独立验收；同 work_item_log_no_replace）
+  const keys: [string, string][] = [['bs_report_bindings', 'dimension_id = NEW.dimension_id AND version = NEW.version'], ['bs_reports', 'id = NEW.id'], ['bs_report_claims', 'report_id = NEW.report_id AND claim_key = NEW.claim_key'], ['bs_report_responses', 'id = NEW.id']];
+  if (d === 'sqlite') for (const [t, key] of keys) {
     out.push(`CREATE TRIGGER IF NOT EXISTS ${t}_no_update BEFORE UPDATE ON ${t} BEGIN SELECT RAISE(ABORT, '${t} 建好不能改'); END`);
     out.push(`CREATE TRIGGER IF NOT EXISTS ${t}_no_delete BEFORE DELETE ON ${t} BEGIN SELECT RAISE(ABORT, '${t} 不能删'); END`);
+    out.push(`CREATE TRIGGER IF NOT EXISTS ${t}_no_replace BEFORE INSERT ON ${t} WHEN EXISTS (SELECT 1 FROM ${t} WHERE ${key}) BEGIN SELECT RAISE(ABORT, '${t} 不能用同一个键覆盖'); END`);
   }
   return out;
 }

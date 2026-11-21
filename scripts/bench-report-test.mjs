@@ -19,6 +19,7 @@
  *   R6（#932 独立验收）能回应读不了的 404 和不存在一样；MCP 回应要有 report_get 授予；一个人一条链；接别人链头 409；对整份报告的反驳算
  *   R6d（属主 2026-11-21：收窄）回应记的位置只含管得到这个台的授予：别的领域的不记，台绑到那个领域以后才记
  *   R7（PR D）入口的 can.reports、can.respond 和接口同一套判法；读报告带回模板的立场和论断类别名、回应标出 mine
+ *   G11（#930 独立验收）只能看台的人读报告 403；三张冻结的表在库里 UPDATE、DELETE、INSERT OR REPLACE 都拒
  *   G10 产出方由服务端填：登录的那个人，记 human（数据视图的台只认人，本机命令行、管理口令进不来是既有规矩）
  *
  *   node scripts/bench-report-test.mjs
@@ -465,6 +466,13 @@ try {
         && JSON.stringify(r?.template) === JSON.stringify({ stances: ['agree', 'dispute', 'supplement'], claims: [{ kind: 'conclusion', label: '结论' }] }) && mineOk,
       'R7 入口的 can.reports、can.respond：管理层 true；读报告带回这份报告那一版模板（第 2 版只有「结论」一类）可选的立场和论断类别名；回应标出是不是读的人自己的（AI 会话的不是）',
       { boss: eBoss.json?.can, template: r?.template, mine: rs.map((x) => [x.responder, x.mine]) });
+    // 收回 beta 的 rp-viewer、rp-reader：后面 G11「只能看台、不能读报告」从干净的 beta 开始
+    const rvs = [];
+    for (const role of ['rp-viewer', 'rp-reader']) {
+      const gid = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = ? AND status = 'active'").get(role)?.id;
+      rvs.push((await cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：R7 用完收回' })).status);
+    }
+    check(rvs.every((x) => x === 200), '（收尾）收回 beta 的 rp-viewer、rp-reader', rvs);
   }
 
   console.log('R6d 回应记的位置只含管得到这个台的授予（属主 2026-11-21：收窄）');
@@ -493,10 +501,57 @@ try {
     const tr = (sql) => { try { store.prepare(sql).run(); return false; } catch { return true; } };
     // 先确认表在、有行：不然改删报「没有这张表」也算拒，测不出触发器
     let rows = -1; try { rows = Number(store.prepare('SELECT COUNT(*) AS n FROM bs_report_responses').get().n); } catch { rows = -1; }
-    const r = { upd: tr("UPDATE bs_report_responses SET stance = 'agree'"), del: tr('DELETE FROM bs_report_responses'), updReport: tr("UPDATE bs_reports SET subject = 'x'"), delClaim: tr('DELETE FROM bs_report_claims') };
+    const r = { upd: tr("UPDATE bs_report_responses SET stance = 'agree'"), del: tr('DELETE FROM bs_report_responses'), updReport: tr("UPDATE bs_reports SET subject = 'x'"), delClaim: tr('DELETE FROM bs_report_claims'),
+      // 同键覆盖（INSERT OR REPLACE 删旧行不触发 DELETE 触发器）：回应也拒（#930 独立验收）
+      repResp: tr("INSERT OR REPLACE INTO bs_report_responses (id, report_id, claim_key, stance, reason, responder, responder_kind, position, supersedes, created_at) SELECT id, report_id, claim_key, 'agree', '偷换', responder, responder_kind, position, supersedes, created_at FROM bs_report_responses ORDER BY id LIMIT 1") };
     let after = -1; try { after = Number(store.prepare('SELECT COUNT(*) AS n FROM bs_report_responses').get().n); } catch { after = -1; }
     store.close();
-    check(rows > 0 && after === rows && Object.values(r).every(Boolean), 'R5 台库里直接改、删回应、报告、论断：触发器都拒，回应一行没少', { rows, after, r });
+    check(rows > 0 && after === rows && Object.values(r).every(Boolean), 'R5 台库里直接改、删、同键覆盖回应，改报告、删论断：触发器都拒，回应一行没少', { rows, after, r });
+  }
+
+  console.log('G11 只能看台、不能读报告的人；冻结的三张表在库里不能改、删、覆盖（#930 独立验收）');
+  {
+    // 只授了「取数、读视图」的人（进得了台，没有读报告）：读报告 403（m11）
+    await cli('POST', '/api/roles/guest/copy', { id: 'g-viewer', name: '合成·只看台' });
+    await cli('PUT', '/api/roles/g-viewer', { permissions: [{ actions: ['bench-store.render', 'bench-store.view-get'] }] });
+    await cli('POST', '/api/roles/g-viewer/approve');
+    const gv = await activate({ principal: 'user:beta', role: 'g-viewer', scope: '*' });
+    const rid0 = first.json?.report?.id;
+    const view = await bv(member, 'GET', '/synth-orders/view');
+    const one = await bv(member, 'GET', `/synth-orders/reports/${rid0}`);
+    const list = await bv(member, 'GET', '/synth-orders/reports');
+    const gid = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = 'g-viewer' AND status = 'active'").get()?.id;
+    const rv = await cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：G11 用完收回' });
+    check(gv && view.status === 200 && one.status === 403 && list.status === 403 && rv.status === 200,
+      'G11 只授了取数、读视图的人：读视图 200，读一份报告、读清单都 403（用完收回）', { gv, view: view.status, one: one.status, list: list.status, rv: rv.status });
+    // 绑定的筛选参数不在视图的筛选栏里（#930 验收 m16）：绑得上，生成时 400，不出报告；再绑回好的
+    const cur = (await bv(boss, 'GET', '/synth-orders/reports/monthly/binding')).json?.binding;
+    const curSlots = cur?.slots;
+    const badBind = await bv(boss, 'PUT', '/synth-orders/reports/monthly/binding', { base: cur?.version, slots: { orders: { ...curSlots?.orders, params: { region: { ref: { scope: 'parameter', name: 'period' } } } } } });
+    const nBefore = (await bv(boss, 'GET', '/synth-orders/reports')).json?.reports?.length;
+    const badGen = await gen(boss, G({ subject: 'card:synth-orders@badparam' }));
+    const nAfter = (await bv(boss, 'GET', '/synth-orders/reports')).json?.reports?.length;
+    const goodBind = await bv(boss, 'PUT', '/synth-orders/reports/monthly/binding', { base: badBind.json?.binding?.version, slots: curSlots });
+    check(!!curSlots && badBind.status === 200 && badGen.status === 400 && /筛选项/.test(badGen.text ?? '') && nAfter === nBefore && goodBind.status === 200,
+      'G11 绑定的筛选参数不在视图筛选栏里：生成 400（说清是哪个参数），不出报告；再绑回好的', { badBind: badBind.status, badGen: `${badGen.status} ${badGen.text?.slice(0, 100)}`, n: [nBefore, nAfter], goodBind: goodBind.status });
+    // 冻结：台库里直接 UPDATE、DELETE、INSERT OR REPLACE（同键覆盖）三张表都拒，行原样
+    const store = new DatabaseSync(join(srv.data, 'bench-stores', 'synth-orders.sqlite'));
+    const tr = (sql, ...a) => { try { store.prepare(sql).run(...a); return false; } catch { return true; } };
+    const snap = () => JSON.stringify(['bs_report_bindings', 'bs_reports', 'bs_report_claims'].map((t) => store.prepare(`SELECT * FROM ${t} ORDER BY 1, 2`).all()));
+    const before = snap();
+    const rows0 = { b: store.prepare('SELECT COUNT(*) AS n FROM bs_report_bindings').get().n, r: store.prepare('SELECT COUNT(*) AS n FROM bs_reports').get().n, c: store.prepare('SELECT COUNT(*) AS n FROM bs_report_claims').get().n };
+    const r = {
+      updB: tr("UPDATE bs_report_bindings SET slots = '{}'"), delB: tr('DELETE FROM bs_report_bindings'),
+      repB: tr("INSERT OR REPLACE INTO bs_report_bindings (dimension_id, version, template_version, slots, created_by, created_at) VALUES ('monthly', 1, 1, '{}', 'x', 1)"),
+      updR: tr("UPDATE bs_reports SET body = '[]'"), delR: tr('DELETE FROM bs_reports'),
+      repR: tr("INSERT OR REPLACE INTO bs_reports (id, dimension_id, template_version, template_sha256, binding_version, subject, inputs, body, sources, content_sha256, producer, producer_kind, supersedes, created_at) VALUES (?, 'monthly', 1, 'x', 1, 'card:x', '{}', '[]', '[]', 'x', 'x', 'human', NULL, 1)", rid0),
+      updC: tr("UPDATE bs_report_claims SET text = 'x'"), delC: tr('DELETE FROM bs_report_claims'),
+      repC: tr("INSERT OR REPLACE INTO bs_report_claims (report_id, claim_key, kind, text, basis) VALUES (?, 'conclusion-1', 'conclusion', '偷换的结论', '[]')", rid0),
+    };
+    const same = snap() === before;
+    store.close();
+    check(rows0.b > 0 && rows0.r > 0 && rows0.c > 0 && Object.values(r).every(Boolean) && same,
+      'G11 台库里直接 UPDATE、DELETE、INSERT OR REPLACE（同键覆盖）报告绑定、报告、论断：触发器都拒，三张表一行没变', { rows0, r, same });
   }
   db.close();
 } catch (e) {
