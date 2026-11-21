@@ -15,6 +15,8 @@
  *   T8 列表按领域筛 ?area=sales：只有带这个领域的；写法不对 400
  *   T9 幂等：同一个键换了领域 409 idempotency_conflict；同样的请求再来一次 200 duplicate
  *   T10 「以某人的身份看」：area.trigger 在 area:sales 上，alpha allow、beta 和 strasse deny——和实际一致
+ *   T12 跨连接的真竞态（阶段四验收补测 Y2）：路由核门时领域还在，进建事项的写事务之前被另一条库连接撤掉——写事务里那道门拦下 409 area_retired，没有建出事项。
+ *       路由上那道门和 arrangeTask 在同一个同步调用里，同一个进程里插不进别的请求；能抢在中间的只有共用这个库的另一个连接，守的就是写事务里那道门
  *   T11 判定切换开关开着（WM_JUDGMENT_ENFORCE=area,work-items）：建事项这条路由声明了状态码不代表授权，持 area:sales 的人照样能带领域建
  *
  *   node scripts/area-task-test.mjs
@@ -174,6 +176,24 @@ try {
     const ask = async (who) => (await A.call('GET', `/api/principals/${who}/access?action=area.trigger&scope=area:sales`)).json?.decision?.verdict;
     const s = { alpha: await ask('user:alpha'), beta: await ask('user:beta'), staff: await ask('user:strasse') };
     check(s.alpha === 'allow' && s.beta === 'deny' && s.staff === 'deny', 'T10 「以某人的身份看」：area.trigger 在 area:sales 上 alpha allow、beta 和 strasse deny——和 T1～T3 实际一致', s);
+  }
+
+  // ---- T12（阶段四验收补测 Y2）：真竞态——路由核门时领域还在，进写事务前被另一条连接撤掉 ----
+  {
+    A.exec((d) => d.prepare("INSERT INTO areas (id, name, status, created_at, created_by, updated_at, updated_by) VALUES ('race', '合成race', 'active', 0, 'cli', 0, 'cli')").run());
+    legacySeed(join(OUT, 'main', 'data', 'workbench-market.db')).grant('user:alpha', 'area-member', 'area:race', { reason: '合成' });
+    const pre = A.q("SELECT (SELECT status FROM areas WHERE id = 'race') AS area, (SELECT status FROM grants WHERE principal_id = 'user:alpha' AND role = 'area-member' AND scope = 'area:race') AS grant")[0];
+    check(pre?.area === 'active' && pre?.grant === 'active', '（前置）领域 race 是 active，alpha 持一条生效的 area:race 领域成员授予', pre);
+    const n0 = items();
+    const lock = new DatabaseSync(join(OUT, 'main', 'data', 'workbench-market.db'), { timeout: 10000 });
+    lock.exec('BEGIN IMMEDIATE');
+    lock.prepare("UPDATE areas SET status = 'retired', updated_at = 1 WHERE id = 'race'").run();
+    const pending = A.call('POST', '/api/work-items', { session: P.alpha, body: body('race') });
+    await new Promise((r) => setTimeout(r, 600));
+    lock.exec('COMMIT'); lock.close();
+    const r = await pending;
+    const made = items() - n0;
+    check(r.status === 409 && r.json?.error === 'area_retired' && made === 0, 'T12 路由核门时领域还在，进写事务前被另一条连接撤掉：写事务里那道门拦下 409 area_retired，没有建出事项', { status: r.status, error: r.json?.error ?? null, made });
   }
 
   // ---- T11 ----
