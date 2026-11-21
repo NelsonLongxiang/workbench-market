@@ -116,7 +116,7 @@ export default function Sops() {
           modal.confirm({
             title: `上架 ${s.title}`,
             content: (
-              <div style={{ marginTop: 8 }}>
+              <div className="wm-mt-2">
                 <Typography.Paragraph type="secondary" className="wm-mb-2 wm-caption">
                   上架后市场在册（{s.slug} 入册、Runner 可执行）；发布说明可选，会记入当前版本 changelog。
                 </Typography.Paragraph>
@@ -171,7 +171,7 @@ export default function Sops() {
       width: 200,
       render: (_, s) => (
         <Space size={6}>
-          <span style={{ fontSize: 15 }}>📋</span>
+          <span className="wm-text-subtitle">📋</span>
           <Link to={`/sops/${s.slug}`}><Typography.Text strong>{s.title}</Typography.Text></Link>
         </Space>
       ),
@@ -255,7 +255,7 @@ export default function Sops() {
       <Card size="small" title={`待验收任务（${pendingRuns.length}）`} className="wm-mb-3"
         extra={<Button size="small" onClick={() => { void loadPending(); }}>刷新</Button>}>
         {pendingRuns.length === 0 ? <Typography.Text type="secondary">没有待验收的派单任务</Typography.Text> : (
-          <div className="wm-w-full" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div className="wm-w-full wm-col-gap-1">
             {pendingRuns.map((r) => (
               <Space key={r.id} wrap>
                 <Tag color="blue">run #{r.id}</Tag>
@@ -300,10 +300,9 @@ export default function Sops() {
         </Typography.Paragraph>
         <Space.Compact className="wm-w-full wm-mb-3">
           <input
-            className="wm-mono wm-input"
+            className="wm-mono wm-input wm-sop-flex-1"
             type="password"
             placeholder="管理员口令（X-Admin-Token，服务端环境变量）"
-            style={{ flex: 1 }}
             value={netToken}
             onChange={(e) => setNetToken(e.target.value)}
           />
@@ -311,15 +310,13 @@ export default function Sops() {
         </Space.Compact>
         <Space.Compact className="wm-w-full wm-mb-3">
           <input
-            className="wm-mono wm-input"
+            className="wm-mono wm-input wm-sop-flex-2"
             placeholder="agent 节点，如 dsh/1a2b3c4d"
-            style={{ flex: 2 }}
             value={netNode}
             onChange={(e) => setNetNode(e.target.value)}
           />
           <select
-            className="wm-mono wm-input"
-            style={{ flex: 1 }}
+            className="wm-mono wm-input wm-sop-flex-1"
             value={netMode}
             onChange={(e) => setNetMode(e.target.value as 'read' | 'run')}
           >
@@ -327,8 +324,7 @@ export default function Sops() {
             <option value="run">run（可执行）</option>
           </select>
           <select
-            className="wm-mono wm-input"
-            style={{ flex: 1 }}
+            className="wm-mono wm-input wm-sop-flex-1"
             value={netDirection}
             onChange={(e) => setNetDirection(e.target.value as 'admits' | 'notify' | 'both')}
           >
@@ -340,10 +336,9 @@ export default function Sops() {
         </Space.Compact>
         <Space.Compact className="wm-w-full wm-mb-3">
           <input
-            className="wm-mono wm-input"
+            className="wm-mono wm-input wm-sop-flex-1"
             type="password"
             placeholder="对端 API Key（可选，回执投递用，存储脱敏）"
-            style={{ flex: 1 }}
             value={netKey}
             onChange={(e) => setNetKey(e.target.value)}
           />
