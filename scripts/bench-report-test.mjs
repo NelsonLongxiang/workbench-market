@@ -381,6 +381,23 @@ try {
       'R4 人的反驳算未处理；这份报告被更正之后，旧报告上的反驳不再算（看新报告）', { human: human.status, before: before?.claims?.[0]?.open_dispute, after: after?.claims?.[0]?.open_dispute, sb: after?.report?.superseded_by });
   }
 
+  console.log('R6 报告页要的：入口的 can、读报告带回的模板信息和 mine（报告第 1 步 PR D）');
+  {
+    // 入口：能读报告、能回应的人 can.reports / can.respond 为 true；普通员工读不到这个台的报告，不是 true（入口本身读不到也行）
+    const eBoss = await bv(boss, 'GET', '/synth-orders/entry'), eMember = await bv(member, 'GET', '/synth-orders/entry');
+    const canM = eMember.status === 200 ? eMember.json?.can : null;
+    // 读：带回这一版模板可选的立场、论断各类的名字；自己的回应 mine 为 true，MCP 会话的为 false
+    const list = (await bv(boss, 'GET', '/synth-orders/reports?subject=card:synth-orders@mcp')).json?.reports ?? [];
+    const old = list.find((x) => x.superseded_by !== null);
+    const r = old ? (await bv(boss, 'GET', `/synth-orders/reports/${old.id}`)).json : null;
+    const rs = r?.claims?.[0]?.responses ?? [];
+    const mineOk = rs.length >= 2 && rs.every((x) => x.mine === (x.responder === 'user:alpha')) && rs.some((x) => x.mine) && rs.some((x) => !x.mine && x.responder_kind === 'ai');
+    check(eBoss.status === 200 && eBoss.json?.can?.reports === true && eBoss.json?.can?.respond === true && canM?.reports !== true && canM?.respond !== true
+        && JSON.stringify(r?.template) === JSON.stringify({ stances: ['agree', 'dispute', 'supplement'], claims: [{ kind: 'conclusion', label: '结论' }] }) && mineOk,
+      'R6 入口的 can.reports、can.respond：管理层 true，普通员工不是 true；读报告带回这份报告那一版模板（第 2 版只有「结论」一类）可选的立场和论断类别名；回应标出是不是读的人自己的（AI 会话的不是）',
+      { boss: eBoss.json?.can, member: [eMember.status, canM], template: r?.template, mine: rs.map((x) => [x.responder, x.mine]) });
+  }
+
   console.log('R5 回应不能改不能删');
   {
     // 台库是单独的文件，经主库查不到：直接开台库

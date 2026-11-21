@@ -294,7 +294,8 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
       default_view: doc.views[0].key,
       views: doc.views.map((v) => ({ key: v.key, title: v.title })),
       // 页面据此决定出不出「改名」按钮；和 PUT /title 是同一个判法
-      can: { rename: mayRename(actor) },
+      // 页面据此决定出不出「改名」「报告」按钮、报告上出不出回应框；和对应接口是同一个判法（may / mayRename）
+      can: { rename: mayRename(actor), reports: may(actor, 'bench-store.report-read', bench), respond: may(actor, 'bench-store.report-respond', bench) },
     });
   }));
 
@@ -318,9 +319,9 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     const q = req.query as Record<string, unknown>;
     return listReports(s, { dimension: q.dimension, subject: q.subject, limit: qint(q.limit, 'limit') });
   }));
-  app.get('/api/bench-views/:bench/reports/:id', { action: 'bench-store.report-read', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-read', (req, _res, s) => {
+  app.get('/api/bench-views/:bench/reports/:id', { action: 'bench-store.report-read', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-read', (req, _res, s, actor) => {
     const id = qint(req.params.id, '报告编号');
-    return readReport(s, id);
+    return readReport(s, id, actor);
   }));
   // 回应（PR C）：能读这份报告的人表态（规格第六节评审定的推荐：随含取数的预设一起给，这里和读同一档）
   app.post('/api/bench-views/:bench/reports/:id/responses', { action: 'bench-store.report-respond', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-respond', async (req, res, s, actor) => {

@@ -13,6 +13,7 @@ import Access from './pages/access/Access';
 import Types from './pages/Types';
 import Settings from './pages/Settings';
 import UseEntry from './pages/UseEntry';
+import BenchReports from './pages/BenchReports';
 import Cockpit from './pages/Cockpit';
 import Sops from './pages/Sops';
 import SopSpace from './pages/SopSpace';
@@ -124,6 +125,7 @@ export default function App() {
         <OutboundBanner />
         <Routes>
           <Route path="/use/:id" element={<UseEntry />} />
+          <Route path="/use/:id/reports" element={<BenchReports />} />
         </Routes>
       </React.Fragment>
     );

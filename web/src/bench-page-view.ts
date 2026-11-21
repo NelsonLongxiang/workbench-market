@@ -24,7 +24,8 @@ export function asEntry(body: unknown): BenchEntry | null {
   }
   return { bench: b.bench, version: b.version, title: isStr(b.title) ? b.title : b.bench.title, default_view: isStr(b.default_view) && keys.has(b.default_view) ? b.default_view : b.views[0].key, views: b.views,
     // 能不能改台名：服务端说是 true 才算（缺了、写法不对都当不能，按钮不出）
-    can: { rename: (b.can as { rename?: unknown } | undefined)?.rename === true } };
+    // 报告（PR D）：同样只认 true
+    can: { rename: (b.can as { rename?: unknown } | undefined)?.rename === true, reports: (b.can as { reports?: unknown } | undefined)?.reports === true, respond: (b.can as { respond?: unknown } | undefined)?.respond === true } };
 }
 
 export function entryOutcome(status: number, body: unknown): EntryOutcome {

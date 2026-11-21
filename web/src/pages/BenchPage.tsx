@@ -11,6 +11,7 @@ import { getBenchView, submitBenchForm, type BenchEntry } from '../api';
 import { BENCH_VIEWS_OFF, benchViewError, isBenchViewsOff } from '../cockpit-frame-view';
 import { formError, pageTitle, paramsFromQuery, shouldRefreshEntry, toQuery, viewFromQuery } from '../bench-page-view';
 import BenchRename from './BenchRename';
+import { ReportsLink } from './BenchReports';
 
 type State = { phase: 'loading' } | { phase: 'ok'; result: ViewResult; requestKey: string } | { phase: 'off' } | { phase: 'error'; text: string };
 
@@ -76,6 +77,7 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
         <Typography.Title level={5} className="wm-use-title" data-testid="bench-page-name">{entry.bench.title}</Typography.Title>
         <div className="wm-bp-bar-extra">
           <BenchRename cardId={cardId} entry={entry} refreshEntry={refreshEntry} />
+          <ReportsLink cardId={cardId} entry={entry} />
           <Link to={`/market/wb/${encodeURIComponent(cardId)}`} data-testid="bench-page-detail"><Button type="text" size="small" icon={<InfoCircleOutlined />}>详情</Button></Link>
         </div>
       </div>

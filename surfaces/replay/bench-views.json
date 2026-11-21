@@ -1983,14 +1983,14 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "260", "etag": "W/\"104-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "bench": { "slug": "demo", "title": "示例台", "workbench_id": null },
               "version": 2,
               "title": "订单台二版",
               "default_view": "overview",
               "views": [{ "key": "overview", "title": "总览" }, { "key": "entry", "title": "补录" }],
-              "can": { "rename": true }
+              "can": { "rename": true, "reports": true, "respond": true }
             }
           }
         },
@@ -3710,14 +3710,14 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "221", "etag": "W/\"dd-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "251", "etag": "W/\"fb-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "bench": { "slug": "demo", "title": "示例台", "workbench_id": 1 },
               "version": 1,
               "title": "订单台",
               "default_view": "overview",
               "views": [{ "key": "overview", "title": "总览" }, { "key": "entry", "title": "补录" }],
-              "can": { "rename": true }
+              "can": { "rename": true, "reports": true, "respond": true }
             }
           }
         },
@@ -4155,7 +4155,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1342", "etag": "W/\"53e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1435", "etag": "W/\"59b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "report": {
                 "id": 1,
@@ -4195,6 +4195,7 @@
               "claims": [{ "claim_key": "conclusion-1", "kind": "conclusion", "text": "回放结论", "basis": [], "responses": [], "open_dispute": false }],
               "responses": [],
               "gate": { "open_dispute_blocks_acceptance": false },
+              "template": { "stances": ["agree", "dispute"], "claims": [{ "kind": "conclusion", "label": "结论" }] },
               "open_disputes": 0
             }
           }
@@ -4261,7 +4262,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1563", "etag": "W/\"61b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1668", "etag": "W/\"684-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "report": {
                 "id": 1,
@@ -4305,13 +4306,14 @@
                   "text": "回放结论",
                   "basis": [],
                   "responses": [
-                    { "id": 1, "report_id": 1, "claim_key": "conclusion-1", "stance": "dispute", "reason": "回放：口径不对", "responder": "user:alpha", "responder_kind": "human", "position": "management@*", "supersedes": null, "created_at": 1893456000000 }
+                    { "id": 1, "report_id": 1, "claim_key": "conclusion-1", "stance": "dispute", "reason": "回放：口径不对", "responder": "user:alpha", "responder_kind": "human", "position": "management@*", "supersedes": null, "created_at": 1893456000000, "mine": true }
                   ],
                   "open_dispute": true
                 }
               ],
               "responses": [],
               "gate": { "open_dispute_blocks_acceptance": false },
+              "template": { "stances": ["agree", "dispute"], "claims": [{ "kind": "conclusion", "label": "结论" }] },
               "open_disputes": 1
             }
           }
