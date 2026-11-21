@@ -144,6 +144,19 @@ export function cardsOf(cards: MarketCard[], tab: MarketTab): MarketCard[] {
   return tab === '全部' ? cards : cards.filter((c) => c.kind === tab);
 }
 
+/** 按关键词筛卡片（名字、小字说明、正文说明、标签，大小写不敏感；空串原样返回） */
+export function filterCards(cards: MarketCard[], query: string | null | undefined): MarketCard[] {
+  const q = String(query ?? '').trim().toLowerCase();
+  if (!q) return cards;
+  return cards.filter((c) => [c.name, c.caption, c.description, ...c.tags].some((s) => s.toLowerCase().includes(q)));
+}
+
+/** 搜索词没命中的空状态说明 */
+export function searchEmptyText(query: string, tab: MarketTab): string {
+  const q = String(query ?? '').trim();
+  return `没有找到含「${q}」的${tab === '全部' ? '条目' : tab}。`;
+}
+
 /** 没有说明的卡片在说明区写这一句（卡片等高、同一排底部对齐） */
 export const NO_DESCRIPTION = '还没有说明';
 

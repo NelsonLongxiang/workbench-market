@@ -14,12 +14,13 @@ export default function UseWorkbench() {
   const { message } = App.useApp();
   const [frameKey, setFrameKey] = useState(0);
   const [checking, setChecking] = useState(false);
+  const back = () => (window.history.length > 1 ? nav(-1) : nav('/'));
 
   const req = useRequest(() => api.getWorkbench(Number(id)), { manual: false });
 
   if (req.loading) {
     return (
-      <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }}>
+      <div className="wm-use-loading">
         <Spin size="large" />
       </div>
     );
@@ -32,7 +33,7 @@ export default function UseWorkbench() {
         subTitle={req.error?.message}
         extra={
           <Button type="primary" onClick={() => nav('/')}>
-            返回总览
+            返回全景
           </Button>
         }
       />
@@ -42,7 +43,7 @@ export default function UseWorkbench() {
   const w = req.data;
   // 登记的地址指向市场自己：不嵌（嵌出来就是市场套市场），说一句、给个回去的按钮
   if (pointsAtMarket(w.url, window.location.origin)) {
-    return <div data-testid="use-self"><Result status="info" title={USE_SELF_TEXT} extra={<Button onClick={() => nav('/')}>返回总览</Button>} /></div>;
+    return <div data-testid="use-self"><Result status="info" title={USE_SELF_TEXT} extra={<Button onClick={() => nav('/')}>返回全景</Button>} /></div>;
   }
 
   return (
@@ -51,11 +52,11 @@ export default function UseWorkbench() {
         <Button
           type="text"
           icon={<ArrowLeftOutlined />}
-          onClick={() => nav('/')}
+          onClick={back}
           aria-label="返回"
         />
-        <span style={{ fontSize: 18 }}>{w.icon || '▢'}</span>
-        <Typography.Title level={5} className="wm-use-title" style={{ marginBottom: 0 }}>
+        <span className="wm-use-icon">{w.icon || '▢'}</span>
+        <Typography.Title level={5} className="wm-use-title">
           {w.name}
         </Typography.Title>
         <StatusBadge status={w.last_status} latency={w.last_latency_ms} error={w.last_error} checkedAt={w.last_checked_at} />
@@ -63,7 +64,7 @@ export default function UseWorkbench() {
         <Typography.Text className="wm-num wm-mono wm-caption">
           {w.url}
         </Typography.Text>
-        <Space style={{ marginLeft: 'auto' }}>
+        <Space className="wm-use-bar-right">
           <Button
             type="text"
             size="small"
@@ -101,10 +102,10 @@ export default function UseWorkbench() {
       <GoFrame wid={w.id} name={w.name} frameKey={frameKey} className="wm-use-frame" />
       <Typography.Paragraph
         type="secondary"
-        className="wm-caption" style={{ textAlign: 'center', margin: 'var(--wm-space-2) 0', flex: 'none' }}
+        className="wm-caption wm-use-foot"
       >
         经统一门户 /go/{w.id}/ 同源代理嵌入（自动剥除上游禁嵌响应头）；个别页面主动跳出到外域时请点右上角「新窗口」 ·{' '}
-        <Link to="/market">返回市场管理</Link>
+        <Link to="/market">返回工作台市场</Link>
       </Typography.Paragraph>
     </div>
   );

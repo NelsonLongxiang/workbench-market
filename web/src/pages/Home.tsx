@@ -124,7 +124,7 @@ export default function Home() {
 
       <div className="wm-sec-h">
         <h3>等你拍板</h3><span className="wm-sec-n" data-testid="home-decide-n">{attDown ? '暂时取不到' : now.length}</span>
-        {focus && <Typography.Text type="secondary" className="wm-caption">只看 {focusRow?.label ?? focus.object} · {focusStage?.name ?? focus.stage}（<a onClick={() => setFocus(null)}>看全部</a> · <a onClick={() => setArrange(true)}>就这一步安排一件事</a>）</Typography.Text>}
+        {focus && <Typography.Text type="secondary" className="wm-caption">只看 {focusRow?.label ?? focus.object} · {focusStage?.name ?? focus.stage}（<button type="button" className="wm-link-btn" onClick={() => setFocus(null)}>看全部</button> · <button type="button" className="wm-link-btn" onClick={() => setArrange(true)}>就这一步安排一件事</button>）</Typography.Text>}
         <Link to="/attention" className="wm-sec-more">全部 →</Link>
       </div>
       {!attLoaded

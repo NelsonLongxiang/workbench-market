@@ -30,18 +30,22 @@ function PanelHeadActions(props: { wid: number; url?: string; onRefresh: () => v
   return (
     <span className="wm-panel-actions">
       <Tooltip title="刷新此面板">
-        <ReloadOutlined onClick={props.onRefresh} />
+        <button type="button" className="wm-panel-act-btn" aria-label="刷新此面板" onClick={props.onRefresh}>
+          <ReloadOutlined />
+        </button>
       </Tooltip>
       {props.url && (
         <Tooltip title="新窗口打开">
-          <a href={props.url} target="_blank" rel="noreferrer">
+          <a href={props.url} target="_blank" rel="noreferrer" aria-label="新窗口打开">
             <ExportOutlined />
           </a>
         </Tooltip>
       )}
       {props.onRemove && (
         <Tooltip title="移除此面板">
-          <CloseOutlined onClick={props.onRemove} />
+          <button type="button" className="wm-panel-act-btn" aria-label="移除此面板" onClick={props.onRemove}>
+            <CloseOutlined />
+          </button>
         </Tooltip>
       )}
     </span>
