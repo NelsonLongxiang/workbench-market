@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 工作台市场页的纯函数单测（web/src/market-view.ts）：三个来源合成卡片、分类计数、读不到和空着时怎么说。数据都是合成的。 */
-import { NO_DESCRIPTION, reviewerLabel, sizeLabel, skillHref, skillOf, skillProblem, skillVersionsOf, benchSlugFor, viewTitles, cardTags, connectorCards, detailProblem, manageHref, tabsFor, workbenchIdOf, cardsOf, emptyText, extraTags, healthLabel, initialOf, runningBySlug, skillCards, sopCards, sourceProblem, tabFromQuery, usableIcon, workbenchCards } from '../web/src/market-view.ts';
+import { NO_DESCRIPTION, reviewerLabel, sizeLabel, skillHref, skillOf, skillProblem, skillVersionsOf, benchSlugFor, viewTitles, cardTags, connectorCards, detailProblem, filterCards, manageHref, searchEmptyText, tabsFor, workbenchIdOf, cardsOf, emptyText, extraTags, healthLabel, initialOf, runningBySlug, skillCards, sopCards, sourceProblem, tabFromQuery, usableIcon, workbenchCards } from '../web/src/market-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -44,9 +44,11 @@ ok('技能：应答是 { items } 也认；别的形状按空', skillCards({ item
 ok('标签行：只放类别以外的标签；只有类别时是空的（页面不显示这一行）', J(extraTags({ kind: '工作台', tags: ['工作台', '财务'] })) === '["财务"]' && extraTags({ kind: '流程', tags: [] }).length === 0);
 ok('没有说明的卡片写一句中性的话', NO_DESCRIPTION === '还没有说明');
 
-// 分类
+// 分类与关键词过滤
 const all = [...wbs, ...sops, ...sks];
 ok('分类：全部原样，别的只留那一类', cardsOf(all, '全部').length === 6 && cardsOf(all, '流程').length === 2 && cardsOf(all, '流程').every((c) => c.kind === '流程'));
+ok('关键词过滤：按名字、小字、说明、标签大小写不敏感匹配；空串原样返回', filterCards(all, '').length === 6 && filterCards(all, '  ').length === 6 && J(filterCards(all, '分类一').map((c) => c.name)) === '["甲台"]' && J(filterCards(all, '族一').map((c) => c.name)) === '["乙技能"]' && J(filterCards(all, '说明').map((c) => c.name)) === '["甲流程"]' && filterCards(all, '不存在的词').length === 0);
+ok('搜索无结果说法：写清搜的词与当前分类', searchEmptyText('采购', '全部') === '没有找到含「采购」的条目。' && searchEmptyText('采购', '工作台') === '没有找到含「采购」的工作台。');
 ok('地址里的分类：认得的照用（连接器也认，不是管理员时页面再落「全部」），认不出、没写的当全部', tabFromQuery('技能') === '技能' && tabFromQuery('连接器') === '连接器' && tabFromQuery('乱写') === '全部' && tabFromQuery(null) === '全部');
 ok('卡片的 key 各不相同', new Set(all.map((c) => c.key)).size === all.length);
 

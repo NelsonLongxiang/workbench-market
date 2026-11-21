@@ -29,10 +29,10 @@ export function renderSopRunner(manifest: SopManifest, app: AppRow, tokensCss = 
 ${tokensCss.replace(/<\/style/gi, '')}
 </style>
 <style>
-  /* #321：颜色、字体、字号、间距、圆角只用 --wm-* 变量（DESIGN.md），与市场前端同色同字号；顶栏是深色区，用 nav-* */
+  /* #321：颜色、字体、字号、间距、圆角只用 --wm-* 变量（DESIGN.md），与市场前端同色同字号；顶栏用 nav-*，加底边线与页面底色分隔 */
   * { box-sizing:border-box; }
   body { margin:0; font-family:var(--wm-font-sans); font-size:var(--wm-font-size-body); line-height:var(--wm-line-height-body); color:var(--wm-color-text); background:var(--wm-color-page); }
-  .bar { position:sticky; top:0; z-index:5; background:var(--wm-color-nav-bg); color:var(--wm-color-nav-text-active); padding:var(--wm-space-2) var(--wm-space-6); display:flex; align-items:center; gap:var(--wm-space-3); }
+  .bar { position:sticky; top:0; z-index:5; background:var(--wm-color-nav-bg); color:var(--wm-color-nav-text-active); border-bottom:1px solid var(--wm-color-border); padding:var(--wm-space-2) var(--wm-space-6); display:flex; align-items:center; gap:var(--wm-space-3); }
   .bar .code { font-family:var(--wm-font-mono); font-size:var(--wm-font-size-caption); color:var(--wm-color-nav-text); }
   .bar h1 { font-size:var(--wm-font-size-subtitle); line-height:var(--wm-line-height-subtitle); margin:0; font-weight:var(--wm-font-weight-subtitle); }
   .badge { font-size:var(--wm-font-size-caption); padding:2px var(--wm-space-2); border-radius:var(--wm-radius-full); background:var(--wm-color-success-bg); color:var(--wm-color-success-text); }
