@@ -63,6 +63,17 @@ try {
   const badProv = await refused(() => s.append('forecast', rows, ctx({ provenance: { area: 'plan', task: 'x', batch: 'b', grant: '' } })));
   ok('来源缺授权号 → 拒', badProv?.code === 'invalid', badProv);
 
+  // 带主键的公共数据集：按主键改、删行在这里本来是走得通的（有主键、给齐了必填列），只有「公共区的只能追加」能拦住。
+  // 拦截一旦放开，下面两例会因为数据真被改了、删了而变红，不只是错误码不同
+  await s.defineDataset({ name: 'keyed', columns: [{ name: 'sku', type: 'text', required: true }, { name: 'qty', type: 'integer' }], key: ['sku'] }, ctx(), { provenance: true });
+  await s.append('keyed', [{ sku: 'K1', qty: 1 }, { sku: 'K2', qty: 2 }], ctx({ provenance: prov('g-keyed') }));
+  const keyedRows = async () => JSON.stringify((await s.query({ dataset: 'keyed', select: ['sku', 'qty', '_grant'] })).rows);
+  const keyedBefore = await keyedRows();
+  const up = await refused(() => s.upsert('keyed', [{ sku: 'K1', qty: 99, _area: 'plan', _task: 'forged', _batch: 'b9', _grant: 'g-forged' }], ctx()));
+  ok('带主键的公共数据集：按主键改 → unsupported（公共区只能追加），数据没动', up?.code === 'unsupported' && /只能追加/.test(up.message) && (await keyedRows()) === keyedBefore, [up, await keyedRows()]);
+  const del = await refused(() => s.deleteRows('keyed', [{ sku: 'K2' }], ctx()));
+  ok('带主键的公共数据集：删行 → unsupported（公共区只能追加），两行都还在', del?.code === 'unsupported' && /只能追加/.test(del.message) && (await keyedRows()) === keyedBefore, [del, await keyedRows()]);
+
   console.log('三、来源列由服务端填；同一个授权只写一次');
   const w1 = await s.append('forecast', rows, ctx({ provenance: prov('g-1', { upstream: ['pub-sales/orders#3'] }) }));
   ok('凭授权 g-1 追加两行', w1.inserted === 2, w1);
