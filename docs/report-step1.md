@@ -103,11 +103,12 @@
 | `body` | 冻结的成品（JSON，P0 的 `FrozenReport` 形状） |
 | `sources` | 每个数据槽：视图版本、视图描述的 sha256、块、行数、是否完整（服务端填） |
 | `content_sha256` | `body` 的摘要 |
-| `producer`、`producer_kind` | 主体标识；`human` / `ai`，按主体种类由服务端定（`user:` 是人，`seat:` 是 AI） |
+| `producer`、`producer_kind` | 主体标识；`human` / `ai`，由服务端定：**只有主体表里登记为人（kind 为 `person`）的记 `human`**，席位、应用、节点、系统主体、内置身份、MCP 会话、查不到的一律记 `ai`——宁可把人算成非人，不把非人算成人（#930 统筹验收） |
 | `supersedes` | 更正的是哪份报告（同维度、同事物）；更正链不分叉，只能接链头（和 #919 的更正链同一条规矩） |
 | `created_at` | |
+| `claim_count` | 这份报告有几条论断，写报告时记下，建好不改（#930 统筹验收：冻结论断用） |
 
-**`bs_report_claims`**：`report_id`、`claim_key`（模板里声明的类别加序号，例如 `risk-2`）、`kind`、`text`、`basis`（JSON：指向数据槽和行键，或上游产出物的 `_row`，或 ygl claim 的 id）。随报告一起写、一起冻结。
+**`bs_report_claims`**：`report_id`、`claim_key`（模板里声明的类别加序号，例如 `risk-2`）、`kind`、`text`、`basis`（JSON：指向数据槽和行键，或上游产出物的 `_row`，或 ygl claim 的 id）。随报告一起写、一起冻结：触发器拒绝把论断挂到不存在的报告上，也拒绝报告写下以后再补论断（条数到了 `claim_count` 就不能再插）。
 
 **`bs_report_responses`**
 
@@ -160,10 +161,10 @@
 | `report.dimension-list` | read | `GET /api/report-dimensions`（清单） | 同下。实现时从 `report.dimension-read` 里分出来（PR A 评审对齐）：清单和单条各报一个动作，判法相同；`area-report` 预设两个都带，权限没有扩大 |
 | `report.dimension-read` | read | `GET /api/report-dimensions/:id`、`…/templates/:version` | 登录的人（模板是协议，不是业务数据）。评审定 |
 | `report.dimension-set` | decide | `POST /api/report-dimensions`（建）、`POST …/:id/templates`（发一版）、`POST …/:id/templates/:version/review`（复核）、`POST …/:id/activate`（移生效指针）、`POST …/:id/retire` | **硬规则，不走角色覆盖**（和 `area.spec-set` 同一种机制）：领域维度认属主、本机命令行和持本领域 `area-report` 授予的人；跨领域维度只认属主和本机命令行 |
-| `report.bind` | write | `PUT /api/bench-views/:bench/reports/:dimension/binding` | 和 `bench-store.view-put` 同一档：管理层；台所在领域有写授予的人 |
-| `report.generate` | write | `POST /api/bench-views/:bench/reports` | 同上 |
-| `report.read` | read | `GET /api/bench-views/:bench/reports`、`…/reports/:id`、`GET /api/report-subjects/:subject`（同一事物下各维度，按读者能读的台裁剪） | 和 `bench-store.render` 同一档 |
-| `report.respond` | write | `POST /api/bench-views/:bench/reports/:id/responses` | 能读这份报告的人。评审定：是否把 `report.respond` 加进已含 `bench-store.render` 的预设，还是单独授予 |
+| `bench-store.report-bind` | write | `PUT /api/bench-views/:bench/reports/:dimension/binding` | 和 `bench-store.view-put` 同一档：管理层；台所在领域有写授予的人 |
+| `bench-store.report-generate` | write | `POST /api/bench-views/:bench/reports` | 同上 |
+| `bench-store.report-read` | read | `GET /api/bench-views/:bench/reports`、`…/reports/:id`、`…/reports/:dimension/binding`；`GET /api/report-subjects/:subject`（同一事物下各维度，按读者能读的台裁剪）还没做 | 和 `bench-store.render` 同一档 |
+| `bench-store.report-respond` | write | `POST /api/bench-views/:bench/reports/:id/responses` | 能读这份报告的人。评审定：是否把 `bench-store.report-respond` 加进已含 `bench-store.render` 的预设，还是单独授予 |
 
 ### 2. 角色
 
@@ -200,7 +201,7 @@
 | 问题 | 谁定 | 推荐 |
 |---|---|---|
 | `report.dimension-read` 是否对所有登录的人开放 | 评审 | 开放 |
-| `report.respond` 是否随含取数的预设一起给 | 评审 | 一起给：能看报告的人能表态，是第 19 篇的出发点 |
+| `bench-store.report-respond` 是否随含取数的预设一起给 | 评审 | 一起给：能看报告的人能表态，是第 19 篇的出发点 |
 
 ## 七、拆成五个 PR
 
@@ -209,7 +210,7 @@
 | PR | 内容 | 对应用例 |
 |---|---|---|
 | A | 主库两张表和触发器、维度服务、`report.dimension-*` 路由、`area-report` 预设和收窄规则 | 1～5 |
-| B | 台库的绑定表、`report.bind`；P0 的校验搬进服务端的领域服务（纯函数，前端照旧可用）；`report.generate`：服务端取数、冻结、填来源 | 6～9、17 |
-| C | 论断和回应的表、触发器、`report.respond`、`report.read`、「未处理的反驳」的算法；MCP 四个工具 | 10～16 |
+| B | 台库的绑定表、`bench-store.report-bind`；P0 的校验搬进服务端的领域服务（纯函数，前端照旧可用）；`bench-store.report-generate`：服务端取数、冻结、填来源；**读报告 `bench-store.report-read` 也在 B 做**（实现时从 C 挪过来，统筹 11-21 裁定保留在 B） | 6～9、17 |
+| C | 回应的表、触发器、`bench-store.report-respond`、「未处理的反驳」的算法；MCP 四个工具（论断的表随 B 一起建） | 10～16 |
 | D | 报告页：连续阅读、逐条论断和回应、同一事物的几个维度并排 | 浏览器用例另列 |
 | E | 第 19 篇第七节第 0 步剩下的三条测试改成核错误码（可以随 B 一起） | — |

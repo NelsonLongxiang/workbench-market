@@ -19,7 +19,8 @@
  *   R6（#932 独立验收）能回应读不了的 404 和不存在一样；MCP 回应要有 report_get 授予；一个人一条链；接别人链头 409；对整份报告的反驳算
  *   R6d（属主 2026-11-21：收窄）回应记的位置只含管得到这个台的授予：别的领域的不记，台绑到那个领域以后才记
  *   R7（PR D）入口的 can.reports、can.respond 和接口同一套判法；读报告带回模板的立场和论断类别名、回应标出 mine
- *   G11（#930 独立验收）只能看台的人读报告 403；三张冻结的表在库里 UPDATE、DELETE、INSERT OR REPLACE 都拒
+ *   G12（#930 统筹验收）产出方只有 person 记 human；带报告动作的自定义角色两人放行：提议没放行、授予没放行都不生效
+ *   G11（#930 独立验收）只能看台的人读报告、生成、绑定 403；冻结后补论断、论断挂到不存在的报告都拒；三张冻结的表在库里 UPDATE、DELETE、INSERT OR REPLACE 都拒
  *   F（A～D 验收建议的补测）F1 预设 member 读不了报告；F2 领域授予读得了、回应得了；F2b 只有 read 档的领域授予读不了；F3 老部门的授予记进位置；F4 旧报告带它那一版模板
  *   G10 产出方由服务端填：登录的那个人，记 human（数据视图的台只认人，本机命令行、管理口令进不来是既有规矩）
  *
@@ -522,10 +523,13 @@ try {
     const view = await bv(member, 'GET', '/synth-orders/view');
     const one = await bv(member, 'GET', `/synth-orders/reports/${rid0}`);
     const list = await bv(member, 'GET', '/synth-orders/reports');
+    // 只能看台的人也不能生成、不能绑（#930 统筹验收 A3：生成借用 render 的动作时没有用例守）
+    const vGen = await gen(member, G({ subject: 'card:synth-orders@viewer' }));
+    const vBind = await bv(member, 'PUT', '/synth-orders/reports/monthly/binding', { base: 0, slots: BINDING });
     const gid = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = 'g-viewer' AND status = 'active'").get()?.id;
     const rv = await cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：G11 用完收回' });
-    check(gv && view.status === 200 && one.status === 403 && list.status === 403 && rv.status === 200,
-      'G11 只授了取数、读视图的人：读视图 200，读一份报告、读清单都 403（用完收回）', { gv, view: view.status, one: one.status, list: list.status, rv: rv.status });
+    check(gv && view.status === 200 && one.status === 403 && list.status === 403 && vGen.status === 403 && vBind.status === 403 && rv.status === 200,
+      'G11 只授了取数、读视图的人：读视图 200，读一份报告、读清单、生成、绑定都 403（用完收回）', { gv, view: view.status, one: one.status, list: list.status, gen: vGen.status, bind: vBind.status, rv: rv.status });
     // 绑定的筛选参数不在视图的筛选栏里（#930 验收 m16）：绑得上，生成时 400，不出报告；再绑回好的
     const cur = (await bv(boss, 'GET', '/synth-orders/reports/monthly/binding')).json?.binding;
     const curSlots = cur?.slots;
@@ -546,14 +550,47 @@ try {
       updB: tr("UPDATE bs_report_bindings SET slots = '{}'"), delB: tr('DELETE FROM bs_report_bindings'),
       repB: tr("INSERT OR REPLACE INTO bs_report_bindings (dimension_id, version, template_version, slots, created_by, created_at) VALUES ('monthly', 1, 1, '{}', 'x', 1)"),
       updR: tr("UPDATE bs_reports SET body = '[]'"), delR: tr('DELETE FROM bs_reports'),
-      repR: tr("INSERT OR REPLACE INTO bs_reports (id, dimension_id, template_version, template_sha256, binding_version, subject, inputs, body, sources, content_sha256, producer, producer_kind, supersedes, created_at) VALUES (?, 'monthly', 1, 'x', 1, 'card:x', '{}', '[]', '[]', 'x', 'x', 'human', NULL, 1)", rid0),
+      repR: tr("INSERT OR REPLACE INTO bs_reports (id, dimension_id, template_version, template_sha256, binding_version, subject, inputs, body, sources, content_sha256, producer, producer_kind, supersedes, created_at, claim_count) VALUES (?, 'monthly', 1, 'x', 1, 'card:x', '{}', '[]', '[]', 'x', 'x', 'human', NULL, 1, 1)", rid0),
       updC: tr("UPDATE bs_report_claims SET text = 'x'"), delC: tr('DELETE FROM bs_report_claims'),
       repC: tr("INSERT OR REPLACE INTO bs_report_claims (report_id, claim_key, kind, text, basis) VALUES (?, 'conclusion-1', 'conclusion', '偷换的结论', '[]')", rid0),
+      // 冻结以后补一条新论断、把论断挂到不存在的报告上（#930 统筹验收：论断要随报告一起冻结）
+      addClaim: tr("INSERT INTO bs_report_claims (report_id, claim_key, kind, text, basis) VALUES (?, 'risk-1', 'risk', '事后补的风险', '[]')", rid0),
+      orphanClaim: tr("INSERT INTO bs_report_claims (report_id, claim_key, kind, text, basis) VALUES (99999, 'conclusion-1', 'conclusion', '没有报告的论断', '[]')"),
     };
     const same = snap() === before;
     store.close();
     check(rows0.b > 0 && rows0.r > 0 && rows0.c > 0 && Object.values(r).every(Boolean) && same,
-      'G11 台库里直接 UPDATE、DELETE、INSERT OR REPLACE（同键覆盖）报告绑定、报告、论断：触发器都拒，三张表一行没变', { rows0, r, same });
+      'G11 台库里直接 UPDATE、DELETE、INSERT OR REPLACE（同键覆盖）报告绑定、报告、论断，冻结后补论断、论断挂到不存在的报告：触发器都拒，三张表一行没变', { rows0, r, same });
+  }
+
+  console.log('G12 产出方算人还是 AI；带报告动作的自定义角色要两人放行（#930 统筹验收）');
+  {
+    // 只有主体表里登记为人的记 human，席位、应用、节点、系统、内置身份、MCP 会话、认不出的都记 ai
+    const { actorKindOf } = await import(pathToFileURL(join(ROOT, 'server', 'src', 'services', 'report-compile.ts')).href);
+    const kinds = { person: actorKindOf('person'), seat: actorKindOf('seat'), app: actorKindOf('app'), node: actorKindOf('node'), system: actorKindOf('system'), service: actorKindOf('service'), none: actorKindOf(null), undef: actorKindOf(undefined), empty: actorKindOf('') };
+    check(kinds.person === 'human' && Object.entries(kinds).filter(([k]) => k !== 'person').every(([, v]) => v === 'ai'),
+      'G12 产出方算人还是 AI：只有主体 kind 为 person 的记 human；席位、应用、节点、系统、服务、查不到的都记 ai', kinds);
+    // 两人制：管理口令改自定义角色只记成提议，属主放行前不生效；授予只起草、提交、没放行，也不生效
+    const adminTok = { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } };
+    await cli('POST', '/api/roles/guest/copy', { id: 'rep-two', name: '合成·两人制' });
+    await cli('PUT', '/api/roles/rep-two', { permissions: [{ actions: ['bench-store.render', 'bench-store.view-get'] }] });
+    await cli('POST', '/api/roles/rep-two/approve');
+    const proposed = await srv.call('PUT', '/api/roles/rep-two', { ...adminTok, body: { permissions: [{ actions: ['bench-store.render', 'bench-store.view-get', 'bench-store.report-generate', 'bench-store.report-read'] }] } });
+    const gr = await activate({ principal: 'user:beta', role: 'rep-two', scope: '*' });
+    const beforeApprove = await gen(member, G({ subject: 'card:synth-orders@two-1' }));
+    const approved = await cli('POST', '/api/roles/rep-two/approve');
+    const afterApprove = await gen(member, G({ subject: 'card:synth-orders@two-2' }));
+    const gid2 = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = 'rep-two' AND status = 'active'").get()?.id;
+    const rv2 = await cli('POST', `/api/grants/${gid2}/revoke`, { reason: '合成：G12 收回' });
+    // 授予只起草、提交，没有放行
+    const d = await srv.call('POST', '/api/grants', { body: { principal: 'user:beta', role: 'rep-two', scope: '*', reason: '合成：只提交' } });
+    const sub = await srv.call('POST', `/api/grants/${d.json?.grant?.id}/submit`);
+    const pending = await gen(member, G({ subject: 'card:synth-orders@two-3' }));
+    const pendingList = await bv(member, 'GET', '/synth-orders/reports');
+    check([200, 202].includes(proposed.status) && gr && beforeApprove.status === 403 && approved.status === 200 && afterApprove.status === 201 && rv2.status === 200
+        && sub.status === 200 && pending.status === 403 && pendingList.status === 403,
+      'G12 管理口令把自定义角色改成带报告动作，只是提议：属主放行前授给人，生成 403；放行后 201；授予只起草、提交没放行：生成、读清单 403',
+      { proposed: [proposed.status, proposed.text?.slice(0, 120)], gr, beforeApprove: beforeApprove.status, approved: approved.status, afterApprove: [afterApprove.status, afterApprove.text?.slice(0, 100)], rv2: rv2.status, sub: sub.status, pending: pending.status, pendingList: pendingList.status });
   }
   console.log('F 验收建议的补测（报告第 1 步 A～D 合并后的跟进）');
   {

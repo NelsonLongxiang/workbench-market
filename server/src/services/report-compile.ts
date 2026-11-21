@@ -280,3 +280,12 @@ function checkClaims(t: TemplateV2, claimsIn: unknown, slotData: Record<string, 
   }
   return out;
 }
+
+/**
+ * 产出方、回应者算人还是 AI（人和 AI 的边界是两层组织的基础，#930 独立验收）：只有主体表里登记为人（kind 为 person）的记 human；
+ * 席位、应用、节点、系统主体、内置身份（本机命令行、匿名……）、MCP 会话、认不出的，一律记 ai——宁可把人算成非人，不把非人算成人。
+ * principalKind 是按 actor 在主体表里查到的 kind（查不到给 null）
+ */
+export function actorKindOf(principalKind: string | null | undefined): 'human' | 'ai' {
+  return principalKind === 'person' ? 'human' : 'ai';
+}
