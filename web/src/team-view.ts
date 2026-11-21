@@ -314,6 +314,22 @@ export function sourceProblem(what: string, r: SourceResult | null): { type: 'wa
   return null;
 }
 /** 写操作被拒时怎么说：服务端给了说法就用它 */
+/** 确认一条提议之后怎么说（#920 的契约）：部门负责人（dept-lead）的提议确认后不再生效成部门授予，改成起草一条领域负责人（area-lead）授予，
+ *  停在待核、要属主放行——应答带 drafted_grant_id。三种情形各一句，都给去「谁能做什么」放行的链接：
+ *  起草成功；已有一条没结束的同人同领域负责人授予（skipped: already_open，不另起草、指回那条）；迁移起草的那条被否决过、这次照样起草（refused_before_overridden）。
+ *  应答里没有 drafted_grant_id（别的提议，比如团队认领）：返回 null，照旧不另提示 */
+export const DEPT_LEAD_DRAFTED = '已起草领域负责人授予，待你放行';
+export function approvedNotice(body: unknown): { text: string; link: string; linkText: string } | null {
+  const b = obj(body);
+  if (!b || typeof b.drafted_grant_id !== 'number') return null;
+  const go = { link: '/access', linkText: '去「谁能做什么」放行 →' };
+  if (b.skipped === 'already_open') return { ...go, text: '这个人在这个领域已经有一条没结束的领域负责人授予，没有另起草：去「谁能做什么」看那一条（待你放行的就放行）', linkText: '去「谁能做什么」看那一条 →' };
+  if (b.refused_before_overridden === true) return { ...go, text: `${DEPT_LEAD_DRAFTED}。之前迁移时起草的那条被否决过，这次照你的确认重新起草了` };
+  return { ...go, text: DEPT_LEAD_DRAFTED };
+}
+/** 确认被拒：部门还没迁成领域（409 area_not_migrated）时，除了照服务端的说法，再给去「领域」页的链接 */
+export const needsMigration = (r: SourceResult): boolean => r.status === 409 && obj(r.body)?.error === 'area_not_migrated';
+
 export function actionProblem(r: SourceResult): string | null {
   if (r.status >= 200 && r.status < 300) return null;
   const msg = obj(r.body)?.message ?? obj(r.body)?.error;

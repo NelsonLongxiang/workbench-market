@@ -90,6 +90,10 @@ with sync_playwright() as p:
         tail = r.request.url.split('/api/relations/proposals/')[1]
         pid, verb = int(tail.split('/')[0]), tail.split('/')[1]
         posted.append((verb, pid, json.loads(r.request.post_data or '{}')))
+        if pid in props.get('resp', {}):  # 这一条照契约（#920）回指定的应答：状态码和应答体
+            code, body = props['resp'][pid]
+            if code < 300: props['list'] = [p for p in props['list'] if p['id'] != pid]
+            return fake(r, {'proposal': {'id': pid, 'status': 'approved'}, **body} if code < 300 else body, code)
         props['list'] = [p for p in props['list'] if p['id'] != pid]
         fake(r, {'proposal': {'id': pid, 'status': 'approved' if verb == 'approve' else 'rejected'}})
     pg.route('**/api/relations/proposals/*/*', on_prop)
@@ -198,6 +202,7 @@ with sync_playwright() as p:
     check('提议卡上不露标识（团队句柄、节点标识、主体标识）', not any(x in pg.locator('.wm-team-props').first.inner_text() for x in [HOST, 'ops/', 'user:', 'admin-token']))
     n0 = len(posted)
     fm.locator('[data-testid=team-proposal-approve]').click(); pg.wait_for_function("document.querySelectorAll('[data-testid=team-proposals-for-me]').length === 0")
+    check('团队认领的提议确认后（应答里没有 drafted_grant_id）：页面上不另出提示', pg.locator('[data-testid=team-notice]').count() == 0)
     check('确认发对了请求（这一条的 id），办完「等你确认」那一组没了，并广播「等你拍板」刷新', posted[n0][0] == 'approve' and posted[n0][1] == 11 and pg.evaluate('window.__att') >= 1, (posted[n0:], pg.evaluate('window.__att')))
     mi.locator('[data-testid=team-proposal-reject]').first.click()
     pg.locator('[data-testid=team-proposal-reason]').fill('  想错了  ')
@@ -205,6 +210,33 @@ with sync_playwright() as p:
     last = posted[-1]
     check('撤回发的是驳回这一条，带着去掉空白的理由；办完待确认的那条没了，失效的那条还在', last[0] == 'reject' and last[1] == 12 and last[2].get('reason') == '想错了' and pg.locator('[data-testid=team-proposals-mine] [data-testid=team-proposal]').count() == 1, last)
     props['list'] = []
+
+    # ---------- 部门负责人的提议（#920 停写旧部门接口之后）：属主确认 = 起草一条领域负责人授予、待放行；四种应答照契约说 ----------
+    MSG = '部门 synthetic-ops 还没迁成领域（或对应的领域已经撤了）：先把部门迁成领域，再确认'
+    props['resp'] = {21: (200, {'drafted_grant_id': 301}), 22: (200, {'drafted_grant_id': 300, 'skipped': 'already_open'}),
+                     23: (200, {'drafted_grant_id': 302, 'refused_before_overridden': True}), 24: (409, {'error': 'area_not_migrated', 'message': MSG})}
+    def confirm_one(pid):
+        props['list'] = [P(pid, 'dept-lead', confirm_by_text='属主（确认后起草领域负责人，属主放行后生效）', can_approve=True, can_reject=True)]
+        pg.reload(); set_token(pg); pg.wait_for_selector('[data-testid=team-proposal-approve]')
+        pg.locator('[data-testid=team-proposal-approve]').click(); pg.wait_for_timeout(800)
+        note = pg.locator('[data-testid=team-notice]')
+        return (note.inner_text() if note.count() else ''), (pg.locator('[data-testid=team-notice-link]').get_attribute('href') if pg.locator('[data-testid=team-notice-link]').count() else None)
+    t, href = confirm_one(21)
+    check('部门负责人的提议确认：发 approve；提示「已起草领域负责人授予，待你放行」，带去「谁能做什么」放行的链接；卡片没了',
+          posted[-1][:2] == ('approve', 21) and '已起草领域负责人授予，待你放行' in t and href == '/access' and pg.locator('[data-testid=team-proposal]').count() == 0, (t, href))
+    t, href = confirm_one(22)
+    check('已有一条没结束的同人同领域负责人授予（skipped: already_open）：说没有另起草、去看那一条，链到「谁能做什么」，不说「已起草」',
+          '已经有一条没结束的领域负责人授予' in t and '没有另起草' in t and '已起草领域负责人授予，待你放行' not in t and href == '/access', (t, href))
+    t, href = confirm_one(23)
+    check('迁移起草的那条被否决过、这次照样起草（refused_before_overridden）：提示已起草待放行，并说之前的被否决过', t.count('已起草领域负责人授予，待你放行') == 1 and '被否决过' in t and href == '/access', (t, href))
+    props['list'] = [P(24, 'dept-lead', can_approve=True, can_reject=True)]
+    pg.reload(); set_token(pg); pg.wait_for_selector('[data-testid=team-proposal-approve]')
+    pg.locator('[data-testid=team-proposal-approve]').click(); pg.wait_for_selector('[data-testid=team-proposal-err]')
+    err = pg.locator('[data-testid=team-proposal-err]')
+    check('部门还没迁成领域（409 area_not_migrated）：照服务端的说法提示、给去「领域」页的链接；卡片还在（提议仍待确认），页面上不出「已起草」',
+          MSG in err.inner_text() and err.locator('[data-testid=team-proposal-to-areas]').get_attribute('href') == '/areas' and pg.locator('[data-testid=team-proposal]').count() == 1
+          and pg.locator('[data-testid=team-notice]').count() == 0, err.inner_text())
+    props['list'] = []; props['resp'] = {}
 
     # ---------- 成员分配：负责人的视图（团队上 can_assign 为真，带 assignable） ----------
     SHOTS = os.environ.get('TEAM_SHOTS')

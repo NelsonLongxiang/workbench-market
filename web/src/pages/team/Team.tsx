@@ -26,7 +26,7 @@ import { addTeamLead, approveRelationProposal, assignTeamSeat, attentionChanged,
 import RelTime from '../../components/RelTime';
 import { subscribeAdminToken } from '../../admin-token';
 import {
-  actionProblem, ASSIGN_BY_TEXT, assignDoneText, assigneeOptions, assignOps, deptLeadText, leadPendingGrantText, reassignHintText, unassignConfirmText, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, outcomeLabel, outcomeReasonText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
+  actionProblem, approvedNotice, needsMigration, ASSIGN_BY_TEXT, assignDoneText, assigneeOptions, assignOps, deptLeadText, leadPendingGrantText, reassignHintText, unassignConfirmText, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, outcomeLabel, outcomeReasonText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
   teamCounts, teamStatusLabel, teamTitle, teamsOf,
 } from '../../team-view';
 import type { Department, KnownNames, Member, Proposal, SourceResult, Team as TeamT, TeamsCan, Tone } from '../../team-view';
@@ -207,20 +207,28 @@ function ClaimCard({ t, depts, people, can, onDone, onNotice }: { t: TeamT; dept
 }
 
 /** 一条待确认的关系提议：照服务端给的 can_approve、can_reject 出「确认」「驳回 / 撤回」；不能确认的写服务端的说法 */
-function ProposalCard({ p, names, onDone }: { p: Proposal; names: KnownNames; onDone: () => void }) {
+type Notice = string | { text: string; link: string; linkText: string };
+
+function ProposalCard({ p, names, onDone, onNotice }: { p: Proposal; names: KnownNames; onDone: () => void; onNotice: (n: Notice) => void }) {
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [toAreas, setToAreas] = useState(false);
   const rl = rejectLabel(p);
   const pend = p.outcome === 'pending';
   const ol = outcomeLabel(p), why = outcomeReasonText(p);
   const canConfirm = pend && p.can_approve && p.mine !== true;
   const act = async (fn: () => Promise<SourceResult>) => {
-    setBusy(true); setErr(null);
-    const e = actionProblem(await fn());
+    setBusy(true); setErr(null); setToAreas(false);
+    const r = await fn();
+    const e = actionProblem(r);
     setBusy(false);
-    if (e) { setErr(e); return; }
+    // 部门还没迁成领域（409 area_not_migrated）：照服务端的说法，另给去「领域」页的链接；提议保持待确认
+    if (e) { setErr(e); setToAreas(needsMigration(r)); return; }
+    // 部门负责人的提议确认后是起草领域负责人授予（#920），卡片随重读消失，提示挂在页面上，带去放行的链接
+    const n = approvedNotice(r.body);
+    if (n) onNotice(n);
     attentionChanged(); // 「等你拍板」里同一条提议跟着消失，侧栏角标重读
     onDone();
   };
@@ -247,18 +255,19 @@ function ProposalCard({ p, names, onDone }: { p: Proposal; names: KnownNames; on
           {rl && <Button size="small" disabled={busy} onClick={() => setRejecting(true)} data-testid="team-proposal-reject" autoInsertSpace={false}>{rl}</Button>}
         </div>
       ) : null}
-      {err && <Alert className="wm-team-err" type="warning" showIcon message={err} />}
+      {err && <Alert className="wm-team-err" type="warning" showIcon message={err} data-testid="team-proposal-err"
+        action={toAreas ? <Link to="/areas" data-testid="team-proposal-to-areas">去「领域」页</Link> : undefined} />}
     </div>
   );
 }
 
 /** 待确认的关系：等你确认的、你提的、别的（管理员看得到的）三组；每组没有就不出 */
-function ProposalsSection({ list, names, onDone }: { list: Proposal[]; names: KnownNames; onDone: () => void }) {
+function ProposalsSection({ list, names, onDone, onNotice }: { list: Proposal[]; names: KnownNames; onDone: () => void; onNotice: (n: Notice) => void }) {
   const g = proposalGroups(list);
   const group = (key: string, title: string, cap: string, items: Proposal[]) => items.length === 0 ? null : (
     <section className="wm-team-props" data-testid={`team-proposals-${key}`}>
       <div className="wm-team-sec"><h3>{title}</h3><span className="wm-team-n">{items.length}</span><span className="wm-team-cap">{cap}</span></div>
-      <div className="wm-team-claims">{items.map((p) => <ProposalCard key={p.id} p={p} names={names} onDone={onDone} />)}</div>
+      <div className="wm-team-claims">{items.map((p) => <ProposalCard key={p.id} p={p} names={names} onDone={onDone} onNotice={onNotice} />)}</div>
     </section>
   );
   return (
@@ -274,7 +283,7 @@ export default function Team() {
   const [src, setSrc] = useState<{ teams: SourceResult | null; depts: SourceResult | null; people: SourceResult | null; proposals: SourceResult | null }>({ teams: null, depts: null, people: null, proposals: null });
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const reload = useCallback(() => setTick((n) => n + 1), []);
   useEffect(() => subscribeAdminToken(reload), [reload]);
   useEffect(() => {
@@ -306,8 +315,10 @@ export default function Team() {
     <WmPage wide loading={loading}>
       <p className="wm-team-intro">每个部门有负责的人，部门下面挂着 AI 团队。团队的负责人直接对接它的总工；成员可以分配给某位员工直接用，没分配的是团队公用，由总工分派。</p>
       {problem && <Alert className="wm-team-alert" type={problem.type} showIcon message={problem.text} />}
-      {notice && <Alert className="wm-team-alert wm-team-note" type="info" showIcon closable onClose={() => setNotice(null)} message={notice} data-testid="team-notice" />}
-      {!loading && proposals.length > 0 && <ProposalsSection list={proposals} names={names} onDone={reload} />}
+      {notice && <Alert className="wm-team-alert wm-team-note" type="info" showIcon closable onClose={() => setNotice(null)} data-testid="team-notice"
+        message={typeof notice === 'string' ? notice : notice.text}
+        action={typeof notice === 'string' ? undefined : <Link to={notice.link} data-testid="team-notice-link">{notice.linkText}</Link>} />}
+      {!loading && proposals.length > 0 && <ProposalsSection list={proposals} names={names} onDone={reload} onNotice={setNotice} />}
       {empty && (
         <Empty className="wm-team-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span data-testid="team-empty">{empty}</span>}>
           {admin && depts !== null && depts.length === 0 && <Link to="/areas" data-testid="team-to-areas">去「领域」页 →</Link>}
