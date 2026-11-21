@@ -327,6 +327,10 @@ export const ASKED: Readonly<Record<string, { global: Kind; scoped: Kind | null 
   'bench-store.mcp-list': { global: 'write', scoped: 'write' },
   'bench-store.mcp-grant': { global: 'decide', scoped: 'decide' },
   'bench-store.mcp-decide': { global: 'decide', scoped: 'decide' },
+  // 报告（docs/report-step1.md 第四节；报告第 1 步 PR B）：绑模板、生成、读，和视图描述、取数同一档
+  'bench-store.report-bind': { global: 'write', scoped: 'write' },
+  'bench-store.report-generate': { global: 'write', scoped: 'write' },
+  'bench-store.report-read': { global: 'write', scoped: 'write' },
   // 经验库：部门级的条目按这个部门问「看」（services/knowledge.ts 的 visibility）
   'knowledge.read': { global: 'read', scoped: 'read' },
 };
@@ -345,6 +349,8 @@ export const DEPT_AREA_TRANSITIONAL: readonly string[] = [
   'bench-store.form-submit', 'bench-store.render', 'bench-store.snapshot-list', 'bench-store.snapshot-take', 'bench-store.snapshot-restore', 'bench-store.view-get',
   'bench-store.view-put', 'bench-store.view-versions', 'bench-store.view-diff', 'bench-store.view-rollback', 'bench-store.log-list', 'bench-store.mcp-list',
   'bench-store.mcp-grant', 'bench-store.mcp-decide', 'knowledge.read',
+  // 报告的三个动作（报告第 1 步 PR B）：有意手动加进来，和别的 bench-store.* 一样认过渡期的 dept:，否则绑在部门上的台用不了报告
+  'bench-store.report-bind', 'bench-store.report-generate', 'bench-store.report-read',
 ];
 
 /**

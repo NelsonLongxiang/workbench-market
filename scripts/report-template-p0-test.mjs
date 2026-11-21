@@ -28,9 +28,9 @@ bad('duplicate template node ids refuse',f=>{f.template.body[1].id='cover';},'no
 bad('invalid grid refuses',f=>{f.template.body[1].children[1].columns=[8,8];},'invalid_grid');
 bad('undeclared field references refuse',f=>{f.template.body[1].children[0].content=[{ref:{scope:'field',name:'secret'}}];},'missing_reference');
 bad('partial source errors cannot be published',f=>{f.views.source.blocks[2].error={code:'unavailable'};},'source_unavailable');
-check('duplicate stable repeat row keys refuse',()=>{const f=makeProductFixture();f.views.products.blocks[0].data.rows[1].sku=f.views.products.blocks[0].data.rows[0].sku;assert.throws(()=>run(f),ReportError);});
-check('repeat bounds refuse',()=>{const f=makeProductFixture();f.template.body[1].max_items=49;assert.throws(()=>run(f),ReportError);});
-check('asset URL cannot cause a fetch',()=>{const f=makeProductFixture();f.assets.sample.data_url='http://example.invalid/secret';assert.throws(()=>run(f),ReportError);});
+bad('duplicate stable repeat row keys refuse',f=>{f.views.products.blocks[0].data.rows[1].sku=f.views.products.blocks[0].data.rows[0].sku;},'duplicate_row_key',makeProductFixture);
+bad('repeat bounds refuse',f=>{f.template.body[1].max_items=49;},'repeat_limit',makeProductFixture);
+bad('asset URL cannot cause a fetch',f=>{f.assets.sample.data_url='http://example.invalid/secret';},'invalid_asset',makeProductFixture);
 bad('unmapped source parameter does not silently change report scope',f=>{f.views.source.params.extra='hidden-scope';},'unmapped_source_parameter');
 bad('unknown binding column aliases refuse',f=>{f.bindings.details.columns.extra='secret';},'unknown_key');
 bad('unimplemented grid ratios are not silently stacked',f=>{f.template.body[1].children[1].columns=[8,4];},'grid_ratio_unsupported');

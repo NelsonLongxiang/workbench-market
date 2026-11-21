@@ -53,6 +53,8 @@ export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
   ['varInsert', 'write'], ['varUpdate', 'write'], ['varDelete', 'write'], ['varsImport', 'write'], ['varForce', 'write'], ['varsSynced', 'write'], ['varsReplace', 'write'], ['varsHotPending', 'write'], ['varsApplyHot', 'write'],
   ['appDigest', 'read'], ['appCounts', 'read'], ['appDataPage', 'read'], ['appDataByIdem', 'read'], ['appFileById', 'read'], ['appFileIdsExisting', 'read'], ['appFilePage', 'read'], ['appFileCount', 'read'],
   ['appDataPut', 'write'], ['appFilePut', 'write'], ['appDataDrop', 'write'], ['appFileDrop', 'write'], ['appReplace', 'write'],
+  ['reportBindingGet', 'read'], ['reportSlots', 'read'], ['reportGet', 'read'], ['reportList', 'read'], ['reportCounts', 'read'],
+  ['reportBindingPut', 'write'], ['reportInsert', 'write'],
 ]);
 
 /** 卡片的一个常量或变量（和主库 workbench_vars 的一行同形，只是不带 workbench_id） */
@@ -240,6 +242,24 @@ type CheckedRow = { cols: string[]; vals: (string | number | null)[] };
 type FilterField = { name: string; kind: string; label?: string; default?: string; options?: string[] | { dataset: string; col: string } };
 type ViewBlock = { type: string; [k: string]: unknown };
 type ViewDoc = { title: string; views: { key: string; title: string; blocks: ViewBlock[] }[] };
+/** 报告（报告第 1 步 PR B）：绑定、冻结的报告、论断。JSON 的列在这一层是文本，由编排那一层解析 */
+export type ReportBindingRow = { dimension_id: string; version: number; template_version: number; slots: unknown; created_by: string; created_at: number };
+export type ReportRow = {
+  id: number; dimension_id: string; template_version: number; template_sha256: string; binding_version: number; subject: string;
+  inputs: string; body: string; sources: string; content_sha256: string; producer: string; producer_kind: 'human' | 'ai'; supersedes: number | null; created_at: number;
+};
+export type ReportClaimRow = { claim_key: string; kind: string; text: string; basis: string };
+export type ReportListItem = Omit<ReportRow, 'inputs' | 'body' | 'sources' | 'template_sha256'> & { superseded_by: number | null };
+/** 一个数据槽按绑定取回来的数：视图的版本、这一版视图描述的 sha256 由台库填 */
+export type ReportSlotData = { slot: string; view: string; block: number; block_type: string; view_version: number; view_sha256: string; columns: { name: string; type: string; label?: string }[]; rows: Record<string, unknown>[]; truncated: boolean };
+const reportBindingOf = (r: Record<string, unknown>): ReportBindingRow => ({
+  dimension_id: String(r.dimension_id), version: Number(r.version), template_version: Number(r.template_version), slots: JSON.parse(String(r.slots)), created_by: String(r.created_by), created_at: Number(r.created_at),
+});
+const reportRowOf = (r: Record<string, unknown>): ReportRow => ({
+  id: Number(r.id), dimension_id: String(r.dimension_id), template_version: Number(r.template_version), template_sha256: String(r.template_sha256), binding_version: Number(r.binding_version),
+  subject: String(r.subject), inputs: String(r.inputs), body: String(r.body), sources: String(r.sources), content_sha256: String(r.content_sha256), producer: String(r.producer),
+  producer_kind: String(r.producer_kind) === 'ai' ? 'ai' : 'human', supersedes: r.supersedes === null || r.supersedes === undefined ? null : Number(r.supersedes), created_at: Number(r.created_at),
+});
 /** 三道数据量上限（字节）；默认取 BENCH_LIMITS，测试可以给小的 */
 export type BenchCaps = { datasetBytes: number; storeBytes: number; writeBytes: number };
 const mb = (n: number) => `${(n / 1_000_000).toFixed(n < 10_000_000 ? 2 : 0)} MB`;
@@ -1321,6 +1341,129 @@ export class BenchStoreCore {
     return this.serial(async () => {
       const rows = await this.conn.all('SELECT id, dataset, op, body_sha256, row_count, actor, at FROM bs_writes ORDER BY id DESC LIMIT ?', [Math.max(1, Math.min(500, Math.floor(limit) || 100))]);
       return rows.map((r) => ({ id: Number(r.id), dataset: String(r.dataset), op: String(r.op), body_sha256: String(r.body_sha256), rows: Number(r.row_count), actor: String(r.actor), at: Number(r.at) }));
+    });
+  }
+
+  // —— 报告（docs/report-step1.md 第二节第 2 小节，报告第 1 步 PR B）——
+  // 这一层只管存、取、按绑定取数；模板怎么核、怎么冻结在 services/report-compile.ts，谁能做在路由里
+  private reportsReady = false;
+  /** 第一次绑模板、生成报告时建 bs_report_*（附加的表，不升版本号）。调用方已经在 serial / tx 里 */
+  private async ensureReports(): Promise<void> {
+    if (this.reportsReady) return;
+    for (const sql of this.kit.reportSchema) await this.conn.run(sql);
+    for (const probe of this.kit.reportProbes) {
+      try { await this.conn.all(probe); } catch (e) { throw new BenchError('unsupported', `台库 ${this.slug} 的报告表和这份代码不符`, [], e); }
+    }
+    this.reportsReady = true;
+  }
+  private async hasReports(): Promise<boolean> {
+    if (this.reportsReady) return true;
+    return (await this.conn.all(this.kit.reportExists)).length > 0;
+  }
+  /** 这个台对一个维度最新的绑定；没绑过是 null */
+  reportBindingGet(dimension: string): Promise<ReportBindingRow | null> {
+    return this.serial(async () => {
+      if (!(await this.hasReports())) return null;
+      const r = await this.conn.all('SELECT dimension_id, version, template_version, slots, created_by, created_at FROM bs_report_bindings WHERE dimension_id = ? ORDER BY version DESC LIMIT 1', [dimension]);
+      return r.length ? reportBindingOf(r[0]) : null;
+    });
+  }
+  /** 绑定加一版（版本号取这个维度现有最大的加一）。base 是调用方看到的最新版本（没绑过写 0），对不上 409，不覆盖别人刚改的 */
+  reportBindingPut(dimension: string, input: { base: number; template_version: number; slots: unknown; actor: string; at: number }): Promise<ReportBindingRow> {
+    return this.tx(async () => {
+      await this.ensureReports();
+      const max = Number((await this.conn.all('SELECT MAX(version) AS m FROM bs_report_bindings WHERE dimension_id = ?', [dimension]))[0].m ?? 0);
+      if (input.base !== max) throw new BenchError('conflict', `绑定已经是第 ${max} 版了，先重新读一次再改`);
+      await this.conn.run('INSERT INTO bs_report_bindings (dimension_id, version, template_version, slots, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [dimension, max + 1, input.template_version, JSON.stringify(input.slots), input.actor, input.at]);
+      return { dimension_id: dimension, version: max + 1, template_version: input.template_version, slots: JSON.parse(JSON.stringify(input.slots)), created_by: input.actor, created_at: input.at };
+    });
+  }
+  /**
+   * 按绑定取数：在同一格里（一次只做一件事）把每个数据槽要的块一次取齐，各槽看到的是同一时刻的数据（docs/report-step1.md 附录：同一台内一致）。
+   * 每个槽：生效那一版视图描述里的第几份视图、第几个块；表单、筛选栏、引用常量变量的统计卡不能当数据源；
+   * 参数只认这份视图的筛选栏里声明过的字段（和 renderView 一样）；按 limit 取，取不完 truncated 为真（由编排拒，不出半份报告）。
+   * 视图的版本和这一版视图描述的 sha256 由这里填（不信调用方）。取的中途数据改了 409
+   */
+  reportSlots(specs: { slot: string; view: string; block: number; params: Record<string, string>; limit: number }[]): Promise<ReportSlotData[]> {
+    return this.serial(async () => {
+      if (!Array.isArray(specs) || specs.length > 24) throw new BenchError('invalid', '数据槽最多 24 个');
+      const { version, doc } = await this.viewDoc(undefined);
+      const sha = String((await this.conn.all('SELECT sha256 FROM bs_view_versions WHERE version = ?', [version]))[0]?.sha256 ?? '');
+      const defs = await this.load();
+      const revision = await this.tableRevision(defs);
+      let room: number = BENCH_LIMITS.resultChars;
+      const out: ReportSlotData[] = [];
+      for (const sp of specs) {
+        const view = doc.views.find((x) => x.key === sp.view);
+        if (!view) throw new BenchError('conflict', `数据槽 ${sp.slot} 绑的视图 ${String(sp.view).slice(0, 40)} 现在没有了`);
+        const b = Number.isSafeInteger(sp.block) && sp.block >= 0 ? view.blocks[sp.block] : undefined;
+        if (!b) throw new BenchError('conflict', `数据槽 ${sp.slot} 绑的块（第 ${sp.block} 个）现在没有了`);
+        if (b.type === 'form' || b.type === 'filter-bar' || b.query === undefined) throw new BenchError('conflict', `数据槽 ${sp.slot} 绑的块不是取数的块（${String(b.type)}）`);
+        const declared = new Set(view.blocks.filter((x) => x.type === 'filter-bar').flatMap((x) => (x.fields as FilterField[]).map((f) => f.name)));
+        for (const [k, v] of Object.entries(sp.params)) {
+          if (!declared.has(k)) throw new BenchError('invalid', `数据槽 ${sp.slot} 的参数 ${k.slice(0, 40)} 不是这份视图的筛选项`);
+          if (typeof v !== 'string' || v.length > 200) throw new BenchError('invalid', `数据槽 ${sp.slot} 的参数 ${k.slice(0, 40)} 要是 200 个字符以内的文本`);
+        }
+        const limit = Math.max(1, Math.min(BENCH_LIMITS.queryLimit, Math.floor(sp.limit)));
+        const { chars, dataset: _d, ...data } = await this.runQuery(defs, { ...(b.query as Record<string, unknown>), limit }, sp.params, room);
+        room -= chars;
+        out.push({ slot: sp.slot, view: sp.view, block: sp.block, block_type: String(b.type), view_version: version, view_sha256: sha, columns: data.columns.map(publicColumn), rows: data.rows, truncated: data.truncated });
+      }
+      if (revision !== await this.tableRevision(await this.load())) throw new BenchError('conflict', '读取期间数据已改变，请重试');
+      return out;
+    });
+  }
+  /** 存一份冻结的报告和它的论断（同一个事务）。supersedes 要是同维度、同事物、还没被更正过的那份（链头），否则 409 */
+  reportInsert(r: Omit<ReportRow, 'id'>, claims: ReportClaimRow[]): Promise<number> {
+    return this.tx(async () => {
+      await this.ensureReports();
+      if (r.supersedes !== null) {
+        const t = await this.conn.all('SELECT dimension_id, subject FROM bs_reports WHERE id = ?', [r.supersedes]);
+        if (!t.length) throw new BenchError('not_found', `没有第 ${r.supersedes} 份报告`);
+        if (String(t[0].dimension_id) !== r.dimension_id || String(t[0].subject) !== r.subject) throw new BenchError('conflict', '只能更正同一维度、同一事物的报告');
+        if ((await this.conn.all('SELECT 1 AS x FROM bs_reports WHERE supersedes = ?', [r.supersedes])).length) throw new BenchError('conflict', `第 ${r.supersedes} 份已经被更正过了，只能更正链头`);
+      }
+      const ins = await this.conn.all('INSERT INTO bs_reports (dimension_id, template_version, template_sha256, binding_version, subject, inputs, body, sources, content_sha256, producer, producer_kind, supersedes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+        [r.dimension_id, r.template_version, r.template_sha256, r.binding_version, r.subject, r.inputs, r.body, r.sources, r.content_sha256, r.producer, r.producer_kind, r.supersedes, r.created_at]);
+      const id = Number(ins[0].id);
+      for (const c of claims) await this.conn.run('INSERT INTO bs_report_claims (report_id, claim_key, kind, text, basis) VALUES (?, ?, ?, ?, ?)', [id, c.claim_key, c.kind, c.text, c.basis]);
+      return id;
+    });
+  }
+  /** 一份报告（带论断）；没有是 null */
+  reportGet(id: number): Promise<{ report: ReportRow; claims: ReportClaimRow[] } | null> {
+    return this.serial(async () => {
+      if (!(await this.hasReports()) || !Number.isSafeInteger(id)) return null;
+      const r = await this.conn.all('SELECT * FROM bs_reports WHERE id = ?', [id]);
+      if (!r.length) return null;
+      const c = await this.conn.all('SELECT claim_key, kind, text, basis FROM bs_report_claims WHERE report_id = ? ORDER BY claim_key', [id]);
+      return { report: reportRowOf(r[0]), claims: c.map((x) => ({ claim_key: String(x.claim_key), kind: String(x.kind), text: String(x.text), basis: String(x.basis) })) };
+    });
+  }
+  /** 报告清单（不带成品正文），新的在前；可按维度、事物筛；superseded_by 是被哪一份更正了 */
+  reportList(filter: { dimension?: string; subject?: string; limit?: number }): Promise<ReportListItem[]> {
+    return this.serial(async () => {
+      if (!(await this.hasReports())) return [];
+      const where: string[] = [], args: unknown[] = [];
+      if (filter.dimension) { where.push('r.dimension_id = ?'); args.push(filter.dimension); }
+      if (filter.subject) { where.push('r.subject = ?'); args.push(filter.subject); }
+      const lim = Math.max(1, Math.min(200, Math.floor(filter.limit ?? 50) || 50));
+      const rows = await this.conn.all(`SELECT r.id, r.dimension_id, r.template_version, r.binding_version, r.subject, r.content_sha256, r.producer, r.producer_kind, r.supersedes, r.created_at,
+        (SELECT n.id FROM bs_reports n WHERE n.supersedes = r.id) AS superseded_by FROM bs_reports r ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY r.id DESC LIMIT ?`, [...args, lim]);
+      return rows.map((x) => ({
+        id: Number(x.id), dimension_id: String(x.dimension_id), template_version: Number(x.template_version), binding_version: Number(x.binding_version), subject: String(x.subject),
+        content_sha256: String(x.content_sha256), producer: String(x.producer), producer_kind: String(x.producer_kind) as 'human' | 'ai',
+        supersedes: x.supersedes === null ? null : Number(x.supersedes), superseded_by: x.superseded_by === null ? null : Number(x.superseded_by), created_at: Number(x.created_at),
+      }));
+    });
+  }
+  /** 删卡片前的规模（只给数）：几份报告、成品多大 */
+  reportCounts(): Promise<{ reports: number; report_bytes: number }> {
+    return this.serial(async () => {
+      if (!(await this.hasReports())) return { reports: 0, report_bytes: 0 };
+      const r = await this.conn.all('SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(body)), 0) AS b FROM bs_reports');
+      return { reports: Number(r[0].n), report_bytes: Number(r[0].b) };
     });
   }
 
