@@ -5,10 +5,11 @@
  *   · 维度属于一个领域（area_id），或者是跨领域的（area_id 为空）。标识和领域标识同一套写法，建好不改；名字 1～64 个字符，不带控制字符；
  *   · 模板正文是一个 JSON 对象，上限 200 KB（按 UTF-8 字节）；这里只核顶层的形状和论断、回应、验收声明这三块（第三节），
  *     数据槽和文档结构的逐项校验在生成报告时做（PR B 把 P0 的编排搬进服务端）；
- *   · 发一版 = 版本号取这个维度现有最大的加一；**不自动生效**。kind 由这里和上一版比出来：论断要求、回应要求、验收声明、
- *     数据槽、参数有任何不同就是 criteria（判据），只有版式和文字不同是 layout；第一版算 criteria；
- *   · criteria 版本要作者以外的人复核过才能移成生效（属主 2026-11-21）；复核人不能是作者本人（同一个主体、同一个留痕写法都算本人）；
- *     layout 版本不要复核；
+ *   · 发一版 = 版本号取这个维度现有最大的加一；**不自动生效**。判据部分（论断要求、回应要求、验收声明、数据槽、参数）的摘要
+ *     criteria_sha256 由这里算出来存下。kind 也由这里定：判据和这个维度某个**复核过的**版本一字不差（规范写法相同）是 layout，
+ *     否则是 criteria；第一版没有复核过的版本可比，算 criteria。不和「上一版」比：上一版可能没复核过（#926 独立验收，绕过见 R5f）；
+ *   · 能不能生效按判据部分判，不按 kind 判：目标版本的判据摘要要等于这个维度某个复核过的版本的判据摘要（属主 2026-11-21：
+ *     判据要作者以外的人复核过）。复核人不能是作者本人（同一个主体、同一个留痕写法都算本人）；只改版式和文字的版本不要另外复核；
  *   · 撤维度：改成 retired，只读；模板、复核、留痕都留着；
  *   · 每次建、撤、发版、复核、移指针一行留痕（report_dimension_events），和改动同一个写事务。
  * 时间由调用方给（毫秒），不在 SQL 里取。写事务用 BEGIN IMMEDIATE：两次并发发版不会拿到同一个版本号。
@@ -29,7 +30,7 @@ export type DimensionView = {
   created_at: number; created_by: string; updated_at: number; updated_by: string;
 };
 export type TemplateMeta = {
-  version: number; sha256: string; bytes: number; kind: TemplateKind; note: string; created_at: number; created_by: string; created_by_principal: string | null;
+  version: number; sha256: string; criteria_sha256: string; bytes: number; kind: TemplateKind; note: string; created_at: number; created_by: string; created_by_principal: string | null;
   review: { reviewed_by: string; reviewed_at: number; note: string } | null; active: boolean;
 };
 export type TemplateFull = TemplateMeta & { body: unknown };
@@ -101,10 +102,9 @@ export function templateProblem(t: unknown): string | null {
   return null;
 }
 
-/** 和上一版比，这一版是判据类还是版式类。没有上一版算判据类 */
-export function templateKind(prev: Record<string, unknown> | null, next: Record<string, unknown>): TemplateKind {
-  if (!prev) return 'criteria';
-  return CRITERIA_KEYS.some((k) => canonical(prev[k]) !== canonical(next[k])) ? 'criteria' : 'layout';
+/** 判据部分（CRITERIA_KEYS 这几块）的摘要：规范写法（键排序）再取 sha256。两版判据一样，摘要就一样，和版式、文字、键的先后无关 */
+export function criteriaDigest(t: Record<string, unknown>): string {
+  return sha256(canonical(Object.fromEntries(CRITERIA_KEYS.map((k) => [k, t[k] ?? null]))));
 }
 
 type DimRow = Omit<DimensionView, 'active_version'> & { active_version: number | null };
@@ -113,13 +113,13 @@ const dimView = (r: DimRow): DimensionView => ({
   created_at: Number(r.created_at), created_by: r.created_by, updated_at: Number(r.updated_at), updated_by: r.updated_by,
 });
 const DIM_COLS = 'id, area_id, title, status, active_version, created_at, created_by, updated_at, updated_by';
-const TPL_META = 't.version, t.sha256, length(CAST(t.body AS BLOB)) AS bytes, t.kind, t.note, t.created_at, t.created_by, t.created_by_principal, r.reviewed_by, r.reviewed_at, r.note AS review_note';
+const TPL_META = 't.version, t.sha256, t.criteria_sha256, length(CAST(t.body AS BLOB)) AS bytes, t.kind, t.note, t.created_at, t.created_by, t.created_by_principal, r.reviewed_by, r.reviewed_at, r.note AS review_note';
 type TplRow = {
-  version: number; sha256: string; bytes: number; kind: TemplateKind; note: string; created_at: number; created_by: string; created_by_principal: string | null;
+  version: number; sha256: string; criteria_sha256: string; bytes: number; kind: TemplateKind; note: string; created_at: number; created_by: string; created_by_principal: string | null;
   reviewed_by: string | null; reviewed_at: number | null; review_note: string | null; body?: string;
 };
 const tplMeta = (r: TplRow, active: number | null): TemplateMeta => ({
-  version: Number(r.version), sha256: r.sha256, bytes: Number(r.bytes), kind: r.kind, note: r.note, created_at: Number(r.created_at), created_by: r.created_by,
+  version: Number(r.version), sha256: r.sha256, criteria_sha256: r.criteria_sha256, bytes: Number(r.bytes), kind: r.kind, note: r.note, created_at: Number(r.created_at), created_by: r.created_by,
   created_by_principal: r.created_by_principal ?? null,
   review: r.reviewed_by ? { reviewed_by: r.reviewed_by, reviewed_at: Number(r.reviewed_at), note: r.review_note ?? '' } : null,
   active: active !== null && Number(r.version) === active,
@@ -229,13 +229,14 @@ export class ReportDimensionService extends Service {
       const d = this.get(id);
       if (!d) return refuse(404, 'report_dimension_missing', `维度 ${id} 不存在`);
       if (d.status === 'retired') return refuse(409, 'report_dimension_retired', `维度 ${id} 已经撤了，只读`);
-      const last = db.prepare('SELECT version, body FROM report_templates WHERE dimension_id = ? ORDER BY version DESC LIMIT 1').get(id) as { version: number; body: string } | undefined;
+      const last = db.prepare('SELECT version FROM report_templates WHERE dimension_id = ? ORDER BY version DESC LIMIT 1').get(id) as { version: number } | undefined;
       const version = Number(last?.version ?? 0) + 1;
-      const kind = templateKind(last ? JSON.parse(last.body) as Record<string, unknown> : null, input.body as Record<string, unknown>);
+      const criteria = criteriaDigest(input.body as Record<string, unknown>);
+      const kind: TemplateKind = this.criteriaReviewed(id, criteria) ? 'layout' : 'criteria';
       // 判据类版本要作者以外的人复核；作者认不出是谁（本机命令行、只带管理口令）就判不了「是不是本人」，所以认不出的人不能发判据类版本（统筹 11-21 裁定）
       if (kind === 'criteria' && !actor.principal) return refuse(403, 'report_template_author_unidentified', '这一版改了判据（第一版也算），要作者以外的人复核；本机命令行、管理口令认不出是谁，发判据类版本请用站内账号');
-      db.prepare('INSERT INTO report_templates (dimension_id, version, body, sha256, kind, note, created_at, created_by, created_by_principal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(id, version, text, digest, kind, input.note, now, actor.by.slice(0, 256), actor.principal);
+      db.prepare('INSERT INTO report_templates (dimension_id, version, body, sha256, criteria_sha256, kind, note, created_at, created_by, created_by_principal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(id, version, text, digest, criteria, kind, input.note, now, actor.by.slice(0, 256), actor.principal);
       db.prepare('UPDATE report_dimensions SET updated_at = ?, updated_by = ? WHERE id = ?').run(now, actor.by.slice(0, 256), id);
       this.event(id, 'template-add', version, actor, now, `${kind} ${input.note}`.trim());
       return { ok: true as const, template: this.templates(id).find((t) => t.version === version)! };
@@ -265,15 +266,25 @@ export class ReportDimensionService extends Service {
     });
   }
 
-  /** 把生效指针移到已有的一版（回退也是它，不新增版本）。判据类版本没复核过的 409 */
+  /** 这个维度有没有复核过的版本，判据摘要等于 criteria */
+  private criteriaReviewed(id: string, criteria: string): boolean {
+    return !!db.prepare('SELECT 1 FROM report_templates t JOIN report_template_reviews r ON r.dimension_id = t.dimension_id AND r.version = t.version WHERE t.dimension_id = ? AND t.criteria_sha256 = ?')
+      .get(id, criteria);
+  }
+
+  /**
+   * 把生效指针移到已有的一版（回退也是它，不新增版本）。按判据部分判：这一版的判据要和某个复核过的版本一样，不然 409。
+   * 判据摘要按正文重算一遍再比存下的：库里被人直接写进一行摘要和正文对不上的，这里不认（409）
+   */
   activate(id: string, version: number, actor: DimensionActor, now: number): { ok: true; dimension: DimensionView } | DimensionRefusal {
     return tx(() => {
       const d = this.get(id);
       if (!d) return refuse(404, 'report_dimension_missing', `维度 ${id} 不存在`);
       if (d.status === 'retired') return refuse(409, 'report_dimension_retired', `维度 ${id} 已经撤了，只读`);
-      const t = this.templates(id).find((x) => x.version === version);
+      const t = this.template(id, version);
       if (!t) return refuse(400, 'report_template_missing', `维度 ${id} 没有第 ${version} 版模板`);
-      if (t.kind === 'criteria' && !t.review) return refuse(409, 'report_template_unreviewed', `第 ${version} 版改了判据，要作者以外的人复核过才能生效`);
+      if (criteriaDigest(t.body as Record<string, unknown>) !== t.criteria_sha256) return refuse(409, 'report_template_criteria_mismatch', `第 ${version} 版存下的判据摘要和正文对不上，不能生效`);
+      if (!this.criteriaReviewed(id, t.criteria_sha256)) return refuse(409, 'report_template_unreviewed', `第 ${version} 版的判据没有被作者以外的人复核过，复核过才能生效`);
       db.prepare('UPDATE report_dimensions SET active_version = ?, updated_at = ?, updated_by = ? WHERE id = ?').run(version, now, actor.by.slice(0, 256), id);
       this.event(id, 'activate', version, actor, now);
       return { ok: true as const, dimension: this.get(id)! };
