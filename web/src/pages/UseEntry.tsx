@@ -39,7 +39,7 @@ export default function UseEntry() {
     latest.current = { n, p };
     return p;
   }, [id]);
-  if (!out) return <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center' }} data-testid="use-entry-loading"><Spin size="large" /></div>;
+  if (!out) return <div className="wm-entry-loading" data-testid="use-entry-loading"><Spin size="large" /></div>;
   if (out.kind === 'bench') return <BenchPage key={id} cardId={id} entry={out.entry} refreshEntry={refreshEntry} />;
   if (out.kind === 'card') return <UseWorkbench />;
   return <div data-testid="use-entry-error"><Result status="warning" title={ENTRY_TEXT.error} subTitle={ENTRY_TEXT.errorSub} extra={<Button type="primary" onClick={() => setTries((n) => n + 1)}>再试一次</Button>} /></div>;

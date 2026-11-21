@@ -44,7 +44,7 @@ export default function KnowledgeItem() {
       <Space direction="vertical" size={16} className="wm-w-full">
         <Card>
           <Space size={8} wrap>{kindTag(item.kind)}{statusTag(item.status)}{item.tags.map((t) => <Tag key={t} bordered={false}>{t}</Tag>)}</Space>
-          <Typography.Title level={4} style={{ marginTop: 12 }} data-testid="kn-detail-title">{item.title}</Typography.Title>
+          <Typography.Title level={4} className="wm-mt-3" data-testid="kn-detail-title">{item.title}</Typography.Title>
           <Space size={12} wrap className="wm-caption">
             {item.decided_by_name && <Typography.Text type="secondary" className="wm-caption" data-testid="kn-detail-decider">拍板：{item.decided_by_name}</Typography.Text>}
             {item.scope_label && <Typography.Text type="secondary" className="wm-caption" data-testid="kn-detail-scope">谁能看：{item.scope_label}</Typography.Text>}
@@ -52,7 +52,7 @@ export default function KnowledgeItem() {
           </Space>
           {body
             ? <div className="wm-kn-body" data-testid="kn-detail-body"><Markdown skipHtml>{body}</Markdown></div>
-            : item.summary ? <Typography.Paragraph style={{ marginTop: 12 }} data-testid="kn-detail-body">{item.summary}</Typography.Paragraph> : null}
+            : item.summary ? <Typography.Paragraph className="wm-mt-3" data-testid="kn-detail-body">{item.summary}</Typography.Paragraph> : null}
         </Card>
         {evidence.length > 0 && <Card size="small" title={`依据的原文 ${evidence.length}`} data-testid="kn-evidence">
           <List dataSource={evidence} renderItem={(e, i) => {

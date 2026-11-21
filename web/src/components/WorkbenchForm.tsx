@@ -225,8 +225,7 @@ export default function WorkbenchForm({
           粘贴 Cookie-Editor / EditThisCookie 导出的 JSON 数组，点导入即可建池
         </Typography.Paragraph>
         <textarea
-          className="wm-mono wm-input wm-w-full"
-          style={{ minHeight: 44, resize: 'vertical' }}
+          className="wm-mono wm-input wm-w-full wm-cookie-textarea"
           placeholder='[{"name":"session","value":"...","domain":"..."}]'
           value={cookieJson}
           onChange={(e) => setCookieJson(e.target.value)}

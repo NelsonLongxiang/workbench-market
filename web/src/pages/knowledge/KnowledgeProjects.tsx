@@ -48,7 +48,7 @@ export default function KnowledgeProjects() {
     const { projects, log, departments } = s.data;
     const options = [{ value: CLEAR, label: NO_DEPT }, ...departments.map((d) => ({ value: d.id, label: d.name }))];
     body = <Space direction="vertical" size={16} className="wm-w-full">
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }} data-testid="kp-intro">
+      <Typography.Paragraph type="secondary" className="wm-mb-0" data-testid="kp-intro">
         经验库里有项目、没写谁能看的条目，按这张表归到对应部门：那个部门的人能看。不对应部门的，只给管理层看。改了会记下来。
       </Typography.Paragraph>
       {projects.length === 0

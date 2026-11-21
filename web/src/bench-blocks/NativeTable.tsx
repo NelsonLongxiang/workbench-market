@@ -37,10 +37,10 @@ export function NativeTable({ bench, context, disabled, ...props }: TableBlockPr
     if (r.status === 200 && r.body?.row && r.body.revision === context.revision && r.body.version === context.version) setDetail(r.body);
     else setError(tableReadError(r.status, r.body));
   };
-  const fields = (row: Record<string, unknown>, columns: {name:string;label?:string}[]) => columns.map((c, i) => ({ key: c.name, label: c.label || `第 ${i + 1} 列`, children: <span style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere'}}>{row[c.name] === null || row[c.name] === undefined ? '未提供' : String(row[c.name])}</span> }));
+  const fields = (row: Record<string, unknown>, columns: {name:string;label?:string}[]) => columns.map((c, i) => ({ key: c.name, label: c.label || `第 ${i + 1} 列`, children: <span className="wm-prewrap wm-wrap-any">{row[c.name] === null || row[c.name] === undefined ? '未提供' : String(row[c.name])}</span> }));
   return <>
     <TableBlock {...props} extra={<Button size="small" icon={<DownloadOutlined />} disabled={disabled || !!props.error || !props.data} loading={busy} onClick={() => void download()}>导出全部匹配结果</Button>} rowActions={row => <Button type="link" size="small" disabled={disabled} onClick={() => void show(row)}>原行／来源详情</Button>} />
-    {notice && <div role="status" style={{gridColumn:'1 / -1'}}>{notice}</div>}
+    {notice && <div role="status" className="wm-grid-full">{notice}</div>}
     <Drawer title="原行／来源详情" open={open} width={640} onClose={() => {seq.current++;setOpen(false);}}>
       {reading ? <Spin /> : error ? <Alert type="warning" showIcon message={error} /> : detail ? <>
         <Typography.Paragraph>视图第 {detail.version} 版 · {detail.dataset_title} · 当前筛选：{Object.keys(detail.params).length ? Object.entries(detail.params).map(([k,v]) => `${detail.filter_labels[k] ?? "筛选项"}=${v}`).join('；') : '全部'}</Typography.Paragraph>

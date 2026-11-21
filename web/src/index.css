@@ -44,8 +44,11 @@ body {
 .wm-secondary { color: var(--wm-color-text-secondary); }
 .wm-prewrap { white-space: pre-wrap; }
 .wm-break { word-break: break-all; }
+.wm-wrap-any { overflow-wrap: anywhere; }
+.wm-grid-full { grid-column: 1 / -1; }
 .wm-w-full { width: 100%; }
 .wm-reading { width: 100%; max-width: 960px; } /* 一次读一件事的页面（「关注」、事项页）：桌面宽屏下不铺满 */
+.wm-mt-0 { margin-top: 0; }
 .wm-mt-1 { margin-top: var(--wm-space-1); }
 .wm-mt-3 { margin-top: var(--wm-space-3); }
 .wm-mb-1 { margin-bottom: var(--wm-space-1); }
@@ -54,11 +57,12 @@ body {
 .wm-mb-4 { margin-bottom: var(--wm-space-4); }
 .wm-mb-0 { margin-bottom: 0; }
 .wm-m-0 { margin: 0; }
+.wm-ml-2 { margin-left: var(--wm-space-2); }
 .wm-mt-2 { margin-top: var(--wm-space-2); }
 .wm-mt-6 { margin-top: var(--wm-space-6); }
 .wm-mt-8 { margin-top: var(--wm-space-8); }
 .wm-mt-12 { margin-top: var(--wm-space-12); }
-.wm-sop-flex-1 { flex: 1; }
+.wm-flex-1 { flex: 1; }
 .wm-sop-flex-2 { flex: 2; }
 .wm-col-gap-1 { display: flex; flex-direction: column; gap: var(--wm-space-1); }
 .wm-list-compact { margin: 0; padding-left: var(--wm-space-4); }
@@ -68,13 +72,20 @@ body {
 .wm-w-150 { width: 150px; }
 .wm-w-180 { width: 180px; }
 .wm-w-240 { width: 240px; }
+.wm-w-280 { width: 280px; }
 .wm-w-360 { width: 360px; }
+.wm-min-w-220 { min-width: 220px; }
 .wm-max-w-300 { max-width: 300px; }
 .wm-max-w-640 { max-width: 640px; }
 .wm-max-w-720 { max-width: 720px; }
 .wm-ck-item { flex: 1 1 260px; max-width: 360px; min-width: 240px; }
 .wm-ck-loading { display: flex; justify-content: center; padding: var(--wm-space-12); }
 .wm-ck-add-sel { min-width: 260px; }
+.wm-appdata-cell { max-height: 160px; overflow: auto; }
+.wm-login-chip { display: inline-flex; align-items: center; gap: var(--wm-space-1); margin-inline-end: var(--wm-space-2); }
+.wm-cookie-textarea { min-height: 44px; resize: vertical; }
+.wm-run-body { display: flex; flex-direction: column; gap: var(--wm-space-4); }
+.wm-entry-loading { display: flex; height: 100vh; align-items: center; justify-content: center; }
 /* 原生输入框（少数非 antd 表单，如 SOP 网络暴露抽屉、Cookie 粘贴框） */
 .wm-input {
   padding: var(--wm-space-1) var(--wm-space-3);
@@ -871,16 +882,13 @@ button.wm-view:focus-visible { outline: 2px solid var(--wm-color-primary); outli
 .wm-pw-hint { margin: 8px 0 4px; font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
 
 /* 凭据库（Vault.tsx）与设置页（Settings.tsx）工具类（#322 内联样式收敛，对齐 DESIGN.md 6 档字号与 4px 栅格） */
-.wm-flex-1 { flex: 1; }
 .wm-vault-unlock { max-width: 480px; margin: var(--wm-space-12) auto; }
 .wm-vault-lock-ic { font-size: var(--wm-font-size-title); }
-.wm-vault-reasons { margin: 0; padding-left: var(--wm-space-4); }
 .wm-vault-star { color: var(--wm-color-warning); }
 .wm-vault-search { width: 340px; }
 .wm-vault-kind-sel { width: 140px; }
 .wm-vault-totp { font-size: var(--wm-font-size-title); letter-spacing: var(--wm-space-1); }
 .wm-vault-form-kind { width: 150px; }
 .wm-vault-tag-click { cursor: pointer; }
-.wm-set-card { max-width: 640px; }
 .wm-set-form { max-width: 480px; }
 .wm-set-num { width: 160px; }

@@ -94,7 +94,7 @@ function RunBody({ slug, run }: { slug: string; run: Extract<RunDetail, { data: 
     ...extra.map((k) => ({ key: k, title: def ? `${k}（定义外字段）` : k, done: true })),
   ];
   return (
-    <div className="wm-run-body" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--wm-space-4)' }}>
+    <div className="wm-run-body">
       {!def && <Alert type="info" showIcon message={`v${run.sop_version} 的步骤定义暂不可读，下面按已填写的字段列出`} />}
       {items.length === 0 ? <Empty description="还没有填写任何步骤" /> : (
         <Steps
@@ -108,7 +108,7 @@ function RunBody({ slug, run }: { slug: string; run: Extract<RunDetail, { data: 
         />
       )}
       <div>
-        <Typography.Title level={5} style={{ marginTop: 0 }}>附件</Typography.Title>
+        <Typography.Title level={5} className="wm-mt-0">附件</Typography.Title>
         {filesErr ? <Alert type="warning" showIcon message={`附件加载失败：${filesErr}`} /> : (
           <Table<SopRunFile>
             rowKey="id"

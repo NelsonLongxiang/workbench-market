@@ -74,7 +74,7 @@ export default function ViewerChip() {
   const label = `${v.name ?? v.login}（${v.login}）`;
   return (
     <Popover trigger="click" title="当前用户" content={(
-      <><Descriptions size="small" column={1} style={{ width: 280 }} items={[
+      <><Descriptions size="small" column={1} className="wm-w-280" items={[
         { key: 'name', label: '显示名', children: v.name ?? '—' },
         { key: 'login', label: '登录名', children: v.login },
       ]} /><Button size="small" loading={loggingOut} onClick={logout}>退出</Button></>

@@ -27,8 +27,8 @@ export default function LoginChip() {
   };
   const label = (me.via === 'session' || me.via === 'source') && me.login ? `${VIA[me.via]} · ${me.login}` : (VIA[me.via] ?? '已登录');
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginInlineEnd: 8 }}>
-      <Tag icon={<LockOutlined />} color="default" style={{ marginInlineEnd: 0 }} title="本站登录身份">{label}</Tag>
+    <span className="wm-login-chip">
+      <Tag icon={<LockOutlined />} color="default" className="wm-viewer-tag" title="本站登录身份">{label}</Tag>
       <Tooltip title="退出当前登录并回到登录页">
         <Button size="small" type="link" icon={<LogoutOutlined />} loading={busy} onClick={logout}>退出</Button>
       </Tooltip>

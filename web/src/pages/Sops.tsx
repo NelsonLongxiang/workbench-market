@@ -300,7 +300,7 @@ export default function Sops() {
         </Typography.Paragraph>
         <Space.Compact className="wm-w-full wm-mb-3">
           <input
-            className="wm-mono wm-input wm-sop-flex-1"
+            className="wm-mono wm-input wm-flex-1"
             type="password"
             placeholder="管理员口令（X-Admin-Token，服务端环境变量）"
             value={netToken}
@@ -316,7 +316,7 @@ export default function Sops() {
             onChange={(e) => setNetNode(e.target.value)}
           />
           <select
-            className="wm-mono wm-input wm-sop-flex-1"
+            className="wm-mono wm-input wm-flex-1"
             value={netMode}
             onChange={(e) => setNetMode(e.target.value as 'read' | 'run')}
           >
@@ -324,7 +324,7 @@ export default function Sops() {
             <option value="run">run（可执行）</option>
           </select>
           <select
-            className="wm-mono wm-input wm-sop-flex-1"
+            className="wm-mono wm-input wm-flex-1"
             value={netDirection}
             onChange={(e) => setNetDirection(e.target.value as 'admits' | 'notify' | 'both')}
           >
@@ -336,7 +336,7 @@ export default function Sops() {
         </Space.Compact>
         <Space.Compact className="wm-w-full wm-mb-3">
           <input
-            className="wm-mono wm-input wm-sop-flex-1"
+            className="wm-mono wm-input wm-flex-1"
             type="password"
             placeholder="对端 API Key（可选，回执投递用，存储脱敏）"
             value={netKey}
