@@ -441,7 +441,16 @@ export type ReportRead = {
   report: ReportListItem & { template_sha256: string; inputs: { parameters: Record<string, string>; fields: Record<string, string> }; body: { schema_version: 2; title: string; body: ReportNode[] }; sources: ReportSource[] };
   claims: ReportClaim[]; responses: ReportResponse[]; gate: Record<string, unknown> | null; open_disputes: number;
   template: { stances: string[]; claims: { kind: string; label: string }[] };
+  names?: ReportNames;
 };
+/** 报告给人看的名字（#937）：服务端取不到给 null，页面写「未命名」，不显示内部标识 */
+export type ReportPositionPart = { role: string | null; scope: string | null };
+export type ReportNames = {
+  dimension: string | null; actors: Record<string, string | null>;
+  positions: Record<string, ReportPositionPart[] | 'mcp' | 'builtin'>;
+  sources: { slot: string; view: string | null; block: string | null }[];
+};
+export type ReportListNames = { dimensions: Record<string, string | null>; actors: Record<string, string | null> };
 const reportsBase = (ref: string | number) => `/api/bench-views/${encodeURIComponent(String(ref))}/reports`;
 export const listBenchReports = (ref: string | number, subject?: string) => benchViewsGet(reportsBase(ref) + (subject ? `?subject=${encodeURIComponent(subject)}` : ''));
 export const getBenchReport = (ref: string | number, id: number) => benchViewsGet(`${reportsBase(ref)}/${id}`);

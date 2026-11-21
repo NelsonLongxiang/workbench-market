@@ -19,7 +19,8 @@
  *   R6（#932 独立验收）能回应读不了的 404 和不存在一样；MCP 回应要有 report_get 授予；一个人一条链；接别人链头 409；对整份报告的反驳算
  *   R6e（#932 统筹）报告清单不越界：别的台的清单、按事物筛都 403、没有条数；MCP 只能列有授予的台
  *   R6d（属主 2026-11-21：收窄）回应记的位置只含管得到这个台的授予：别的领域的不记，台绑到那个领域以后才记
- *   R7（PR D）入口的 can.reports、can.respond 和接口同一套判法；读报告带回模板的立场和论断类别名、回应标出 mine
+ *   R7（PR D）入口的 can.reports、can.respond 和接口同一套判法；读报告带回模板的立场和论断类别名、回应标出 mine；
+ *   R7b（#937 统筹）读、清单带给人看的名字（维度、人、位置、来源视图），页面据此不露内部标识
  *   G12（#930 统筹验收）产出方只有 person 记 human；带报告动作的自定义角色两人放行：提议没放行、授予没放行都不生效
  *   G11（#930 独立验收）只能看台的人读报告、生成、绑定 403；冻结后补论断、论断挂到不存在的报告都拒；三张冻结的表在库里 UPDATE、DELETE、INSERT OR REPLACE 都拒
  *   F（A～D 验收建议的补测）F1 预设 member 读不了报告；F2 领域授予读得了、回应得了；F2b 只有 read 档的领域授予读不了；F3 老部门的授予记进位置；F4 旧报告带它那一版模板
@@ -470,6 +471,25 @@ try {
         && JSON.stringify(r?.template) === JSON.stringify({ stances: ['agree', 'dispute', 'supplement'], claims: [{ kind: 'conclusion', label: '结论' }] }) && mineOk,
       'R7 入口的 can.reports、can.respond：管理层 true；读报告带回这份报告那一版模板（第 2 版只有「结论」一类）可选的立场和论断类别名；回应标出是不是读的人自己的（AI 会话的不是）',
       { boss: eBoss.json?.can, template: r?.template, mine: rs.map((x) => [x.responder, x.mine]) });
+    // 给人看的名字（#937 统筹：页面不露内部标识）：读、清单都带 names，和库里的名字一致；取不到的是 null（页面写「未命名」）
+    const dimTitle = (id) => db.prepare('SELECT title FROM report_dimensions WHERE id = ?').get(id)?.title ?? null;
+    const pName = (id) => (db.prepare('SELECT display_name FROM principals WHERE id = ?').get(id)?.display_name || '').trim() || null;
+    const nm = r?.names, ls = await bv(boss, 'GET', '/synth-orders/reports?subject=card:synth-orders@mcp');
+    const actorsOk = nm && Object.keys(nm.actors).length >= 2 && Object.entries(nm.actors).every(([a, n]) => n === pName(a)) && nm.actors['user:alpha'] && !String(nm.actors['user:alpha']).includes(':');
+    const posAlpha = rs.find((x) => x.responder === 'user:alpha')?.position, posAi = rs.find((x) => x.responder_kind === 'ai')?.position;
+    const pa = nm?.positions?.[posAlpha];
+    // 角色名照角色表（/api/roles）的 name，不是角色标识
+    const roleNames = new Map(((await cli('GET', '/api/roles')).json?.roles ?? []).map((x) => [x.id, x.name]));
+    const roleIds = String(posAlpha ?? '').split(',').map((g) => g.slice(0, g.lastIndexOf('@')));
+    const posOk = posAlpha?.includes('@*') && Array.isArray(pa) && pa.length === roleIds.length && pa.every((g, i) => g.role === roleNames.get(roleIds[i]) && g.role !== roleIds[i] && g.scope === '全公司') && nm?.positions?.[posAi] === 'mcp';
+    const srcOk = Array.isArray(nm?.sources) && nm.sources.length === r.report.sources.length && nm.sources.length >= 1
+      && nm.sources.every((x, i) => x.slot === r.report.sources[i].slot && x.view === '看板' && (x.block === null || typeof x.block === 'string'));
+    const ln = ls.json?.names;
+    const listOk = ls.status === 200 && ln && Object.entries(ln.dimensions).every(([d, t]) => t === dimTitle(d)) && Object.values(ln.dimensions).some((t) => t)
+      && Object.entries(ln.actors).every(([a, n]) => n === pName(a)) && Object.keys(ln.actors).length >= 1;
+    check(nm?.dimension === dimTitle(r?.report?.dimension_id) && nm?.dimension && actorsOk && posOk && srcOk && listOk,
+      'R7b 给人看的名字：读报告带维度标题、产出方和回应者的显示名、位置写成「角色名 + 范围名」（* 是全公司、MCP 会话是 mcp）、来源的视图标题；清单带维度标题、产出方显示名；和库里一致，取不到是 null',
+      { names: nm, list: ln, posAlpha, posAi });
     // 收回 beta 的 rp-viewer、rp-reader：后面 G11「只能看台、不能读报告」从干净的 beta 开始
     const rvs = [];
     for (const role of ['rp-viewer', 'rp-reader']) {
