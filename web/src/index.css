@@ -55,7 +55,7 @@ body {
 .wm-mb-2 { margin-bottom: var(--wm-space-2); }
 .wm-mb-3 { margin-bottom: var(--wm-space-3); }
 .wm-mb-4 { margin-bottom: var(--wm-space-4); }
-.wm-mb-0 { margin-bottom: 0; }
+.wm-mb-0, .ant-typography.wm-mb-0 { margin-bottom: 0; }
 .wm-m-0 { margin: 0; }
 .wm-ml-2 { margin-left: var(--wm-space-2); }
 .wm-mt-2 { margin-top: var(--wm-space-2); }
