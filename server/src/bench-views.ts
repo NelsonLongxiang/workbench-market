@@ -4,13 +4,31 @@
  * 改台不走评审，这里的核对就是不让坏描述生效的那一关：组件类型认得、键不多不少、引用的数据集和列存在、
  * 查询合法、$参数 在同一个视图的筛选栏里声明过。不合格的不产生新版本（由 services/bench-store.ts 的 putView 调）。
  *
- * 纯函数，不碰库。组件清单是第一批的八个；第二批的类型做出来之前在这里不认。
+ * 纯函数，不碰库。组件清单是第一批的八个，加上记录卡 records（#858）；别的类型做出来之前在这里不认。
  * 描述里的文字只当文字：页面渲染时一律转义，这里不解释其中的任何标记。
  */
 import { BenchError, NAME_RE, planQuery, type DatasetDef, type OutColumn } from './bench-query.ts';
 import { isVarRef } from './bench-bindings.ts';
 
-export const BLOCK_TYPES = ['filter-bar', 'stat', 'table', 'bar', 'line', 'pie', 'progress', 'form'] as const;
+export const BLOCK_TYPES = ['filter-bar', 'stat', 'table', 'records', 'bar', 'line', 'pie', 'progress', 'form'] as const;
+/**
+ * 记录卡的来源链接：只认 http(s) 的完整网址（javascript:、data:、相对地址、以 // 开头的协议相对地址、带账号密码的都不认）。
+ * 认的给 { href, host }（host 只是主机名，给悬停和读屏说「去哪」）；不认的给 null，页面上标「来源地址无效」、不渲染成链接。
+ * 取数时服务端核一次（应答里的 link_targets），页面渲染时再核一次（web/src/bench-blocks/blocks-view.ts 的同名函数，同一套规则）。
+ */
+export function safeLink(v: unknown): { href: string; host: string } | null {
+  if (typeof v !== 'string') return null;
+  const t = v.trim();
+  if (!/^https?:\/\/[^/\s]/i.test(t) || t.length > 2000) return null;
+  let u: URL;
+  try { u = new URL(t); } catch { return null; }
+  if ((u.protocol !== 'http:' && u.protocol !== 'https:') || !u.hostname || u.username || u.password) return null;
+  return { href: u.href, host: u.hostname };
+}
+/** 表格和记录卡都在页面上分页：每页几条的上下限（两种块同一个口径） */
+export const PAGE_SIZE_MIN = 5, PAGE_SIZE_MAX = 200;
+/** 记录卡各部分最多几列 */
+export const RECORDS_LIMITS = { badges: 3, fields: 8, details: 12, links: 3, linkLabel: 12, emptyText: 32 } as const;
 const VIEW_KEY_RE = /^[a-z][a-z0-9-]{0,31}$/;
 const FILTER_KINDS = ['month', 'date', 'select', 'search'];
 const MAX_VIEWS = 20, MAX_BLOCKS = 40, MAX_FIELDS = 40, MAX_FILTER_FIELDS = 12;
@@ -21,6 +39,7 @@ export const BLOCK_CONTRACT: Record<BlockType, { keys: readonly string[]; requir
   'filter-bar': { keys: ['type', 'title', 'span', 'fields'], required: ['type', 'fields'], note: 'fields 是 1～12 个筛选字段 { name, kind, label?, default?, options? }，kind 只有 month / date / select / search；查询里用 $名字 引用的参数要先在这里声明；只有 select 给 options（一组文本，或 { dataset, col } 取某列的不同取值）' },
   stat: { keys: ['type', 'title', 'span', 'query', 'value', 'unit', 'tone_rules'], required: ['type', 'value'], note: 'value 指向查询的一个输出列，或写本台引用 { var: 键名 }（此时不写 query，块独立取值）；tone_rules 按值着色，最多 2 条' },
   table: { keys: ['type', 'title', 'span', 'query', 'columns', 'page_size', 'value_labels', 'column_labels'], required: ['type', 'query'], note: 'columns 选显示哪些输出列；每列要有说明名（数据集列定义的 label 或 column_labels）；page_size 5～200；value_labels 是「列名 → 取值 → 说法」' },
+  records: { keys: ['type', 'title', 'span', 'query', 'title_col', 'badges', 'fields', 'details', 'date_col', 'links', 'page_size', 'value_labels', 'column_labels', 'empty_text'], required: ['type', 'query', 'title_col'], note: '每行一张卡片。title_col 是卡片标题列；badges 0～3 列显示成徽标（说法走 value_labels），fields 0～8 列一直可见，details 0～12 列收在「展开」里，date_col 是日期或时间列；这五处引用的列互不重复，每列要有说明名（数据集列定义的 label 或 column_labels）。links 0～3 个 { col, label }：col 的值是网址，只认 http(s)，卡片上只显示 label（12 字以内）；page_size 5～200；empty_text 是没有记录时的说法' },
   bar: { keys: ['type', 'title', 'span', 'query', 'x', 'y', 'series', 'stacked', 'horizontal', 'tone_rules'], required: ['type', 'query', 'x', 'y'], note: 'x 是分类列，y 是 1～12 个数值列（或用 series 拆系列，不和多个 y 同用）；tone_rules 只用于单系列的柱子' },
   line: { keys: ['type', 'title', 'span', 'query', 'x', 'y', 'series', 'area'], required: ['type', 'query', 'x', 'y'], note: 'x 通常是时间列，y 是 1～12 个数值列；series 拆系列（不和多个 y 同用）；area 是面积填充' },
   pie: { keys: ['type', 'title', 'span', 'query', 'label', 'value', 'donut'], required: ['type', 'query', 'label', 'value'], note: 'label 是分类列，value 是数值列，donut 画环形' },
@@ -114,6 +133,45 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
           if (typeof r.tone !== 'string' || !['danger', 'warning', 'success'].includes(r.tone)) errs.push(`${rAt}的 tone 须为 danger / warning / success`);
         });
       };
+      /** 列名 → 说明名（表格和记录卡共用）：给了的每一项都要是输出列、1～32 个字；返回给了的那份 */
+      const columnLabels = (cols: OutColumn[] | null): Record<string, unknown> => {
+        let named: Record<string, unknown> = {};
+        if (block.column_labels !== undefined) {
+          const cl = block.column_labels;
+          if (!isObj(cl) || !Object.keys(cl).length || Object.keys(cl).length > 40) errs.push(`${at}：column_labels 须为对象（列名 → 说明名，1～40 列）`);
+          else {
+            named = cl;
+            for (const [colName, label] of Object.entries(cl)) {
+              out(cols, colName, 'column_labels 的列');
+              if (!isText(label, 32)) errs.push(`${at}：column_labels.${colName.slice(0, 48)} 须为 1～32 个字符`);
+            }
+          }
+        }
+        return named;
+      };
+      /** 列名 → 取值 → 说法（表格和记录卡共用） */
+      const valueLabels = (cols: OutColumn[] | null) => {
+        // 「取值 → 说法」对照：列名 → 取值 → 说法（一段文字，或 { text, tone }）。没给对照的取值，页面显示成灰色的原文
+        if (block.value_labels !== undefined) {
+          const vl = block.value_labels;
+          if (!isObj(vl) || Object.keys(vl).length > 12) errs.push(`${at}：value_labels 须为对象（列名 → 取值 → 说法，最多 12 列）`);
+          else for (const [colName, map] of Object.entries(vl)) {
+            out(cols, colName, 'value_labels 的列');
+            if (!isObj(map) || !Object.keys(map).length || Object.keys(map).length > 50) { errs.push(`${at}：value_labels.${colName.slice(0, 48)} 须为 1～50 个「取值 → 说法」`); continue; }
+            for (const [val, label] of Object.entries(map)) {
+              const where = `${at}：value_labels.${colName.slice(0, 48)} 里 ${val.slice(0, 32)} 的说法`;
+              if (val.length > 64) errs.push(`${at}：value_labels.${colName.slice(0, 48)} 的取值最多 64 个字符`);
+              if (typeof label === 'string') { if (!isText(label, 32)) errs.push(`${where}须为 1～32 个字符`); }
+              else if (isObj(label)) {
+                keys(label, ['text', 'tone'], where);
+                if (!isText(label.text, 32)) errs.push(`${where}的 text 须为 1～32 个字符`);
+                if (label.tone !== undefined && !['success', 'warning', 'danger', 'default'].includes(label.tone as string)) errs.push(`${where}的 tone 须为 success / warning / danger / default`);
+              } else errs.push(`${where}须为一段文字，或 { text, tone }`);
+            }
+          }
+        }
+      };
+      const pageSize = () => { if (block.page_size !== undefined && (!Number.isInteger(block.page_size) || (block.page_size as number) < PAGE_SIZE_MIN || (block.page_size as number) > PAGE_SIZE_MAX)) errs.push(`${at}：page_size 须为 ${PAGE_SIZE_MIN}～${PAGE_SIZE_MAX} 的整数`); };
       const flag = (name: string) => { if (block[name] !== undefined && typeof block[name] !== 'boolean') errs.push(`${at}：${name} 须为 true 或 false`); };
 
       if (type === 'filter-bar') {
@@ -172,47 +230,61 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
         keys(block, BLOCK_CONTRACT.table.keys, at);
         // 表头：每一列都要有说明名——数据集列定义的 label、聚合的 label，或者这里的 column_labels（列名 → 说明名）。
         // 缺了就拒、点名缺哪一列：页面上的表头不露键名（没配的旧版本由页面写「第 N 列」兜底）
-        let named: Record<string, unknown> = {};
-        if (block.column_labels !== undefined) {
-          const cl = block.column_labels;
-          if (!isObj(cl) || !Object.keys(cl).length || Object.keys(cl).length > 40) errs.push(`${at}：column_labels 须为对象（列名 → 说明名，1～40 列）`);
-          else {
-            named = cl;
-            for (const [colName, label] of Object.entries(cl)) {
-              out(cols, colName, 'column_labels 的列');
-              if (!isText(label, 32)) errs.push(`${at}：column_labels.${colName.slice(0, 48)} 须为 1～32 个字符`);
-            }
-          }
-        }
+        const named = columnLabels(cols);
         if (cols) {
           const shown = Array.isArray(block.columns) ? cols.filter((c) => (block.columns as unknown[]).includes(c.name)) : cols;
           const missing = shown.filter((c) => !c.labeled && !(Object.hasOwn(named, c.name) && isText(named[c.name], 32)));
           if (missing.length) errs.push(`${at}：表格的列 ${missing.map((c) => c.name).join('、')} 没有说明名——在数据集的列定义里给 label，或者在这个组件的 column_labels 里写（列名 → 说明名）`);
         }
-        // 「取值 → 说法」对照：列名 → 取值 → 说法（一段文字，或 { text, tone }）。没给对照的取值，页面显示成灰色的原文
-        if (block.value_labels !== undefined) {
-          const vl = block.value_labels;
-          if (!isObj(vl) || Object.keys(vl).length > 12) errs.push(`${at}：value_labels 须为对象（列名 → 取值 → 说法，最多 12 列）`);
-          else for (const [colName, map] of Object.entries(vl)) {
-            out(cols, colName, 'value_labels 的列');
-            if (!isObj(map) || !Object.keys(map).length || Object.keys(map).length > 50) { errs.push(`${at}：value_labels.${colName.slice(0, 48)} 须为 1～50 个「取值 → 说法」`); continue; }
-            for (const [val, label] of Object.entries(map)) {
-              const where = `${at}：value_labels.${colName.slice(0, 48)} 里 ${val.slice(0, 32)} 的说法`;
-              if (val.length > 64) errs.push(`${at}：value_labels.${colName.slice(0, 48)} 的取值最多 64 个字符`);
-              if (typeof label === 'string') { if (!isText(label, 32)) errs.push(`${where}须为 1～32 个字符`); }
-              else if (isObj(label)) {
-                keys(label, ['text', 'tone'], where);
-                if (!isText(label.text, 32)) errs.push(`${where}的 text 须为 1～32 个字符`);
-                if (label.tone !== undefined && !['success', 'warning', 'danger', 'default'].includes(label.tone as string)) errs.push(`${where}的 tone 须为 success / warning / danger / default`);
-              } else errs.push(`${where}须为一段文字，或 { text, tone }`);
-            }
-          }
-        }
+        valueLabels(cols);
         if (block.columns !== undefined) {
           if (!Array.isArray(block.columns) || !block.columns.length) errs.push(`${at}：columns 须为非空数组`);
           else for (const n of block.columns) out(cols, n, 'columns');
         }
-        if (block.page_size !== undefined && (!Number.isInteger(block.page_size) || (block.page_size as number) < 5 || (block.page_size as number) > 200)) errs.push(`${at}：page_size 须为 5～200 的整数`);
+        pageSize();
+      } else if (type === 'records') {
+        keys(block, BLOCK_CONTRACT.records.keys, at);
+        const named = columnLabels(cols);
+        valueLabels(cols);
+        pageSize();
+        // 卡片上各处引用的列：标题、徽标、主要字段、次要字段、日期。都要是输出列、互不重复、有说明名
+        const used: { col: unknown; prop: string }[] = [{ col: block.title_col, prop: 'title_col' }];
+        const list = (prop: 'badges' | 'fields' | 'details', max: number) => {
+          const v = block[prop];
+          if (v === undefined) return;
+          if (!Array.isArray(v) || v.length > max) { errs.push(`${at}：${prop} 须为 0～${max} 个输出列`); return; }
+          for (const n of v) used.push({ col: n, prop });
+        };
+        list('badges', RECORDS_LIMITS.badges); list('fields', RECORDS_LIMITS.fields); list('details', RECORDS_LIMITS.details);
+        if (block.date_col !== undefined) used.push({ col: block.date_col, prop: 'date_col' });
+        for (const u of used) out(cols, u.col, u.prop);
+        const seen = new Map<string, string>();
+        for (const u of used) {
+          if (typeof u.col !== 'string') continue;
+          const before = seen.get(u.col);
+          if (before) errs.push(`${at}：列 ${u.col} 同时出现在 ${before} 和 ${u.prop} 里——标题、徽标、主要字段、次要字段、日期各用各的列`);
+          else seen.set(u.col, u.prop);
+        }
+        if (cols) {
+          const missing = used.map((u) => cols.find((c) => c.name === u.col)).filter((c): c is OutColumn => !!c && !c.labeled && !(Object.hasOwn(named, c.name) && isText(named[c.name], 32)));
+          if (missing.length) errs.push(`${at}：记录卡的列 ${[...new Set(missing.map((c) => c.name))].join('、')} 没有说明名——在数据集的列定义里给 label，或者在这个组件的 column_labels 里写（列名 → 说明名）`);
+          const dc = typeof block.date_col === 'string' ? cols.find((c) => c.name === block.date_col) : undefined;
+          if (dc && dc.type !== 'date' && dc.type !== 'datetime') errs.push(`${at}：date_col 指向的列 ${dc.name} 不是日期或时间`);
+        }
+        // 来源链接：col 的值是网址（只认 http(s)，渲染时再核一次）；卡片上只显示 label
+        if (block.links !== undefined) {
+          if (!Array.isArray(block.links) || block.links.length > RECORDS_LIMITS.links) errs.push(`${at}：links 须为 0～${RECORDS_LIMITS.links} 个 { col, label }`);
+          else block.links.forEach((l: unknown, li: number) => {
+            const lAt = `${at}：links 第 ${li + 1} 个`;
+            if (!isObj(l)) { errs.push(`${lAt}须为 { col, label }`); return; }
+            keys(l, ['col', 'label'], lAt);
+            out(cols, l.col, `links 第 ${li + 1} 个的 col`);
+            const c = cols && typeof l.col === 'string' ? cols.find((x) => x.name === l.col) : undefined;
+            if (c && c.type !== 'text') errs.push(`${lAt}的 col 指向的列 ${c.name} 不是文本`);
+            if (!isText(l.label, RECORDS_LIMITS.linkLabel)) errs.push(`${lAt}的 label 须为 1～${RECORDS_LIMITS.linkLabel} 个字符（比如「查看依据」「打开资料」）`);
+          });
+        }
+        if (block.empty_text !== undefined && !isText(block.empty_text, RECORDS_LIMITS.emptyText)) errs.push(`${at}：empty_text 须为 1～${RECORDS_LIMITS.emptyText} 个字符`);
       } else if (type === 'bar' || type === 'line') {
         keys(block, BLOCK_CONTRACT[type].keys, at);
         if (type === 'bar') {
