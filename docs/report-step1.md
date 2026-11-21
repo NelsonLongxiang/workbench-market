@@ -1,9 +1,9 @@
 # 报告 · 第 1 步实施规格
 
-> 依据：[19 · 报告：人机协同的协议](productization/19-report-protocol.md)，以及其中第八节属主 2026-11-21 定的四条（维度由领域负责人和属主定、单独授予；AI 能回应但标明；验收不强制报告、由维度的模板声明；报告是产出物）。
+> 依据：[19 · 报告：人机协同的协议](productization/19-report-protocol.md)，以及其中第八节属主 2026-11-21 定的五条（维度由领域负责人和属主定、单独授予；AI 能回应但标明；验收不强制报告、由维度的模板声明；报告是产出物；判据类模板版本必须有作者以外的复核人才能生效）。
 > 依据的代码事实见第 19 篇附录（main `903e840d`）。开工时重核。
 >
-> **状态：规格草案，只写文档，不写代码。** 标「评审定」的是推荐，实现前由评审定；标「属主待定」的照第 19 篇第八节。
+> **状态：规格草案，只写文档，不写代码。** 标「评审定」的是推荐，实现前由评审定。
 
 ## 一、这一步做什么、不做什么
 
@@ -57,7 +57,7 @@
 | `sha256` | TEXT | 正文摘要 |
 | `kind` | TEXT | `layout`（只动版式、措辞、组件）/ `criteria`（动了论断要求、回应要求、数据口径或验收声明）。由服务端比对上一版算出，不由提交方声明 |
 | `note` | TEXT | 这一版改了什么 |
-| `reviewed_by` | TEXT，可空 | 作者以外的复核人（属主待定：`criteria` 版本是否必须有，见第六节） |
+| `reviewed_by`、`reviewed_at` | 可空 | 作者以外的复核人和时间。`criteria` 版本没有复核人时只能建、不能移成生效（属主 2026-11-21 定）；复核人不能是 `created_by` 本人，同一主体换会话也不算 |
 | `created_at`、`created_by` | | |
 
 规则：版本建好就不能改、不能删（触发器拒 UPDATE、DELETE），**不按条数修剪**：报告引用着它。撤维度只改 `status`，模板留着。
@@ -132,7 +132,7 @@
 | 动作 | 类别 | 路由 | 谁 |
 |---|---|---|---|
 | `report.dimension-read` | read | `GET /api/report-dimensions`、`GET /api/report-dimensions/:id`、`…/templates/:version` | 登录的人（模板是协议，不是业务数据）。评审定 |
-| `report.dimension-set` | decide | `POST /api/report-dimensions`（建）、`POST …/:id/templates`（发一版）、`POST …/:id/activate`（移生效指针）、`POST …/:id/retire` | **硬规则，不走角色覆盖**（和 `area.spec-set` 同一种机制）：领域维度认属主、本机命令行和持本领域 `area-report` 授予的人；跨领域维度只认属主和本机命令行 |
+| `report.dimension-set` | decide | `POST /api/report-dimensions`（建）、`POST …/:id/templates`（发一版）、`POST …/:id/templates/:version/review`（复核）、`POST …/:id/activate`（移生效指针）、`POST …/:id/retire` | **硬规则，不走角色覆盖**（和 `area.spec-set` 同一种机制）：领域维度认属主、本机命令行和持本领域 `area-report` 授予的人；跨领域维度只认属主和本机命令行 |
 | `report.bind` | write | `PUT /api/bench-views/:bench/reports/:dimension/binding` | 和 `bench-store.view-put` 同一档：管理层；台所在领域有写授予的人 |
 | `report.generate` | write | `POST /api/bench-views/:bench/reports` | 同上 |
 | `report.read` | read | `GET /api/bench-views/:bench/reports`、`…/reports/:id`、`GET /api/report-subjects/:subject`（同一事物下各维度，按读者能读的台裁剪） | 和 `bench-store.render` 同一档 |
@@ -154,6 +154,7 @@
 3. 改、删一个已有的模板版本：接口没有入口；直接对库 UPDATE、DELETE 被触发器拒（两种库各一条）。
 4. 模板 `reason_required` 写成 `false`、`claims` 的 `min` 大于 `max`、未知键：400。
 5. 发模板时请求里写 `kind`：拒（由服务端算）；论断要求变了而服务端判成 `layout`：用例守住判法。
+5a. `criteria` 版本没有复核就移成生效：409；作者自己复核：403；复核人没有这个维度的 `report.dimension-set`：403；`layout` 版本不要复核也能生效。
 6. 生成请求里带来源版本、哈希、行数、`producer_kind`：拒（未知键），不被采纳。
 7. 数据槽取到的数据被截断、行数超上限、列类型和模板不合：拒，不出半份报告（P0 的拒收照搬到服务端）。
 8. 论断数目不在模板范围内、`basis` 指向报告里没有的行：400。
@@ -171,7 +172,6 @@
 
 | 问题 | 谁定 | 推荐 |
 |---|---|---|
-| `criteria` 版本是否必须有作者以外的复核人（`reviewed_by` 必填） | 属主（第 19 篇第八节仍待定那一条） | 必须；没有复核人的 `criteria` 版本只能建、不能移成生效 |
 | `report.dimension-read` 是否对所有登录的人开放 | 评审 | 开放 |
 | `report.respond` 是否随含取数的预设一起给 | 评审 | 一起给：能看报告的人能表态，是第 19 篇的出发点 |
 
