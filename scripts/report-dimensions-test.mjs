@@ -16,6 +16,7 @@
  *   R3b 库里写进一行判据摘要抄了复核过那一版、正文判据却改了的版本：移指针时服务按正文重算摘要，409（库核不了 sha256）
  *   R4 （#4）模板形状不对：reason_required 不是 true、min 大于 max、kind 重复、不认识的键、schema_version 不是 2、不是对象、超 200 KB、sha256 对不上：400
  *   R5 （#5）请求里写 kind：400；kind 和判据摘要由服务算：还没有复核过的版本时都是 criteria；只改版式的判据摘要不变
+ *   R5b2（#926 增量验收）判据五块（claims、responses、gate、slots、parameters）各自单独改：都算 criteria、摘要两两不同、没复核生效 409
  *   R5a（属主 2026-11-21）判据类版本没复核就移成生效 409；在没复核的版本上只改标题的也 409（#926 独立验收，路径一）；
  *      别的持有人复核 200、再复核 409；复核过后生效 200；判据和复核过的版本一样的版本不用另外复核就能生效
  *   R5b～R5e（复核人口径，统筹 11-21 裁定）：作者本人 403（换个留痕写法、主体相同也算）；本机命令行、管理口令不能复核 403；
@@ -320,6 +321,32 @@ try {
     const critOk = crit.every((c) => /^[0-9a-f]{64}$/.test(c ?? '')) && crit[0] === crit[1] && new Set(crit.slice(1)).size === 4;
     check(withKind.status === 400 && kinds.join(',') === '1:criteria,2:criteria,3:criteria,4:criteria,5:criteria' && shaOk && critOk,
       'R5 请求里写 kind：400；还没有复核过的版本时，第一版、只改标题和文档结构的、改论断要求、验收声明、数据槽的都是 criteria；回 sha256 和判据摘要（只改版式的判据摘要不变）', { withKind: withKind.status, kinds, crit });
+  }
+
+  // ---- R5b2 判据的五块各自单独改，都算判据：摘要两两不同、记 criteria、没复核不能生效（#926 增量验收：responses、parameters 漏出摘要时测试照样绿） ----
+  {
+    const err = (r) => `${r.status}:${r.json?.error ?? ''}`;
+    await rex.go('POST', '/api/report-dimensions', { json: { id: 'blocks', title: '五块判据', area: 'zeta' } });
+    const base = await rex.go('POST', '/api/report-dimensions/blocks/templates', { json: { body: tpl() } });
+    const rv = await ria.go('POST', '/api/report-dimensions/blocks/templates/1/review', { json: {} });
+    // 每一版只改一块，其余和复核过的第 1 版一模一样
+    const only = {
+      claims: tpl({ claims: [{ kind: 'conclusion', label: '结论', min: 1, max: 4 }, { kind: 'risk', label: '风险', min: 0, max: 10 }] }),
+      responses: tpl({ responses: { stances: ['agree', 'dispute'], reason_required: true } }),
+      gate: tpl({ gate: { open_dispute_blocks_acceptance: true } }),
+      slots: tpl({ slots: { details: { columns: [{ name: 'id', type: 'integer', label: '编号' }], key: ['id'], max_rows: 400, completeness: 'all' } } }),
+      parameters: tpl({ parameters: { period: { type: 'month', required: false } } }),
+    };
+    const got = {};
+    for (const [block, body] of Object.entries(only)) {
+      const r = await rex.go('POST', '/api/report-dimensions/blocks/templates', { json: { body } });
+      const v = r.json?.template?.version;
+      const act = await rex.go('POST', '/api/report-dimensions/blocks/activate', { json: { version: v } });
+      got[block] = { kind: r.json?.template?.kind, crit: r.json?.template?.criteria_sha256, activate: err(act) };
+    }
+    const crits = [base.json?.template?.criteria_sha256, ...Object.values(got).map((x) => x.crit)];
+    check(rv.status === 200 && Object.values(got).every((x) => x.kind === 'criteria' && x.activate === '409:report_template_unreviewed') && new Set(crits).size === 6 && crits.every((c) => /^[0-9a-f]{64}$/.test(c ?? '')),
+      'R5b2 判据的五块（论断、回应、验收声明、数据槽、参数）各自单独改：都记 criteria，判据摘要和复核过的版本、彼此都不同，没复核生效 409', { rv: rv.status, got });
   }
 
   // ---- R5a 判据类版本要作者以外、认得出的人复核过才能生效（属主 2026-11-21；复核人口径按统筹 11-21 裁定） ----
