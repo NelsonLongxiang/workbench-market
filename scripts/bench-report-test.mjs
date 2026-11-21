@@ -383,14 +383,16 @@ try {
 
   console.log('R5 回应不能改不能删');
   {
-    const t = (sql) => { try { db.prepare(sql).run(); return false; } catch { return true; } };
     // 台库是单独的文件，经主库查不到：直接开台库
     const { DatabaseSync } = await import('node:sqlite');
-    const store = new DatabaseSync(join(srv.data, 'bench-stores', 'synth-orders.db'));
+    const store = new DatabaseSync(join(srv.data, 'bench-stores', 'synth-orders.sqlite'));
     const tr = (sql) => { try { store.prepare(sql).run(); return false; } catch { return true; } };
+    // 先确认表在、有行：不然改删报「没有这张表」也算拒，测不出触发器
+    let rows = -1; try { rows = Number(store.prepare('SELECT COUNT(*) AS n FROM bs_report_responses').get().n); } catch { rows = -1; }
     const r = { upd: tr("UPDATE bs_report_responses SET stance = 'agree'"), del: tr('DELETE FROM bs_report_responses'), updReport: tr("UPDATE bs_reports SET subject = 'x'"), delClaim: tr('DELETE FROM bs_report_claims') };
+    let after = -1; try { after = Number(store.prepare('SELECT COUNT(*) AS n FROM bs_report_responses').get().n); } catch { after = -1; }
     store.close();
-    check(Object.values(r).every(Boolean), 'R5 台库里直接改、删回应、报告、论断：触发器都拒', r);
+    check(rows > 0 && after === rows && Object.values(r).every(Boolean), 'R5 台库里直接改、删回应、报告、论断：触发器都拒，回应一行没少', { rows, after, r });
   }
   db.close();
 } catch (e) {
