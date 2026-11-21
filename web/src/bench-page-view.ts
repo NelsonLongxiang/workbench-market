@@ -28,8 +28,9 @@ export function asEntry(body: unknown): BenchEntry | null {
   if (rename && (typeof card === 'string' || card === null)) (bench as BenchEntry['bench']).card_title = card;
   return { bench, version: b.version, title: isStr(b.title) ? b.title : b.bench.title, default_view: isStr(b.default_view) && keys.has(b.default_view) ? b.default_view : b.views[0].key, views: b.views,
     // 能不能改台名：服务端说是 true 才算（缺了、写法不对都当不能，按钮不出）
-    // MCP 管理页（#904）：同样只认 true
-    can: { rename, mcp: (b.can as { mcp?: unknown } | undefined)?.mcp === true, mcp_decide: (b.can as { mcp_decide?: unknown } | undefined)?.mcp_decide === true } };
+    // MCP 管理页（#904）、报告（PR D）：同样只认 true
+    can: { rename, mcp: (b.can as { mcp?: unknown } | undefined)?.mcp === true, mcp_decide: (b.can as { mcp_decide?: unknown } | undefined)?.mcp_decide === true,
+      reports: (b.can as { reports?: unknown } | undefined)?.reports === true, respond: (b.can as { respond?: unknown } | undefined)?.respond === true } };
 }
 
 export function entryOutcome(status: number, body: unknown): EntryOutcome {
