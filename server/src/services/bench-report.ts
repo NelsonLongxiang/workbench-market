@@ -15,7 +15,8 @@ import type { BenchStore } from './bench-store.ts';
 import type { ReportResponseRow } from './bench-store-core.ts';
 import type { ReportDimensionService } from './report-dimension.ts';
 import type { GrantService } from './grant.ts';
-import { ReportError, checkBinding, materialize, prepareInputs, sha256, slotSpecs, type TemplateV2 } from './report-compile.ts';
+import { ReportError, actorKindOf, checkBinding, materialize, prepareInputs, sha256, slotSpecs, type TemplateV2 } from './report-compile.ts';
+import type { PrincipalService } from './principal.ts';
 
 const dims = () => svc<ReportDimensionService>('reportDimensions');
 export const SUBJECT_RE = /^[a-z][a-z0-9-]{0,15}:[^\s]{1,200}$/;
@@ -23,8 +24,8 @@ const DIM_RE = /^[a-z][a-z0-9-]{0,47}$/;
 const CLAIM_KEY_RE = /^[a-z][a-z0-9-]{0,31}-[1-9][0-9]{0,2}$/;
 type Row = Record<string, unknown>;
 
-/** 调用方的身份算 AI 还是人：席位、MCP 会话是 AI */
-export const kindOf = (actor: string): 'human' | 'ai' => (actor.startsWith('seat:') || actor.startsWith('mcp:') ? 'ai' : 'human');
+/** 调用方的身份算 AI 还是人：只有主体表里 kind 为 person 的是人；席位、MCP 会话、应用、节点、系统、内置、查不到的都是 AI（report-compile.ts 的 actorKindOf，#930 统筹验收） */
+export const kindOf = (actor: string): 'human' | 'ai' => actorKindOf((svc<PrincipalService>('principals').get(actor) as { kind?: string } | null)?.kind);
 /**
  * 回应者回应时的位置：只记管得到这个台的那几条生效授予（角色@范围，排好序）——范围是全公司（*），或者正好是这个台绑的部门、领域。
  * 别的地方的授予和这次表态无关，读报告的人（含 AI 会话）不该借此看到回应者在别处的全部授予（属主 2026-11-21 定：收窄）。

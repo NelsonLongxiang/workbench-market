@@ -2281,7 +2281,7 @@ function benchStoreReportSchema(d: BenchDialect): string[] {
     `CREATE TABLE IF NOT EXISTS bs_reports (
       id ${benchAutoId(d)}, dimension_id TEXT NOT NULL, template_version INTEGER NOT NULL, template_sha256 TEXT NOT NULL, binding_version INTEGER NOT NULL,
       subject TEXT NOT NULL, inputs TEXT NOT NULL, body TEXT NOT NULL, sources TEXT NOT NULL, content_sha256 TEXT NOT NULL,
-      producer TEXT NOT NULL, producer_kind TEXT NOT NULL, supersedes ${big}, created_at ${big} NOT NULL)`,
+      producer TEXT NOT NULL, producer_kind TEXT NOT NULL, supersedes ${big}, created_at ${big} NOT NULL, claim_count INTEGER NOT NULL)`,
     `CREATE UNIQUE INDEX IF NOT EXISTS idx_bs_reports_supersedes ON bs_reports (supersedes) WHERE supersedes IS NOT NULL`,
     `CREATE INDEX IF NOT EXISTS idx_bs_reports_subject ON bs_reports (subject, dimension_id, id)`,
     `CREATE TABLE IF NOT EXISTS bs_report_claims (
@@ -2299,6 +2299,12 @@ function benchStoreReportSchema(d: BenchDialect): string[] {
     out.push(`CREATE TRIGGER IF NOT EXISTS ${t}_no_delete BEFORE DELETE ON ${t} BEGIN SELECT RAISE(ABORT, '${t} 不能删'); END`);
     out.push(`CREATE TRIGGER IF NOT EXISTS ${t}_no_replace BEFORE INSERT ON ${t} WHEN EXISTS (SELECT 1 FROM ${t} WHERE ${key}) BEGIN SELECT RAISE(ABORT, '${t} 不能用同一个键覆盖'); END`);
   }
+  // 论断随报告一起冻结（#930 独立验收）：报告写下时记着有几条论断（claim_count，建好不改）；
+  // 挂到不存在的报告上、或者报告的论断已经写满了还要再加，一律拒——冻结以后不能补论断
+  if (d === 'sqlite') out.push(`CREATE TRIGGER IF NOT EXISTS bs_report_claims_frozen BEFORE INSERT ON bs_report_claims
+    WHEN NOT EXISTS (SELECT 1 FROM bs_reports WHERE id = NEW.report_id)
+      OR (SELECT COUNT(*) FROM bs_report_claims WHERE report_id = NEW.report_id) >= (SELECT claim_count FROM bs_reports WHERE id = NEW.report_id)
+    BEGIN SELECT RAISE(ABORT, '论断随报告一起冻结：不能挂到不存在的报告上，也不能事后补'); END`);
   return out;
 }
 
@@ -2369,7 +2375,7 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
     reportSchema: benchStoreReportSchema(d),
     reportProbes: [
       'SELECT dimension_id, version, template_version, slots, created_by, created_at FROM bs_report_bindings WHERE 1 = 0',
-      'SELECT id, dimension_id, template_version, template_sha256, binding_version, subject, inputs, body, sources, content_sha256, producer, producer_kind, supersedes, created_at FROM bs_reports WHERE 1 = 0',
+      'SELECT id, dimension_id, template_version, template_sha256, binding_version, subject, inputs, body, sources, content_sha256, producer, producer_kind, supersedes, created_at, claim_count FROM bs_reports WHERE 1 = 0',
       'SELECT report_id, claim_key, kind, text, basis FROM bs_report_claims WHERE 1 = 0',
       'SELECT id, report_id, claim_key, stance, reason, responder, responder_kind, position, supersedes, created_at FROM bs_report_responses WHERE 1 = 0',
     ],
