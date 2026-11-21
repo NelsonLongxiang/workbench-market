@@ -259,9 +259,15 @@ export class ReportDimensionService extends Service {
       if (!identifiedPerson(actor.principal)) return refuse(403, 'report_template_reviewer_unidentified', '复核要认得出是谁：请用站内账号复核（本机命令行、管理口令不能复核）');
       // 复核按判据内容生效（判据一样的版本都算复核过），所以本人也按判据内容认：这个维度里判据和这一版一样的任何一版，作者是复核人，就算本人
       // （#926 独立验收 E1：不然自己发的判据可以借别人只改标题的那一版，自己复核后生效）
-      const self = !!db.prepare('SELECT 1 FROM report_templates WHERE dimension_id = ? AND criteria_sha256 = ? AND (created_by = ? OR (created_by_principal IS NOT NULL AND created_by_principal = ?))')
-        .get(id, t.criteria_sha256, actor.by.slice(0, 256), actor.principal);
-      if (self) return refuse(403, 'report_template_self_review', '模板版本不能由作者本人复核，要作者以外的人');
+      const self = db.prepare('SELECT version FROM report_templates WHERE dimension_id = ? AND criteria_sha256 = ? AND (created_by = ? OR (created_by_principal IS NOT NULL AND created_by_principal = ?)) ORDER BY CASE WHEN version = ? THEN 0 ELSE 1 END, version LIMIT 1')
+        .get(id, t.criteria_sha256, actor.by.slice(0, 256), actor.principal, version);
+      // 说清是哪一版让他算作者：判据一样的版本里有他发的，不一定是被复核的这一版（#926 验收建议）
+      if (self) {
+        const mine = Number((self as { version: number }).version);
+        return refuse(403, 'report_template_self_review', mine === version
+          ? '模板版本不能由作者本人复核，要作者以外的人'
+          : `第 ${mine} 版是你发的，判据和第 ${version} 版一样，你也算作者：要作者以外的人复核`);
+      }
       if (db.prepare('SELECT 1 FROM report_template_reviews WHERE dimension_id = ? AND version = ?').get(id, version)) return refuse(409, 'report_template_reviewed', `第 ${version} 版已经复核过了`);
       db.prepare('INSERT INTO report_template_reviews (dimension_id, version, reviewed_by, reviewed_by_principal, reviewed_at, note) VALUES (?, ?, ?, ?, ?, ?)')
         .run(id, version, actor.by.slice(0, 256), actor.principal, now, note);
