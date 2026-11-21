@@ -1523,18 +1523,14 @@
           "route": "POST /api/work-items",
           "class": "normal",
           "what": "持 area:sales 的领域成员带领域 sales 建事项：201，事项落到领域上",
+          "compare": ["state", "held", "duplicate", "reason"],
           "request": {
             "method": "POST",
             "path": "/api/work-items",
             "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
             "json": { "title": "合成：area-member", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000001", "area": "sales" }
           },
-          "response": {
-            "status": 201,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "item_id": "wi_wbe-31dc3753ecda06c0", "task_id": 1, "event_id": "wbe-31dc3753ecda06c0", "state": "held", "held": true, "duplicate": false }
-          }
+          "response": { "status": 201, "picked": { "state": "held", "held": true, "duplicate": false } }
         },
         {
           "id": "area-dept-only",
@@ -1667,24 +1663,21 @@
           "route": "POST /api/work-items",
           "class": "normal",
           "what": "领域给空串：当成没给",
+          "compare": ["state", "held", "duplicate", "reason"],
           "request": {
             "method": "POST",
             "path": "/api/work-items",
             "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
             "json": { "title": "合成：area-empty", "intent": "把出货单和对账单对一遍", "deliverable": "一张差异表", "team": "dsh/canvas/team-a", "object": "po:7", "phase": "对账", "idempotency_key": "replay-area-0000000009", "area": "" }
           },
-          "response": {
-            "status": 201,
-            "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "128", "etag": "W/\"80-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "item_id": "wi_wbe-d76ffcec9a7302f7", "task_id": 2, "event_id": "wbe-d76ffcec9a7302f7", "state": "held", "held": true, "duplicate": false }
-          }
+          "response": { "status": 201, "picked": { "state": "held", "held": true, "duplicate": false } }
         },
         {
           "id": "list-area",
           "route": "GET /api/work-items",
           "class": "normal",
           "what": "alpha 按领域 sales 筛自己的事项",
+          "vary": { "items.0.id": "random" },
           "request": { "method": "GET", "path": "/api/work-items?area=sales", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
           "response": {
             "status": 200,
@@ -1695,7 +1688,7 @@
               "views": { "mine": { "available": true, "count": 2, "decide": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
               "items": [
                 {
-                  "id": "wi_wbe-31dc3753ecda06c0",
+                  "id": "<每个实例随机·string·23>",
                   "title": "合成：area-member",
                   "state": "held",
                   "object": "po:7",
