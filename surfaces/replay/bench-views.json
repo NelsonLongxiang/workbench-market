@@ -1982,9 +1982,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "248", "etag": "W/\"f8-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
-              "bench": { "slug": "demo", "title": "示例台", "workbench_id": null },
+              "bench": { "slug": "demo", "title": "示例台", "workbench_id": null, "card_title": null },
               "version": 2,
               "title": "订单台二版",
               "default_view": "overview",
@@ -3709,9 +3709,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "221", "etag": "W/\"dd-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "249", "etag": "W/\"f9-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
-              "bench": { "slug": "demo", "title": "示例台", "workbench_id": 1 },
+              "bench": { "slug": "demo", "title": "示例台", "workbench_id": 1, "card_title": "任务中心" },
               "version": 1,
               "title": "订单台",
               "default_view": "overview",
