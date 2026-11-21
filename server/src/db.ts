@@ -1613,6 +1613,118 @@ if (hasTable('area_events_pr1')) {
     db.exec('COMMIT');
   } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
 }
+// 报告的维度和模板（docs/report-step1.md 第二节第 1 小节；第 19 篇）。维度属于领域（area_id 空是跨领域的维度），一个维度一串模板版本。
+//   report_dimensions：标识、所属领域、名字、状态（active / retired）、生效指针（active_version）。不删，撤了只读。
+//   report_templates：(维度, 版本) 复合主键；正文是模板 JSON（上限 200 KB，按字节），正文摘要 sha256 和判据部分的摘要 criteria_sha256
+//     都由服务算。kind：判据和这个维度某个复核过的版本一样是 layout，否则 criteria（第一版算 criteria）。建好不改、不删、不修剪（报告引用着它）。
+//   report_template_reviews：作者以外的人复核过哪一版（属主 2026-11-21：判据必须复核过才能生效）。一版至多一条，建好不改不删。
+//     生效看判据摘要：生效的那一版的 criteria_sha256 要等于某个复核过的版本的（#926 独立验收：不按 kind 判，kind 是发版那一刻的说法）。
+//     摘要和正文对不对得上，库这一层核不了（SQLite 里没有 sha256），由服务发版时算、移指针时按正文重算再比。
+//   report_dimension_events：每次建、撤、发版、复核、移指针一行，只增不改。
+// 时间一律是毫秒、由代码给。「不能改、不能删」、生效指针只能指已有的版本、criteria 版本要复核过才能生效，都靠触发器（服务里也判）。
+// PG 那一份成对的触发器到搬库（第 13 篇）时登记，和领域的表一样。
+db.exec(`
+CREATE TABLE IF NOT EXISTS report_dimensions (
+  id TEXT PRIMARY KEY CHECK (id <> ''),
+  area_id TEXT,
+  title TEXT NOT NULL CHECK (title <> ''),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'retired')),
+  active_version INTEGER,
+  created_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL CHECK (created_by <> ''),
+  updated_at INTEGER NOT NULL,
+  updated_by TEXT NOT NULL CHECK (updated_by <> '')
+);
+CREATE TABLE IF NOT EXISTS report_templates (
+  dimension_id TEXT NOT NULL REFERENCES report_dimensions (id),
+  version INTEGER NOT NULL CHECK (version >= 1),
+  body TEXT NOT NULL CHECK (body <> '' AND length(CAST(body AS BLOB)) <= 204800),
+  sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+  criteria_sha256 TEXT NOT NULL CHECK (length(criteria_sha256) = 64),
+  kind TEXT NOT NULL CHECK (kind IN ('layout', 'criteria')),
+  note TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL CHECK (created_by <> ''),
+  created_by_principal TEXT,
+  PRIMARY KEY (dimension_id, version)
+);
+CREATE TABLE IF NOT EXISTS report_template_reviews (
+  dimension_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  reviewed_by TEXT NOT NULL CHECK (reviewed_by <> ''),
+  reviewed_by_principal TEXT,
+  reviewed_at INTEGER NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (dimension_id, version)
+);
+CREATE TABLE IF NOT EXISTS report_dimension_events (
+  seq INTEGER PRIMARY KEY,
+  dimension_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('create', 'retire', 'template-add', 'template-review', 'activate')),
+  version INTEGER,
+  actor TEXT NOT NULL CHECK (actor <> ''),
+  actor_principal TEXT,
+  at INTEGER NOT NULL,
+  detail TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_report_dimension_events_dim ON report_dimension_events (dimension_id, seq);
+CREATE TRIGGER IF NOT EXISTS report_dimensions_no_delete BEFORE DELETE ON report_dimensions
+  BEGIN SELECT RAISE(ABORT, '报告维度不删除，撤了只读'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimensions_no_replace BEFORE INSERT ON report_dimensions WHEN EXISTS (SELECT 1 FROM report_dimensions WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, '报告维度不删除，也不能用同一个标识覆盖'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimensions_fixed BEFORE UPDATE ON report_dimensions WHEN NEW.id IS NOT OLD.id OR NEW.area_id IS NOT OLD.area_id
+  BEGIN SELECT RAISE(ABORT, '报告维度的标识和所属领域建好不改'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimensions_active_insert BEFORE INSERT ON report_dimensions WHEN NEW.active_version IS NOT NULL
+  BEGIN SELECT RAISE(ABORT, '新建的维度还没有模板，生效指针要为空'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimensions_active_exists BEFORE UPDATE OF active_version ON report_dimensions
+  WHEN NEW.active_version IS NOT NULL AND NOT EXISTS (SELECT 1 FROM report_templates WHERE dimension_id = NEW.id AND version = NEW.active_version)
+  BEGIN SELECT RAISE(ABORT, '生效指针只能指这个维度已有的模板版本'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimensions_active_reviewed BEFORE UPDATE OF active_version ON report_dimensions
+  WHEN NEW.active_version IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM report_templates a JOIN report_templates t ON t.dimension_id = a.dimension_id AND t.criteria_sha256 = a.criteria_sha256
+     JOIN report_template_reviews r ON r.dimension_id = t.dimension_id AND r.version = t.version
+     WHERE a.dimension_id = NEW.id AND a.version = NEW.active_version)
+  BEGIN SELECT RAISE(ABORT, '生效的模板版本，判据要和某个作者以外的人复核过的版本一样'); END;
+CREATE TRIGGER IF NOT EXISTS report_templates_layout_reviewed BEFORE INSERT ON report_templates
+  WHEN NEW.kind = 'layout' AND NOT EXISTS (SELECT 1 FROM report_templates t JOIN report_template_reviews r ON r.dimension_id = t.dimension_id AND r.version = t.version
+     WHERE t.dimension_id = NEW.dimension_id AND t.criteria_sha256 = NEW.criteria_sha256)
+  BEGIN SELECT RAISE(ABORT, '记成版式类的版本，判据要和某个复核过的版本一样'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimensions_retired_final BEFORE UPDATE ON report_dimensions WHEN OLD.status = 'retired'
+  BEGIN SELECT RAISE(ABORT, '撤了的报告维度只读'); END;
+CREATE TRIGGER IF NOT EXISTS report_templates_no_update BEFORE UPDATE ON report_templates
+  BEGIN SELECT RAISE(ABORT, '模板版本建好不能改'); END;
+CREATE TRIGGER IF NOT EXISTS report_templates_no_delete BEFORE DELETE ON report_templates
+  BEGIN SELECT RAISE(ABORT, '模板版本不能删'); END;
+CREATE TRIGGER IF NOT EXISTS report_templates_no_replace BEFORE INSERT ON report_templates WHEN EXISTS (SELECT 1 FROM report_templates WHERE dimension_id = NEW.dimension_id AND version = NEW.version)
+  BEGIN SELECT RAISE(ABORT, '模板版本不能覆盖'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_reviews_exists BEFORE INSERT ON report_template_reviews
+  WHEN NOT EXISTS (SELECT 1 FROM report_templates WHERE dimension_id = NEW.dimension_id AND version = NEW.version)
+  BEGIN SELECT RAISE(ABORT, '只能复核已有的模板版本'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_reviews_not_author BEFORE INSERT ON report_template_reviews
+  WHEN EXISTS (SELECT 1 FROM report_templates v JOIN report_templates t ON t.dimension_id = v.dimension_id AND t.criteria_sha256 = v.criteria_sha256
+    WHERE v.dimension_id = NEW.dimension_id AND v.version = NEW.version
+    AND (t.created_by = NEW.reviewed_by OR (t.created_by_principal IS NOT NULL AND t.created_by_principal = NEW.reviewed_by_principal)))
+  BEGIN SELECT RAISE(ABORT, '模板版本不能由作者本人复核（判据一样的版本的作者都算本人）'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_reviews_identified BEFORE INSERT ON report_template_reviews
+  WHEN NEW.reviewed_by_principal IS NULL OR NEW.reviewed_by_principal = ''
+  BEGIN SELECT RAISE(ABORT, '复核人要认得出是谁（主体不能为空）'); END;
+CREATE TRIGGER IF NOT EXISTS report_templates_criteria_author_identified BEFORE INSERT ON report_templates
+  WHEN NEW.kind = 'criteria' AND (NEW.created_by_principal IS NULL OR NEW.created_by_principal = '')
+  BEGIN SELECT RAISE(ABORT, '判据类版本的作者要认得出是谁（主体不能为空）'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_reviews_no_replace BEFORE INSERT ON report_template_reviews
+  WHEN EXISTS (SELECT 1 FROM report_template_reviews WHERE dimension_id = NEW.dimension_id AND version = NEW.version)
+  BEGIN SELECT RAISE(ABORT, '一版只复核一次'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_reviews_no_update BEFORE UPDATE ON report_template_reviews
+  BEGIN SELECT RAISE(ABORT, '复核记录建好不能改'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_reviews_no_delete BEFORE DELETE ON report_template_reviews
+  BEGIN SELECT RAISE(ABORT, '复核记录不能删'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimension_events_no_update BEFORE UPDATE ON report_dimension_events
+  BEGIN SELECT RAISE(ABORT, 'report_dimension_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimension_events_no_delete BEFORE DELETE ON report_dimension_events
+  BEGIN SELECT RAISE(ABORT, 'report_dimension_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimension_events_no_replace BEFORE INSERT ON report_dimension_events WHEN EXISTS (SELECT 1 FROM report_dimension_events WHERE seq = NEW.seq)
+  BEGIN SELECT RAISE(ABORT, 'report_dimension_events 只增不改'); END;
+`);
 // 团队与分配（规范 14 第 1 步）。团队、席位是节点名册里的事实（a2a_roster_seats，市场只读）；这三张表是公司的安排，只在市场里。
 //   键和名册一致：团队 (host, team)，host 是节点公钥指纹的前 8 位十六进制（小写）；席位以 (host, seat_id) 为主，seat_id 空的旧节点退回 (host, team, seat)。
 //   teams：团队的登记——认领了没有、挂在哪个部门。没认领的团队不一定有行（名册里出现了、还没人认领）。

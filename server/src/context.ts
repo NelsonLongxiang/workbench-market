@@ -32,6 +32,7 @@ import { CustomRoleService } from './services/custom-role.ts';
 import { JudgmentCompareService } from './services/judgment-compare.ts';
 import { DepartmentService } from './services/department.ts';
 import { AreaService } from './services/area.ts';
+import { ReportDimensionService } from './services/report-dimension.ts';
 import { TeamService } from './services/team.ts';
 import { SetupWizardService } from './services/setup-wizard.ts';
 import { RelationProposalService } from './services/relation-proposal.ts';
@@ -78,6 +79,7 @@ await Promise.all([
   JudgmentCompareService,
   DepartmentService,
   AreaService,
+  ReportDimensionService,
   TeamService,
   SetupWizardService,
   RelationProposalService,
