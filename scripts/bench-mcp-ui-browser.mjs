@@ -55,7 +55,7 @@ try {
   const same = { origin: base, 'sec-fetch-site': 'same-origin' };
   const mgr = { headers: same, session: SESSIONS.alpha };
   const admin = { headers: { 'x-admin-token': ADMIN_TOKEN } };
-  for (const s of [SESSIONS.alpha, SESSIONS.beta]) await call('GET', '/api/auth/viewer', { session: s });
+  for (const s of [SESSIONS.alpha, SESSIONS.beta, SESSIONS.strasse]) await call('GET', '/api/auth/viewer', { session: s });
   const seed = legacySeed(join(TMP, 'data', 'workbench-market.db'));
   seed.department('sales', 'sales'); // 部门已停写：台要绑一个停写前就有的部门，直接写库造
   const d = await call('POST', '/api/grants', { body: { principal: 'user:alpha', role: 'management', scope: '*', reason: '合成：#904' } });
@@ -66,6 +66,12 @@ try {
   await call('POST', '/api/roles/ui-viewer/approve');
   const gb = await call('POST', '/api/grants', { body: { principal: 'user:beta', role: 'ui-viewer', scope: '*', reason: '合成：#904' } });
   await call('POST', `/api/grants/${gb.json?.grant?.id}/submit`); await call('POST', `/api/grants/${gb.json?.grant?.id}/approve`);
+  // strasse：在 beta 的基础上多点名「看台上的 MCP 授予」——进得了管理页、批不了（页面不出批准驳回）
+  await call('POST', '/api/roles/guest/copy', { body: { id: 'ui-mcp-lister', name: '合成·只看台上的授予' } });
+  await call('PUT', '/api/roles/ui-mcp-lister', { body: { permissions: [{ actions: ['bench-store.render', 'bench-store.view-get', 'bench-store.mcp-list'] }] } });
+  await call('POST', '/api/roles/ui-mcp-lister/approve');
+  const gs = await call('POST', '/api/grants', { body: { principal: 'user:strasse', role: 'ui-mcp-lister', scope: '*', reason: '合成：#904' } });
+  await call('POST', `/api/grants/${gs.json?.grant?.id}/submit`); await call('POST', `/api/grants/${gs.json?.grant?.id}/approve`);
   const reg = await call('POST', '/api/bench-views', { ...mgr, body: { slug: 'field', title: '合成·现场台', department: 'sales' } });
   const wb = await call('POST', '/api/workbenches', { body: { name: '合成·现场台卡片', url: 'http://127.0.0.1:9/', type: 'web' } });
   const bind = await call('PUT', '/api/bench-views/field/workbench', { ...mgr, body: { workbench_id: wb.json?.id, note: '合成绑定' } });
@@ -80,10 +86,11 @@ try {
   const r3 = await tool(token, 'access_request', { tools: ['dataset_query@bench:field'], reason: '合成：别处先批了的' });
   const ids = [r1, r2, r3].map((r) => r.json?.request?.id);
   const betaEntry = await call('GET', `/api/bench-views/${wb.json?.id}/entry`, { headers: same, session: SESSIONS.beta });
-  check(betaEntry.status === 200 && betaEntry.json?.can?.mcp === false && reg.status === 201 && wb.status === 201 && bind.status === 200 && view.status === 200 && typeof token === 'string' && before.rpcError === -32601 && ids.every((x) => Number.isInteger(x)),
-    '（准备）台、卡片、视图、会话；只看视图的 beta 打得开台、管不了 MCP；会话没授予时调不到台上的工具；经 MCP 提了三条申请', { beta: [betaEntry.status, betaEntry.json?.can], reg: reg.status, wb: wb.status, bind: bind.status, view: [view.status, view.text.slice(0, 200)], before: before.rpcError, ids });
+  const listerPage = await call('GET', '/api/bench-views/field/mcp-grants', { headers: same, session: SESSIONS.strasse });
+  check(betaEntry.status === 200 && betaEntry.json?.can?.mcp === false && listerPage.status === 200 && listerPage.json?.can?.decide === false && reg.status === 201 && wb.status === 201 && bind.status === 200 && view.status === 200 && typeof token === 'string' && before.rpcError === -32601 && ids.every((x) => Number.isInteger(x)),
+    '（准备）台、卡片、视图、会话；只看视图的 beta 打得开台、管不了 MCP；能看授予的 strasse 进得了管理页、批不了；会话没授予时调不到台上的工具；经 MCP 提了三条申请', { beta: [betaEntry.status, betaEntry.json?.can], lister: [listerPage.status, listerPage.json?.can], reg: reg.status, wb: wb.status, bind: bind.status, view: [view.status, view.text.slice(0, 200)], before: before.rpcError, ids });
   const cfg = join(TMP, 'browser.json');
-  writeFileSync(cfg, JSON.stringify({ base, card: wb.json?.id, bench: 'field', ids, session_alpha: SESSIONS.alpha, session_beta: SESSIONS.beta }));
+  writeFileSync(cfg, JSON.stringify({ base, card: wb.json?.id, bench: 'field', ids, session_alpha: SESSIONS.alpha, session_beta: SESSIONS.beta, session_lister: SESSIONS.strasse }));
   const py = spawn(pythonBin(), ['scripts/bench-mcp-ui-browser.py', cfg], { stdio: 'inherit' });
   const pyCode = await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
 

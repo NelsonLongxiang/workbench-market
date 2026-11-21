@@ -1,5 +1,5 @@
 """#904 台上的 MCP 申请：浏览器这一段；由 scripts/bench-mcp-ui-browser.mjs 起合成实例、经 MCP 提好三条申请后调用，参数为配置 JSON 路径。业务接口不截。
-  一、看不到的人：只能取数、读视图的 beta，台页面打得开、不出「MCP 授权」，直接打开管理页照服务端说不能管；
+  一、看不到的人：只能取数、读视图的 beta，台页面打得开、不出「MCP 授权」，直接打开管理页照服务端说不能管；能看授予、不能批的人看得到申请、没有批准驳回；
   二、找得到：管理层 alpha 在 MCP 网关页「台上的申请」看到三条待批，链到台的授权页；台页面顶栏也有「MCP 授权」；
   三、管理页：待批的三条写着编号、会话、工具读写、理由；批准一条（留一句）：状态、谁定的、留的那句、授予标「批准申请 #n」、留痕；
   四、驳回一条：不写理由不能点，写了才驳回；办过的里看得到驳回理由；
@@ -28,6 +28,11 @@ with sync_playwright() as p:
     check('只能取数、读视图的人：台页面打得开，但顶栏不出「MCP 授权」', pg.locator('[data-testid=bench-page-mcp]').count() == 0)
     pg.goto(f'{M}/bench-mcp/{BENCH}'); pg.wait_for_selector('[data-testid=bench-mcp-error]')
     check('直接打开管理页：照服务端说不能管（要有拍板授予），不显示成「没有申请」', '拍板' in pg.locator('[data-testid=bench-mcp-error]').inner_text() and pg.locator('[data-testid=bench-mcp-pending]').count() == 0)
+    ctx.close()
+    ctx = ctx_for(cfg['session_lister']); pg = ctx.new_page(); pg.set_default_timeout(15000)
+    pg.goto(f'{M}/bench-mcp/{BENCH}'); pg.wait_for_selector('[data-testid=bench-mcp-pending] tr[data-row-key]')
+    check('能看授予、不能批的人：看得到三条待批，但没有批准、驳回，页面说能看不能批',
+          pg.locator('[data-testid=bench-mcp-pending] tr[data-row-key]').count() == 3 and pg.locator('[data-testid=bench-mcp-approve]').count() == 0 and pg.locator('[data-testid=bench-mcp-reject]').count() == 0 and '不能批' in pg.locator('[data-testid=bench-mcp-bench]').inner_text())
     ctx.close()
 
     print('二、找得到')
