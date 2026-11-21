@@ -345,6 +345,8 @@ export class BenchStore {
   reportGet(...a: Parameters<Core['reportGet']>): ReturnType<Core['reportGet']> { return this.rpc('reportGet', a); }
   reportList(...a: Parameters<Core['reportList']>): ReturnType<Core['reportList']> { return this.rpc('reportList', a); }
   reportCounts(): ReturnType<Core['reportCounts']> { return this.rpc('reportCounts', []); }
+  responseInsert(...a: Parameters<Core['responseInsert']>): ReturnType<Core['responseInsert']> { return this.rpc('responseInsert', a); }
+  responsesOf(...a: Parameters<Core['responsesOf']>): ReturnType<Core['responsesOf']> { return this.rpc('responsesOf', a); }
   appReplace(...a: Parameters<Core['appReplace']>): ReturnType<Core['appReplace']> { return this.rpc('appReplace', a); }
 }
 

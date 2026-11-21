@@ -1701,7 +1701,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "11644", "etag": "W/\"2d7c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "12803", "etag": "W/\"3203-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "gateway": "on",
               "session": "replay-none",
@@ -1764,7 +1764,11 @@
                 { "name": "dataset_snapshot", "description": "[数据视图·必须限定到台] 手工留一份快照", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
                 { "name": "dataset_restore", "description": "[数据视图·必须限定到台] 把数据集退回到某一份快照", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
                 { "name": "view_put", "description": "[数据视图·必须限定到台] 保存视图描述：产生一个新版本并立即生效。", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
-                { "name": "view_rollback", "description": "[数据视图·必须限定到台] 让旧版本重新生效（只移指针，不丢版本）", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] }
+                { "name": "view_rollback", "description": "[数据视图·必须限定到台] 让旧版本重新生效（只移指针，不丢版本）", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
+                { "name": "report_list", "description": "[数据视图·必须限定到台] 这个台上的报告清单（不带正文），可按维度、事物筛；", "category": "read", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
+                { "name": "report_get", "description": "[数据视图·必须限定到台] 读一份报告：冻结的成品、来源（视图版本、哈希、行数）、论断（各带回应和有没有未处理的反驳）、对整份报告的回应、验收声明", "category": "read", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
+                { "name": "report_generate", "description": "[数据视图·必须限定到台] 按这个台对维度的绑定生成并冻结一份报告：服务端取数、核模板、核论断；", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
+                { "name": "report_respond", "description": "[数据视图·必须限定到台] 对一份报告的一条论断表态：认可、反驳或补充，理由必填；", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] }
               ],
               "how_to_detail": "要某个工具的参数表和完整说明：access_info {tool: \"工具名\"}（没批的也取得到）",
               "requests": [],
