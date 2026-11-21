@@ -170,7 +170,11 @@ try {
   down = false;
   dropEmpty = true; // 三：imp-empty 读回会丢空文件
   const until = async (cond, ms = EVERY * 12) => { const e = Date.now() + ms; while (Date.now() < e) { if (cond()) return true; await sleep(100); } return cond(); };
-  await until(() => row('agents:imp-a', 2).shadow_status === 'succeeded' && row('agents:imp-rolled', 1).shadow_status === 'succeeded' && row('agents:imp-empty', 1).shadow_status === 'failed');
+  // 等这一轮真正推完：不通的那几轮里 imp-empty 可能已经带着「LayerFS publish failed」记成 failed（每轮撞到哪一版就记哪一版），
+  // 光看「failed」会在恢复那一轮的半中间就放行（慢机器上那时 imp-empty 还没重推、「恢复」那行日志要等整轮推完才打）。
+  // 所以等读回不一致的那个原因和「恢复」那行日志都出来
+  await until(() => row('agents:imp-a', 2).shadow_status === 'succeeded' && row('agents:imp-rolled', 1).shadow_status === 'succeeded'
+    && /readback digest mismatch/.test(row('agents:imp-empty', 1).shadow_error) && lines(/\[skill-shadow\] LayerFS 恢复/).length > 0);
   const a2 = row('agents:imp-a', 2);
   ok('二 当前版本推上去、读回一致：commit_id 和 succeeded', a2.shadow_status === 'succeeded' && /^c[0-9a-f]{12}$/.test(a2.commit_id) && published.some((p) => p.branch === 'skill/agents:imp-a' && p.files[0]?.content?.includes('v2')), JSON.stringify(a2));
   ok('二 日志一行「恢复」', lines(/\[skill-shadow\] LayerFS 恢复/).length === 1, lines(/\[skill-shadow\]/).join(' | '));
