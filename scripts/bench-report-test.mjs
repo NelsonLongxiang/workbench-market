@@ -20,6 +20,7 @@
  *   R6d（属主 2026-11-21：收窄）回应记的位置只含管得到这个台的授予：别的领域的不记，台绑到那个领域以后才记
  *   R7（PR D）入口的 can.reports、can.respond 和接口同一套判法；读报告带回模板的立场和论断类别名、回应标出 mine
  *   G11（#930 独立验收）只能看台的人读报告 403；三张冻结的表在库里 UPDATE、DELETE、INSERT OR REPLACE 都拒
+ *   F（A～D 验收建议的补测）F1 预设 member 读不了报告；F2 领域授予读得了、回应得了；F3 老部门的授予记进位置；F4 旧报告带它那一版模板
  *   G10 产出方由服务端填：登录的那个人，记 human（数据视图的台只认人，本机命令行、管理口令进不来是既有规矩）
  *
  *   node scripts/bench-report-test.mjs
@@ -32,6 +33,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
+import { legacySeed } from './lib/legacy-dept-seed.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const arg = process.argv.indexOf('--root');
@@ -552,6 +554,46 @@ try {
     store.close();
     check(rows0.b > 0 && rows0.r > 0 && rows0.c > 0 && Object.values(r).every(Boolean) && same,
       'G11 台库里直接 UPDATE、DELETE、INSERT OR REPLACE（同键覆盖）报告绑定、报告、论断：触发器都拒，三张表一行没变', { rows0, r, same });
+  }
+  console.log('F 验收建议的补测（报告第 1 步 A～D 合并后的跟进）');
+  {
+    const revoke = async (principal, role) => {
+      const gid = db.prepare("SELECT id FROM grants WHERE principal_id = ? AND role = ? AND status = 'active'").get(principal, role)?.id;
+      return (await cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：F 用完收回' })).status;
+    };
+    const rid0 = first.json?.report?.id;
+    // F1（#930 验收 m11）按档授予的预设：普通员工（member，范围 *）读不了报告和清单
+    const gm = await activate({ principal: 'user:beta', role: 'member', scope: '*' });
+    const f1 = { view: (await bv(member, 'GET', '/synth-orders/view')).status, one: (await bv(member, 'GET', `/synth-orders/reports/${rid0}`)).status, list: (await bv(member, 'GET', '/synth-orders/reports')).status };
+    const rv1 = await revoke('user:beta', 'member');
+    // 台的动作全局都按 write 档判（judgment-builtins.ts），member 只有 read 档加点名的几个写动作，所以连视图也读不了：这里只守「读不了报告、清单」
+    check(gm && f1.one === 403 && f1.list === 403 && rv1 === 200, 'F1 预设 member（范围 *）：读报告、读清单 403（视图也是 403：台的动作按 write 档判）', { gm, f1, rv1 });
+    // F2（#932 验收 q3）领域授予：台绑到 zeta，持 area-member@area:zeta 的人读得了报告、清单，回应得了
+    const ga = await activate({ principal: 'user:beta', role: 'area-member', scope: 'area:zeta' });
+    const bz = await bv(boss, 'PUT', '/synth-orders/binding', { department: 'zeta' });
+    const f2 = { one: (await bv(member, 'GET', `/synth-orders/reports/${rid0}`)).status, list: (await bv(member, 'GET', '/synth-orders/reports')).status,
+      respond: (await bv(member, 'POST', `/synth-orders/reports/${rid0}/responses`, { stance: 'supplement', reason: '合成：领域成员补充' })).status };
+    const ub = await bv(boss, 'PUT', '/synth-orders/binding', { department: '' });
+    const f2off = (await bv(member, 'GET', `/synth-orders/reports/${rid0}`)).status;
+    const rv2 = await revoke('user:beta', 'area-member');
+    check(ga && bz.status === 200 && f2.one === 200 && f2.list === 200 && f2.respond === 201 && ub.status === 200 && f2off === 403 && rv2 === 200,
+      'F2 台绑到 zeta：持 zeta 领域成员授予的人读报告、读清单 200，回应 201；解绑以后读 403', { ga, bz: bz.status, f2, ub: ub.status, f2off, rv2 });
+    // F3（#932 验收 s1）老部门：台绑到部门 dv-old，dept:dv-old 的授予记进回应的位置，dept:dv-else 的不记
+    const seed = legacySeed(join(srv.data, 'workbench-market.db'));
+    seed.department('dv-old', '合成老部门'); seed.department('dv-else', '合成别的老部门');
+    seed.grant('user:alpha', 'dept-member', 'dept:dv-old'); seed.grant('user:alpha', 'dept-member', 'dept:dv-else');
+    const bd = await bv(boss, 'PUT', '/synth-orders/binding', { department: 'dv-old' });
+    const rep3 = await gen(boss, G({ subject: 'card:synth-orders@dept' }));
+    const r3 = await bv(boss, 'POST', `/synth-orders/reports/${rep3.json?.report?.id}/responses`, { claim_key: 'conclusion-1', stance: 'agree', reason: '合成：看部门位置' });
+    const pos3 = r3.json?.response?.position ?? '';
+    const ub3 = await bv(boss, 'PUT', '/synth-orders/binding', { department: '' });
+    check(bd.status === 200 && r3.status === 201 && pos3.includes('dept-member@dept:dv-old') && !pos3.includes('dv-else') && ub3.status === 200,
+      'F3 台绑到老部门 dv-old：dept:dv-old 的授予记进位置，dept:dv-else 的不记', { bd: [bd.status, bd.text?.slice(0, 100)], r3: r3.status, pos3, ub3: ub3.status });
+    // F4（#937 验收 s5）读旧报告带的是它生成时那一版模板（第 1 版有结论、风险两类），不是现在生效的第 2 版
+    const old = (await bv(boss, 'GET', `/synth-orders/reports/${rid0}`)).json;
+    const kinds = (old?.template?.claims ?? []).map((c) => c.kind);
+    check(old?.report?.template_version === 1 && JSON.stringify(kinds) === JSON.stringify(['conclusion', 'risk']),
+      'F4 读第 1 版模板生成的旧报告：带回的模板是第 1 版的（结论、风险两类），不是现在生效的第 2 版', { tv: old?.report?.template_version, kinds });
   }
   db.close();
 } catch (e) {

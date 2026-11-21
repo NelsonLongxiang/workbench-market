@@ -404,6 +404,10 @@ try {
     check(v1.status === 201 && v2.json?.template?.criteria_sha256 === v1.json?.template?.criteria_sha256
         && err(olgaOnV2) === '403:report_template_self_review' && err(a1) === '409:report_template_unreviewed',
       'R5h（E1）甲写的判据没人复核，乙在上面只改标题发一版；甲去复核乙那一版 403（判据一样的版本的作者都算本人），甲那一版仍不能生效 409', { v1: v1.status, olgaOnV2: err(olgaOnV2), a1: err(a1) });
+    // 说法点明是哪一版让她算作者；复核自己发的那一版时照旧那一句（#926 验收建议）
+    const olgaOnV1 = await olga.go('POST', '/api/report-dimensions/borrow/templates/1/review', { json: {} });
+    check(/第 1 版是你发的/.test(olgaOnV2.json?.message ?? '') && /第 2 版/.test(olgaOnV2.json?.message ?? '') && olgaOnV1.json?.message === '模板版本不能由作者本人复核，要作者以外的人',
+      'R5h 本人复核的说法：借别人那一版时说清「第 1 版是你发的、判据和第 2 版一样」；复核自己发的那一版照旧', { v2msg: olgaOnV2.json?.message, v1msg: olgaOnV1.json?.message });
     check(e2 && riaOnV2.status === 200 && a1b.status === 200,
       'R5h（E2）库里直接写：乙复核甲那一版（乙是判据一样的另一版的作者）触发器拒；第三个人复核以后，甲那一版能生效', { e2, riaOnV2: riaOnV2.status, a1b: a1b.status });
   }
