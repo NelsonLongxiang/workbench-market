@@ -4,7 +4,7 @@
  * 隔离实例（NODE_ENV=test），站内账号走浏览器的真实路径，合成的人：
  *   olga 属主 · mona 管理层 · sam 系统管理员 · tom 普通员工（只有 member *） · alice zeta 的领域成员 · sid zeta 的定规范 · yan eta 的定规范 ·
  *   leo zeta、eta 的负责人 · ivy 停用的人（先有 member *，再停用） · lex zeta 的负责人、本人停用了（PR3b 补的一格）
- * 动作：area.list、area.read、area.spec-list、area.spec-read、area.spec-set、area.create，都带 scope=area:zeta；
+ * 动作：area.list、area.read、area.spec-list、area.spec-read、area.spec-set、area.create、area.trigger（任务带领域 4a：建事项带 area=zeta），都带 scope=area:zeta；
  * 每一格：access 接口（本机命令行问）答 allow / deny，和这个人自己实际调对应的领域接口（2xx 算放行；列表要列得出 zeta）比。
  * 另有复现（#914 评审）：只持 area-member（area:zeta）的人问 area.read，答 allow——原来问 judge 答 deny。
  * 改坏反证：access 接口里拿掉领域动作的分流（area.* 照旧问 judge），这张表要变红。规则抄自 routes/areas.ts，PR3b 收成一份后这张表照跑。
@@ -115,6 +115,8 @@ try {
   check(setup.every((r) => r.status === 201) && gs.every((g) => g.approve === 200) && dis.status === 200 && disLead.status === 200, '（准备）两个领域、九个人的授予都放行了，zeta 有一版规范，ivy 停用了', { setup: setup.map((r) => r.status), gs: gs.filter((g) => g.approve !== 200), dis: dis.status });
 
   let made = 0;
+  // 触发要一个能派的团队：任务中心上绑一个通知团队（直接写库，名册之外的现场）
+  { const d = new DatabaseSync(join(OUT, 'data', 'workbench-market.db'), { timeout: BUSY_MS }); try { d.prepare("INSERT INTO bindings (target_type, target_slug, agent_node, direction, mode, notify_url, created_by, revoked_at) VALUES ('sop', 'task-center', 'dsh/canvas/team-a', 'notify', 'read', 'http://127.0.0.1:1', 'seed', '')").run(); } finally { d.close(); } }
   /** 这个人实际调领域接口：2xx 算放行；列表要列得出 zeta */
   const REAL = {
     'area.list': async (b) => { const r = await b.go('GET', '/api/areas'); return r.status === 200 && (r.json?.areas ?? []).some((a) => a.id === 'zeta'); },
@@ -123,6 +125,7 @@ try {
     'area.spec-read': async (b) => (await b.go('GET', '/api/areas/zeta/specs/1')).status === 200,
     'area.spec-set': async (b) => (await b.go('POST', '/api/areas/zeta/specs', { json: { body: `合成规范 ${++made}` } })).status === 201,
     'area.create': async (b) => (await b.go('POST', '/api/areas', { json: { id: `tmp-${++made}`, name: '合成临时领域' } })).status === 201,
+    'area.trigger': async (b) => (await b.go('POST', '/api/work-items', { json: { title: '合成：对一下', intent: '合成', deliverable: '合成', team: 'dsh/canvas/team-a', area: 'zeta', idempotency_key: `matrix-trigger-${String(++made).padStart(6, '0')}` } })).status === 201,
   };
   const asked = async (n, action) => (await A.cli('GET', `/api/principals/user:${n}/access?action=${encodeURIComponent(action)}&scope=area:zeta`)).json?.decision;
   const table = [], diff = [];
@@ -148,8 +151,11 @@ try {
   const rep = await asked('alice', 'area.read');
   check(rep?.verdict === 'allow' && rep?.via === 'area' && /按领域判/.test(rep?.scope_note ?? '') && !/还不认/.test(rep?.scope_note ?? ''),
     '#914 复现：只持 area-member（area:zeta）的人问 area.read，答 allow、按领域判，说明不再写「带范围的还不认」', rep);
-  const steps = await A.cli('GET', '/api/principals/user:alice/access?action=area.trigger&scope=area:zeta');
-  check(steps.json?.decision?.verdict === 'deny' && steps.json?.decision?.rule === 'area-step1-not-routed', '第 1 步只登记的领域动作（area.trigger）：答 deny，写明还没接到路由上', steps.json?.decision);
+  const steps = await A.cli('GET', '/api/principals/user:alice/access?action=area.accept&scope=area:zeta');
+  check(steps.json?.decision?.verdict === 'deny' && steps.json?.decision?.rule === 'area-step1-not-routed', '还没接到路由上的领域动作（area.accept）：答 deny，写明还没接到路由上', steps.json?.decision);
+  const trig = { alice: await v('alice', 'area.trigger'), leo: await v('leo', 'area.trigger'), mona: await v('mona', 'area.trigger'), olga: await v('olga', 'area.trigger'), tom: await v('tom', 'area.trigger'), sid: await v('sid', 'area.trigger'), sam: await v('sam', 'area.trigger'), lex: await v('lex', 'area.trigger') };
+  check(JSON.stringify(trig) === JSON.stringify({ alice: 'allow', leo: 'allow', mona: 'allow', olga: 'allow', tom: 'deny', sid: 'deny', sam: 'deny', lex: 'deny' }),
+    '写死的预期（任务带领域 4a）：领域成员、负责人、管理层、属主能在 zeta 触发；只有 member * 的、只持定规范的、系统管理员、停用的负责人不能', trig);
   const other = await A.cli('GET', '/api/principals/user:tom/access?action=principal.access&scope=area:zeta');
   check(other.status === 200 && other.json?.decision?.via === 'judge' && /不按领域问/.test(other.json?.decision?.scope_note ?? ''), '不是领域的动作（principal.access）带了领域范围：照旧问 judge，说明写领域范围在这个动作上不起作用', other.json?.decision ?? other.status);
 } catch (e) {
