@@ -15,8 +15,15 @@
  *       拿掉再补回来的列排到了表尾，所以这一节按列名比、不比列的位置；按位置的逐表比对用真的旧版本库做（见 PR 描述）。
  *       这一节证明「旧库升级完和新建的一样」；列定义本身没被改写，是拿真的旧版本库、按位置逐表比的（见 PR 描述）
  *   六、两个补列函数本身：N 个进程都先把 db.ts 加载完，再约好同一时刻对一张临时表调 addColumnIfMissing / migrateOnce——
- *       全部成功，只有一个进程补上（added / did 为真），列只有一份。整个启动里前面有别的写，各进程会在写锁上排成一队、碰不到这个窗口，
- *       所以竞态在这里单独测：停顿撑大「核对」和「补列」之间的窗口，去掉事务里的再核一次，后补的必然报 duplicate column（这一节每次都红）
+ *       全部成功，只有一个进程补上（added / did 为真），列只有一份。停顿撑大「核对」和「补列」之间的窗口，去掉事务里的再核一次，
+ *       后补的必然报 duplicate column（这一节每次都红）。
+ *   七、teams 四张表那段「补列加回填」：库里拿掉这四张表的 peer_root、key_fingerprint，N 个进程同时启动，
+ *       用 WM_TEST_SCHEMA_BARRIER 在这段前面凑齐 N 个进程、一起进去——全部成功、八列都补回来。这一段里的 ALTER 是直接写的（外层 migrateOnce 已在事务里再核），
+ *       所以这段不经 migrateOnce、或者在事务外核的回归，靠停顿撑不开，要靠集合才每次都撞上（这一节每次都红）。
+ *
+ *   真实的整段启动里也会撞上这个窗口，只是概率性的：各进程前面的迁移快慢不一、还会在写锁上排队，到某一处补列的时刻前后错开。
+ *   验收在改之前的 main 上实测过：8 个进程同时升级一个缺 teams.peer_root、workbenches.access 的旧库，40 个进程里 4 个报 duplicate column。
+ *   所以测试里用停顿（WM_TEST_SCHEMA_PAUSE_MS）撑开窗口、用集合（WM_TEST_SCHEMA_BARRIER）对齐时刻，让回归每次都红，而不是碰运气
  *
  *   node scripts/db-startup-race-test.mjs              测本仓库
  *   node scripts/db-startup-race-test.mjs --root DIR   测另一棵目录树（变异测试用）
@@ -67,7 +74,7 @@ console.log(JSON.stringify({ setup: m.a2aRostersLiveSetup, ok: m.viewSql('a2a_ro
 const tamperCode = (sql) => `const m = await import(${JSON.stringify(DB_URL)}); m.db.exec(${JSON.stringify(sql)});
 console.log(JSON.stringify({ after: m.viewSql('a2a_rosters_live') }));`;
 const together = async (dir, env = {}) => {
-  const startAt = Date.now() + 1500;
+  const startAt = Date.now() + 1200;
   return Promise.all(Array.from({ length: N }, () => run(loadCode(startAt), { DATA_DIR: dir, ...env })));
 };
 /** 每张表的列（按列名排，不带位置 cid）和索引、触发器、视图的定义 */
@@ -118,6 +125,10 @@ try {
   console.log('四、测试用的停顿只给测试用');
   const prod = await run(loadCode(0), { DATA_DIR: dir, NODE_ENV: 'production', WM_TEST_SCHEMA_PAUSE_MS: '10' });
   const badVal = await run(loadCode(0), { DATA_DIR: dir, WM_TEST_SCHEMA_PAUSE_MS: '9999' });
+  const prodBarrier = await run(loadCode(0), { DATA_DIR: dir, NODE_ENV: 'production', WM_TEST_SCHEMA_BARRIER: `teams@2@${OUT}` });
+  const badBarrier = await run(loadCode(0), { DATA_DIR: dir, WM_TEST_SCHEMA_BARRIER: 'teams@soon' });
+  check(prodBarrier.exit !== 0 && !prodBarrier.timedOut && /WM_TEST_SCHEMA_BARRIER 只给测试用/.test(prodBarrier.err) && badBarrier.exit !== 0 && /名字>@<进程数>@<绝对路径的目录/.test(badBarrier.err),
+    '不是 NODE_ENV=test 时设了 WM_TEST_SCHEMA_BARRIER：拒绝启动；写法不对：拒绝启动', { prod: summary([prodBarrier]), bad: summary([badBarrier]) });
   check(prod.exit !== 0 && !prod.timedOut && /WM_TEST_SCHEMA_PAUSE_MS 只给测试用/.test(prod.err) && badVal.exit !== 0 && /0～5000/.test(badVal.err),
     '不是 NODE_ENV=test 时设了 WM_TEST_SCHEMA_PAUSE_MS：拒绝启动；值超出 0～5000：拒绝启动', { prod: summary([prod]), bad: summary([badVal]) });
 
@@ -129,7 +140,7 @@ try {
 console.log(JSON.stringify({ gaps: ${gapsExpr} }));`, { DATA_DIR: dir });
   check(before.exit === 0 && missing(before.result) === 0 && drop.exit === 0 && drop.result?.gaps === DROPPED.length,
     `（准备）拿掉 ${DROPPED.length} 列冒充旧库（${new Set(DROPPED.map(([t]) => t)).size} 张表）`, { before: before.exit, drop: summary([drop]), gaps: drop.result?.gaps });
-  const startAt = Date.now() + 1500;
+  const startAt = Date.now() + 1200;
   const up = await Promise.all(Array.from({ length: N }, () => run(`${PREWARM}
 while (Date.now() < ${startAt}) {}
 const m = await import(${JSON.stringify(DB_URL)});
@@ -145,7 +156,7 @@ console.log(JSON.stringify({ gaps: ${gapsExpr} }));`, { DATA_DIR: dir, WM_TEST_S
 console.log(JSON.stringify({ ok: true }));`, { DATA_DIR: dir });
   check(prep.exit === 0, '（准备）两张临时表', summary([prep]));
   const race = async (call) => {
-    const at = Date.now() + 2500; // 都先把 db.ts 加载完（迁移在这之前做完），再一起调
+    const at = Date.now() + 2000; // 都先把 db.ts 加载完（迁移在这之前做完），再一起调
     return Promise.all(Array.from({ length: N }, () => run(`const m = await import(${JSON.stringify(DB_URL)});
 while (Date.now() < ${at}) {}
 const r = ${call};
@@ -158,6 +169,20 @@ console.log(JSON.stringify({ r, n: m.tableColumns(${JSON.stringify('zz_race_a')}
   const b = await race(`m.migrateOnce(() => !m.hasColumn('zz_race_b', 'c'), () => m.db.exec("ALTER TABLE zz_race_b ADD COLUMN c TEXT NOT NULL DEFAULT ''"))`);
   check(b.every((x) => !x.timedOut && x.exit === 0) && b.filter((x) => x.result?.r === true).length === 1,
     `migrateOnce：${N} 个进程同时做同一段「补列加回填」，全部成功，只有一个做了`, show(b));
+
+  console.log('七、teams 四张表那段「补列加回填」');
+  const TEAMS = ['teams', 'team_leads', 'seat_assignments', 'team_events'].flatMap((t) => [[t, 'key_fingerprint'], [t, 'peer_root']]);
+  const teamGaps = `${JSON.stringify(TEAMS)}.filter(([t, c]) => !m.tableColumns(t).some((x) => x.name === c)).length`;
+  const tdrop = await run(`const m = await import(${JSON.stringify(DB_URL)}); m.db.exec(${JSON.stringify(TEAMS.map(([t, c]) => `ALTER TABLE ${t} DROP COLUMN ${c};`).join(' '))});
+console.log(JSON.stringify({ gaps: ${teamGaps} }));`, { DATA_DIR: dir });
+  check(tdrop.exit === 0 && tdrop.result?.gaps === TEAMS.length, `（准备）拿掉 teams 四张表的 ${TEAMS.length} 列`, summary([tdrop]));
+  // 各进程加载 db.ts 到 teams 那段的快慢不一：在那里凑齐 N 个再一起进去（最多等 10 秒，见 db.ts 的 testBarrier）
+  const meetDir = join(OUT, 'meet-teams');
+  mkdirSync(meetDir, { recursive: true });
+  const tup = await Promise.all(Array.from({ length: N }, () => run(`const m = await import(${JSON.stringify(DB_URL)});
+console.log(JSON.stringify({ gaps: ${teamGaps} }));`, { DATA_DIR: dir, WM_TEST_SCHEMA_BARRIER: `teams@${N}@${meetDir}` })));
+  check(tup.every((r) => !r.timedOut && r.exit === 0 && r.result?.gaps === 0),
+    `${N} 个进程在 teams 那段前面集合、同一时刻进去：全部成功，八列都补回来`, tup.map((r) => (r.timedOut ? 'timeout' : r.exit !== 0 ? `exit ${r.exit}: ${r.err}` : `gaps=${r.result?.gaps}`)));
 } catch (e) {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {

@@ -1,7 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { isCredentialed, isInternalTarget } from './portal-access.ts';
 import { createHash } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DB_BUSY_TIMEOUT_MS } from './db-busy.ts';
@@ -55,15 +55,40 @@ const normSql = (sql: string): string => sql.trim().replace(/;+\s*$/, '');
  */
 export const SchemaTestConfig = defineConfig((env) => {
   const raw = String(env.WM_TEST_SCHEMA_PAUSE_MS ?? '').trim();
-  if (raw === '') return { pauseMs: 0 };
-  if (env.NODE_ENV !== 'test') throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_PAUSE_MS 只给测试用（NODE_ENV=test），生产上不要设');
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < 0 || n > 5000) throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_PAUSE_MS 要写成 0～5000 的整数（毫秒）');
-  return { pauseMs: n };
+  const rawBarrier = String(env.WM_TEST_SCHEMA_BARRIER ?? '').trim();
+  let pauseMs = 0;
+  let barrier: { label: string; count: number; dir: string } | null = null;
+  if (raw !== '') {
+    if (env.NODE_ENV !== 'test') throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_PAUSE_MS 只给测试用（NODE_ENV=test），生产上不要设');
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 0 || n > 5000) throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_PAUSE_MS 要写成 0～5000 的整数（毫秒）');
+    pauseMs = n;
+  }
+  if (rawBarrier !== '') {
+    if (env.NODE_ENV !== 'test') throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_BARRIER 只给测试用（NODE_ENV=test），生产上不要设');
+    const m = /^([a-z][a-z-]{0,39})@([1-9]\d?)@(\/.+)$/.exec(rawBarrier);
+    if (!m) throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_BARRIER 要写成 <名字>@<进程数>@<绝对路径的目录>（名字是小写字母和连字符，进程数 1～99）');
+    barrier = { label: m[1], count: Number(m[2]), dir: m[3] };
+  }
+  return { pauseMs, barrier };
 });
 const schemaTest = loadConfig(SchemaTestConfig);
 /** 测试用的停顿（生产上 pauseMs 恒为 0，不停） */
 const testPause = (): void => { if (schemaTest.pauseMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, schemaTest.pauseMs); };
+/**
+ * 只给测试用（WM_TEST_SCHEMA_BARRIER，写成 <名字>@<进程数>@<目录>）：启动迁移走到标着这个名字的地方时，在目录里留一个以进程号为名的空文件，
+ * 等目录里凑够这么多个（各进程都走到这里了）再一起往下，最多等 10 秒。
+ * 多个进程同时启动时，前面的迁移快慢不一、还会在写锁上排队，到某一处的时刻前后错开，撞不撞上是概率性的；
+ * 在这里集合，「去掉事务里的再核一次」这类回归才每次都撞上（db-startup-race-test 第七节）。生产上不设，什么都不做。
+ */
+const testBarrier = (label: string): void => {
+  const b = schemaTest.barrier;
+  if (!b || b.label !== label) return;
+  writeFileSync(join(b.dir, String(process.pid)), '');
+  // 不睡、一直看：凑齐以后各进程几乎同一刻放行（睡上几毫秒，先放行的那个已经补完一列，后面的就看到「有了」，撞不上）
+  const until = Date.now() + 10_000;
+  while (readdirSync(b.dir).length < b.count && Date.now() < until) { /* 等 */ }
+};
 
 /**
  * 启动时装视图：幂等，多个进程同时打开同一个库也不会互相撞。
@@ -1805,6 +1830,7 @@ CREATE INDEX IF NOT EXISTS idx_team_events_team ON team_events (host, team, seq)
 //   存量只在加列的那一次回填（按当时的名册和启用的对端）；回填不上的留空，一直不算数，要管理层重新认领、指定、分配。
 //   以后的启动不再回填：不然后来报上同一个号的节点会接走这些旧行
 //   要不要做在事务里再核一次（migrateOnce）：多个进程同时启动时只有一个补列、回填，别的进来看到已经补过就跳过
+testBarrier('teams');
 migrateOnce(() => !hasColumn('teams', 'peer_root'), () => {
     for (const t of ['teams', 'team_leads', 'seat_assignments', 'team_events']) {
       db.exec(`ALTER TABLE ${t} ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''`);
