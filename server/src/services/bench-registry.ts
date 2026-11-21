@@ -234,6 +234,47 @@ export function linkWorkbench(slug: string, input: unknown, actor: string, at: n
 }
 
 /**
+ * 只改台的名字（#905）：卡片改名后，台的登记名不会跟着变（两个是独立的字段，可能有意不同），这里给一个只动名字的入口。
+ * 两种写法，二选一：title 直接给新名字；from_card: true 照这个台对应的卡片现在的名字抄一份（没有对应的卡片 409）。
+ * base_title 可选：写了就是「我看到的名字是这个」，和现在的对不上就拒（409），不悄悄覆盖别人刚改的。
+ * 和现在一样的不留痕（changed: false）；变了在绑定的留痕表里记一行（action = title，前后两个名字）。
+ * 只是名字：不动标识、卡片对应、部门绑定、授予和申请，也不碰台库。
+ */
+export function renameBench(slug: string, input: unknown, actor: string, at: number): { bench: BenchEntry; changed: boolean } {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BenchError('invalid', '要给一个对象：{ title } 或 { from_card: true }');
+  const o = input as Record<string, unknown>;
+  const extra = Object.keys(o).filter((k) => !['title', 'from_card', 'base_title', 'note'].includes(k));
+  if (extra.length) throw new BenchError('invalid', `有不认识的键：${extra.map((k) => k.slice(0, 40)).join('、')}`);
+  const fromCard = o.from_card !== undefined;
+  if (fromCard === (o.title !== undefined)) throw new BenchError('invalid', 'title 和 from_card 二选一');
+  if (fromCard && o.from_card !== true) throw new BenchError('invalid', 'from_card 只能写 true');
+  if (!fromCard && (typeof o.title !== 'string' || !o.title.trim() || o.title.trim().length > 64)) throw new BenchError('invalid', '台的名字须为 1～64 个字符');
+  if (o.base_title !== undefined && typeof o.base_title !== 'string') throw new BenchError('invalid', 'base_title 要写成文字');
+  if (o.note !== undefined && typeof o.note !== 'string') throw new BenchError('invalid', 'note 要写成文字');
+  const note = typeof o.note === 'string' ? o.note.trim().slice(0, 500) : '';
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const cur = getBench(slug);
+    if (!cur) throw new BenchError('not_found', '没有这个台');
+    if (typeof o.base_title === 'string' && o.base_title !== cur.title) throw new BenchError('conflict', '台的名字已经被改过了，先重新读一次再改');
+    let title: string;
+    if (fromCard) {
+      const card = cur.workbench_id === null ? undefined : db.prepare('SELECT name FROM workbenches WHERE id = ?').get(cur.workbench_id) as { name: string } | undefined;
+      if (!card) throw new BenchError('conflict', '这个台没有对应的卡片，抄不了卡片的名字');
+      title = String(card.name).trim().slice(0, 64);
+      if (!title) throw new BenchError('conflict', '对应的卡片没有名字');
+    } else title = (o.title as string).trim();
+    const changed = cur.title !== title;
+    if (changed) {
+      db.prepare('UPDATE bench_views SET title = ? WHERE slug = ?').run(title, cur.slug);
+      db.prepare('INSERT INTO bench_bind_audit (slug, action, before, after, actor, note, at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(cur.slug, 'title', cur.title, title, actor, note, at);
+    }
+    db.exec('COMMIT');
+    return { bench: getBench(cur.slug)!, changed };
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+
+/**
  * 删卡片时用：在一个事务里删掉这张卡片对应的台的登记、收回台上的全部 MCP 授予、驳回没定的申请（各留一行痕），
  * 再调 deleteCard（删卡片本身和它在主库里的别的东西），一起提交。返回被删的台的标识（没有台是 null）。
  * 台库文件和 Redis 键不在事务里，由调用方在提交之后清（清不掉的由清扫补上）。

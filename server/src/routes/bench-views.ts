@@ -29,7 +29,7 @@ import type { Kind } from '../roles.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
 import { tableTarget, tableCsv } from '../bench-table.ts';
 import { benchStore, type BenchStore } from '../services/bench-store.ts';
-import { bindBench, linkWorkbench, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
+import { bindBench, linkWorkbench, renameBench, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
 import { relationOf } from '../team-relation.ts';
 import { checkBenchRequest, decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 import { viaBegin, viaSettle } from '../attention-via.ts';
@@ -230,6 +230,15 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     if (!everywhere(actor, 'bench-store.bench-link')) return void forbid(res);
     if (!getBench(req.params.bench)) return void res.status(404).json({ error: 'bench_not_found' });
     try { res.json(linkWorkbench(req.params.bench, req.body, idOf(actor), Date.now())); } catch (e) { fail(res, e); }
+  }));
+  // 只改台的名字（#905）：和改对应关系一样只有管理层，沿用同一个动作（都是改台的登记、不动谁进得来）。
+  // { title } 直接给名字，或 { from_card: true } 照对应卡片现在的名字抄；base_title 写了就核「我看到的是这个名字」
+  app.put('/api/bench-views/:bench/title', { action: 'bench-store.bench-link', kind: 'write', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const actor = await who(req, res);
+    if (!actor) return;
+    if (!everywhere(actor, 'bench-store.bench-link')) return void forbid(res);
+    if (!getBench(req.params.bench)) return void res.status(404).json({ error: 'bench_not_found' });
+    try { res.json(renameBench(req.params.bench, req.body, idOf(actor), Date.now())); } catch (e) { fail(res, e); }
   }));
 
   // —— 数据集 ——
