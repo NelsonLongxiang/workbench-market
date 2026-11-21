@@ -104,13 +104,13 @@ export default function Settings() {
 
   return (
     <WmPage subTitle="健康巡检 · 导入导出 · 系统信息">
-    <Flex vertical gap={16} className="wm-w-full" style={{ alignItems: 'flex-start' }}>
-      <Card title="健康巡检" className="wm-w-full" style={{ maxWidth: 640 }} styles={{ body: { paddingTop: 8 } }}>
+    <Flex vertical gap={16} align="flex-start" className="wm-w-full">
+      <Card title="健康巡检" className="wm-w-full wm-set-card" styles={{ body: { paddingTop: 8 } }}>
         <Form
           form={form}
           layout="vertical"
           onFinish={save}
-          style={{ maxWidth: 480 }}
+          className="wm-set-form"
         >
           <Form.Item
             name="health_interval_seconds"
@@ -118,13 +118,13 @@ export default function Settings() {
             rules={[{ required: true }]}
             extra="0 = 关闭定期巡检；最小生效值 10 秒。巡检由服务端后台执行，所有「启用」状态的工作台都会被探测"
           >
-            <InputNumber min={0} max={86400} step={10} style={{ width: 160 }} className="wm-num" />
+            <InputNumber min={0} max={86400} step={10} className="wm-num wm-set-num" />
           </Form.Item>
           <Form.Item name="health_timeout_ms" label="单次探测超时（毫秒）" rules={[{ required: true }]}>
-            <InputNumber min={500} max={60000} step={500} style={{ width: 160 }} className="wm-num" />
+            <InputNumber min={500} max={60000} step={500} className="wm-num wm-set-num" />
           </Form.Item>
           <Form.Item name="health_concurrency" label="探测并发数" rules={[{ required: true }]} extra="全部检测时同时探测的工作台数量">
-            <InputNumber min={1} max={32} style={{ width: 160 }} className="wm-num" />
+            <InputNumber min={1} max={32} className="wm-num wm-set-num" />
           </Form.Item>
           <Button type="primary" htmlType="submit" icon={<SaveOutlined />} loading={saving}>
             保存
@@ -132,7 +132,7 @@ export default function Settings() {
         </Form>
       </Card>
 
-      <Card title="数据备份 / 迁移" className="wm-w-full" style={{ maxWidth: 640 }} styles={{ body: { paddingTop: 12 } }}>
+      <Card title="数据备份 / 迁移" className="wm-w-full wm-set-card" styles={{ body: { paddingTop: 12 } }}>
         <Flex vertical gap={12} className="wm-w-full">
           <Space>
             <Button icon={<DownloadOutlined />} onClick={downloadExport}>
@@ -186,7 +186,7 @@ export default function Settings() {
 
       <Card
         title={<Space><KeyOutlined /><span>管理员口令</span></Space>}
-        className="wm-w-full" style={{ maxWidth: 640 }}
+        className="wm-w-full wm-set-card"
         styles={{ body: { paddingTop: 12 } }}
         extra={tokenState ? (
           tokenState.source === 'env' ? <Tag color="blue">启动环境提供</Tag>
@@ -201,7 +201,7 @@ export default function Settings() {
             : ' 设置后立即生效，库存仅 sha256 不可取回；清除后控制面回到休眠。'}
         </Typography.Paragraph>
         {tokenState?.settable ? (
-          <Space.Compact className="wm-w-full" style={{ maxWidth: 480 }}>
+          <Space.Compact className="wm-w-full wm-set-form">
             <Input.Password
               placeholder="新口令（4–128 字符）"
               value={newToken}
@@ -219,7 +219,7 @@ export default function Settings() {
         ) : null}
       </Card>
 
-      <Card title="关于" className="wm-w-full" style={{ maxWidth: 640 }} styles={{ body: { paddingTop: 8 } }}>
+      <Card title="关于" className="wm-w-full wm-set-card" styles={{ body: { paddingTop: 8 } }}>
         <Descriptions
           column={1}
           size="small"
