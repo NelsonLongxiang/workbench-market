@@ -28,7 +28,17 @@ ENTRY3 = {**ENTRY, 'version': 7, 'title': '合成巡检总览·三', 'views': [E
 SITE = {'name': 'site', 'kind': 'search', 'label': '区域'}
 OWNER = {'name': 'owner', 'kind': 'search', 'label': '负责人'}
 FORM = {'type': 'form', 'title': '登记一次巡检', 'span': 6, 'columns': [{'name': 'site', 'type': 'text', 'label': '区域', 'required': True}, {'name': 'n', 'type': 'integer', 'label': '件数'}], 'submit_label': '登记'}
+XSS = '<script>window.__xss=1</script><img src=x onerror="window.__xss=2">'
+RECORDS = {'type': 'records', 'title': '下一动作', 'title_col': 't', 'badges': ['st'], 'fields': ['who', 'purpose'], 'details': ['note'], 'date_col': 'day',
+           'links': [{'col': 'url', 'label': '查看依据'}, {'col': 'url2', 'label': '打开资料'}], 'value_labels': {'st': {'open': {'text': '进行中', 'tone': 'warning'}}}, 'page_size': 5, 'span': 12,
+           'data': {'columns': [{'name': 't', 'type': 'text', 'label': '动作'}, {'name': 'st', 'type': 'text', 'label': '状态'}, {'name': 'who', 'type': 'text', 'label': '负责人'}, {'name': 'purpose', 'type': 'text', 'label': '目的'},
+                                {'name': 'note', 'type': 'text', 'label': '说明'}, {'name': 'day', 'type': 'date', 'label': '约定时间'}, {'name': 'url', 'type': 'text', 'label': '来源'}, {'name': 'url2', 'type': 'text', 'label': '资料'}],
+                    'rows': [{'t': XSS, 'st': 'open', 'who': None, 'purpose': '长' * 200, 'note': XSS, 'day': None, 'url': 'https://ok.example/doc', 'url2': 'javascript:alert(1)'}]
+                            + [{'t': f'合成动作{i}', 'st': 'weird', 'who': '合成乙', 'purpose': '短', 'note': '短', 'day': '2026-11-21', 'url': None, 'url2': None} for i in range(2, 8)], 'truncated': False},
+           'link_targets': [[{'href': 'https://ok.example/doc', 'host': 'ok.example'}, None]] + [[None, None] for _ in range(2, 8)]}
 def view_result(view, params):
+    if mode.get('records') == 'on':
+        return {'title': ENTRY['title'], 'version': 5, 'view': {'key': view, 'title': '巡检看板'}, 'params': params, 'blocks': [RECORDS]}
     vt = next(v['title'] for v in ENTRY['views'] if v['key'] == view)
     n = 63 if not params.get('site') else 7
     rows = [{'site': '东区', 'n': 21, 'state': '正常'}, {'site': '西区', 'n': 42, 'state': '待查'}] if not params.get('site') else [{'site': params['site'], 'n': 7, 'state': '正常'}]
@@ -316,6 +326,44 @@ with sync_playwright() as p:
     q = q_of(pg)
     check('压着的取数放行以后：地址里两个筛选仍在，筛选栏里两个框都是填的值', q.get('p.site') == '北区' and q.get('p.owner') == '合成甲' and pg.locator('[data-filter=site] input').input_value() == '北区' and pg.locator('[data-filter=owner] input').input_value() == '合成甲', (q, pg.locator('[data-filter=site] input').input_value()))
     mode['filters'] = 'one'
+
+    print('九、记录卡（#858）')
+    mode['render'] = 'ok'; mode['entry'] = 'ok'; mode['records'] = 'on'
+    ctx.route('https://ok.example/**', lambda r: r.fulfill(status=200, content_type='text/plain', body='合成的来源页'))
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=records][data-bb-state=ready]')
+    cards = pg.locator('[data-testid=rec-card]')
+    check('每行一张卡片，按 page_size 分页：7 行这一页 5 张，上方写共 7 条', cards.count() == 5 and pg.locator('[data-testid=rec-count]').inner_text().startswith('共 7 条'), (cards.count(), pg.locator('[data-testid=rec-count]').inner_text()))
+    first = cards.first
+    check('字段一律当纯文本：带 <script>、<img onerror> 的标题原样当文字显示，页面上没有这两个元素、脚本没跑', XSS in first.inner_text() and first.locator('script, img').count() == 0 and pg.evaluate('() => window.__xss === undefined'), first.inner_text()[:200])
+    check('空值写「—」、空日期写「未填」；徽标照说法（进行中）', '—' in first.inner_text() and '未填' in first.inner_text() and '进行中' in first.inner_text())
+    check('没定义说法的取值：照原值显示，标「未定义的取值」', '未定义的取值' in cards.nth(1).inner_text())
+    link = first.locator('[data-testid=rec-link]')
+    check('来源链接只显示说法，不露网址；新窗口打开、带 noopener noreferrer；悬停和读屏给主机名', link.inner_text() == '查看依据' and 'ok.example/doc' not in first.inner_text()
+          and link.get_attribute('target') == '_blank' and link.get_attribute('rel') == 'noopener noreferrer' and 'ok.example' in (link.get_attribute('title') or '') and 'ok.example' in (link.get_attribute('aria-label') or ''), (link.get_attribute('title'), link.get_attribute('aria-label')))
+    check('javascript: 的来源：标「来源地址无效」，不渲染成链接', '来源地址无效' in first.locator('[data-testid=rec-link-invalid]').inner_text() and first.locator('a[href^="javascript"]').count() == 0)
+    check('长字段不撑破卡片：卡片宽度不超过网格的一列', pg.evaluate("() => { const c = document.querySelector('[data-testid=rec-card]'); return c.scrollWidth <= c.clientWidth + 1; }"))
+    check('次要字段收在「展开」里：一开始看不到', '说明' not in first.locator('dl').all_inner_texts()[0] and first.locator('.wm-rec-details').count() == 0)
+    # 键盘：Tab 走到「展开」，Enter 展开、再 Enter 收起；焦点样式看得见
+    toggle = first.locator('[data-testid=rec-toggle]')
+    pg.locator('[data-testid=bench-page-title]').click()
+    for _ in range(40):
+        pg.keyboard.press('Tab')
+        if pg.evaluate("() => document.activeElement?.getAttribute('data-testid') === 'rec-toggle'"): break
+    check('键盘 Tab 能走到「展开」，焦点样式看得见（有外框）', pg.evaluate("() => document.activeElement?.getAttribute('data-testid') === 'rec-toggle' && getComputedStyle(document.activeElement).outlineStyle !== 'none'"))
+    pg.keyboard.press('Enter')
+    pg.wait_for_function("() => document.querySelector('[data-testid=rec-toggle]')?.getAttribute('aria-expanded') === 'true'")
+    check('Enter 展开：次要字段出来了，长文字不再截断', first.locator('.wm-rec-details').count() == 1 and '说明' in first.inner_text() and first.locator('.wm-rec-clamp').count() == 0)
+    pg.keyboard.press('Enter')
+    pg.wait_for_function("() => document.querySelector('[data-testid=rec-toggle]')?.getAttribute('aria-expanded') === 'false'")
+    check('再 Enter 收起', first.locator('.wm-rec-details').count() == 0)
+    pg.keyboard.press('Tab')
+    check('再 Tab 走到来源链接，焦点样式看得见', pg.evaluate("() => document.activeElement?.getAttribute('data-testid') === 'rec-link' && getComputedStyle(document.activeElement).outlineStyle !== 'none'"))
+    with ctx.expect_page() as popup:
+        pg.keyboard.press('Enter')
+    newp = popup.value; newp.wait_for_load_state()
+    check('Enter 在新窗口打开来源，打开的是这条记录的地址', newp.url == 'https://ok.example/doc', newp.url)
+    newp.close()
+    mode['records'] = 'off'
 
     print('五、入口')
     mode['entry'] = '403'; pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('.wm-use-frame')
