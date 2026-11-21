@@ -149,7 +149,7 @@ function OneReport({ cardId, reportId, entry, column }: { cardId: string; report
         {rep.superseded_by !== null ? <Alert type="warning" showIcon data-testid="report-superseded" message={<>这份报告已被更正，<Link to={`${base}?report=${rep.superseded_by}`}>看更正后的那份</Link></>} /> : null}
         {rep.supersedes !== null ? <div className="wm-rp-meta" data-testid="report-supersedes">更正了 <Link to={`${base}?report=${rep.supersedes}`}>之前那份</Link></div> : null}
         <div className="wm-rp-status">
-          <Tag color={d.open_disputes > 0 ? 'red' : 'green'} data-testid="report-open-disputes">{d.open_disputes > 0 ? `未处理的反驳 ${d.open_disputes} 处` : '没有未处理的反驳'}</Tag>
+          <Tag color={d.open_disputes > 0 ? 'error' : 'success'} data-testid="report-open-disputes">{d.open_disputes > 0 ? `未处理的反驳 ${d.open_disputes} 处` : '没有未处理的反驳'}</Tag>
           {gateText(d.gate) ? <span className="wm-rp-meta" data-testid="report-gate">{gateText(d.gate)}</span> : null}
         </div>
       </header>
@@ -164,7 +164,7 @@ function OneReport({ cardId, reportId, entry, column }: { cardId: string; report
             <div className="wm-rp-claim-head">
               <Tag>{kindLabel(d.template.claims, c.kind)}</Tag>
               <span className="wm-rp-claim-key">{c.claim_key}</span>
-              {c.open_dispute ? <Tag color="red" data-testid="report-claim-open">有未处理的反驳</Tag> : null}
+              {c.open_dispute ? <Tag color="error" data-testid="report-claim-open">有未处理的反驳</Tag> : null}
             </div>
             <p className="wm-rp-claim-text">{c.text}</p>
             {c.basis.length ? <div className="wm-rp-meta">依据：{c.basis.map((b) => `${b.slot} ${b.key.join('/')}`).join('；')}</div> : null}
@@ -190,7 +190,7 @@ function Responses({ list }: { list: ReportResponse[] }) {
     <ul className="wm-rp-responses">
       {list.map((r) => (
         <li key={r.id} className={replaced.has(r.id) ? 'wm-rp-resp wm-rp-replaced' : 'wm-rp-resp'} data-testid="report-response" data-stance={r.stance} data-kind={r.responder_kind} data-replaced={replaced.has(r.id) ? 'true' : 'false'}>
-          <Tag color={r.stance === 'dispute' ? 'red' : r.stance === 'agree' ? 'green' : 'blue'}>{stanceText(r.stance)}</Tag>
+          <Tag color={r.stance === 'dispute' ? 'error' : r.stance === 'agree' ? 'success' : 'processing'}>{stanceText(r.stance)}</Tag>
           {r.responder_kind === 'ai' ? <Tag color="purple" data-testid="report-response-ai">AI</Tag> : null}
           <span className="wm-rp-reason">{r.reason}</span>
           <span className="wm-rp-meta"> — {r.responder}{r.position ? `（${r.position}）` : ''} · {timeText(r.created_at)}{r.mine ? ' · 我' : ''}</span>
