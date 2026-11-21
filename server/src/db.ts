@@ -5,6 +5,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DB_BUSY_TIMEOUT_MS } from './db-busy.ts';
+import { defineConfig, loadConfig } from './config.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const dataDir = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(here, '..', 'data');
@@ -39,6 +40,54 @@ export function hasTable(table: string): boolean {
 /** 有没有这个索引 */
 export function hasIndex(index: string): boolean {
   return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").get(schemaIdent(index)));
+}
+/** 视图现在的定义（建它的那句 SQL 原文，去掉首尾空白和结尾的分号）；没有这个视图是 null */
+export function viewSql(view: string): string | null {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'view' AND name = ?").get(schemaIdent(view)) as { sql: unknown } | undefined;
+  return row ? normSql(String(row.sql ?? '')) : null;
+}
+const normSql = (sql: string): string => sql.trim().replace(/;+\s*$/, '');
+
+/**
+ * 只给测试用（WM_TEST_SCHEMA_PAUSE_MS，毫秒，0～5000）：装视图时在「核对定义」和「删」之间、「删」和「建」之间各停这么久，把多进程同时启动的竞态窗口撑大，
+ * 让「去掉事务」这类回归在测试里每次都红。只在 NODE_ENV=test 时认，别的环境设了拒绝启动；生产上恒为 0。
+ */
+export const SchemaTestConfig = defineConfig((env) => {
+  const raw = String(env.WM_TEST_SCHEMA_PAUSE_MS ?? '').trim();
+  if (raw === '') return { pauseMs: 0 };
+  if (env.NODE_ENV !== 'test') throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_PAUSE_MS 只给测试用（NODE_ENV=test），生产上不要设');
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 0 || n > 5000) throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_PAUSE_MS 要写成 0～5000 的整数（毫秒）');
+  return { pauseMs: n };
+});
+const schemaTest = loadConfig(SchemaTestConfig);
+/** 测试用的停顿（生产上 pauseMs 恒为 0，不停） */
+const testPause = (): void => { if (schemaTest.pauseMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, schemaTest.pauseMs); };
+
+/**
+ * 启动时装视图：幂等，多个进程同时打开同一个库也不会互相撞。
+ * 在 BEGIN IMMEDIATE 里比现有定义：一样就跳过；不一样（或者还没有）才 DROP + CREATE，所以视图定义改了照样会更新。
+ * 原来每次启动都无条件 DROP VIEW IF EXISTS、再 CREATE VIEW，分两次提交：两个进程同时启动、按「删、删、建、建」交错时，
+ * 后建的那个报 view already exists，进程起不来（#933 的 CI 上 bench-provenance-test 的两进程用例偶发红）。
+ * createSql 要以 `CREATE VIEW <view> AS` 开头。返回这一次做了什么（测试用）。
+ */
+export function ensureView(view: string, createSql: string): 'created' | 'replaced' | 'unchanged' {
+  const want = normSql(createSql);
+  if (!want.startsWith(`CREATE VIEW ${schemaIdent(view)} AS`)) throw new Error(`[db] 视图 ${view} 的定义要以 CREATE VIEW ${view} AS 开头`);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const cur = viewSql(view);
+    let did: 'created' | 'replaced' | 'unchanged' = 'unchanged';
+    if (cur !== want) {
+      testPause();
+      db.exec(`DROP VIEW IF EXISTS ${view}`);
+      testPause();
+      db.exec(want);
+      did = cur === null ? 'created' : 'replaced';
+    }
+    db.exec('COMMIT');
+    return did;
+  } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
 }
 
 
@@ -1150,9 +1199,11 @@ CREATE TRIGGER IF NOT EXISTS work_items_start_draft BEFORE INSERT ON work_items 
 // 阶段八 8c 前：被拒的事实（f8d07a9）原因记在 work_item_log 单独的 rejected 列，不再放调用方能写的 detail 里。
 //   旧库补列，并把 8b 写在 detail.rejected 里的原因搬过来（那时只有事项服务自己写日志，detail.rejected 都是真的）。
 //   日志只增不改：搬的这一次在同一个事务里先拿掉改写触发器、改完立刻装回；补列之后不会再走这段。
+//   要不要搬在 BEGIN IMMEDIATE 里再核一次：两个进程同时启动、都看到还没补列时，后进来的那个在这里看到已经补过了就跳过，不会再补一次列报错
 if (!(tableColumns('work_item_log') as { name: string }[]).some((c) => c.name === 'rejected')) {
   db.exec('BEGIN IMMEDIATE');
   try {
+    if ((tableColumns('work_item_log') as { name: string }[]).some((c) => c.name === 'rejected')) { db.exec('COMMIT'); } else {
     db.exec(`ALTER TABLE work_item_log ADD COLUMN rejected TEXT NOT NULL DEFAULT '' CHECK (rejected IN ('', 'not_allowed', 'terminal'));
 DROP TRIGGER IF EXISTS work_item_log_no_update;
 UPDATE work_item_log SET rejected = json_extract(detail, '$.rejected'), detail = json_remove(detail, '$.rejected')
@@ -1160,7 +1211,8 @@ UPDATE work_item_log SET rejected = json_extract(detail, '$.rejected'), detail =
 CREATE TRIGGER work_item_log_no_update BEFORE UPDATE ON work_item_log
   BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END;`);
     db.exec('COMMIT');
-  } catch (e) { db.exec('ROLLBACK'); throw e; }
+    }
+  } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
 }
 // 阶段八 8e：建立人的主体标识（可空）。「是不是他的事项」只认这一列；created_by 只用于显示，不参与任何判定。
 //   只在建立事项时由事项服务从事件里取：提交请求经身份服务认出了人、且事件的提交方是已验证的，才有值；否则留空。
@@ -1373,13 +1425,14 @@ if (!hasColumn('a2a_roster_changes', 'peer_root')) {
 // 按 host 匹配只认这个视图里的行：没标 needs_review（表约束保证这样的行都带成形的完整指纹）、对端没停用也不在等确认新键、
 // 记着的完整指纹就是此刻钉住的那把（对端还没钉住键、或者没登记的照旧算），而且同一个 host 下这样的行只有一行——
 // 两个节点报了同一个 host（指纹前 8 位撞了），两行都不算，等管理员停用其中一个
-db.exec('DROP VIEW IF EXISTS a2a_rosters_live');
-db.exec(`CREATE VIEW a2a_rosters_live AS
+export const A2A_ROSTERS_LIVE_SQL = `CREATE VIEW a2a_rosters_live AS
 WITH cand AS (
   SELECT r.peer_root, r.key_fingerprint, r.host, r.peer_zone, r.reported_at, r.received_at FROM a2a_roster_nodes r LEFT JOIN a2a_peers p ON p.root_url = r.peer_root
   WHERE r.needs_review = 0 AND (p.root_url IS NULL OR (p.status NOT IN ('disabled', 'key_changed') AND (p.key_fingerprint = '' OR p.key_fingerprint = r.key_fingerprint)))
 )
-SELECT c.* FROM cand c WHERE (SELECT COUNT(*) FROM cand d WHERE d.host = c.host) = 1`);
+SELECT c.* FROM cand c WHERE (SELECT COUNT(*) FROM cand d WHERE d.host = c.host) = 1`;
+/** 启动时这个视图做了什么（created / replaced / unchanged）：db-startup-race-test 读它 */
+export const a2aRostersLiveSetup = ensureView('a2a_rosters_live', A2A_ROSTERS_LIVE_SQL);
 
 // 团队的决策卡（观察者落地 T8，第 18 篇第七节）：宿主在卡建立、定了、丢弃时推来的元数据，只给属主看（「关注」的 a2a-decisions）。
 //   键是（签名宿主的根地址、钥匙完整指纹、团队、宿主上的卡号）：别的宿主报不了这台宿主的卡。
@@ -1476,11 +1529,13 @@ CREATE INDEX IF NOT EXISTS idx_department_members_principal ON department_member
 //   area_events 第 1 步 PR2b 多两种：lead-active（有了生效的负责人，pending-lead → active）、lead-missing（没有了，active → pending-lead）。
 //   旧库的 CHECK 改不了：整表搬一次（触发器、索引先拆，建新表后照原样搬行，旧表删掉），幂等。
 {
-  const old = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'area_events'").get() as { sql: string } | undefined;
-  if (old && !old.sql.includes("'lead-missing'")) {
+  const oldAreaEvents = () => db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'area_events'").get() as { sql: string } | undefined;
+  const needs = () => { const old = oldAreaEvents(); return !!old && !old.sql.includes("'lead-missing'"); };
+  // 事务里再核一次：两个进程同时启动时，后进来的那个看到已经拆过了就跳过（不然会把对方刚建的新表也改名、或者找不到表报错）
+  if (needs()) {
     db.exec('BEGIN IMMEDIATE');
     try {
-      db.exec(`DROP TRIGGER IF EXISTS area_events_no_update; DROP TRIGGER IF EXISTS area_events_no_delete; DROP TRIGGER IF EXISTS area_events_no_replace;
+      if (needs()) db.exec(`DROP TRIGGER IF EXISTS area_events_no_update; DROP TRIGGER IF EXISTS area_events_no_delete; DROP TRIGGER IF EXISTS area_events_no_replace;
         DROP INDEX IF EXISTS idx_area_events_area; ALTER TABLE area_events RENAME TO area_events_pr1;`);
       db.exec('COMMIT');
     } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
@@ -1549,10 +1604,11 @@ CREATE TRIGGER IF NOT EXISTS area_events_no_replace BEFORE INSERT ON area_events
   BEGIN SELECT RAISE(ABORT, 'area_events 只增不改'); END;
 `);
 // 上面拆出来的旧留痕表：原样搬回新表（编号不变），再删掉
-if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'area_events_pr1'").get()) {
+// 同样在事务里再核一次：别的进程已经搬完、把旧表删了，就跳过
+if (hasTable('area_events_pr1')) {
   db.exec('BEGIN IMMEDIATE');
   try {
-    db.exec(`INSERT INTO area_events (seq, area_id, kind, version, actor, actor_principal, at, detail)
+    if (hasTable('area_events_pr1')) db.exec(`INSERT INTO area_events (seq, area_id, kind, version, actor, actor_principal, at, detail)
       SELECT seq, area_id, kind, version, actor, actor_principal, at, detail FROM area_events_pr1 ORDER BY seq; DROP TABLE area_events_pr1;`);
     db.exec('COMMIT');
   } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
