@@ -33,6 +33,7 @@ const SECRET_FIELDS = new Set<keyof VaultEntry>(['password', 'privateKey', 'apiK
 const MULTILINE = new Set<keyof VaultEntry>(['privateKey', 'accessToken', 'refreshToken']);
 const C = T.colors;
 const STRENGTH_COLOR: Record<Strength['verdict'], string> = { weak: C['danger-text'], fair: C['warning-text'], strong: C.success, 'very strong': C['success-text'] };
+const STRENGTH_TONE: Record<Strength['verdict'], string> = { weak: 'wm-tone-danger', fair: 'wm-tone-warning', strong: 'wm-tone-success', 'very strong': 'wm-tone-success' };
 const STRENGTH_LABEL: Record<Strength['verdict'], string> = { weak: '弱', fair: '一般', strong: '强', 'very strong': '很强' };
 const ACTION_LABEL: Record<string, string> = { add: '新增', update: '修改', delete: '移入回收站', restore: '恢复', purge: '永久删除', read: '查看密钥', totp: '取验证码', search: '检索', switch: '切换库', merge: '合并', rollback: '回滚密码' };
 const fmtTime = (ms?: number) => (ms ? new Date(ms).toLocaleString('zh-CN', { hour12: false }) : '—');
@@ -99,9 +100,9 @@ function UnlockView({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (
   const reasons = rejected.length ? rejected : check && !check.ok ? check.reasons : [];
   return (
     <WmPage subTitle="加密保存账号、密码、TOTP、SSH、API Key 与 OAuth 令牌（dsh-vault 同款加密格式）">
-      <Card style={{ maxWidth: 480, margin: '40px auto' }}>
-        <Space direction="vertical" size={16} style={{ width: '100%' }}>
-          <Space><LockOutlined style={{ fontSize: 22 }} /><Typography.Title level={4} style={{ margin: 0 }}>{status.exists ? '凭据库已锁定' : '创建凭据库'}</Typography.Title></Space>
+      <Card className="wm-vault-unlock">
+        <Space direction="vertical" size={16} className="wm-w-full">
+          <Space><LockOutlined className="wm-vault-lock-ic" /><Typography.Title level={4} className="wm-m-0">{status.exists ? '凭据库已锁定' : '创建凭据库'}</Typography.Title></Space>
           <Typography.Text type="secondary">
             {creating
               ? `库文件还不存在：这次输入的主密码会用来创建新库。主密码至少 ${status.master_policy.min_length} 个字符、不能全是数字、不能是常见口令；无法找回，请妥善保管。`
@@ -112,13 +113,13 @@ function UnlockView({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (
             {creating && check ? <StrengthBar s={check.strength} hint={false} /> : null}
           </div>
           {reasons.length ? (
-            <Alert type="error" showIcon message={rejected.length ? '主密码不满足新建库要求，没有创建库文件' : '主密码还不满足新建库要求'} description={<ul style={{ margin: 0, paddingLeft: 18 }}>{reasons.map((r) => <li key={r}>{r}</li>)}</ul>} />
+            <Alert type="error" showIcon message={rejected.length ? '主密码不满足新建库要求，没有创建库文件' : '主密码还不满足新建库要求'} description={<ul className="wm-vault-reasons">{reasons.map((r) => <li key={r}>{r}</li>)}</ul>} />
           ) : null}
           {creating ? <Input.Password placeholder="再输一次主密码" value={pw2} status={mismatch ? 'error' : undefined} onChange={(e) => setPw2(e.target.value)} onPressEnter={submit} autoComplete="new-password" /> : null}
           {mismatch ? <Typography.Text type="danger">两次输入不一致</Typography.Text> : null}
           <Button type="primary" block icon={<UnlockOutlined />} loading={busy} disabled={!ready} onClick={submit}>{creating ? '创建并解锁' : '解锁'}</Button>
           {status.shared_with_dsh ? <SharedWarning /> : null}
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>库文件：<Typography.Text code>{status.path}</Typography.Text> · {status.upstream}</Typography.Text>
+          <Typography.Text type="secondary" className="wm-caption">库文件：<Typography.Text code>{status.path}</Typography.Text> · {status.upstream}</Typography.Text>
         </Space>
       </Card>
     </WmPage>
@@ -129,7 +130,7 @@ function UnlockView({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (
 function WeakMasterNotice({ reasons }: { reasons: string[] }) {
   return (
     <Alert
-      type="warning" showIcon closable style={{ marginBottom: 12 }}
+      type="warning" showIcon closable className="wm-mb-3"
       message="主密码低于新标准，建议更换"
       description={`${reasons.join('；')}。库照常可用；但拿到库文件的人可以离线反复猜主密码，弱主密码撑不了多久。`
         + '当前 dsh-vault 1.10.75 还不能直接修改主密码，要换只能用强主密码新建一个库（WM_VAULT_PATH 指向新文件）再把条目搬过去。'}
@@ -169,9 +170,9 @@ function UnlockedView({ status, onLocked, onError }: { status: VaultStatus; onLo
       title: '标题', dataIndex: 'title', width: 220,
       render: (_, r) => (
         <Space size={6}>
-          {r.favorite ? <StarFilled style={{ color: C.warning }} /> : null}
+          {r.favorite ? <StarFilled className="wm-vault-star" /> : null}
           {r.icon ? <span>{r.icon}</span> : null}
-          <Typography.Link onClick={() => setViewId(r.id)} style={{ fontWeight: 600 }}>{r.title}</Typography.Link>
+          <Typography.Link onClick={() => setViewId(r.id)} className="wm-strong">{r.title}</Typography.Link>
         </Space>
       ),
     },
@@ -201,7 +202,7 @@ function UnlockedView({ status, onLocked, onError }: { status: VaultStatus; onLo
       ]}
     >
       {status.weak_master ? <WeakMasterNotice reasons={status.weak_reasons} /> : null}
-      {status.shared_with_dsh ? <div style={{ marginBottom: 12 }}><SharedWarning /></div> : null}
+      {status.shared_with_dsh ? <div className="wm-mb-3"><SharedWarning /></div> : null}
       <Card>
         <Tabs
           activeKey={tab}
@@ -212,9 +213,9 @@ function UnlockedView({ status, onLocked, onError }: { status: VaultStatus; onLo
               key: 'entries', label: `条目${stats ? ` ${stats.total}` : ''}`,
               children: (
                 <>
-                  <Space wrap style={{ marginBottom: 12 }}>
-                    <Input.Search allowClear placeholder="检索标题/账号/主机/网址/标签（不搜密钥）" style={{ width: 340 }} onSearch={setQ} />
-                    <Select allowClear placeholder="全部类型" style={{ width: 140 }} value={kind || undefined} onChange={(v) => setKind(v ?? '')} options={VAULT_KINDS.map((k) => ({ value: k, label: `${KIND_LABEL[k]}${stats?.byKind[k] ? ` · ${stats.byKind[k]}` : ''}` }))} />
+                  <Space wrap className="wm-mb-3">
+                    <Input.Search allowClear placeholder="检索标题/账号/主机/网址/标签（不搜密钥）" className="wm-vault-search" onSearch={setQ} />
+                    <Select allowClear placeholder="全部类型" className="wm-vault-kind-sel" value={kind || undefined} onChange={(v) => setKind(v ?? '')} options={VAULT_KINDS.map((k) => ({ value: k, label: `${KIND_LABEL[k]}${stats?.byKind[k] ? ` · ${stats.byKind[k]}` : ''}` }))} />
                     {stats ? <Typography.Text type="secondary">含 TOTP {stats.withTotp} · 已过期 {stats.expired} · 回收站 {stats.trashCount}</Typography.Text> : null}
                   </Space>
                   <ProTable<VaultSummary>
@@ -243,9 +244,9 @@ function SecretValue({ value, multiline }: { value: string; multiline?: boolean 
   const { message } = App.useApp();
   const copy = () => navigator.clipboard.writeText(value).then(() => message.success('已复制')).catch(() => message.error('复制失败（浏览器未授权剪贴板）'));
   return (
-    <Space align="start" size={4} style={{ width: '100%' }}>
+    <Space align="start" size={4} className="wm-w-full">
       {shown
-        ? <Typography.Text className="wm-mono" style={{ whiteSpace: multiline ? 'pre-wrap' : undefined, wordBreak: 'break-all', fontSize: 12 }}>{value}</Typography.Text>
+        ? <Typography.Text className={multiline ? 'wm-mono wm-caption wm-break wm-prewrap' : 'wm-mono wm-caption wm-break'}>{value}</Typography.Text>
         : <Typography.Text type="secondary">••••••••••</Typography.Text>}
       <Tooltip title={shown ? '隐藏' : '显示'}><Button type="text" size="small" icon={shown ? <EyeInvisibleOutlined /> : <EyeOutlined />} onClick={() => setShown(!shown)} /></Tooltip>
       <Tooltip title="复制"><Button type="text" size="small" icon={<CopyOutlined />} onClick={copy} /></Tooltip>
@@ -272,7 +273,7 @@ function TotpCode({ id, onError }: { id: string; onError: (e: unknown) => void }
   const left = Math.max(0, code.period - (Math.floor(Date.now() / 1000) % code.period));
   return (
     <Space>
-      <Typography.Text className="wm-mono" style={{ fontSize: 20, letterSpacing: 4 }} copyable={{ text: code.code }}>{code.code.slice(0, 3)} {code.code.slice(3)}</Typography.Text>
+      <Typography.Text className="wm-mono wm-vault-totp" copyable={{ text: code.code }}>{code.code.slice(0, 3)} {code.code.slice(3)}</Typography.Text>
       <Progress type="circle" size={28} percent={(left / code.period) * 100} format={() => left} />
     </Space>
   );
@@ -296,13 +297,13 @@ function EntryDrawer({ id, onClose, onEdit, onError }: { id: string | null; onCl
               {SECRET_FIELDS.has(k) ? <SecretValue value={String(entry[k])} multiline={MULTILINE.has(k)} />
                 : k === 'expiresAt' ? fmtTime(entry.expiresAt)
                 : k === 'url' ? <Typography.Text className="wm-mono" copyable>{entry.url}</Typography.Text>
-                : k === 'notes' ? <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', margin: 0 }}>{entry.notes}</Typography.Paragraph>
+                : k === 'notes' ? <Typography.Paragraph className="wm-prewrap wm-m-0">{entry.notes}</Typography.Paragraph>
                 : <Typography.Text copyable>{String(entry[k])}</Typography.Text>}
             </Descriptions.Item>
           ))}
           {entry.otpSecret ? <Descriptions.Item label="TOTP 密钥"><SecretValue value={entry.otpSecret} /></Descriptions.Item> : null}
           {entry.tags?.length ? <Descriptions.Item label="标签">{entry.tags.map((t) => <Tag key={t}>{t}</Tag>)}</Descriptions.Item> : null}
-          {entry.fields && Object.keys(entry.fields).length ? <Descriptions.Item label="自定义字段"><Typography.Text className="wm-mono" style={{ fontSize: 12 }}>{JSON.stringify(entry.fields)}</Typography.Text></Descriptions.Item> : null}
+          {entry.fields && Object.keys(entry.fields).length ? <Descriptions.Item label="自定义字段"><Typography.Text className="wm-mono wm-caption">{JSON.stringify(entry.fields)}</Typography.Text></Descriptions.Item> : null}
           {entry.attachments?.length ? <Descriptions.Item label="附件">{entry.attachments.map((a) => a.name).join('、')}（经 DSH 工具 vault_attachment 读取）</Descriptions.Item> : null}
           {entry.cookieCount ? <Descriptions.Item label="Cookie">{entry.cookieCount} 个（经 DSH 工具 vault_session_export 导出）</Descriptions.Item> : null}
           {entry.passwordHistoryCount ? <Descriptions.Item label="历史密码">{entry.passwordHistoryCount} 条</Descriptions.Item> : null}
@@ -326,10 +327,10 @@ function StrengthMeter({ password }: { password?: string }) {
 /** hint=false：新建主密码页已有中文原因，不再重复上游的英文提示 */
 function StrengthBar({ s, hint = true }: { s: Strength; hint?: boolean }) {
   return (
-    <Space size={8} style={{ marginTop: 4 }}>
+    <Space size={8} className="wm-mt-1">
       <Progress percent={s.score} steps={10} size="small" strokeColor={STRENGTH_COLOR[s.verdict]} showInfo={false} />
-      <Typography.Text style={{ color: STRENGTH_COLOR[s.verdict], fontSize: 12 }}>{STRENGTH_LABEL[s.verdict]}（{s.score}）</Typography.Text>
-      {hint && s.feedback[0] && s.score < 70 ? <Typography.Text type="secondary" style={{ fontSize: 12 }}>{s.feedback[0]}</Typography.Text> : null}
+      <Typography.Text className={`wm-caption ${STRENGTH_TONE[s.verdict]}`}>{STRENGTH_LABEL[s.verdict]}（{s.score}）</Typography.Text>
+      {hint && s.feedback[0] && s.score < 70 ? <Typography.Text type="secondary" className="wm-caption">{s.feedback[0]}</Typography.Text> : null}
     </Space>
   );
 }
@@ -391,16 +392,16 @@ function EntryForm({ entry, onClose, onSaved, onError }: { entry: VaultEntry | n
   return (
     <Modal open title={entry ? `编辑：${entry.title}` : '新增凭据'} onCancel={onClose} onOk={submit} confirmLoading={saving} okText="保存" width={600} destroyOnClose>
       <Form form={form} layout="vertical" initialValues={initial} autoComplete="off">
-        <Space.Compact style={{ width: '100%' }}>
-          <Form.Item name="title" label="标题" rules={[{ required: true, whitespace: true, message: '标题必填' }]} style={{ flex: 1 }}><Input placeholder="例如 GitHub 个人账号" /></Form.Item>
-          <Form.Item name="kind" label="类型" style={{ width: 150 }}><Select options={VAULT_KINDS.map((k) => ({ value: k, label: KIND_LABEL[k] }))} /></Form.Item>
+        <Space.Compact className="wm-w-full">
+          <Form.Item name="title" label="标题" rules={[{ required: true, whitespace: true, message: '标题必填' }]} className="wm-flex-1"><Input placeholder="例如 GitHub 个人账号" /></Form.Item>
+          <Form.Item name="kind" label="类型" className="wm-vault-form-kind"><Select options={VAULT_KINDS.map((k) => ({ value: k, label: KIND_LABEL[k] }))} /></Form.Item>
         </Space.Compact>
         {shown.map((k) => {
           const label = FIELD_LABEL[k] ?? k;
           if (k === 'password') {
             return (
               <Form.Item key={k} label={label}>
-                <Space.Compact style={{ width: '100%' }}>
+                <Space.Compact className="wm-w-full">
                   <Form.Item name="password" noStyle><Input.Password autoComplete="new-password" /></Form.Item>
                   <GenerateButton onPick={(pw) => form.setFieldValue('password', pw)} onError={onError} />
                 </Space.Compact>
@@ -426,28 +427,29 @@ function HealthTab({ onError, onOpen }: { onError: (e: unknown) => void; onOpen:
   useEffect(() => { vaultApi.health().then(setH).catch(onError); }, [onError]);
   if (!h) return <Spin />;
   const color = h.verdict === 'good' ? C['success-text'] : h.verdict === 'fair' ? C['warning-text'] : C['danger-text'];
+  const tone = h.verdict === 'good' ? 'wm-tone-success' : h.verdict === 'fair' ? 'wm-tone-warning' : 'wm-tone-danger';
   const list = (title: string, items: VaultSummary[], hint: string) => (
-    <Card size="small" title={`${title}（${items.length}）`} extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>{hint}</Typography.Text>}>
-      {items.length === 0 ? <Typography.Text type="secondary">无</Typography.Text> : <Space wrap>{items.map((e) => <Tag key={e.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(e.id)}>{e.title}</Tag>)}</Space>}
+    <Card size="small" title={`${title}（${items.length}）`} extra={<Typography.Text type="secondary" className="wm-caption">{hint}</Typography.Text>}>
+      {items.length === 0 ? <Typography.Text type="secondary">无</Typography.Text> : <Space wrap>{items.map((e) => <Tag key={e.id} className="wm-vault-tag-click" onClick={() => onOpen(e.id)}>{e.title}</Tag>)}</Space>}
     </Card>
   );
   return (
-    <Space direction="vertical" size={12} style={{ width: '100%' }}>
+    <Space direction="vertical" size={12} className="wm-w-full">
       <Space size={24} align="center">
-        <Progress type="dashboard" percent={h.score} strokeColor={color} format={(p) => <span style={{ color }}>{p}</span>} />
+        <Progress type="dashboard" percent={h.score} strokeColor={color} format={(p) => <span className={tone}>{p}</span>} />
         <Space direction="vertical" size={2}>
-          <Typography.Title level={4} style={{ margin: 0, color }}>{h.verdict === 'good' ? '良好' : h.verdict === 'fair' ? '一般' : '较差'}</Typography.Title>
+          <Typography.Title level={4} className={`wm-m-0 ${tone}`}>{h.verdict === 'good' ? '良好' : h.verdict === 'fair' ? '一般' : '较差'}</Typography.Title>
           <Typography.Text type="secondary">密码强度：弱 {h.strength.weak} · 一般 {h.strength.fair} · 强 {h.strength.strong}</Typography.Text>
         </Space>
       </Space>
       {list('弱密码', h.weak, '短于 12 位')}
-      <Card size="small" title={`复用的密码/密钥（${h.reused.length} 组）`} extra={<Typography.Text type="secondary" style={{ fontSize: 12 }}>同一值出现在多个条目</Typography.Text>}>
-        {h.reused.length === 0 ? <Typography.Text type="secondary">无</Typography.Text> : h.reused.map((g, i) => <div key={i} style={{ marginBottom: 4 }}><Typography.Text type="secondary">第 {i + 1} 组 · {g.count} 处：</Typography.Text>{g.entries.map((e) => <Tag key={e.id} style={{ cursor: 'pointer' }} onClick={() => onOpen(e.id)}>{e.title}</Tag>)}</div>)}
+      <Card size="small" title={`复用的密码/密钥（${h.reused.length} 组）`} extra={<Typography.Text type="secondary" className="wm-caption">同一值出现在多个条目</Typography.Text>}>
+        {h.reused.length === 0 ? <Typography.Text type="secondary">无</Typography.Text> : h.reused.map((g, i) => <div key={i} className="wm-mb-1"><Typography.Text type="secondary">第 {i + 1} 组 · {g.count} 处：</Typography.Text>{g.entries.map((e) => <Tag key={e.id} className="wm-vault-tag-click" onClick={() => onOpen(e.id)}>{e.title}</Tag>)}</div>)}
       </Card>
       {list('未启用两步验证', h.no2fa, '有密码但没存 TOTP')}
       {list('不安全网址', h.httpSites, 'http:// 明文站点')}
       <Card size="small" title={`到期 / 待轮换（${h.rotation.length}）`}>
-        {h.rotation.length === 0 ? <Typography.Text type="secondary">无</Typography.Text> : <Space wrap>{h.rotation.map((e) => <Tag key={e.id} color={e.due === 'expired' ? 'error' : e.due === 'due' ? 'warning' : 'processing'} style={{ cursor: 'pointer' }} onClick={() => onOpen(e.id)}>{e.title} · {e.due === 'expired' ? '已过期' : e.due === 'due' ? '该轮换' : `${e.daysLeft} 天内`}</Tag>)}</Space>}
+        {h.rotation.length === 0 ? <Typography.Text type="secondary">无</Typography.Text> : <Space wrap>{h.rotation.map((e) => <Tag key={e.id} color={e.due === 'expired' ? 'error' : e.due === 'due' ? 'warning' : 'processing'} className="wm-vault-tag-click" onClick={() => onOpen(e.id)}>{e.title} · {e.due === 'expired' ? '已过期' : e.due === 'due' ? '该轮换' : `${e.daysLeft} 天内`}</Tag>)}</Space>}
       </Card>
     </Space>
   );

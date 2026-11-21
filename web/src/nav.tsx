@@ -17,11 +17,12 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 
-export interface NavPage { path: string; name: string; icon: ReactNode }
+export interface NavPage { path: string; name: string; icon: ReactNode; /** 侧栏内分段小标题（按语义拆成 ≤3 项一组，保持同一 nav 容器兼容） */ section?: string }
 /** key 只当菜单键用，不对应路由 */
 export interface NavGroup { key: string; name: string; admin?: boolean; /** 不进侧栏，只给页面名、面包屑用（弃用中的旧入口） */ hidden?: boolean; pages: NavPage[] }
 
 /** 入口按原型排（产品化 3fbfd0b）：主入口一列，顺序是 全景、事项、驾驶舱、领域、团队、谁能做什么、工作台市场、经验库（领域照原型 #/domains，统筹 11-20：领域第 1 步先只做列表；「团队」先保留，不在这次替换）。
+ *  按 PATTERNS.md §2.1（每组 ≤6 项）与认知负荷分段：日常（全景/事项/驾驶舱）→ 组织与权限（领域/团队/谁能做什么）→ 市场与知识（工作台市场/经验库）。
  *  属主 2026-11-11：原来的 UI 弃用，按原型重新长；旧版页面直接弃用，不再给任何入口。下面的隐藏组只留页面名给还没删的旧路由用，
  *  旧页面代码的删除单独成 PR。 */
 const BASE_GROUPS: NavGroup[] = [
@@ -29,10 +30,10 @@ const BASE_GROUPS: NavGroup[] = [
     { path: '/', name: '全景', icon: <DashboardOutlined /> },
     { path: '/work-items', name: '事项', icon: <ProfileOutlined /> },
     { path: '/cockpit', name: '驾驶舱', icon: <LayoutOutlined /> },
-    { path: '/areas', name: '领域', icon: <ApartmentOutlined /> },
+    { path: '/areas', name: '领域', section: '组织与权限', icon: <ApartmentOutlined /> },
     { path: '/team', name: '团队', icon: <TeamOutlined /> },
     { path: '/access', name: '谁能做什么', icon: <SafetyOutlined /> },
-    { path: '/market', name: '工作台市场', icon: <AppstoreOutlined /> },
+    { path: '/market', name: '工作台市场', section: '市场与知识', icon: <AppstoreOutlined /> },
     { path: '/knowledge', name: '经验库', icon: <BookOutlined /> },
   ] },
   { key: '/g/legacy', name: '旧入口', hidden: true, pages: [
