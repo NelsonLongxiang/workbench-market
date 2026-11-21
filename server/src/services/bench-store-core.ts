@@ -31,7 +31,7 @@ import type { BenchDialect, BenchSqlKit } from '../db.ts';
 import { isInsideRoot } from '../path-inside.ts';
 import { isVarRef } from '../bench-bindings.ts';
 import {
-  BENCH_LIMITS, BenchError, COLUMN_TYPES, NAME_RE, coerceValue, decodeValue, physCol, physTable, planQuery, publicColumn,
+  BENCH_LIMITS, BenchError, COLUMN_TYPES, NAME_RE, SYSTEM_COLUMNS, coerceValue, decodeValue, hasProvenance, physCol, physTable, planQuery, publicColumn,
   type ColumnDef, type DatasetDef, type OutColumn,
 } from '../bench-query.ts';
 import { diffJson, validateViewDoc, type JsonDiff } from '../bench-views.ts';
@@ -45,6 +45,7 @@ const IDEM_RE = /^[\x21-\x7e]{8,128}$/;
 export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
   ['datasets', 'read'], ['datasetVersions', 'read'], ['snapshots', 'read'], ['query', 'read'], ['getView', 'read'],
   ['viewVersions', 'read'], ['diffViews', 'read'], ['changes', 'read'], ['writes', 'read'], ['renderView', 'read'], ['tableExport', 'read'], ['tableRow', 'read'],
+  ['grantRows', 'read'],
   ['defineDataset', 'write'], ['replace', 'write'], ['append', 'write'], ['upsert', 'write'], ['deleteRows', 'write'],
   ['snapshot', 'write'], ['restore', 'write'], ['putView', 'write'], ['rollbackView', 'write'], ['backupTo', 'write'], ['submitForm', 'write'],
   ['varsList', 'read'], ['varGet', 'read'], ['varCount', 'read'], ['varsDigest', 'read'],
@@ -75,7 +76,13 @@ export const appDataRowOf = (r: Record<string, unknown>): AppDataRow => ({ id: N
 export const appFileRowOf = (r: Record<string, unknown>): AppFileRow => ({ id: Number(r.id), original_name: String(r.original_name), mime: String(r.mime), size: Number(r.size), storage_path: String(r.storage_path), created_by: String(r.created_by), created_at: String(r.created_at), note: String(r.note ?? ''), sha256: String(r.sha256 ?? ''), deleted_at: String(r.deleted_at ?? '') });
 export type BenchVarRow = { key: string; kind: 'var' | 'const'; value: string; revision: number; updated_by: string; owner: string; created_at: string; updated_at: string };
 
-export type WriteCtx = { actor: string; at: number; idemKey?: string; note?: string };
+export type WriteCtx = { actor: string; at: number; idemKey?: string; note?: string; provenance?: Provenance };
+/**
+ * 公共区写入口给的来源（只有它给；带来源列的数据集只收带这个的追加）。每行的来源列由服务端照这里填，写入方的行里不能有。
+ * supersedes：和这批的行一一对应，给了就是「这一行更正那一行」（那一行的 _row）；不更正的写 null。
+ */
+export type Provenance = { area: string; task: string; batch: string; grant: string; upstream?: string[]; supersedes?: (number | null)[] };
+const PROV_TEXT_RE = /^[\x21-\x7e]{1,128}$/;
 export type WriteResult = { dataset: string; op: string; rows: number; row_count: number; data_bytes?: number; snapshot_id?: number; inserted?: number; updated?: number; deleted?: number; duplicate?: boolean; ids?: number[] };
 export type DatasetInput = { name: string; title?: string; columns: { name: string; type: string; label?: string; required?: boolean; values?: Record<string, string>; auto?: boolean }[]; key?: string[] };
 export type ViewVersion = { version: number; sha256: string; author: string; note: string; at: number; active: boolean };
@@ -172,7 +179,15 @@ function checkCtx(ctx: WriteCtx, noteRequired = false): { actor: string; at: num
   if (note.length > BENCH_LIMITS.noteChars) throw new BenchError('invalid', `说明最多 ${BENCH_LIMITS.noteChars} 个字符`);
   if (noteRequired && !note) throw new BenchError('invalid', '要写一句说明（note）');
   if (ctx.idemKey !== undefined && (typeof ctx.idemKey !== 'string' || !IDEM_RE.test(ctx.idemKey))) throw new BenchError('invalid', '幂等键须为 8～128 个可见 ASCII 字符');
+  if (ctx.provenance !== undefined) checkProvenance(ctx.provenance);
   return { actor: ctx.actor.trim(), at: ctx.at, note };
+}
+
+function checkProvenance(p: Provenance): void {
+  if (!isObj(p)) throw new BenchError('invalid', '来源须为对象');
+  for (const k of ['area', 'task', 'batch', 'grant'] as const) if (typeof p[k] !== 'string' || !PROV_TEXT_RE.test(p[k])) throw new BenchError('invalid', `来源的 ${k} 须为 1～128 个可见 ASCII 字符`);
+  if (p.upstream !== undefined && (!Array.isArray(p.upstream) || p.upstream.length > 64 || p.upstream.some((u) => typeof u !== 'string' || !PROV_TEXT_RE.test(u)))) throw new BenchError('invalid', '来源的 upstream 须为最多 64 个引用（每个 1～128 个可见 ASCII 字符）');
+  if (p.supersedes !== undefined && (!Array.isArray(p.supersedes) || p.supersedes.some((x) => x !== null && (!Number.isSafeInteger(x) || x <= 0)))) throw new BenchError('invalid', '来源的 supersedes 须为行号（正整数）或 null 的数组');
 }
 
 /** 把一份数据集定义核对并规范化（列名、类型、主键）；主键列一律必填 */
@@ -379,6 +394,21 @@ export class BenchStoreCore {
       row_count: Number(r.row_count), data_bytes: Number(r.data_bytes), created_at: Number(r.created_at), updated_at: Number(r.updated_at), updated_by: String(r.updated_by),
     } as DatasetDef]));
   }
+  /** 要改已有行的操作（替换、按主键改、删、退回快照、表单）：带来源列的数据集一律不收，只能经公共区的写入口追加 */
+  private async needOpen(name: string, what: string): Promise<DatasetDef> {
+    const ds = await this.need(name);
+    if (hasProvenance(ds)) throw new BenchError('unsupported', `数据集 ${ds.name} 是公共区的，只能追加（${what}不收）`);
+    return ds;
+  }
+  /** 公共区对账用：这个数据集里有几行是凭这个写授权写的（_grant 列；不带来源列的数据集返回 0） */
+  grantRows(name: string, grant: string) {
+    return this.serial(async () => {
+      const ds = await this.need(name);
+      if (!hasProvenance(ds)) return 0;
+      if (typeof grant !== 'string' || !PROV_TEXT_RE.test(grant)) throw new BenchError('invalid', '写授权号须为 1～128 个可见 ASCII 字符');
+      return Number((await this.conn.all(`SELECT COUNT(*) AS n FROM ${physTable(ds.name)} WHERE ${physCol('_grant')} = ?`, [grant]))[0].n);
+    });
+  }
   private async need(name: string): Promise<DatasetDef> {
     if (typeof name !== 'string' || !NAME_RE.test(name)) throw new BenchError('invalid', '数据集名写法不对');
     const ds = (await this.load()).get(name);
@@ -391,10 +421,18 @@ export class BenchStoreCore {
    * 建数据集，或改已有数据集的列定义。
    * 加列、改显示名、改必填随时可以（改成必填或设主键前核对现有行）；删列是破坏性的，先自动留快照；改列的类型不支持（新建一列，由写入方重写数据）。
    */
-  defineDataset(input: DatasetInput, ctx: WriteCtx) {
+  /**
+   * opts.provenance：建的是公共区的数据集（带来源列，只能经公共区的写入口追加）。只在新建时给；
+   * 已有的数据集不能改成带来源列，带来源列的也不能改回去——改它的列定义时来源列自动保留，调用方不用给（也给不了）。
+   */
+  defineDataset(input: DatasetInput, ctx: WriteCtx, opts: { provenance?: boolean } = {}) {
     return this.tx(async () => {
       const c = checkCtx(ctx), def = normalizeDataset(input);
       const all = await this.load(), old = all.get(def.name), tbl = physTable(def.name), idx = `ux_${tbl}`;
+      if (opts.provenance !== undefined && typeof opts.provenance !== 'boolean') throw new BenchError('invalid', 'provenance 须为布尔值');
+      if (old && opts.provenance === true && !hasProvenance(old)) throw new BenchError('unsupported', `数据集 ${def.name} 已经存在且不带来源列，不能改成公共区的`);
+      if (old && opts.provenance === false && hasProvenance(old)) throw new BenchError('unsupported', `数据集 ${def.name} 是公共区的，不能去掉来源列`);
+      if ((!old && opts.provenance === true) || (old && hasProvenance(old))) def.columns = [...def.columns, ...SYSTEM_COLUMNS];
       if (!old) {
         if (all.size >= BENCH_LIMITS.datasets) throw new BenchError('limit', `数据集个数已到上限 ${BENCH_LIMITS.datasets}`);
         await this.conn.run(fill(this.kit.createTable, { table: tbl, columns: def.columns.map((x) => `, ${physCol(x.name)} ${this.sqlType(x.type)}`).join('') }));
@@ -560,7 +598,7 @@ export class BenchStoreCore {
   /** 整份替换：给全部行，原子切换；原来有数据就先留一份快照（上一代）。行可以给数组，也可以给原始字节（见 decodeInput） */
   replace(name: string, input: unknown, ctx: WriteCtx) {
     return this.tx(async () => {
-      const ds = await this.need(name), rows = decodeInput(input, this.caps.datasetBytes), checked = checkRows(ds, rows, 'full', BENCH_LIMITS.rows, this.caps.datasetBytes);
+      const ds = await this.needOpen(name, '整份替换'), rows = decodeInput(input, this.caps.datasetBytes), checked = checkRows(ds, rows, 'full', BENCH_LIMITS.rows, this.caps.datasetBytes);
       return this.logged(ds, 'replace', rows, ctx, async (c) => {
         const snapshot_id = ds.row_count > 0 ? (await this.takeSnapshot(ds, 'replace', c)).id : undefined;
         await this.conn.run(`DELETE FROM ${physTable(ds.name)}`);
@@ -575,7 +613,29 @@ export class BenchStoreCore {
   }
   /** 追加的本体；要在事务里调（append 和表单提交共用）。op 是写入记录里记的操作名：表单提交记成 form，和直接追加分得开 */
   private async appendIn(name: string, input: unknown, ctx: WriteCtx, op: 'append' | 'form' = 'append'): Promise<WriteResult> {
-    const ds = await this.need(name), rows = decodeInput(input, this.caps.writeBytes);
+    const ds = await this.need(name), raw = decodeInput(input, this.caps.writeBytes), prov = ctx?.provenance;
+    if (hasProvenance(ds) && (op !== 'append' || !prov)) throw new BenchError('unsupported', `数据集 ${ds.name} 是公共区的，只能经公共区的写入口追加`);
+    if (!hasProvenance(ds) && prov) throw new BenchError('invalid', `数据集 ${ds.name} 不带来源列，不收来源`);
+    let rows: unknown = raw;
+    if (prov) {
+      checkCtx(ctx);
+      if (!Array.isArray(raw) || raw.length === 0) throw new BenchError('invalid', 'rows 须为非空数组：一个写授权至少写一行');
+      const sys = new Set(SYSTEM_COLUMNS.map((c) => c.name).concat('_row'));
+      raw.forEach((r, i) => { if (isObj(r)) { const bad = Object.keys(r).filter((k) => sys.has(k)); if (bad.length) throw new BenchError('invalid', `第 ${i + 1} 行：来源列 ${bad.join('、')} 由服务端填，写入方不能给`); } });
+      if (prov.supersedes !== undefined && prov.supersedes.length !== raw.length) throw new BenchError('invalid', `supersedes 有 ${prov.supersedes.length} 项，和这批的 ${raw.length} 行对不上`);
+      // 同一个写授权只写一次：已经有凭它写的行，原样说「重复」，不再追加（崩溃后重试、并发重放都落在这里）
+      const tbl = physTable(ds.name), done = Number((await this.conn.all(`SELECT COUNT(*) AS n FROM ${tbl} WHERE ${physCol('_grant')} = ?`, [prov.grant]))[0].n);
+      if (done > 0) return { dataset: ds.name, op, rows: done, row_count: ds.row_count, inserted: 0, duplicate: true };
+      // 更正：被更正的行要在这个数据集里、还没被别的行更正过（一条更正链只往前接一个头），同一批里也不能两行更正同一行
+      const sup = (prov.supersedes ?? []).filter((x): x is number => x !== null);
+      if (new Set(sup).size !== sup.length) throw new BenchError('invalid', '这一批里有两行更正同一行');
+      for (const id of sup) {
+        if (!(await this.conn.all(`SELECT 1 AS x FROM ${tbl} WHERE rid = ?`, [id])).length) throw new BenchError('not_found', `要更正的第 ${id} 行不在数据集 ${ds.name} 里`);
+        if ((await this.conn.all(`SELECT 1 AS x FROM ${tbl} WHERE ${physCol('_supersedes')} = ?`, [id])).length) throw new BenchError('conflict', `第 ${id} 行已经被更正过：更正最新的那一行`);
+      }
+      const upstream = prov.upstream?.length ? JSON.stringify(prov.upstream) : null;
+      rows = raw.map((r, i) => (isObj(r) ? { ...r, _area: prov.area, _task: prov.task, _batch: prov.batch, _grant: prov.grant, _upstream: upstream, _supersedes: prov.supersedes?.[i] ?? null } : r));
+    }
     // 主键由服务端分配的数据集：没给主键的行，按现有最大值往上数（写入是一个接一个排队做的，两个席位同时追加也不会撞号）。
     // 幂等核对用的是调用方给的原样（没分配之前的），重放时带回第一次分配的号
     const auto = ds.columns.find((c) => c.auto);
@@ -603,7 +663,7 @@ export class BenchStoreCore {
   /** 按主键有则改、无则加；每行给主键列和必填列，其余给了哪些列就改哪些列 */
   upsert(name: string, input: unknown, ctx: WriteCtx) {
     return this.tx(async () => {
-      const ds = await this.need(name);
+      const ds = await this.needOpen(name, '按主键改');
       if (!ds.key.length) throw new BenchError('invalid', `数据集 ${ds.name} 没有主键，不能按主键更新`);
       const rows = decodeInput(input, this.caps.writeBytes), checked = checkRows(ds, rows, 'partial', BENCH_LIMITS.rowsPerWrite, this.caps.writeBytes);
       return this.logged(ds, 'upsert', rows, ctx, async () => {
@@ -624,7 +684,7 @@ export class BenchStoreCore {
   /** 按主键删行；破坏性操作，删之前先留快照。给的主键一行也没对上：什么都不删，也不留快照 */
   deleteRows(name: string, input: unknown, ctx: WriteCtx) {
     return this.tx(async () => {
-      const ds = await this.need(name), keys = decodeInput(input, this.caps.writeBytes);
+      const ds = await this.needOpen(name, '删行'), keys = decodeInput(input, this.caps.writeBytes);
       if (!ds.key.length) throw new BenchError('invalid', `数据集 ${ds.name} 没有主键，不能按主键删行`);
       if (!Array.isArray(keys) || !keys.length) throw new BenchError('invalid', 'keys 须为非空数组');
       if (keys.length > BENCH_LIMITS.rowsPerWrite) throw new BenchError('limit', `一次最多 ${BENCH_LIMITS.rowsPerWrite} 行`);
@@ -679,7 +739,7 @@ export class BenchStoreCore {
       const c = checkCtx(ctx);
       const s = Number.isSafeInteger(snapshotId) ? await this.conn.all('SELECT id, dataset, content FROM bs_snapshots WHERE id = ?', [snapshotId]) : [];
       if (!s.length) throw new BenchError('not_found', `没有快照 #${String(snapshotId)}`);
-      const ds = await this.need(String(s[0].dataset));
+      const ds = await this.needOpen(String(s[0].dataset), '退回快照');
       const snap = JSON.parse(String(s[0].content)) as { columns: ColumnDef[] };
       // 快照里的行是数组，次序是留快照时的列定义；现在还在、类型没变的列才放回去
       const cols = snap.columns.map((x, i) => ({ name: x.name, type: x.type, i, usable: ds.columns.some((y) => y.name === x.name && y.type === x.type) }));

@@ -293,6 +293,7 @@ export class BenchStore {
   datasetVersions(...a: Parameters<Core['datasetVersions']>): ReturnType<Core['datasetVersions']> { return this.rpc('datasetVersions', a); }
   replace(...a: Parameters<Core['replace']>): ReturnType<Core['replace']> { return this.rpc('replace', a); }
   append(...a: Parameters<Core['append']>): ReturnType<Core['append']> { return this.rpc('append', a); }
+  grantRows(...a: Parameters<Core['grantRows']>): ReturnType<Core['grantRows']> { return this.rpc('grantRows', a); }
   upsert(...a: Parameters<Core['upsert']>): ReturnType<Core['upsert']> { return this.rpc('upsert', a); }
   deleteRows(...a: Parameters<Core['deleteRows']>): ReturnType<Core['deleteRows']> { return this.rpc('deleteRows', a); }
   snapshot(...a: Parameters<Core['snapshot']>): ReturnType<Core['snapshot']> { return this.rpc('snapshot', a); }
