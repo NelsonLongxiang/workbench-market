@@ -1429,8 +1429,9 @@ export class BenchStoreCore {
         if (String(t[0].dimension_id) !== r.dimension_id || String(t[0].subject) !== r.subject) throw new BenchError('conflict', '只能更正同一维度、同一事物的报告');
         if ((await this.conn.all('SELECT 1 AS x FROM bs_reports WHERE supersedes = ?', [r.supersedes])).length) throw new BenchError('conflict', `第 ${r.supersedes} 份已经被更正过了，只能更正链头`);
       }
-      const ins = await this.conn.all('INSERT INTO bs_reports (dimension_id, template_version, template_sha256, binding_version, subject, inputs, body, sources, content_sha256, producer, producer_kind, supersedes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
-        [r.dimension_id, r.template_version, r.template_sha256, r.binding_version, r.subject, r.inputs, r.body, r.sources, r.content_sha256, r.producer, r.producer_kind, r.supersedes, r.created_at]);
+      // claim_count：这份报告有几条论断，和论断同一个写事务；之后再插论断由触发器拒（冻结）
+      const ins = await this.conn.all('INSERT INTO bs_reports (dimension_id, template_version, template_sha256, binding_version, subject, inputs, body, sources, content_sha256, producer, producer_kind, supersedes, created_at, claim_count) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id',
+        [r.dimension_id, r.template_version, r.template_sha256, r.binding_version, r.subject, r.inputs, r.body, r.sources, r.content_sha256, r.producer, r.producer_kind, r.supersedes, r.created_at, claims.length]);
       const id = Number(ins[0].id);
       for (const c of claims) await this.conn.run('INSERT INTO bs_report_claims (report_id, claim_key, kind, text, basis) VALUES (?, ?, ?, ?, ?)', [id, c.claim_key, c.kind, c.text, c.basis]);
       return id;
