@@ -117,7 +117,16 @@ function directedSeat(team: string, notifyUrl: string, seatId: string, requester
   return { handoff, fallback: !svc<A2aPeerService>('a2aPeers').declares(notifyUrl, 'directedSeats') };
 }
 
-export function arrangeTask(raw: unknown, requester: string, now: Date = new Date()): ArrangeOutcome {
+/**
+ * 任务带领域（第 2 步 4a）：路由只核过写法，这里带进来：
+ *   area   领域标识，算进幂等的请求体哈希（没给时不进，旧的哈希不变）；
+ *   check  能不能在这个领域建事项：先判 area.trigger（AreaService.decide），再过领域的门（AreaService.workGate：没负责人、撤了、不存在）。
+ *          只在写事务里判一次（统筹 11-21 定乙）：在查幂等键之后、任何写入之前——同一个键原样重试拿回原来那条（领域后来撤了也一样），
+ *          新请求在写事务里读到的才算数，路由读完到进写事务之间领域被别的连接撤掉也拦得住。
+ */
+export type ArrangeArea = { area: string; check: () => { http: number; code: string; message: string } | null };
+
+export function arrangeTask(raw: unknown, requester: string, now: Date = new Date(), area?: ArrangeArea): ArrangeOutcome {
   const b = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
   const str = (k: string) => (typeof b[k] === 'string' ? (b[k] as string).trim() : b[k] === undefined || b[k] === null ? '' : null);
   const bad = (error: string, extra: Record<string, unknown> = {}): ArrangeOutcome => ({ status: 400, body: { error, ...extra } });
@@ -155,7 +164,7 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
   const rawAtt = b.attachments === undefined || b.attachments === null ? [] : b.attachments;
   if (!Array.isArray(rawAtt) || rawAtt.length > ATTACHMENTS_PER_ITEM || !rawAtt.every((x) => Number.isSafeInteger(x) && (x as number) > 0) || new Set(rawAtt).size !== rawAtt.length) return bad('attachments_invalid', { max: ATTACHMENTS_PER_ITEM });
   const attIds = (rawAtt as number[]).slice().sort((x, y) => x - y);
-  const payload = JSON.stringify({ title: v.title, intent: v.intent, deliverable: v.deliverable, team, object: v.object, phase: v.phase, due, review, ...(cockpitId ? { cockpit_id: cockpitId } : {}), ...(seatId ? { seat_id: seatId } : {}), ...(attIds.length ? { attachments: attIds } : {}) });
+  const payload = JSON.stringify({ title: v.title, intent: v.intent, deliverable: v.deliverable, team, object: v.object, phase: v.phase, due, review, ...(cockpitId ? { cockpit_id: cockpitId } : {}), ...(seatId ? { seat_id: seatId } : {}), ...(attIds.length ? { attachments: attIds } : {}), ...(area ? { area: area.area } : {}) });
   const sha = createHash('sha256').update(payload, 'utf8').digest('hex');
   const tasks = svc<TaskCenterService>('taskCenter');
   const items = svc<WorkItemService>('workItems');
@@ -170,6 +179,11 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
       tasks.arrangeRollback();
       if (prev.body_sha256 !== sha) return { status: 409, body: { error: 'idempotency_conflict' } };
       return { status: 200, body: view(prev.task_id, prev.event_id, true) };
+    }
+    // 领域：鉴权和门只在这里判一次（查过幂等键、还没有任何写入）
+    if (area) {
+      const no = area.check();
+      if (no) { tasks.arrangeRollback(); return { status: no.http, body: { error: no.code, message: no.message } }; }
     }
     const limits = arrangeLimits();
     if (tasks.arrangeCountSince(requester, sqlTime(new Date(now.getTime() - 60_000))) >= limits.perMinute) { tasks.arrangeRollback(); return { status: 429, body: { error: 'rate_limited', window: 'minute', limit: limits.perMinute } }; }
@@ -200,6 +214,7 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
         ...(directed?.fallback ? { directedFallback: { seat_id: seatId, reason: 'peer_not_declared' } } : {}) },
     });
     if (attIds.length && bindAttachments(attIds, requester, eventId, now.toISOString()) !== attIds.length) throw new Error('附件挂到事件上没有全部成功');
+    if (area && !items.setArea(itemIdForEvent(eventId), area.area, 'chosen', '')) throw new Error('事项没有落到领域上');
     tasks.insertArrangeRequest({ requester, key, sha256: sha, taskId, eventId, at });
     tasks.arrangeCommit();
     return { status: 201, body: view(taskId, eventId, false, { ...(!reviewNow && !direct ? { reason: 'review_required_by_policy' } : {}), ...(directed ? { handoff: pinned ? pinned.handoff : 'team', directed: pinned ? 'seat' : 'fallback_team' } : {}) }) };

@@ -104,7 +104,15 @@ export class AreaService extends Service {
     const no = (rule: string): AreaDecision => ({ verdict: 'deny', rule, grant: null });
     const ok = (rule: string): AreaDecision => ({ verdict: 'allow', rule, grant: null });
     if (action === 'area.create' || action === 'area.retire' || action === 'area.migrate') return subject.owner ? ok('area-owner') : no('area-owner-only');
-    if (action === 'area.trigger' || action === 'area.accept' || AREA_LEAD_ACTIONS.includes(action)) return no('area-step1-not-routed');
+    // 触发（建事项带了领域，第 2 步 4a）：属主、管理层（业务侧），或持范围正好是 area:<领域>、覆盖 area.trigger 的授予（领域成员、负责人）。
+    // 只认 area:，不认 dept:（过渡期的等同只给台和经验库，judgment-builtins.ts 的 DEPT_AREA_TRANSITIONAL）
+    if (action === 'area.trigger') {
+      if (subject.owner || subject.seesAll) return ok(subject.owner ? 'area-owner' : 'area-business-side');
+      if (area === null) return no('area-scope-required');
+      if (!subject.principal) return no('no-grant');
+      return areaVerdict({ principal: subject.principal, action, kind: 'write', area });
+    }
+    if (action === 'area.accept' || AREA_LEAD_ACTIONS.includes(action)) return no('area-step1-not-routed');
     if (action === AREA_SPEC_ACTION) {
       if (subject.owner) return ok('area-owner');
       if (area === null) return no('area-scope-required');
