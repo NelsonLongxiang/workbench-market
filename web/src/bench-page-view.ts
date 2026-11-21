@@ -22,9 +22,13 @@ export function asEntry(body: unknown): BenchEntry | null {
     if (!v || !isStr(v.key) || !isStr(v.title) || keys.has(v.key)) return null;
     keys.add(v.key);
   }
-  return { bench: b.bench, version: b.version, title: isStr(b.title) ? b.title : b.bench.title, default_view: isStr(b.default_view) && keys.has(b.default_view) ? b.default_view : b.views[0].key, views: b.views,
+  const rename = (b.can as { rename?: unknown } | undefined)?.rename === true;
+  // 卡片名只在能改名时留着（「跟卡片同名」用），写法不对当没有
+  const { card_title: card, ...bench } = b.bench as BenchEntry['bench'];
+  if (rename && (typeof card === 'string' || card === null)) (bench as BenchEntry['bench']).card_title = card;
+  return { bench, version: b.version, title: isStr(b.title) ? b.title : b.bench.title, default_view: isStr(b.default_view) && keys.has(b.default_view) ? b.default_view : b.views[0].key, views: b.views,
     // 能不能改台名：服务端说是 true 才算（缺了、写法不对都当不能，按钮不出）
-    can: { rename: (b.can as { rename?: unknown } | undefined)?.rename === true } };
+    can: { rename } };
 }
 
 export function entryOutcome(status: number, body: unknown): EntryOutcome {
@@ -94,6 +98,32 @@ export function renameOutcome(status: number, body: unknown): RenameOutcome {
 export function reloadOutcome(next: BenchEntry | null): { title: string | null; type: 'info' | 'warning'; text: string } {
   if (!next) return { title: null, type: 'warning', text: '这会儿读不到现在的名字，输入框没动，稍后再点「重新读一次」' };
   return { title: next.bench.title, type: 'info', text: `现在的名字是「${next.bench.title}」` };
+}
+
+/** 改名对话框里出不出「跟卡片同名」（#927）：能改名、服务端给了卡片名（有对应卡片、名字不空）、并且和台现在的名字不同才出；
+ *  同名时点了也是「名字没变」，不出这个按钮 */
+export function showFromCard(entry: BenchEntry): boolean {
+  const card = entry.bench.card_title;
+  return entry.can.rename && typeof card === 'string' && card !== '' && card !== entry.bench.title;
+}
+
+/** 只认最后一次（#927）：连着发了几次同样的请求（改名后自动重取 + 手点「刷新」），先发的那次后到时不能盖掉新的。
+ *  每次调用记一个序号；等到应答时，要是期间又发过新的，这一次的结果不用，改为等最后那一次、返回它的结果——
+ *  调用方拿到的总是最新的，落到页面上的也只有最新的那一次（apply 只对最后一次调） */
+export function latestOnly<T>(run: () => Promise<T>, apply: (v: T) => void): () => Promise<T> {
+  let seq = 0;
+  let last: Promise<T> = Promise.resolve(undefined as T);
+  // 等到「等的这段时间里没有更新的请求」为止，返回那一次的结果（落到页面上由那一次自己做）
+  const latest = async (): Promise<T> => { for (;;) { const at = seq; const v = await last; if (at === seq) return v; } };
+  return async () => {
+    const mine = ++seq;
+    const p = run();
+    last = p;
+    const v = await p;
+    if (mine !== seq) return latest();
+    apply(v);
+    return v;
+  };
 }
 
 /** 标签页切回前台时要不要重新问一次入口（别人改了台名，切回来看到的是新名字）：离上一次至少 30 秒才问，免得来回切换一直发请求 */

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 视图台页面（/use/<卡片 id>）的纯函数单测（web/src/bench-page-view.ts）：入口应答怎么走、地址里的视图和筛选、表单没交上去时说什么。数据都是合成的。 */
-import { ENTRY_REFRESH_MIN_MS, ENTRY_TEXT, asEntry, entryOutcome, formError, pageTitle, paramsFromQuery, reloadOutcome, renameOutcome, shouldRefreshEntry, toQuery, viewFromQuery } from '../web/src/bench-page-view.ts';
+import { ENTRY_REFRESH_MIN_MS, ENTRY_TEXT, asEntry, entryOutcome, formError, latestOnly, pageTitle, paramsFromQuery, reloadOutcome, renameOutcome, shouldRefreshEntry, showFromCard, toQuery, viewFromQuery } from '../web/src/bench-page-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -39,6 +39,33 @@ ok('200 但应答不像样：不当成了', renameOutcome(200, { changed: true }
 ok('「重新读一次」取到了：输入框和 base 换成现在的名字', J(reloadOutcome({ ...E, bench: { ...E.bench, title: '别人改的' } })) === J({ title: '别人改的', type: 'info', text: '现在的名字是「别人改的」' }));
 ok('「重新读一次」没取到（读不到、断网）：title 为 null，对话框里的输入不被覆盖，只说一句、还能再点', (() => { const o = reloadOutcome(null); return o.title === null && o.type === 'warning' && o.text.includes('输入框没动'); })());
 ok('切回标签页重新取入口：离上一次不到 30 秒不取，满了才取', ENTRY_REFRESH_MIN_MS === 30_000 && !shouldRefreshEntry(1_000, 1_000 + 29_999) && shouldRefreshEntry(1_000, 1_000 + 30_000));
+
+// #927 剩下的两处
+const R = (card, extra = {}) => asEntry({ ...E, bench: { ...E.bench, card_title: card }, can: { rename: true }, ...extra });
+ok('卡片名只在能改名时留着；不能改的入口里就算带了也去掉', R('合成卡片').bench.card_title === '合成卡片' && !('card_title' in asEntry({ ...E, bench: { ...E.bench, card_title: '合成卡片' } }).bench) && R(null).bench.card_title === null && !('card_title' in R(42).bench));
+ok('「跟卡片同名」：卡片名和台名不同才出；同名、没卡片（null）、卡片名空、没给卡片名都不出', showFromCard(R('合成卡片')) && !showFromCard(R('合成台')) && !showFromCard(R(null)) && !showFromCard(R('')) && !showFromCard(asEntry({ ...E, can: { rename: true } })));
+ok('「跟卡片同名」：不能改名的人永远不出（就算入口里带了卡片名）', !showFromCard(asEntry({ ...E, bench: { ...E.bench, card_title: '合成卡片' }, can: { rename: false } })));
+await (async () => {
+  // 先发的后到：第一次的应答晚于第二次，落到页面上的只有第二次；两个调用方拿到的都是第二次的结果
+  const gates = []; const applied = [];
+  let n = 0;
+  const f = latestOnly(() => { const i = ++n; return new Promise((res) => gates.push(() => res(`第${i}次`))); }, (v) => applied.push(v));
+  const a = f(); const b = f();
+  gates[1](); await b; gates[0]();
+  const ra = await a;
+  ok('只认最后一次：先发的那次后到，不落到页面上；先发的调用方拿到的也是最后一次的结果', J(applied) === J(['第2次']) && ra === '第2次', J({ applied, ra }));
+  // 先发的先到、后发的还没回：先发的不落，等最后一次回了一起拿最后一次
+  const g2 = []; const ap2 = []; let m = 0;
+  const h = latestOnly(() => { const i = ++m; return new Promise((res) => g2.push(() => res(i))); }, (v) => ap2.push(v));
+  const x = h(); const y = h();
+  g2[0](); await new Promise((r) => setTimeout(r, 5));
+  const early = J(ap2);
+  g2[1](); const [rx, ry] = await Promise.all([x, y]);
+  ok('只认最后一次：先发的先到也不落；等最后一次回来，两个调用方都拿到它', early === '[]' && J(ap2) === '[2]' && rx === 2 && ry === 2, J({ early, ap2, rx, ry }));
+  // 只有一次：照常落、照常返回
+  const one = []; const k = latestOnly(async () => 'x', (v) => one.push(v));
+  ok('只有一次：照常落到页面上、返回结果', (await k()) === 'x' && J(one) === '["x"]');
+})();
 
 console.log(`\nbench-page-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
