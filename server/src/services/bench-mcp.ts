@@ -14,6 +14,7 @@ import { BENCH_SLUG_RE } from './bench-store-core.ts';
 import { benchStore, type BenchStore } from './bench-store.ts';
 import { benchAliases, cardSlug, getBench, resolveBenchRef, unopenedCard } from './bench-registry.ts';
 import { BENCH_TOOL_DEFS, BENCH_TOOL_NAMES } from '../bench-mcp-tools.ts';
+import { generateReport, listReports, readReport, respondReport } from './bench-report.ts';
 
 export const BENCH_REQUEST_HOURLY_MAX = 10;
 /**
@@ -286,6 +287,11 @@ export async function runBenchTool(s: BenchStore, toolName: string, input: unkno
     case 'dataset_restore': return s.restore(need(int(a.snapshot_id), 'snapshot_id（快照编号）'), ctx);
     case 'view_put': return s.putView(a.doc, { ...ctx, base: need(int(a.base), 'base（你是基于第几版改的）') });
     case 'view_rollback': return s.rollbackView(need(int(a.to), 'to（让第几版重新生效）'), { ...ctx, base: need(int(a.base), 'base（你看到的生效版本）') });
+    // 报告（PR C）：和 REST 走同一处（services/bench-report.ts）；actor 是 mcp:<会话名>，记 AI
+    case 'report_list': return listReports(s, { dimension: a.dimension, subject: a.subject, limit: int(a.limit) });
+    case 'report_get': return readReport(s, a.id);
+    case 'report_generate': { const b = getBench(s.slug); if (!b) throw new BenchError('not_found', '没有这个台'); const { bench: _b, ...body } = a; return generateReport(b, s, body, actor, at); }
+    case 'report_respond': { const { bench: _b, id, ...body } = a; return respondReport(s, id, body, actor, at); }
     default: throw new BenchError('invalid', `不是数据视图的工具：${toolName.slice(0, 60)}`);
   }
 }

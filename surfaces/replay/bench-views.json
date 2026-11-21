@@ -31,7 +31,8 @@
     "PUT /api/bench-views/:bench/reports/:dimension/binding",
     "POST /api/bench-views/:bench/reports",
     "GET /api/bench-views/:bench/reports",
-    "GET /api/bench-views/:bench/reports/:id"
+    "GET /api/bench-views/:bench/reports/:id",
+    "POST /api/bench-views/:bench/reports/:id/responses"
   ],
   "exempt": [],
   "scenarios": [
@@ -3970,7 +3971,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1204", "etag": "W/\"4b4-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1342", "etag": "W/\"53e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "report": {
                 "id": 1,
@@ -4004,9 +4005,130 @@
                     }
                   ]
                 },
-                "sources": [{ "slot": "orders", "view": "overview", "block": 2, "view_version": 1, "view_sha256": "8e4f9b070a345aaad6043bb7fba3e170ab06c7841e2ce1483f96df498d73e6ce", "rows": 5, "completeness": "all" }]
+                "sources": [{ "slot": "orders", "view": "overview", "block": 2, "view_version": 1, "view_sha256": "8e4f9b070a345aaad6043bb7fba3e170ab06c7841e2ce1483f96df498d73e6ce", "rows": 5, "completeness": "all" }],
+                "superseded_by": null
               },
-              "claims": [{ "claim_key": "conclusion-1", "kind": "conclusion", "text": "回放结论", "basis": [] }]
+              "claims": [{ "claim_key": "conclusion-1", "kind": "conclusion", "text": "回放结论", "basis": [], "responses": [], "open_dispute": false }],
+              "responses": [],
+              "gate": { "open_dispute_blocks_acceptance": false },
+              "open_disputes": 0
+            }
+          }
+        },
+        {
+          "id": "rep-resp-anon",
+          "route": "POST /api/bench-views/:bench/reports/:id/responses",
+          "class": "unauthorized",
+          "what": "没登录：401",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/reports/{{rid}}/responses", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "claim_key": "conclusion-1", "stance": "dispute", "reason": "回放" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "rep-resp-no-reason",
+          "route": "POST /api/bench-views/:bench/reports/:id/responses",
+          "class": "invalid",
+          "what": "理由空：400",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/reports/{{rid}}/responses",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "claim_key": "conclusion-1", "stance": "dispute", "reason": " " }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "62", "etag": "W/\"3e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "理由必填：1～4000 个字" }
+          }
+        },
+        {
+          "id": "rep-resp",
+          "route": "POST /api/bench-views/:bench/reports/:id/responses",
+          "class": "normal",
+          "what": "管理层反驳第一条结论",
+          "vary": { "response.created_at": 60000 },
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/reports/{{rid}}/responses",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "claim_key": "conclusion-1", "stance": "dispute", "reason": "回放：口径不对" }
+          },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "235", "etag": "W/\"eb-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "response": { "id": 1, "report_id": 1, "claim_key": "conclusion-1", "stance": "dispute", "reason": "回放：口径不对", "responder": "user:alpha", "responder_kind": "human", "position": "management@*", "supersedes": null, "created_at": 1893456000000 }
+            }
+          }
+        },
+        {
+          "id": "rep-get-after-resp",
+          "route": "GET /api/bench-views/:bench/reports/:id",
+          "class": "normal",
+          "what": "读回：这条论断有未处理的反驳",
+          "vary": { "report.created_at": 60000, "claims.0.responses.0.created_at": 60000 },
+          "request": { "method": "GET", "path": "/api/bench-views/demo/reports/{{rid}}", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "1563", "etag": "W/\"61b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "report": {
+                "id": 1,
+                "dimension_id": "monthly",
+                "template_version": 1,
+                "template_sha256": "22b049d6b367be14ae595854f236d910b2a408e6f0ada4f025444653e179c51c",
+                "binding_version": 1,
+                "subject": "card:demo@replay",
+                "content_sha256": "20e10360ab3d6d298467cbe0dc3ccef505ef7cbe5f7a1c53eca5222d59748ba4",
+                "producer": "user:alpha",
+                "producer_kind": "human",
+                "supersedes": null,
+                "created_at": 1893456000000,
+                "inputs": { "parameters": {}, "fields": {} },
+                "body": {
+                  "schema_version": 2,
+                  "title": "回放月报",
+                  "inputs": { "parameters": {}, "fields": {} },
+                  "body": [
+                    { "id": "cover", "type": "cover", "title": "回放月报", "content": "" },
+                    {
+                      "id": "tbl",
+                      "type": "data-view",
+                      "component": "table",
+                      "props": { "columns": ["id", "amount"] },
+                      "data": {
+                        "columns": [{ "name": "id", "type": "integer", "label": "编号" }, { "name": "amount", "type": "decimal", "label": "金额" }],
+                        "rows": [{ "id": 1, "amount": 1200.5 }, { "id": 2, "amount": 900 }, { "id": 3, "amount": 15 }, { "id": 4, "amount": 5 }, { "id": 50, "amount": 7 }],
+                        "truncated": false
+                      }
+                    }
+                  ]
+                },
+                "sources": [{ "slot": "orders", "view": "overview", "block": 2, "view_version": 1, "view_sha256": "8e4f9b070a345aaad6043bb7fba3e170ab06c7841e2ce1483f96df498d73e6ce", "rows": 5, "completeness": "all" }],
+                "superseded_by": null
+              },
+              "claims": [
+                {
+                  "claim_key": "conclusion-1",
+                  "kind": "conclusion",
+                  "text": "回放结论",
+                  "basis": [],
+                  "responses": [
+                    { "id": 1, "report_id": 1, "claim_key": "conclusion-1", "stance": "dispute", "reason": "回放：口径不对", "responder": "user:alpha", "responder_kind": "human", "position": "management@*", "supersedes": null, "created_at": 1893456000000 }
+                  ],
+                  "open_dispute": true
+                }
+              ],
+              "responses": [],
+              "gate": { "open_dispute_blocks_acceptance": false },
+              "open_disputes": 1
             }
           }
         }
