@@ -12,6 +12,17 @@ export type BlockData = { columns: BlockColumn[]; rows: Record<string, unknown>[
 export type BlockError = { code: string; message?: string };
 
 /** 一个系列最多几个：再多就看不清了，后面的并成「其他」（和现有看板的规则一致） */
+/**
+ * 筛选栏显示的值、下一次改动基于的值：视图里写的缺省值，上面盖页面自己拿着的「人最新选的」（台页面是地址里的，驾驶舱面板是它自己记着的）。
+ * 不拿上一次取数回来的 params：那一份可能还是改动之前的（取数还在路上），在它上面算下一次改动，会把刚改、还没取回来的那一项冲掉。
+ */
+export function filterBarValue(fields: { name: string; default?: unknown }[], chosen: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const f of fields) if (typeof f.default === 'string' && f.default !== '') out[f.name] = f.default;
+  for (const [k, v] of Object.entries(chosen)) if (typeof v === 'string' && v !== '') out[k] = v;
+  return out;
+}
+
 export const MAX_SERIES = 5;
 export const OTHER = '其他';
 
