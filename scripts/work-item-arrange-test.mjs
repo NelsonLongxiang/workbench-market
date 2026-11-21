@@ -657,11 +657,18 @@ try {
       const { request } = await import('node:http');
       const rows = () => { const d = dbr(); try { return d.prepare('SELECT COUNT(*) AS n FROM work_item_attachments').get().n; } finally { d.close(); } };
       const before = rows();
-      const big = await new Promise((ok, no) => {
+      // 服务端要是不按声明先拒，就会一直等剩下的字节：10 秒没回应就掐断，按失败交回（不让整个测试挂住）
+      const BIG_TIMEOUT_MS = 10_000;
+      const big = await new Promise((ok) => {
+        let done = false;
+        const finish = (v) => { if (done) return; done = true; clearTimeout(timer); rq.destroy(); ok(v); };
         const rq = request(`${base}/api/work-items/attachments/${encodeURIComponent('太大了.bin')}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream', 'content-length': String(100 * 1024 * 1024 + 1), ...ALPHA } }, (rs) => {
-          let t = ''; rs.setEncoding('utf8'); rs.on('data', (c) => { t += c; }); rs.on('end', () => { rq.destroy(); let j = null; try { j = JSON.parse(t); } catch { /* 不是 JSON */ } ok({ status: rs.statusCode, body: j }); });
+          let t = ''; rs.setEncoding('utf8'); rs.on('data', (c) => { t += c; }); rs.on('end', () => { let j = null; try { j = JSON.parse(t); } catch { /* 不是 JSON */ } finish({ status: rs.statusCode, body: j }); });
+          rs.on('error', () => finish({ status: rs.statusCode, body: null, error: 'response_aborted' }));
         });
-        rq.on('error', (e) => (e.code === 'ECONNRESET' || e.code === 'EPIPE' ? null : no(e)));
+        const timer = setTimeout(() => finish({ status: null, body: null, error: `timeout：${BIG_TIMEOUT_MS / 1000} 秒没回应，服务端没有按声明的 content-length 先拒（在等剩下的字节）` }), BIG_TIMEOUT_MS);
+        // 服务端回完 413 就关连接，这边可能跟着报 ECONNRESET / EPIPE：不算失败（应答照样读得到；真没应答就由上面的超时交回）
+        rq.on('error', (e) => { if (e.code !== 'ECONNRESET' && e.code !== 'EPIPE') finish({ status: null, body: null, error: `request_error：${e.code ?? e.message}` }); });
         rq.write(Buffer.from('x')); // 只发 1 个字节，剩下的不发：要的是服务端按声明先拒
       });
       check(big.status === 413 && big.body?.error === 'attachment_too_large' && big.body?.max_bytes === 100 * 1024 * 1024 && rows() === before,
