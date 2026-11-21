@@ -2,7 +2,7 @@
 /** 「团队」页的纯函数单测（web/src/team-view.ts）：应答整形、管理员视图、团队状态、负责人、成员归谁用、计数、空的说法、读不到和被拒的说法、建部门的校验。数据都是合成的。 */
 // 在非 UTC 的时区里跑（东八区）：不带时区的时间写法要按 UTC 解析，在这里才看得出来
 process.env.TZ = 'Asia/Shanghai';
-import { actionProblem, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterAt, rosterStaleText, deptLeadText, leadPendingGrantText, reassignHintText, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf, pendingText, proposedText , proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, claimButtonText, LEAD_SKIPPED_TEXT, teamKey, outcomeLabel, outcomeReasonText, assignOps, assigneeOptions, assignDoneText, unassignConfirmText, ASSIGN_BY_TEXT } from '../web/src/team-view.ts';
+import { actionProblem, approvedNotice, needsMigration, DEPT_LEAD_DRAFTED, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterAt, rosterStaleText, deptLeadText, leadPendingGrantText, reassignHintText, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf, pendingText, proposedText , proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, claimButtonText, LEAD_SKIPPED_TEXT, teamKey, outcomeLabel, outcomeReasonText, assignOps, assigneeOptions, assignDoneText, unassignConfirmText, ASSIGN_BY_TEXT } from '../web/src/team-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -52,6 +52,13 @@ ok('空：有团队（哪怕只有待认领的）就不算空；部门读不到�
 
 ok('读不到：401 请先登录、403 不能查看、404 没上线、其余读不到', sourceProblem('团队', { status: 401 }).text.startsWith('请先登录') && /不能查看团队/.test(sourceProblem('团队', { status: 403 }).text) && sourceProblem('团队', { status: 404 }).type === 'info' && sourceProblem('团队', { status: 0 }).text === '读不到团队，稍后再试。' && sourceProblem('团队', { status: 200 }) === null);
 ok('被拒：服务端的说法优先；只有代码不显示代码', actionProblem({ status: 409, body: { error: 'last_lead', message: '最后一个负责人不能直接移除' } }) === '最后一个负责人不能直接移除' && actionProblem({ status: 403, body: { error: 'not_team_lead' } }) === '你的账号现在不能做这一步。' && actionProblem({ status: 201, body: {} }) === null);
+ok('部门负责人的提议确认后（#920）：带 drafted_grant_id 的说「已起草领域负责人授予，待你放行」，链到「谁能做什么」', approvedNotice({ proposal: {}, drafted_grant_id: 7 })?.text === DEPT_LEAD_DRAFTED && DEPT_LEAD_DRAFTED === '已起草领域负责人授予，待你放行' && approvedNotice({ drafted_grant_id: 7 })?.link === '/access');
+ok('已有一条没结束的（skipped: already_open）：说没有另起草、去看那一条；被否决过照样起草的（refused_before_overridden）：说已起草并说之前的被否决过',
+  /没有另起草/.test(approvedNotice({ drafted_grant_id: 3, skipped: 'already_open' })?.text ?? '') && !(approvedNotice({ drafted_grant_id: 3, skipped: 'already_open' })?.text ?? '').includes(DEPT_LEAD_DRAFTED)
+  && (approvedNotice({ drafted_grant_id: 4, refused_before_overridden: true })?.text ?? '').startsWith(DEPT_LEAD_DRAFTED) && /被否决过/.test(approvedNotice({ drafted_grant_id: 4, refused_before_overridden: true })?.text ?? ''));
+ok('别的提议（没有 drafted_grant_id，或者不是数字）：不另提示', approvedNotice({ proposal: { status: 'approved' } }) === null && approvedNotice({ drafted_grant_id: '7' }) === null && approvedNotice(null) === null);
+ok('确认被拒：409 area_not_migrated 才给去「领域」页的链接；照服务端的说法（actionProblem 原样给 message）', needsMigration({ status: 409, body: { error: 'area_not_migrated', message: '合成：先迁' } }) && !needsMigration({ status: 409, body: { error: 'state' } }) && !needsMigration({ status: 200, body: {} })
+  && actionProblem({ status: 409, body: { error: 'area_not_migrated', message: '合成：先迁成领域' } }) === '合成：先迁成领域');
 ok('建部门：名称必填、≤64；标识按服务端同一条；不能和已有的重复', newDeptProblem('ops-2', '运营二部', deps) === null && /部门名称/.test(newDeptProblem('x', ' ', deps)) && /小写字母开头/.test(newDeptProblem('2ops', '某部', deps)) && /小写字母开头/.test(newDeptProblem('Ops', '某部', deps)) && /已经有部门在用/.test(newDeptProblem('ops', '某部', deps)) && /最多 64/.test(newDeptProblem('ok', '长'.repeat(65), deps)));
 ok('说法里没有开发用语', [emptyText(teamsOf({ departments: [] }), [], true), sourceProblem('团队', { status: 500 }).text, actionProblem({ status: 500, body: null })].every((s) => !/接口|字段|暂无数据|待实现|principal|seat/.test(s)));
 
