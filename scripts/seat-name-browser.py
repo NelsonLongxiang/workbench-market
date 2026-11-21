@@ -3,10 +3,14 @@
   · 整页文字里没有 dsh/… 这类句柄；
   · 查不到名字的席位写「一位 AI 员工」；名字 · 句柄的只写名字。数据全是合成的。"""
 import json, re, sys
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M = cfg['base']
 ok = fail = 0
+def soft(fn):
+    """等条件成立；等不到不在这里抛错，照常往下，由后面原来的断言报（带着当时的值）"""
+    try: fn()
+    except PWTimeout: pass
 def check(n, c, x=''):
     global ok, fail
     if c: ok += 1; print('  ✓', n)
@@ -37,13 +41,19 @@ with sync_playwright() as p:
     pg.route(re.compile(r'/api/attention(\?|$)'), J(ATT))
     pg.route(re.compile(r'/api/work-items/wi-syn-1$'), J(DETAIL))
     pg.route(re.compile(r'/api/work-items(\?|$)'), J(LIST))
-    pg.goto(M + '/'); pg.wait_for_selector('[data-testid=decision-card]'); pg.wait_for_timeout(500)
+    pg.goto(M + '/'); pg.wait_for_selector('[data-testid=decision-card]')
+    # 等席位名字画出来：卡片上出现「一位 AI 员工」（名字是另取名册后才换上的），再看有没有露句柄
+    soft(lambda: pg.wait_for_function("() => document.querySelector('[data-testid=decision-card]')?.innerText.includes('一位 AI 员工')", timeout=10000))
     home = pg.locator('[data-testid=decision-card]').first.inner_text()
     check('全景的卡片：等谁是查不到名字的席位，写「一位 AI 员工」、不露句柄', not HANDLE.search(home) and '一位 AI 员工' in home, home)
-    pg.goto(M + '/work-items'); pg.wait_for_selector('[data-testid=work-item-row]'); pg.wait_for_timeout(400)
+    pg.goto(M + '/work-items'); pg.wait_for_selector('[data-testid=work-item-row]')
+    # 等列表里的席位名字画出来：页面上出现「一位 AI 员工」
+    soft(lambda: pg.wait_for_function("() => document.body.innerText.includes('一位 AI 员工')", timeout=10000))
     lst = text_of(pg)
     check('事项列表：整页没有 dsh/… 句柄，席位写「一位 AI 员工」', not HANDLE.search(lst) and '一位 AI 员工' in lst, HANDLE.findall(lst))
-    pg.goto(M + '/work-items/wi-syn-1'); pg.wait_for_selector('[data-testid=work-item-summary]'); pg.wait_for_timeout(600)
+    pg.goto(M + '/work-items/wi-syn-1'); pg.wait_for_selector('[data-testid=work-item-summary]')
+    # 等时间线画出来（句柄最可能出现在时间线里）：有了 timeline-row（日志各条是同一次应答一起画的），再看整页有没有露句柄
+    soft(lambda: pg.locator('[data-testid=timeline-row]').first.wait_for(timeout=10000))
     det = text_of(pg)
     check('事项详情（摘要、时间线）：整页没有 dsh/… 句柄', not HANDLE.search(det), HANDLE.findall(det))
     check('事项详情：承接写「一位 AI 员工」', '一位 AI 员工' in pg.locator('[data-testid=work-item-summary]').inner_text())
