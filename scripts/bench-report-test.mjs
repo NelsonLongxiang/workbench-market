@@ -17,6 +17,7 @@
  *   R1 回应：理由必填、立场照模板、回应者／类别／位置由服务端填；R2 未处理的反驳（人的链头、改主意接链头、不分叉）；
  *   R3 MCP 生成、回应记 AI，AI 的反驳不算；R4 被更正之后旧报告上的不算；R5 回应、报告、论断不能改不能删
  *   R6（#932 独立验收）能回应读不了的 404 和不存在一样；MCP 回应要有 report_get 授予；一个人一条链；接别人链头 409；对整份报告的反驳算
+ *   R6e（#932 统筹）报告清单不越界：别的台的清单、按事物筛都 403、没有条数；MCP 只能列有授予的台
  *   R6d（属主 2026-11-21：收窄）回应记的位置只含管得到这个台的授予：别的领域的不记，台绑到那个领域以后才记
  *   G12（#930 统筹验收）产出方只有 person 记 human；带报告动作的自定义角色两人放行：提议没放行、授予没放行都不生效
  *   G11（#930 独立验收）只能看台的人读报告、生成、绑定 403；冻结后补论断、论断挂到不存在的报告都拒；三张冻结的表在库里 UPDATE、DELETE、INSERT OR REPLACE 都拒
@@ -451,6 +452,37 @@ try {
     const posZ = pw.json?.response?.position ?? '';
     check(bind.status === 200 && pw.status === 201 && posZ === 'area-lead@area:zeta,management@*,owner@*' && unbind.status === 200,
       'R6d 台绑到 zeta 以后，zeta 的 area-lead 管得到这个台，记进位置', { bind: [bind.status, bind.text?.slice(0, 120)], pw: pw.status, posZ, unbind: unbind.status });
+  }
+
+  console.log('R6e 报告清单不越界：只列这一个台里的、读者能读的台（#932 统筹：用例 16 挪到后续 PR 的前提）');
+  {
+    // 持 zeta 领域成员授予的人：台绑到 zeta 时读得了这个台的清单；另一个没绑 zeta 的台（有报告）读不了清单、按事物筛也读不了，数目也看不到
+    const other = await bv(boss, 'POST', '', { slug: 'synth-other', title: '合成别的台' });
+    await cli('POST', '/api/areas', { id: 'eta', name: '合成庚领域' });
+    const be = await bv(boss, 'PUT', '/synth-other/binding', { department: 'eta' }); // 别的台绑在别的领域：按台判时这一道要拦住 zeta 的人
+    const ga = await activate({ principal: 'user:beta', role: 'area-member', scope: 'area:zeta' });
+    const bz = await bv(boss, 'PUT', '/synth-orders/binding', { department: 'zeta' });
+    const mine = await bv(member, 'GET', '/synth-orders/reports');
+    const otherList = await bv(member, 'GET', '/synth-other/reports');
+    const otherSubject = await bv(member, 'GET', '/synth-other/reports?subject=card:synth-orders@resp');
+    const ub = await bv(boss, 'PUT', '/synth-orders/binding', { department: '' });
+    const gid = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = 'area-member' AND status = 'active'").get()?.id;
+    const rv = await cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：R6e 用完收回' });
+    // 清单里每一条都是这个台自己的报告（台库是一台一个，清单只读这一个台库）
+    const ids = (mine.json?.reports ?? []).map((r) => r.id);
+    check(other.status === 201 && be.status === 200 && ga && bz.status === 200 && mine.status === 200 && ids.length > 0
+        && otherList.status === 403 && !('reports' in (otherList.json ?? {})) && otherSubject.status === 403 && ub.status === 200 && rv.status === 200,
+      'R6e 持 zeta 领域授予的人：绑到 zeta 的台清单 200；没绑 zeta 的别的台清单、按事物筛都 403，应答里没有报告也没有条数（用完解绑、收回）',
+      { other: other.status, be: [be.status, be.text?.slice(0, 80)], ga, bz: bz.status, mine: [mine.status, ids.length], otherList: `${otherList.status} ${otherList.text?.slice(0, 80)}`, otherSubject: otherSubject.status, ub: ub.status, rv: rv.status });
+    // MCP：会话只在 synth-orders 上有 report_list，到别的台列清单调不到
+    const admin = { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } };
+    const sess = (await srv.call('POST', '/api/mcp/sessions', { ...admin, body: { name: 'synth-list-scope' } })).json;
+    const g = await bv(boss, 'PUT', '/synth-orders/mcp-grants', { session: 'synth-list-scope', tools: ['report_list'] });
+    const call = async (args) => { const r = await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${sess?.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'report_list', arguments: args } } }); const res = r.json?.result; return { isError: res?.isError === true, rpcError: r.json?.error?.code ?? null, text: res?.content?.[0]?.text ?? '' }; };
+    const own = await call({ bench: 'synth-orders' });
+    const cross = await call({ bench: 'synth-other' });
+    check(g.status === 200 && !own.isError && own.rpcError === null && (cross.isError || cross.rpcError !== null) && !/"reports"/.test(cross.text),
+      'R6e MCP：会话只在本台有 report_list，列本台成、列别的台调不到（不回清单）', { g: g.status, own: own.text.slice(0, 60), cross: cross.text.slice(0, 80) });
   }
 
   console.log('R5 回应不能改不能删');
