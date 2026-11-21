@@ -223,6 +223,8 @@ with sync_playwright() as p:
     check('点开：输入框预填现在的台名', inp.input_value() == '合成·巡检台', inp.input_value())
     inp.fill('合成·巡检台（新）'); pg.locator('[data-testid=bench-rename-save]').click()
     pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '合成·巡检台（新）'")
+    # 对话框关的时候有收起动画，输入框在动画结束后才从页面上拿掉：等它真没了再断言（等不到就超时失败）
+    pg.wait_for_selector('[data-testid=bench-rename-input]', state='detached')
     check('保存：请求带新名字和点开时看到的名字（base_title）；对话框关了，顶栏和标签页标题换成新名字',
           log['title'][-1:] == [{'title': '合成·巡检台（新）', 'base_title': '合成·巡检台'}] and pg.locator('[data-testid=bench-rename-input]').count() == 0 and pg.title() == '合成巡检总览 · 合成·巡检台（新）', (log['title'][-1:], pg.title()))
     # 409：别人在这之间改过
