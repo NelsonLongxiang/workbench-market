@@ -1645,9 +1645,10 @@ CREATE TRIGGER IF NOT EXISTS report_template_reviews_exists BEFORE INSERT ON rep
   WHEN NOT EXISTS (SELECT 1 FROM report_templates WHERE dimension_id = NEW.dimension_id AND version = NEW.version)
   BEGIN SELECT RAISE(ABORT, '只能复核已有的模板版本'); END;
 CREATE TRIGGER IF NOT EXISTS report_template_reviews_not_author BEFORE INSERT ON report_template_reviews
-  WHEN EXISTS (SELECT 1 FROM report_templates t WHERE t.dimension_id = NEW.dimension_id AND t.version = NEW.version
+  WHEN EXISTS (SELECT 1 FROM report_templates v JOIN report_templates t ON t.dimension_id = v.dimension_id AND t.criteria_sha256 = v.criteria_sha256
+    WHERE v.dimension_id = NEW.dimension_id AND v.version = NEW.version
     AND (t.created_by = NEW.reviewed_by OR (t.created_by_principal IS NOT NULL AND t.created_by_principal = NEW.reviewed_by_principal)))
-  BEGIN SELECT RAISE(ABORT, '模板版本不能由作者本人复核'); END;
+  BEGIN SELECT RAISE(ABORT, '模板版本不能由作者本人复核（判据一样的版本的作者都算本人）'); END;
 CREATE TRIGGER IF NOT EXISTS report_template_reviews_identified BEFORE INSERT ON report_template_reviews
   WHEN NEW.reviewed_by_principal IS NULL OR NEW.reviewed_by_principal = ''
   BEGIN SELECT RAISE(ABORT, '复核人要认得出是谁（主体不能为空）'); END;

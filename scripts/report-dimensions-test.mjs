@@ -22,6 +22,7 @@
  *      本机命令行不能发判据类版本 403；跨领域维度属主自己发的，属主自己、本机命令行都复核不了
  *   R5f（#926 独立验收，路径二）偷换生效的判据：在没复核的判据上只改标题仍是 criteria、不能生效，命令行也借不了道；
  *      判据和复核过的版本一样的才是 layout；按判据内容认复核（复核了 v3，判据一样的 v2 也能生效）
+ *   R5h（#926 独立验收 E1、E2）复核人是判据一样的任何一版的作者都算本人：借别人只改标题的那一版复核自己的判据 403，库里也拒
  *   R5g（统筹 #926 增量验收条件 1）停用了的人带管理口令加会话复核：会话认不出，硬规则先拦 403，走不到复核（证明这一支到不了认人）
  *   R6 读：登录的人都能读（普通员工、没授予的人也行）；远程匿名读、写 401；跨站来的写 403
  *   R7 不存在的维度、版本 404；撤了的维度：发版、复核、移指针、再撤 409，读照常
@@ -387,6 +388,24 @@ try {
       'R5f 生效的版本复核过；再发一版放宽论断（criteria），在它上面只改标题的一版仍是 criteria；这两版都不能生效 409；命令行在它上面只改标题 403；'
       + '命令行只改复核过那一版的标题是 layout、能生效；放宽论断的那一版有人复核后，判据一样的另一版也能生效',
       { v1: v1.status, r1: r1.status, a1: a1.status, v2: kindOf(v2), v3: kindOf(v3), a3: err(a3), a2: err(a2), cli5: err(cli5), cli4: kindOf(cli4), a4: a4.status, midActive, r3: r3.status, a2b: a2b.status });
+  }
+
+  // ---- R5h 借别人只改标题的版本复核自己的判据（#926 独立验收 E1、E2）：判据一样的版本的作者都算本人 ----
+  {
+    const err = (r) => `${r.status}:${r.json?.error ?? ''}`;
+    await rex.go('POST', '/api/report-dimensions', { json: { id: 'borrow', title: '借道', area: 'zeta' } });
+    const v1 = await olga.go('POST', '/api/report-dimensions/borrow/templates', { json: { body: tpl() } });                        // 属主写的判据，没人复核
+    const v2 = await rex.go('POST', '/api/report-dimensions/borrow/templates', { json: { body: tpl({ title: '只改标题' }) } });     // 别人在上面只改标题
+    const olgaOnV2 = await olga.go('POST', '/api/report-dimensions/borrow/templates/2/review', { json: {} });
+    const a1 = await olga.go('POST', '/api/report-dimensions/borrow/activate', { json: { version: 1 } });
+    const e2 = sqlThrows(A, "INSERT INTO report_template_reviews (dimension_id, version, reviewed_by, reviewed_by_principal, reviewed_at) VALUES ('borrow', 1, 'user:rex', 'user:rex', 1)");
+    const riaOnV2 = await ria.go('POST', '/api/report-dimensions/borrow/templates/2/review', { json: { note: '第三个人看过' } });
+    const a1b = await olga.go('POST', '/api/report-dimensions/borrow/activate', { json: { version: 1 } });
+    check(v1.status === 201 && v2.json?.template?.criteria_sha256 === v1.json?.template?.criteria_sha256
+        && err(olgaOnV2) === '403:report_template_self_review' && err(a1) === '409:report_template_unreviewed',
+      'R5h（E1）甲写的判据没人复核，乙在上面只改标题发一版；甲去复核乙那一版 403（判据一样的版本的作者都算本人），甲那一版仍不能生效 409', { v1: v1.status, olgaOnV2: err(olgaOnV2), a1: err(a1) });
+    check(e2 && riaOnV2.status === 200 && a1b.status === 200,
+      'R5h（E2）库里直接写：乙复核甲那一版（乙是判据一样的另一版的作者）触发器拒；第三个人复核以后，甲那一版能生效', { e2, riaOnV2: riaOnV2.status, a1b: a1b.status });
   }
 
   // ---- R5g 管理口令加会话的路径（统筹 #926 增量验收条件 1）：路由这一支不核主体的 kind、status，只靠复核里的认人 ----
