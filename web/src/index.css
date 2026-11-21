@@ -801,3 +801,18 @@ button.wm-view:focus-visible { outline: 2px solid var(--wm-color-primary); outli
 .wm-pw-form { display: flex; flex-direction: column; gap: 6px; }
 .wm-pw-form label { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); margin-top: 6px; }
 .wm-pw-hint { margin: 8px 0 4px; font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
+
+/* 凭据库（Vault.tsx）与设置页（Settings.tsx）工具类（#322 内联样式收敛，对齐 DESIGN.md 6 档字号与 4px 栅格） */
+.wm-flex-1 { flex: 1; }
+.wm-vault-unlock { max-width: 480px; margin: var(--wm-space-12) auto; }
+.wm-vault-lock-ic { font-size: var(--wm-font-size-title); }
+.wm-vault-reasons { margin: 0; padding-left: var(--wm-space-4); }
+.wm-vault-star { color: var(--wm-color-warning); }
+.wm-vault-search { width: 340px; }
+.wm-vault-kind-sel { width: 140px; }
+.wm-vault-totp { font-size: var(--wm-font-size-title); letter-spacing: var(--wm-space-1); }
+.wm-vault-form-kind { width: 150px; }
+.wm-vault-tag-click { cursor: pointer; }
+.wm-set-card { max-width: 640px; }
+.wm-set-form { max-width: 480px; }
+.wm-set-num { width: 160px; }
