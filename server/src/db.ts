@@ -2272,7 +2272,7 @@ CREATE INDEX IF NOT EXISTS idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, 
 
 
 // ---------- 只增表的触发器：启动自检（market.db.append-only-guarded）----------
-// 只增表（留痕）在库这一层防改、防删、防覆盖的触发器名单（第一批 #975；以后加的表接着往这里写）。启动自检逐条核对它们都在，
+// 只增表（留痕）在库这一层防改、防删、防覆盖的触发器名单（第一批 #975，加上原来就有的授予、事项、领域、报告几张；以后加的表接着往这里写）。启动自检逐条核对它们都在，
 //   再在一个回滚掉的保存点里真试一次「同一个 id 覆盖式插入」事件日志，必须被拒。不过就拒绝启动（startup-security-self-probe.ts）
 export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   'task_events_no_update', 'task_events_no_delete', 'task_events_no_replace',
@@ -2282,6 +2282,11 @@ export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   'knowledge_project_dept_log_no_update', 'knowledge_project_dept_log_no_delete', 'knowledge_project_dept_log_no_replace',
   'grant_events_no_update', 'grant_events_no_delete', 'grant_events_no_replace',
   'work_item_log_no_update', 'work_item_log_no_delete', 'work_item_log_no_replace',
+  'area_events_no_update', 'area_events_no_delete', 'area_events_no_replace',
+  'area_specs_no_update', 'area_specs_no_delete', 'area_specs_no_replace',
+  'report_templates_no_update', 'report_templates_no_delete', 'report_templates_no_replace',
+  'report_template_reviews_no_update', 'report_template_reviews_no_delete', 'report_template_reviews_no_replace',
+  'report_dimension_events_no_update', 'report_dimension_events_no_delete', 'report_dimension_events_no_replace',
 ];
 /** 启动自检用：名单里的触发器都在，事件日志用同一个 id 覆盖被拒。合成的那一行在保存点里，检查完整个回滚（不留痕、不占行号）。理由只给代号，不带库里的内容 */
 export function appendOnlySelfCheck(): { ok: boolean; reason: string | null } {

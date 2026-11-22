@@ -100,6 +100,11 @@ try {
   const have = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all().map((r) => r.name));
   check(Array.isArray(names) && names.length >= 15 && names.every((n) => have.has(n)) && TABLES.every((t) => names.some((n) => n.startsWith(t.table === 'workbench_event_log' ? 'wbe_log_' : `${t.table}_`))),
     `名单（${names.length} 条）里的触发器库里都有，上面逐张测的表都在名单里`, names.filter((n) => !have.has(n)));
+  // 反过来：库里只增表（不带条件的不许改、不许删都有）上的每一条改、删、覆盖触发器都要在名单里——名单漏一条，启动自检就少守一条
+  const guards = db.prepare("SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'trigger'").all()
+    .filter((x) => appendOnly.includes(x.tbl_name) && /_no_(update|delete|replace)$/.test(x.name)) // 只看防改、删、覆盖的；同表上的业务规则（比如不许审自己的）不算
+    .map((x) => x.name);
+  check(guards.length > 0 && guards.every((n) => names.includes(n)), `只增表上的改、删、覆盖触发器（${guards.length} 条）都在名单里`, guards.filter((n) => !names.includes(n)));
   // 拿掉一条：点名缺的是哪条
   const rsql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'wbe_log_no_replace'").get().sql;
   db.exec('DROP TRIGGER wbe_log_no_replace');

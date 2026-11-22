@@ -24,7 +24,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9215", "etag": "W/\"23ff-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9367", "etag": "W/\"2497-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -88,7 +88,8 @@
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.portal.session-id-stripped", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.login-session.upstream-sealed", "surface": "market", "method": "LOCAL", "path": "market_sessions.upstream_sealed", "verdict": "pass", "status": null, "reason": null },
-                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null }
+                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null },
+                  { "id": "market.db.append-only-guarded", "surface": "market", "method": "LOCAL", "path": "sqlite_master.triggers", "verdict": "pass", "status": null, "reason": null }
                 ]
               },
               "work_items_backfill": { "state": "done" },
@@ -114,7 +115,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "8670", "etag": "W/\"21de-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "8822", "etag": "W/\"2276-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -178,7 +179,8 @@
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.portal.session-id-stripped", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.login-session.upstream-sealed", "surface": "market", "method": "LOCAL", "path": "market_sessions.upstream_sealed", "verdict": "pass", "status": null, "reason": null },
-                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null }
+                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null },
+                  { "id": "market.db.append-only-guarded", "surface": "market", "method": "LOCAL", "path": "sqlite_master.triggers", "verdict": "pass", "status": null, "reason": null }
                 ]
               },
               "work_items_backfill": { "state": "done" }
@@ -195,7 +197,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9215", "etag": "W/\"23ff-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9367", "etag": "W/\"2497-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -259,7 +261,8 @@
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.portal.session-id-stripped", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.login-session.upstream-sealed", "surface": "market", "method": "LOCAL", "path": "market_sessions.upstream_sealed", "verdict": "pass", "status": null, "reason": null },
-                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null }
+                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null },
+                  { "id": "market.db.append-only-guarded", "surface": "market", "method": "LOCAL", "path": "sqlite_master.triggers", "verdict": "pass", "status": null, "reason": null }
                 ]
               },
               "work_items_backfill": { "state": "done" },
@@ -285,7 +288,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9514", "etag": "W/\"252a-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9666", "etag": "W/\"25c2-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -350,7 +353,8 @@
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.portal.session-id-stripped", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.login-session.upstream-sealed", "surface": "market", "method": "LOCAL", "path": "market_sessions.upstream_sealed", "verdict": "pass", "status": null, "reason": null },
-                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null }
+                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null },
+                  { "id": "market.db.append-only-guarded", "surface": "market", "method": "LOCAL", "path": "sqlite_master.triggers", "verdict": "pass", "status": null, "reason": null }
                 ]
               },
               "work_items_backfill": { "state": "done", "version": 10, "phase": "full", "cursor": 0, "batches": 1, "events": 0, "from": 0 },
@@ -378,7 +382,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "8785", "etag": "W/\"2251-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "8937", "etag": "W/\"22e9-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -443,7 +447,8 @@
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.portal.session-id-stripped", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.login-session.upstream-sealed", "surface": "market", "method": "LOCAL", "path": "market_sessions.upstream_sealed", "verdict": "pass", "status": null, "reason": null },
-                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null }
+                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null },
+                  { "id": "market.db.append-only-guarded", "surface": "market", "method": "LOCAL", "path": "sqlite_master.triggers", "verdict": "pass", "status": null, "reason": null }
                 ]
               },
               "work_items_backfill": { "state": "done", "version": 10, "phase": "full", "cursor": 0, "batches": 1, "events": 0, "from": 0 }
@@ -468,7 +473,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9215", "etag": "W/\"23ff-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9367", "etag": "W/\"2497-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -532,7 +537,8 @@
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.portal.session-id-stripped", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.login-session.upstream-sealed", "surface": "market", "method": "LOCAL", "path": "market_sessions.upstream_sealed", "verdict": "pass", "status": null, "reason": null },
-                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null }
+                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null },
+                  { "id": "market.db.append-only-guarded", "surface": "market", "method": "LOCAL", "path": "sqlite_master.triggers", "verdict": "pass", "status": null, "reason": null }
                 ]
               },
               "work_items_backfill": { "state": "done" },
@@ -556,7 +562,7 @@
           "response": {
             "status": 503,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "8693", "etag": "W/\"21f5-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "8845", "etag": "W/\"228d-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": false,
               "service": "workbench-market-server",
@@ -620,7 +626,8 @@
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.portal.session-id-stripped", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.login-session.upstream-sealed", "surface": "market", "method": "LOCAL", "path": "market_sessions.upstream_sealed", "verdict": "pass", "status": null, "reason": null },
-                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null }
+                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null },
+                  { "id": "market.db.append-only-guarded", "surface": "market", "method": "LOCAL", "path": "sqlite_master.triggers", "verdict": "pass", "status": null, "reason": null }
                 ]
               },
               "work_items_backfill": { "state": "done" },
@@ -638,7 +645,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9237", "etag": "W/\"2415-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9389", "etag": "W/\"24ad-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -702,7 +709,8 @@
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.portal.session-id-stripped", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.login-session.upstream-sealed", "surface": "market", "method": "LOCAL", "path": "market_sessions.upstream_sealed", "verdict": "pass", "status": null, "reason": null },
-                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null }
+                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null },
+                  { "id": "market.db.append-only-guarded", "surface": "market", "method": "LOCAL", "path": "sqlite_master.triggers", "verdict": "pass", "status": null, "reason": null }
                 ]
               },
               "work_items_backfill": { "state": "done" },
@@ -736,7 +744,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9894", "etag": "W/\"26a6-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10046", "etag": "W/\"273e-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -805,7 +813,8 @@
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.portal.session-id-stripped", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.login-session.upstream-sealed", "surface": "market", "method": "LOCAL", "path": "market_sessions.upstream_sealed", "verdict": "pass", "status": null, "reason": null },
-                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null }
+                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null },
+                  { "id": "market.db.append-only-guarded", "surface": "market", "method": "LOCAL", "path": "sqlite_master.triggers", "verdict": "pass", "status": null, "reason": null }
                 ]
               },
               "work_items_backfill": { "state": "done" },
@@ -831,7 +840,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9334", "etag": "W/\"2476-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9486", "etag": "W/\"250e-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -900,7 +909,8 @@
                   { "id": "market.portal.forward-strips-market-auth", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.portal.session-id-stripped", "surface": "market", "method": "CHECK", "path": "/go/*", "verdict": "pass", "status": null, "reason": null },
                   { "id": "market.login-session.upstream-sealed", "surface": "market", "method": "LOCAL", "path": "market_sessions.upstream_sealed", "verdict": "pass", "status": null, "reason": null },
-                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null }
+                  { "id": "market.login-session.renewal-bounded", "surface": "market", "method": "LOCAL", "path": "market_sessions.expires_at", "verdict": "pass", "status": null, "reason": null },
+                  { "id": "market.db.append-only-guarded", "surface": "market", "method": "LOCAL", "path": "sqlite_master.triggers", "verdict": "pass", "status": null, "reason": null }
                 ]
               },
               "work_items_backfill": { "state": "done" }
