@@ -8,7 +8,7 @@ export const isStartupProbeRequest = (req: IncomingMessage): boolean => internal
 type Row = { id: string; surface: 'market' | 'control'; method: string; path: string; verdict: 'pass' | 'fail' | 'warn' | 'skip'; status: number | null; reason: string | null };
 type State = { passed: boolean; failed: string[]; at: string | null; rows: Row[] };
 type Target = { port: number; surface: 'market' | 'control' };
-type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; portalForward?: () => { ok: boolean; reason: string | null }; portalSessionStrip?: () => { ok: boolean; reason: string | null }; outbound?: () => Promise<{ ok: boolean; reason: string | null }> ; sessionSeal?: () => { ok: boolean; reason: string | null }; sessionRenewal?: () => { ok: boolean; reason: string | null }; sessionLegacyTtl?: boolean };
+type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; portalForward?: () => { ok: boolean; reason: string | null }; portalSessionStrip?: () => { ok: boolean; reason: string | null }; outbound?: () => Promise<{ ok: boolean; reason: string | null }> ; sessionSeal?: () => { ok: boolean; reason: string | null }; sessionRenewal?: () => { ok: boolean; reason: string | null }; sessionLegacyTtl?: boolean; appendOnly?: () => { ok: boolean; reason: string | null } };
 /** Login-gate rows impersonate a remote anonymous browser behind a same-host proxy, so the local-CLI exemption cannot apply. */
 const REMOTE_ANON = { 'x-forwarded-for': '192.0.2.1', accept: 'text/html' };
 
@@ -83,7 +83,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
     });
   }
 
-  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, portalForward, portalSessionStrip, outbound, sessionSeal, sessionRenewal, sessionLegacyTtl = false }: Options): Promise<State> {
+  async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, portalForward, portalSessionStrip, outbound, sessionSeal, sessionRenewal, sessionLegacyTtl = false, appendOnly }: Options): Promise<State> {
     const [m, c] = await Promise.all([listener(market), listener(control)]);
     if (c) c.surface = 'control';
     const table = [
@@ -254,6 +254,14 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       let g: { ok: boolean; reason: string | null };
       try { g = sessionRenewal(); } catch { g = { ok: false, reason: 'error' }; }
       const row: Row = { id: 'market.login-session.renewal-bounded', surface: 'market', method: 'LOCAL', path: 'market_sessions.expires_at', verdict: g.ok ? 'pass' : 'fail', status: null, reason: g.ok ? null : g.reason };
+      state.rows.push(row);
+      log({ source: 'self-probe', ...row });
+    }
+    // 只增表（留痕）在库这一层改不了：防改、防删、防覆盖的触发器都在，事件日志用同一个 id 覆盖被拒（回滚掉的保存点里核，不留痕）。不过就拒绝启动
+    if (appendOnly) {
+      let g: { ok: boolean; reason: string | null };
+      try { g = appendOnly(); } catch { g = { ok: false, reason: 'error' }; }
+      const row: Row = { id: 'market.db.append-only-guarded', surface: 'market', method: 'LOCAL', path: 'sqlite_master.triggers', verdict: g.ok ? 'pass' : 'fail', status: null, reason: g.ok ? null : g.reason };
       state.rows.push(row);
       log({ source: 'self-probe', ...row });
     }

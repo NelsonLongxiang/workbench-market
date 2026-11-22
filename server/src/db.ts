@@ -2271,6 +2271,37 @@ CREATE TABLE IF NOT EXISTS bench_mcp_audit (
 CREATE INDEX IF NOT EXISTS idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, id);`);
 
 
+// ---------- 只增表的触发器：启动自检（market.db.append-only-guarded）----------
+// 只增表（留痕）在库这一层防改、防删、防覆盖的触发器名单（第一批 #975；以后加的表接着往这里写）。启动自检逐条核对它们都在，
+//   再在一个回滚掉的保存点里真试一次「同一个 id 覆盖式插入」事件日志，必须被拒。不过就拒绝启动（startup-security-self-probe.ts）
+export const APPEND_ONLY_TRIGGERS: readonly string[] = [
+  'task_events_no_update', 'task_events_no_delete', 'task_events_no_replace',
+  'wbe_log_no_update', 'wbe_log_no_delete', 'wbe_log_no_replace',
+  'custom_role_events_no_update', 'custom_role_events_no_delete', 'custom_role_events_no_replace',
+  'team_events_no_update', 'team_events_no_delete', 'team_events_no_replace',
+  'knowledge_project_dept_log_no_update', 'knowledge_project_dept_log_no_delete', 'knowledge_project_dept_log_no_replace',
+  'grant_events_no_update', 'grant_events_no_delete', 'grant_events_no_replace',
+  'work_item_log_no_update', 'work_item_log_no_delete', 'work_item_log_no_replace',
+];
+/** 启动自检用：名单里的触发器都在，事件日志用同一个 id 覆盖被拒。合成的那一行在保存点里，检查完整个回滚（不留痕、不占行号）。理由只给代号，不带库里的内容 */
+export function appendOnlySelfCheck(): { ok: boolean; reason: string | null } {
+  try {
+    const have = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as { name: string }[]).map((r) => r.name));
+    const missing = APPEND_ONLY_TRIGGERS.filter((n) => !have.has(n));
+    if (missing.length) return { ok: false, reason: `missing:${missing.join(',')}` };
+    db.exec('SAVEPOINT wm_append_only_self_check');
+    try {
+      const at = new Date().toISOString();
+      const id = Number(db.prepare('INSERT INTO workbench_event_log (event_id, actor, action, detail, at) VALUES (?, ?, ?, ?, ?) RETURNING id')
+        .get('wbe-selfprobe00000000', 'self-probe', 'self-probe', '{}', at)?.id);
+      let refused = false;
+      try { db.prepare('INSERT OR REPLACE INTO workbench_event_log (id, event_id, actor, action, detail, at) VALUES (?, ?, ?, ?, ?, ?)').run(id, 'wbe-selfprobe00000000', 'self-probe-b', 'self-probe', '{}', at); }
+      catch { refused = true; }
+      return refused ? { ok: true, reason: null } : { ok: false, reason: 'replace-accepted' };
+    } finally { db.exec('ROLLBACK TO wm_append_only_self_check; RELEASE wm_append_only_self_check'); }
+  } catch { return { ok: false, reason: 'error' }; }
+}
+
 // ---------- 台库（数据视图，docs/data-views.md）----------
 // 每个视图台一份自己的库，和上面的主库分开。表结构照约定登记在这里；语句由 services/bench-store.ts 在台自己的库上执行，不在主库上跑。
 // 只用两种库都认的写法；随库不同的只有类型名和自增主键，收在下面两个小函数里。时间一律由调用方给（毫秒整数），不在语句里取。

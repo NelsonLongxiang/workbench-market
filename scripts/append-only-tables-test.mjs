@@ -7,6 +7,7 @@
  *   一、逐张表：先正常写一行，再用同一个主键 INSERT OR REPLACE、REPLACE INTO、INSERT … ON CONFLICT DO UPDATE 换掉执行人和内容——
  *       都被拒、原来那行一个字没变；UPDATE、DELETE 被拒；不给主键再写一行照常写进去
  *   二、整库：凡是装了「不许改」「不许删」（都不带条件）两条触发器的表，都要有防覆盖的那一条——以后新加的只增表漏了也会在这里红
+ *   三、启动自检用的检查（appendOnlySelfCheck）：库是好的就通过、不留痕；缺一条点名；同名但不拦的（WHEN 0）靠真试一次覆盖抓到
  *
  * 被测的就是启动建出来的库（server/src/db.ts，再加工作台事件那几张表的 initWorkbenchEvents），所以直接加载（不经接口）：
  * 这些是库这一层的防线，经接口造不出「直接写库」；库在临时目录里，跑完删掉。
@@ -46,7 +47,8 @@ try {
   mkdirSync(join(OUT, 'data'), { recursive: true });
   process.env.DATA_DIR = join(OUT, 'data');
   process.env.NODE_ENV = 'test';
-  const { db } = await import(pathToFileURL(join(ROOT, 'server', 'src', 'db.ts')).href);
+  const dbm = await import(pathToFileURL(join(ROOT, 'server', 'src', 'db.ts')).href);
+  const { db } = dbm;
   // 真实启动时 db.ts 之后还会建工作台事件那几张表：照样走一遍，测的是启动完的库
   (await import(pathToFileURL(join(ROOT, 'server', 'src', 'workbench-events.ts')).href)).initWorkbenchEvents();
 
@@ -86,6 +88,29 @@ try {
   const noReplace = appendOnly.filter((t) => !trg.some((x) => x.tbl_name === t && /BEFORE\s+INSERT\s+ON\s/i.test(x.sql) && /WHEN\s+EXISTS/i.test(x.sql)));
   check(appendOnly.length >= TABLES.length && TABLES.every((t) => appendOnly.includes(t.table)), `认出 ${appendOnly.length} 张只增表（不带条件的不许改、不许删都有）`, appendOnly);
   check(noReplace.length === 0, '这些表每张都有防覆盖的触发器（键已存在的插入一律拦下）', { noReplace, appendOnly });
+
+  console.log('三、启动自检用的检查（appendOnlySelfCheck，启动自检那一行 market.db.append-only-guarded 调的就是它）');
+  const logRows = () => db.prepare('SELECT COUNT(*) AS n FROM workbench_event_log').get().n;
+  const seqOf = () => db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'workbench_event_log'").get()?.seq ?? null;
+  const n0 = logRows(), s0 = seqOf();
+  const good = dbm.appendOnlySelfCheck();
+  check(good.ok === true && good.reason === null && logRows() === n0 && seqOf() === s0,
+    '库是好的：通过；核对用的那一行整个回滚掉，事件日志行数、行号都没变', { good, n0, n: logRows(), s0, s: seqOf() });
+  const names = dbm.APPEND_ONLY_TRIGGERS;
+  const have = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all().map((r) => r.name));
+  check(Array.isArray(names) && names.length >= 15 && names.every((n) => have.has(n)) && TABLES.every((t) => names.some((n) => n.startsWith(t.table === 'workbench_event_log' ? 'wbe_log_' : `${t.table}_`))),
+    `名单（${names.length} 条）里的触发器库里都有，上面逐张测的表都在名单里`, names.filter((n) => !have.has(n)));
+  // 拿掉一条：点名缺的是哪条
+  const rsql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'wbe_log_no_replace'").get().sql;
+  db.exec('DROP TRIGGER wbe_log_no_replace');
+  const gone = dbm.appendOnlySelfCheck();
+  // 同名但不拦的（名字在、防线没了）：要靠真试一次覆盖才抓得到
+  db.exec("CREATE TRIGGER wbe_log_no_replace BEFORE INSERT ON workbench_event_log WHEN 0 BEGIN SELECT RAISE(ABORT, 'x'); END");
+  const hollow = dbm.appendOnlySelfCheck();
+  db.exec('DROP TRIGGER wbe_log_no_replace'); db.exec(rsql);
+  const back = dbm.appendOnlySelfCheck();
+  check(gone.ok === false && gone.reason === 'missing:wbe_log_no_replace' && hollow.ok === false && hollow.reason === 'replace-accepted' && back.ok === true && logRows() === n0,
+    '缺一条：不通过、点名缺的那条；同名但不拦的：不通过（覆盖被接受）；装回去照常通过；都不留痕', { gone, hollow, back });
 } catch (e) {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {
