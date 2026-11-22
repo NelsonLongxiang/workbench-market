@@ -45,7 +45,7 @@ export default function BenchRename({ cardId, entry, refreshEntry }: { cardId: s
           <Button key="cancel" disabled={busy} onClick={() => setOpen(false)}>取消</Button>,
           <Button key="ok" type="primary" loading={busy} disabled={!trimmed || trimmed.length > 64} onClick={() => void send({ title: trimmed })} data-testid="bench-rename-save">保存</Button>,
         ]}>
-        <Space direction="vertical" style={{ width: '100%' }}>
+        <Space direction="vertical" className="wm-w-full">
           <Input value={value} maxLength={64} showCount onChange={(e) => setValue(e.target.value)} onPressEnter={() => { if (trimmed && !busy) void send({ title: trimmed }); }} data-testid="bench-rename-input" aria-label="台的名字" />
           {msg ? (
             <Alert type={msg.type} showIcon message={msg.text} data-testid="bench-rename-msg"
