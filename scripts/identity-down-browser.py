@@ -4,7 +4,7 @@
 页面会自己退避重试；放开之后提示自己消失、页面重读；「现在重试」不等计时。
 别的 502（error 不是这个代号）和 401 不进这个状态。别的接口回这个代号也会挂提示（请求层统一认）。"""
 import json, sys
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1])); M = cfg['base']
 ok = fail = 0
 def check(n, c, x=''):
@@ -12,6 +12,25 @@ def check(n, c, x=''):
     if c: ok += 1; print('  ✓', n)
     else: fail += 1; print('  ✗', n, x)
 DOWN = json.dumps({'error': 'identity_unavailable'})
+# 固定等待改成等条件（#954）：等不到不在等待处抛错，照常往下，由后面原来的断言带着当时的值报
+def soft(fn):
+    try: fn()
+    except PWTimeout: pass
+def until(pg, pred, timeout=10000):
+    """等测试这边记下的状态（截下的请求数）满足 pred：每 20 毫秒看一次，期间照常处理截下的请求；到点就停，不抛错"""
+    for _ in range(timeout // 20):
+        if pred(): return
+        pg.wait_for_timeout(20)
+def painted(pg):
+    """等页面再画两帧"""
+    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+def reload_after_attention(pg):
+    """证明「没有」用：重新加载，等这一页 /api/attention 的应答连正文收完、总结句画出来、再画两帧——要挂提示的话这时已经挂了"""
+    try:
+        with pg.expect_response(lambda r: '/api/attention' in r.url) as ri: pg.reload()
+        ri.value.finished()
+    except PWTimeout: pass
+    pg.wait_for_selector('[data-testid=home-summary]'); painted(pg); painted(pg)
 probes = []
 def down(route):
     probes.append(1)
@@ -46,14 +65,14 @@ with sync_playwright() as p:
           and '暂时取不到' in pg.locator('[data-testid=home-decide-down]').inner_text() and pg.get_by_text('眼下没有要你拍板的').count() == 0)
     if len(sys.argv) > 2: pg.screenshot(path=sys.argv[2])  # 本机看样子用，CI 不传
     n0 = len(probes)
-    pg.wait_for_timeout(5000)
+    until(pg, lambda: len(probes) > n0, timeout=5000)  # 还是 5 秒为限，问到了就不再干等
     check(f'页面自己退避重试（5 秒里又问了 {len(probes) - n0} 次）', len(probes) > n0, (n0, len(probes)))
     # 放开：下一次重试问到正常应答，提示自己消失，页面重读
     ctx.unroute('**/api/attention', down)
     ctx.unroute('**/api/lifecycle/**', lc_down)
     banner.wait_for(state='hidden', timeout=15000)
     pg.wait_for_function("!document.querySelector('[data-testid=home-decide-down]')")
-    pg.wait_for_timeout(600)
+    soft(lambda: pg.wait_for_function("() => { const s = document.querySelector('[data-testid=home-summary]'); return !!s && !s.innerText.includes('暂时取不到'); }"))
     check('连上之后提示自己消失，全景重读（不再写暂时取不到）', banner.count() == 0 and '暂时取不到' not in pg.locator('[data-testid=home-summary]').inner_text()
           and (pg.locator('[data-testid=nav-pending]').count() == 0 or pg.locator('[data-testid=nav-pending]').inner_text().strip() != '暂时取不到'))
     # 全景表取到了（合成夹具：两条在走的线）、只有等你拍板取不到：表照样画，总结句说几条线在走 + 暂时取不到
@@ -90,12 +109,12 @@ with sync_playwright() as p:
     # 别的 502、401 不进这个状态
     other = lambda r: r.fulfill(status=502, content_type='application/json', body=json.dumps({'error': 'upstream_failed'}))
     ctx.route('**/api/attention', other)
-    pg.reload(); pg.wait_for_selector('[data-testid=home-summary]'); pg.wait_for_timeout(1500)
+    reload_after_attention(pg)
     check('别的 502（error 不是这个代号）不挂提示、角标不写暂时取不到', banner.count() == 0 and pg.locator('[data-testid=home-decide-down]').count() == 0)
     ctx.unroute('**/api/attention', other)
     unauth = lambda r: r.fulfill(status=401, content_type='application/json', body=json.dumps({'error': 'work_items_auth_required'}))
     ctx.route('**/api/attention', unauth)
-    pg.reload(); pg.wait_for_selector('[data-testid=home-summary]'); pg.wait_for_timeout(1500)
+    reload_after_attention(pg)
     check('401 不进这个状态（照旧按没登录处理）', banner.count() == 0 and pg.locator('[data-testid=home-decide-down]').count() == 0)
     ctx.close()
     # 真服务端（#639）：合成身份来源在数据目录里有 fake-identity-down 时不回答——服务端自己回 502 identity_unavailable，不是页面里截的

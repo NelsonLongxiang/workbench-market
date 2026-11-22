@@ -2,7 +2,7 @@
 属主 2026-11-02 撤销 #292 M1：业务面凭口令即可做管理写；#292 M4 止血（持口令时不内嵌 /go/、离开页面抹口令）保留。"""
 import json, re, sys
 from pathlib import Path
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 cfg = json.loads(Path(sys.argv[1]).read_text(encoding='utf-8'))
 base, wid, tok = cfg['base'], cfg['wid'], cfg['token']
@@ -14,6 +14,25 @@ def ok(name, cond, extra=''):
 
 def go_frames(page):
     return page.locator(f'iframe[src="/go/{wid}/"]').count()
+
+# 固定等待改成等条件（#954）：等不到不在等待处抛错，照常往下，由后面原来的断言带着当时的值报
+def soft(fn):
+    try: fn()
+    except PWTimeout: pass
+def until(page, pred, timeout=10000):
+    """每 20 毫秒看一次 pred；到点就停，不抛错"""
+    for _ in range(timeout // 20):
+        if pred(): return
+        page.wait_for_timeout(20)
+def painted(page):
+    """等页面再画两帧"""
+    page.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+def go_frame_up(page):
+    soft(lambda: page.locator(f'iframe[src="/go/{wid}/"]').wait_for(state='attached'))
+def probe_ready(page):
+    """内嵌的上游页跑完了自己的探针（window.__probe 有了）"""
+    try: return page.frames[-1].evaluate('window.__probe !== undefined')
+    except Exception: return False
 
 def slow(page):
     """本机模拟慢 runner：WM_BROWSER_CPU_THROTTLE=6 把页面 CPU 放慢 6 倍，动画和取数的先后就和 CI 上接近。缺省不放慢。"""
@@ -50,11 +69,12 @@ with sync_playwright() as p:
         c = b.new_context()
         page = c.new_page()
         slow(page)
-        page.goto(base + f'/use/{wid}'); page.wait_for_timeout(1200)
+        page.goto(base + f'/use/{wid}'); go_frame_up(page)
         ok('未设口令：使用页照常内嵌 /go/', go_frames(page) == 1)
-        page.goto(base + f'/cockpit/{cfg["cockpit"]}'); page.wait_for_timeout(1200)
+        page.goto(base + f'/cockpit/{cfg["cockpit"]}'); go_frame_up(page)
+        soft(lambda: page.get_by_text('这个驾驶舱你只能看').first.wait_for())
         ok('未设口令：驾驶舱照常内嵌 /go/、只读（没有新建/加面板）', go_frames(page) == 1 and page.get_by_text('这个驾驶舱你只能看').count() >= 1)  # 只读提示改成一行浅色说明（协调 2026-11-12）
-        page.goto(base + '/market'); page.wait_for_timeout(800)
+        page.goto(base + '/market'); soft(lambda: page.locator('[data-testid=wm-me]').wait_for())
         open_me(page)
         ok('业务面用户卡里有口令输入，没有「管理控制面」链接', page.get_by_role('button', name=re.compile(r'口\s*令$')).count() == 1 and page.get_by_role('link', name=re.compile('管理控制面')).count() == 0)
         set_token(page)
@@ -66,12 +86,17 @@ with sync_playwright() as p:
             rv = page.evaluate(WRITE.replace('"/api/workbenches"', json.dumps(v)), [''])
             ok(f'业务面页面 fetch 大写变体 {v}（不带口令）→ 403', rv['status'] == 403, str(rv))
         ok('设口令后侧栏出现「设置 / 管理」', page.locator('[data-testid=nav-admin]').count() == 1)
-        page.evaluate(f'history.pushState(null, "", "/cockpit/{cfg["cockpit"]}"); dispatchEvent(new PopStateEvent("popstate"))'); page.wait_for_timeout(1200)
+        page.evaluate(f'history.pushState(null, "", "/cockpit/{cfg["cockpit"]}"); dispatchEvent(new PopStateEvent("popstate"))')
+        # 证明「没有」（不显示只读提示、不内嵌 /go/）：先等一定会出现的那块——持口令时面板里的 /go/ 换成「暂不内嵌」的提示（它要等驾驶舱数据到了才画，
+        # 只读与否也在同一份数据里），再画两帧，再看没出现的那两样
+        soft(lambda: page.locator('.wm-go-guard').first.wait_for()); painted(page)
         ok('持口令：驾驶舱可编辑（不再显示只读提示）', page.get_by_text('这个驾驶舱你只能看').count() == 0, page.url)
         ok('持口令：驾驶舱不内嵌 /go/（#292 M4 止血保留）', go_frames(page) == 0)
-        page.evaluate(f'history.pushState(null, "", "/use/{wid}"); dispatchEvent(new PopStateEvent("popstate"))'); page.wait_for_timeout(1200)
+        page.evaluate(f'history.pushState(null, "", "/use/{wid}"); dispatchEvent(new PopStateEvent("popstate"))')
+        soft(lambda: page.get_by_role('button', name='清除口令并内嵌').wait_for())
         ok('持口令：使用页不内嵌 /go/，给出「清除口令并内嵌」', go_frames(page) == 0 and page.get_by_role('button', name='清除口令并内嵌').count() == 1)
-        page.get_by_role('button', name='清除口令并内嵌').click(); page.wait_for_timeout(1500)
+        page.get_by_role('button', name='清除口令并内嵌').click(); go_frame_up(page)
+        until(page, lambda: probe_ready(page))
         ok('清除口令后才内嵌 /go/，存储为空', go_frames(page) == 1 and page.evaluate('sessionStorage.getItem("wm-admin-token")') is None)
         pr = page.frames[-1].evaluate('window.__probe')
         ok('内嵌的上游页读自己和父页都没有口令', pr.get('own') is None and pr.get('parent') is None, str(pr))
@@ -79,8 +104,9 @@ with sync_playwright() as p:
 
         print('同标签页离开市场页面即抹掉口令（#292 M4）')
         c = b.new_context(); page = c.new_page()
-        page.goto(base + '/market'); page.wait_for_timeout(600); set_token(page)
-        page.goto(base + f'/go/{wid}/'); page.wait_for_timeout(1200)
+        page.goto(base + '/market'); soft(lambda: page.locator('[data-testid=wm-me]').wait_for()); set_token(page)
+        # 证明「没有」（新文档读不到口令）：抹口令在旧文档离开时（pagehide）就做完了；goto 等到新文档 load，就是那件一定会发生的事
+        page.goto(base + f'/go/{wid}/'); page.wait_for_load_state('load')
         ok('同一标签页跳到 /go/ 后，新文档读不到口令', page.evaluate('sessionStorage.getItem("wm-admin-token")') is None)
         c.close()
 

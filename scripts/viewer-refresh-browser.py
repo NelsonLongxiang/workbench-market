@@ -15,6 +15,17 @@ def check(n, c, x=''):
     if c: ok += 1; print('  ✓', n)
     else: fail += 1; print('  ✗', n, x)
 
+# 固定等待改成等条件（#954）：等不到不在等待处抛错，照常往下，由后面原来的断言报
+def until(page, pred, timeout=10000):
+    """等测试这边记下的状态（截下的调用数）满足 pred：每 20 毫秒看一次，期间照常处理截下的请求；到点就停，不抛错"""
+    for _ in range(timeout // 20):
+        if pred(): return
+        page.wait_for_timeout(20)
+def settle(page):
+    """证明「没有」用：页面先画两帧，再发一个哨兵请求、等它回来。哨兵和页面别的请求走同一个路由处理，
+    哨兵回来时，在它之前发出的请求（复查、登出）都已经过了路由、记进了 st；这时再看没发生的那件"""
+    page.evaluate("async () => { await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))); await fetch('/__settle', { cache: 'no-store' }).catch(() => null); }")
+
 VIEWER = {'ok': True, 'viewer': {'login': 'fixture-a', 'sub': 'user:fixture-a', 'name': 'Fixture A', 'kind': '人'}, 'roles': None}
 CASES = {
     'ok': (200, VIEWER),
@@ -33,8 +44,10 @@ with sync_playwright() as p:
         def open_case(name, path='/work-items?q=1'):
             ctx = browser.new_context()
             page = ctx.new_page()
-            st = {'case': name, 'calls': 0, 'logout': 0, 'popups': 0}
+            st = {'case': name, 'calls': 0, 'answered': 0, 'logout': 0, 'popups': 0}
             ctx.on('page', lambda _p: st.__setitem__('popups', st['popups'] + 1))
+            # 页面收完 /api/auth/viewer 的应答（连正文）记一次：证明「不显示」之前，先确认那次应答已经到了页面
+            page.on('requestfinished', lambda r: st.__setitem__('answered', st['answered'] + 1) if '/api/auth/viewer' in r.url else None)
             def route(r):
                 u = r.request.url
                 if '/api/auth/viewer' in u:
@@ -57,7 +70,8 @@ with sync_playwright() as p:
         check('200：显示名字和登录名；弹出层没有「来源」「Odoo」、不露主体标识（user:…）', '登录名' in pop and '来源' not in pop and 'Odoo' not in pop and 'user:' not in pop, pop)
         check('200：整页不再出现「Odoo」', 'Odoo' not in page.locator('body').inner_text())
         before = st['calls']
-        page.evaluate("for(let i=0;i<10;i++)window.dispatchEvent(new Event('focus'))"); page.wait_for_timeout(300)
+        # 证明「没有」：focus 的处理是同步的，要复查的话请求当场就发出去了；哨兵回来以后再数
+        page.evaluate("for(let i=0;i<10;i++)window.dispatchEvent(new Event('focus'))"); settle(page)
         check('切回页面一分钟内不重复查', st['calls'] == before, st['calls'])
         ctx.close()
 
@@ -87,13 +101,14 @@ with sync_playwright() as p:
 
         ctx, page, st = open_case('unavailable')
         expect(page.get_by_test_id('viewer-unavailable')).to_have_text('暂时登录不了')
-        page.wait_for_timeout(800)
+        settle(page)  # 证明「没有」：提示已经画出来（503 已经处理完）；要登出的话请求这时已经发出，哨兵回来以后再数
         check('503：只提示「暂时登录不了」；不调登出、不跳走、没有登录按钮', st['logout'] == 0 and page.url == 'http://fixture.test/work-items?q=1' and page.get_by_test_id('viewer-login').count() == 0, (st['logout'], page.url))
         ctx.close()
 
         for name in ('failed', 'bad-json', 'missing-viewer'):
             ctx, page, st = open_case(name)
-            page.wait_for_timeout(800)
+            # 证明「没有」：等 /api/auth/viewer 的应答收完，再画两帧、过一次哨兵，再看 chip 出没出
+            until(page, lambda: st['answered'] >= 1); settle(page)
             check(f'{name}：不显示 chip', page.locator('[data-testid^=viewer-]').count() == 0)
             ctx.close()
 
