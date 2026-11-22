@@ -509,6 +509,7 @@ CREATE TABLE IF NOT EXISTS a2a_inbound_receipts (
 -- 正文里报的 host 只拿来核对；同一个 host 只认第一次报它的根地址。seat_id 是宿主给成员位的稳定 id（上游 B1 起，句柄随会话变、它不变；旧节点不带就是空）。
 -- 名册已改存 a2a_roster_nodes / a2a_roster_node_seats（以根地址和完整指纹为键，见 a2a_peers 之后）：这两张旧表升级时复制一次之后
 -- 不再读写，只为升级守护（结构只增不改、存量行不变）留着，不删、不改名、不删行。时间由代码生成后写入。
+-- 已冻结：库这一层也拦住新增、改、删（触发器在本文件「只增表、留痕表的触发器（第二批）」那一段）
 CREATE TABLE IF NOT EXISTS a2a_rosters (
   host TEXT PRIMARY KEY,
   peer_root TEXT NOT NULL,
@@ -2272,7 +2273,7 @@ CREATE INDEX IF NOT EXISTS idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, 
 
 
 // ---------- 只增表的触发器：启动自检（market.db.append-only-guarded）----------
-// 只增表（留痕）在库这一层防改、防删、防覆盖的触发器名单（第一批 #975，加上原来就有的授予、事项、领域、报告几张；以后加的表接着往这里写）。启动自检逐条核对它们都在，
+// 只增表（留痕）在库这一层防改、防删、防覆盖的触发器名单（第一批 #975，加上原来就有的授予、事项、领域、报告几张；第二批 #976；以后加的表接着往这里写）。启动自检逐条核对它们都在，
 //   再在一个回滚掉的保存点里真试一次「同一个 id 覆盖式插入」事件日志，必须被拒。不过就拒绝启动（startup-security-self-probe.ts）
 export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   'task_events_no_update', 'task_events_no_delete', 'task_events_no_replace',
@@ -2287,6 +2288,24 @@ export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   'report_templates_no_update', 'report_templates_no_delete', 'report_templates_no_replace',
   'report_template_reviews_no_update', 'report_template_reviews_no_delete', 'report_template_reviews_no_replace',
   'report_dimension_events_no_update', 'report_dimension_events_no_delete', 'report_dimension_events_no_replace',
+  // 第二批（#976 裁定）
+  'bench_bind_audit_no_update', 'bench_bind_audit_no_delete', 'bench_bind_audit_no_replace',
+  'bench_mcp_audit_no_update', 'bench_mcp_audit_no_delete', 'bench_mcp_audit_no_replace',
+  'mcp_grant_audit_no_update', 'mcp_grant_audit_no_delete', 'mcp_grant_audit_no_replace',
+  'sop_run_file_audit_no_update', 'sop_run_file_audit_no_delete', 'sop_run_file_audit_no_replace',
+  'sop_run_upgrade_audit_no_update', 'sop_run_upgrade_audit_no_delete', 'sop_run_upgrade_audit_no_replace',
+  'workbench_var_audit_no_update', 'workbench_var_audit_no_delete', 'workbench_var_audit_no_replace',
+  'a2a_roster_changes_no_update', 'a2a_roster_changes_no_delete', 'a2a_roster_changes_no_replace',
+  'task_center_events_no_update', 'task_center_events_no_delete', 'task_center_events_no_replace',
+  'mcp_calls_no_update', 'mcp_calls_no_replace', 'a2a_seat_token_log_no_update', 'a2a_seat_token_log_no_replace',
+  'wbe_events_no_delete', 'wbe_events_no_update', 'wbe_events_no_replace', 'login_events_seen_no_update',
+  'attention_answers_done_fixed', 'attention_answers_done_kept',
+  'a2a_inbound_receipts_no_update', 'a2a_inbound_receipts_no_delete',
+  'a2a_rosters_frozen_insert', 'a2a_rosters_frozen_update', 'a2a_rosters_frozen_delete',
+  'a2a_roster_seats_frozen_insert', 'a2a_roster_seats_frozen_update', 'a2a_roster_seats_frozen_delete',
+  'work_item_requests_no_update', 'work_item_requests_no_delete', 'work_item_requests_no_replace',
+  // 可以改的主表上的守护：授予不删、不能用同一个 id 覆盖（统筹定，#979 验收提出）
+  'grants_no_delete', 'grants_no_replace',
 ];
 /**
  * 启动自检用（market.db.append-only-guarded）。理由只给代号，不带库里的内容。判断都按 SQLite 的错误码（errcode），不看报错的文字。
@@ -2331,6 +2350,102 @@ export function appendOnlySelfCheck(conn: SelfCheckDb = db): { ok: boolean; reas
     if (!undone || conn.isTransaction) { try { conn.exec('ROLLBACK'); } catch { /* 没有开着的事务了 */ } }
   }
 }
+
+// ---------- 只增表、留痕表的触发器（第二批，#976 裁定）----------
+// 改、删、用同一个键覆盖式插入（OR REPLACE）在库这一层拦下；第一批（事件日志、task_events 等五张）跟各自的表放在一起。
+// 覆盖式插入删旧行时不触发 DELETE 触发器（除非开了 recursive_triggers），所以「键已存在的插入一律拦下」要单独一条，
+//   键是表上全部的唯一键（主键；workbench_events 还有 event_id）。不给主键的正常插入 NEW.id 对不上任何已有行，照常写入。
+//   审计、变更记录：bench_bind_audit、bench_mcp_audit、mcp_grant_audit、sop_run_file_audit、sop_run_upgrade_audit、
+//     workbench_var_audit、a2a_roster_changes、task_center_events——改、删、覆盖都拦
+//   mcp_calls：调用审计，拦改和覆盖；删照旧，留给以后按时间清理
+//   workbench_events：事件发出去就不变（投递状态在 workbench_event_deliveries），不删（原有）、不改、不覆盖（按 id 和 event_id）
+//   a2a_seat_token_log：保留期内只增（按时间清旧在 seat-tokens.ts），拦改和覆盖，删照旧
+//   login_events_seen：登录事件去重表，拦改；不拦覆盖——它靠「已存在就跳过」的插入（OR IGNORE）去重，按键拦下的触发器会把去重变成报错
+//   a2a_inbound_receipts：入站回执的去重表，拦改和删；不拦覆盖——它靠「已存在就跳过」的插入去重
+//   a2a_rosters、a2a_roster_seats：冻结的旧名册（升级时复制进新表一次以后不再读写），新增、改、删都拦
+//   work_item_requests：安排一件事的幂等记账（先查再写的普通插入，同一事务里），改、删、覆盖都拦（按主键 requester、idem_key）
+//   attention_answers：答复账加占位锁。待办行（pending）照常改成办完、出错时删掉；办完的那一行（done）不许改、不许删。
+//     同样不拦覆盖（抢占靠「已存在就跳过」的插入）
+// task_center_events、workbench_events 的建表原样从 task-center.ts、workbench-events.ts 搬来（和这里的触发器放在一起，多进程启动的测试也覆盖得到）
+db.exec(`
+CREATE TABLE IF NOT EXISTS task_center_events (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL DEFAULT (datetime('now')), actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS workbench_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE,
+  source TEXT NOT NULL CHECK (source IN ('task-center','app-data')),
+  workbench TEXT NOT NULL,
+  item TEXT NOT NULL,
+  context_id TEXT NOT NULL,
+  submitter_kind TEXT NOT NULL CHECK (submitter_kind IN ('human','agent','unverified')),
+  submitter TEXT NOT NULL DEFAULT '',
+  form_version INTEGER,
+  data_sha256 TEXT NOT NULL,
+  dispatch INTEGER NOT NULL,
+  routed TEXT NOT NULL CHECK (routed IN ('target','default','unrouted')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TRIGGER IF NOT EXISTS wbe_events_no_delete BEFORE DELETE ON workbench_events BEGIN SELECT RAISE(ABORT,'workbench events are never deleted'); END;
+CREATE TRIGGER IF NOT EXISTS bench_bind_audit_no_update BEFORE UPDATE ON bench_bind_audit BEGIN SELECT RAISE(ABORT, 'bench_bind_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS bench_bind_audit_no_delete BEFORE DELETE ON bench_bind_audit BEGIN SELECT RAISE(ABORT, 'bench_bind_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS bench_bind_audit_no_replace BEFORE INSERT ON bench_bind_audit WHEN EXISTS (SELECT 1 FROM bench_bind_audit WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, 'bench_bind_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS bench_mcp_audit_no_update BEFORE UPDATE ON bench_mcp_audit BEGIN SELECT RAISE(ABORT, 'bench_mcp_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS bench_mcp_audit_no_delete BEFORE DELETE ON bench_mcp_audit BEGIN SELECT RAISE(ABORT, 'bench_mcp_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS bench_mcp_audit_no_replace BEFORE INSERT ON bench_mcp_audit WHEN EXISTS (SELECT 1 FROM bench_mcp_audit WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, 'bench_mcp_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS mcp_grant_audit_no_update BEFORE UPDATE ON mcp_grant_audit BEGIN SELECT RAISE(ABORT, 'mcp_grant_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS mcp_grant_audit_no_delete BEFORE DELETE ON mcp_grant_audit BEGIN SELECT RAISE(ABORT, 'mcp_grant_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS mcp_grant_audit_no_replace BEFORE INSERT ON mcp_grant_audit WHEN EXISTS (SELECT 1 FROM mcp_grant_audit WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, 'mcp_grant_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS sop_run_file_audit_no_update BEFORE UPDATE ON sop_run_file_audit BEGIN SELECT RAISE(ABORT, 'sop_run_file_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS sop_run_file_audit_no_delete BEFORE DELETE ON sop_run_file_audit BEGIN SELECT RAISE(ABORT, 'sop_run_file_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS sop_run_file_audit_no_replace BEFORE INSERT ON sop_run_file_audit WHEN EXISTS (SELECT 1 FROM sop_run_file_audit WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, 'sop_run_file_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS sop_run_upgrade_audit_no_update BEFORE UPDATE ON sop_run_upgrade_audit BEGIN SELECT RAISE(ABORT, 'sop_run_upgrade_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS sop_run_upgrade_audit_no_delete BEFORE DELETE ON sop_run_upgrade_audit BEGIN SELECT RAISE(ABORT, 'sop_run_upgrade_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS sop_run_upgrade_audit_no_replace BEFORE INSERT ON sop_run_upgrade_audit WHEN EXISTS (SELECT 1 FROM sop_run_upgrade_audit WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, 'sop_run_upgrade_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS workbench_var_audit_no_update BEFORE UPDATE ON workbench_var_audit BEGIN SELECT RAISE(ABORT, 'workbench_var_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS workbench_var_audit_no_delete BEFORE DELETE ON workbench_var_audit BEGIN SELECT RAISE(ABORT, 'workbench_var_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS workbench_var_audit_no_replace BEFORE INSERT ON workbench_var_audit WHEN EXISTS (SELECT 1 FROM workbench_var_audit WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, 'workbench_var_audit 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_roster_changes_no_update BEFORE UPDATE ON a2a_roster_changes BEGIN SELECT RAISE(ABORT, 'a2a_roster_changes 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_roster_changes_no_delete BEFORE DELETE ON a2a_roster_changes BEGIN SELECT RAISE(ABORT, 'a2a_roster_changes 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_roster_changes_no_replace BEFORE INSERT ON a2a_roster_changes WHEN EXISTS (SELECT 1 FROM a2a_roster_changes WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, 'a2a_roster_changes 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS task_center_events_no_update BEFORE UPDATE ON task_center_events BEGIN SELECT RAISE(ABORT, 'task_center_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS task_center_events_no_delete BEFORE DELETE ON task_center_events BEGIN SELECT RAISE(ABORT, 'task_center_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS task_center_events_no_replace BEFORE INSERT ON task_center_events WHEN EXISTS (SELECT 1 FROM task_center_events WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, 'task_center_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS mcp_calls_no_update BEFORE UPDATE ON mcp_calls BEGIN SELECT RAISE(ABORT, 'mcp_calls 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS mcp_calls_no_replace BEFORE INSERT ON mcp_calls WHEN EXISTS (SELECT 1 FROM mcp_calls WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, 'mcp_calls 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_seat_token_log_no_update BEFORE UPDATE ON a2a_seat_token_log BEGIN SELECT RAISE(ABORT, 'a2a_seat_token_log 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_seat_token_log_no_replace BEFORE INSERT ON a2a_seat_token_log WHEN EXISTS (SELECT 1 FROM a2a_seat_token_log WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, 'a2a_seat_token_log 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS wbe_events_no_update BEFORE UPDATE ON workbench_events BEGIN SELECT RAISE(ABORT,'workbench events are never changed'); END;
+CREATE TRIGGER IF NOT EXISTS wbe_events_no_replace BEFORE INSERT ON workbench_events
+  WHEN EXISTS (SELECT 1 FROM workbench_events WHERE id = NEW.id) OR EXISTS (SELECT 1 FROM workbench_events WHERE event_id = NEW.event_id)
+  BEGIN SELECT RAISE(ABORT,'workbench events are never changed'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_inbound_receipts_no_update BEFORE UPDATE ON a2a_inbound_receipts BEGIN SELECT RAISE(ABORT, 'a2a_inbound_receipts 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_inbound_receipts_no_delete BEFORE DELETE ON a2a_inbound_receipts BEGIN SELECT RAISE(ABORT, 'a2a_inbound_receipts 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_rosters_frozen_insert BEFORE INSERT ON a2a_rosters BEGIN SELECT RAISE(ABORT, 'a2a_rosters 已冻结'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_rosters_frozen_update BEFORE UPDATE ON a2a_rosters BEGIN SELECT RAISE(ABORT, 'a2a_rosters 已冻结'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_rosters_frozen_delete BEFORE DELETE ON a2a_rosters BEGIN SELECT RAISE(ABORT, 'a2a_rosters 已冻结'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_roster_seats_frozen_insert BEFORE INSERT ON a2a_roster_seats BEGIN SELECT RAISE(ABORT, 'a2a_roster_seats 已冻结'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_roster_seats_frozen_update BEFORE UPDATE ON a2a_roster_seats BEGIN SELECT RAISE(ABORT, 'a2a_roster_seats 已冻结'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_roster_seats_frozen_delete BEFORE DELETE ON a2a_roster_seats BEGIN SELECT RAISE(ABORT, 'a2a_roster_seats 已冻结'); END;
+CREATE TRIGGER IF NOT EXISTS work_item_requests_no_update BEFORE UPDATE ON work_item_requests BEGIN SELECT RAISE(ABORT, 'work_item_requests 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS work_item_requests_no_delete BEFORE DELETE ON work_item_requests BEGIN SELECT RAISE(ABORT, 'work_item_requests 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS work_item_requests_no_replace BEFORE INSERT ON work_item_requests
+  WHEN EXISTS (SELECT 1 FROM work_item_requests WHERE requester = NEW.requester AND idem_key = NEW.idem_key)
+  BEGIN SELECT RAISE(ABORT, 'work_item_requests 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS login_events_seen_no_update BEFORE UPDATE ON login_events_seen BEGIN SELECT RAISE(ABORT, 'login_events_seen 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS attention_answers_done_fixed BEFORE UPDATE ON attention_answers WHEN OLD.state = 'done'
+  BEGIN SELECT RAISE(ABORT, 'attention_answers 办完的那一行不改'); END;
+CREATE TRIGGER IF NOT EXISTS attention_answers_done_kept BEFORE DELETE ON attention_answers WHEN OLD.state = 'done'
+  BEGIN SELECT RAISE(ABORT, 'attention_answers 办完的那一行不删'); END;
+`);
 
 // ---------- 台库（数据视图，docs/data-views.md）----------
 // 每个视图台一份自己的库，和上面的主库分开。表结构照约定登记在这里；语句由 services/bench-store.ts 在台自己的库上执行，不在主库上跑。
