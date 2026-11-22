@@ -1,13 +1,17 @@
 #!/usr/bin/env node
 /**
- * 只增表（留痕）在库这一层改不了：改、删、用 INSERT OR REPLACE 覆盖都被触发器拒绝，正常往后加照常。
- * 留痕的意义就是不能改：只有直接写库才做得到，但做得到就不算留痕。INSERT OR REPLACE 删旧行时不触发 DELETE 触发器
- * （除非开了 recursive_triggers），所以每张表要单独有一条「键已存在的插入一律拦下」的触发器。
+ * 只增表（留痕）在库这一层改不了：改、删、用同一个键覆盖式插入（OR REPLACE）都被触发器拒绝，正常往后加照常。
+ * 留痕的意义就是不能改：只有直接写库才做得到，但做得到就不算留痕。覆盖式插入删旧行时不触发 DELETE 触发器
+ * （除非开了 recursive_triggers），所以每张表要单独有一条「键已存在的插入一律拦下」的触发器（键是表上全部的唯一键）。
  *
- *   一、逐张表：先正常写一行，再用同一个主键 INSERT OR REPLACE、REPLACE INTO、INSERT … ON CONFLICT DO UPDATE 换掉执行人和内容——
- *       都被拒、原来那行一个字没变；UPDATE、DELETE 被拒；不给主键再写一行照常写进去
- *   二、整库：凡是装了「不许改」「不许删」（都不带条件）两条触发器的表，都要有防覆盖的那一条——以后新加的只增表漏了也会在这里红
- *   三、启动自检用的检查（appendOnlySelfCheck，按错误码判断）：库是好的就通过、不留痕；缺一条点名；同名但不拦的（WHEN 0）靠真试一次覆盖抓到
+ *   一、逐张表：先正常写一行，再用同一个键 INSERT OR REPLACE、REPLACE INTO、INSERT … ON CONFLICT DO UPDATE 换掉执行人和内容——
+ *       都被拒、原来那行一个字没变；UPDATE、DELETE 照这张表的规矩被拒（删照旧的表反过来断言删得掉：留给按时间清理）；
+ *       不给主键再写一行照常写进去。workbench_events 另有唯一键 event_id：不给 id、同一个 event_id 的覆盖也被拒
+ *   二、整库：凡是装了不带条件的「不许改」「不许删」两条的表，都要有防覆盖；装了「不许改」的表，除了靠「已存在就跳过」去重的
+ *       login_events_seen，也都要有防覆盖——以后新加的只增表漏了会在这里红
+ *   三、不加防覆盖的两张照常：login_events_seen 同一个事件再记一次被跳过、不报错，改被拒、按时间删得掉；
+ *       attention_answers 抢占（已存在就跳过）照常、第二个抢不到也不报错，待办行能改成办完、能删，办完的那一行不许改、不许删
+ *   五、启动自检用的检查（appendOnlySelfCheck，按错误码判断）：库是好的就通过、不留痕；缺一条点名；同名但不拦的（WHEN 0）靠真试一次覆盖抓到
  *
  * 被测的就是启动建出来的库（server/src/db.ts，再加工作台事件那几张表的 initWorkbenchEvents），所以直接加载（不经接口）：
  * 这些是库这一层的防线，经接口造不出「直接写库」；库在临时目录里，跑完删掉。
@@ -28,18 +32,36 @@ let pass = 0, fail = 0;
 const check = (ok, label, detail) => { if (ok) pass++; else fail++; console.log(`  ${ok ? '✓' : '✗'} ${label}${ok || detail === undefined ? '' : `（${typeof detail === 'string' ? detail : JSON.stringify(detail)}）`}`); };
 /** 跑一句写库的 SQL，交回被拒的那句话（没被拒交回 null） */
 const refused = (db, sql, args = []) => { try { db.prepare(sql).run(...args); return null; } catch (e) { return String(e?.message ?? e); } };
-const GUARD = /只增不改|append only/;
+const GUARD = /只增不改|append only|never changed|never deleted/;
 
 /**
- * 每张只增表：主键列、正常写一行要的列和值、用来覆盖的另一组值（换执行人和内容）。
+ * 每张只增表：主键列、正常写一行要的列和值、用来覆盖的另一组值（换执行人和内容）、要拦哪几样（缺省改、删、覆盖都拦）。
  * 值都是合成的；主键不给（自增的）或给一个固定的号（custom_role_events 的 seq 由代码取）
  */
+const ALL = ['update', 'delete', 'replace'];
 const TABLES = [
+  // 第一批（#975）
   { table: 'workbench_event_log', pk: 'id', cols: ['event_id', 'actor', 'action', 'detail'], row: ['wbe-0000000000000001', 'synthetic:a', 'created', '{"x":1}'], swap: ['wbe-0000000000000001', 'synthetic:b', 'created', '{"x":2}'] },
   { table: 'task_events', pk: 'id', cols: ['task_id', 'type', 'actor', 'payload_json'], row: [1, 'created', 'synthetic:a', '{}'], swap: [1, 'published', 'synthetic:b', '{"x":2}'], needsTask: true },
   { table: 'team_events', pk: 'seq', cols: ['host', 'team', 'kind', 'actor', 'detail', 'at'], row: ['0a1b2c3d', 'zone/canvas/syn', 'claim', 'synthetic:a', '', 1], swap: ['0a1b2c3d', 'zone/canvas/syn', 'release', 'synthetic:b', 'x', 2] },
   { table: 'custom_role_events', pk: 'seq', fixedPk: 1, cols: ['role_id', 'event', 'actor', 'after', 'at'], row: ['syn-role', 'create', 'synthetic:a', '{}', 1], swap: ['syn-role', 'delete', 'synthetic:b', '{"x":2}', 2] },
   { table: 'knowledge_project_dept_log', pk: 'id', cols: ['project', 'new_department', 'actor', 'at'], row: ['proj-syn', 'dept-syn-a', 'synthetic:a', 1], swap: ['proj-syn', 'dept-syn-b', 'synthetic:b', 2] },
+  // 第二批（#976 裁定）：审计、变更记录
+  { table: 'bench_bind_audit', pk: 'id', cols: ['slug', 'action', 'after', 'actor', 'at'], row: ['syn-bench', 'workbench', '1', 'synthetic:a', 1], swap: ['syn-bench', 'workbench', '2', 'synthetic:b', 2] },
+  { table: 'bench_mcp_audit', pk: 'id', cols: ['bench', 'session_id', 'action', 'tools', 'actor', 'at'], row: ['syn-bench', 1, 'approve', '["list_rows"]', 'synthetic:a', 1], swap: ['syn-bench', 1, 'revoke', '["put_rows"]', 'synthetic:b', 2] },
+  { table: 'mcp_grant_audit', pk: 'id', cols: ['session_id', 'action', 'actor', 'grants_after'], row: [1, 'approve', 'synthetic:a', '["read"]'], swap: [1, 'revoke', 'synthetic:b', '["write"]'] },
+  { table: 'sop_run_file_audit', pk: 'id', cols: ['run_id', 'name', 'size', 'sha256', 'source'], row: [1, 'syn.txt', 5, 'aa', 'synthetic:a'], swap: [1, 'syn-b.txt', 6, 'bb', 'synthetic:b'] },
+  { table: 'sop_run_upgrade_audit', pk: 'id', cols: ['run_id', 'from_version', 'to_version', 'actor', 'reason'], row: [1, 1, 2, 'synthetic:a', '合成'], swap: [1, 1, 3, 'synthetic:b', '换掉'] },
+  { table: 'workbench_var_audit', pk: 'id', cols: ['workbench_id', 'key', 'action', 'actor', 'new_sha256'], row: [1, 'syn_key', 'set', 'synthetic:a', 'aa'], swap: [1, 'syn_key', 'set', 'synthetic:b', 'bb'] },
+  { table: 'a2a_roster_changes', pk: 'id', cols: ['host', 'kind', 'team', 'detail', 'at'], row: ['0a1b2c3d', 'seat-added', 'zone/canvas/syn', 'synthetic:a', '2026-11-22T00:00:00.000Z'], swap: ['0a1b2c3d', 'seat-removed', 'zone/canvas/syn', 'synthetic:b', '2026-11-22T00:00:01.000Z'] },
+  { table: 'task_center_events', pk: 'id', cols: ['actor', 'action', 'detail'], row: ['synthetic:a', 'policy_changed', '{"x":1}'], swap: ['synthetic:b', 'policy_changed', '{"x":2}'] },
+  // 删照旧（留给按时间清理）：拦改和覆盖
+  { table: 'mcp_calls', pk: 'id', cols: ['session_name', 'method', 'tool', 'seat'], row: ['synthetic:a', 'tools/call', 'list_rows', 'synthetic:a'], swap: ['synthetic:b', 'tools/call', 'put_rows', 'synthetic:b'], deny: ['update', 'replace'] },
+  { table: 'a2a_seat_token_log', pk: 'id', cols: ['at', 'host', 'outcome', 'reason'], row: [1, 'synthetic:a', 'issued', ''], swap: [2, 'synthetic:b', 'refused', 'x'], deny: ['update', 'replace'] },
+  // 发出去就不变：不删（原有）、不改、不覆盖；另有唯一键 event_id
+  { table: 'workbench_events', pk: 'id', cols: ['event_id', 'source', 'workbench', 'item', 'context_id', 'submitter_kind', 'submitter', 'data_sha256', 'dispatch', 'routed'],
+    row: ['wbe-00000000000000a1', 'task-center', 'syn-bench', 'syn-item', 'ctx-a', 'human', 'synthetic:a', 'aa', 1, 'target'],
+    swap: ['wbe-00000000000000a1', 'task-center', 'syn-bench', 'syn-item', 'ctx-b', 'human', 'synthetic:b', 'bb', 1, 'target'], uniqueOnly: 'event_id' },
 ];
 
 rmSync(OUT, { recursive: true, force: true });
@@ -52,8 +74,9 @@ try {
   // 真实启动时 db.ts 之后还会建工作台事件那几张表：照样走一遍，测的是启动完的库
   (await import(pathToFileURL(join(ROOT, 'server', 'src', 'workbench-events.ts')).href)).initWorkbenchEvents();
 
-  console.log('一、逐张表：改、删、覆盖都被拒');
+  console.log('一、逐张表：照各自的规矩，改、删、覆盖被拒');
   for (const t of TABLES) {
+    const deny = new Set(t.deny ?? ALL);
     if (t.needsTask) refused(db, "INSERT INTO tasks (id, title) VALUES (1, '合成任务')"); // task_events 引用 tasks(id)
     const cols = [...(t.fixedPk ? [t.pk] : []), ...t.cols];
     const vals = (v) => [...(t.fixedPk ? [t.fixedPk] : []), ...v];
@@ -70,26 +93,67 @@ try {
       'REPLACE INTO': refused(db, `REPLACE INTO ${t.table} (${allCols.join(', ')}) VALUES (${allPh})`, swapVals),
       'ON CONFLICT DO UPDATE': refused(db, `INSERT INTO ${t.table} (${allCols.join(', ')}) VALUES (${allPh}) ON CONFLICT (${t.pk}) DO UPDATE SET ${set}`, swapVals),
     };
+    // 别的唯一键：不给主键、同一个唯一键的覆盖（workbench_events 的 event_id）
+    if (t.uniqueOnly) tries[`不给主键、同一个 ${t.uniqueOnly} 的 INSERT OR REPLACE`] = refused(db, `INSERT OR REPLACE INTO ${t.table} (${t.cols.join(', ')}) VALUES (${t.cols.map(() => '?').join(', ')})`, t.swap);
     check(Object.values(tries).every((m) => m && GUARD.test(m)) && snap() === before,
-      `${t.table}：同一个主键 INSERT OR REPLACE、REPLACE INTO、ON CONFLICT DO UPDATE 换执行人和内容——都被拒，原来那行没变`, { tries, before, after: snap() });
-    const upd = refused(db, `UPDATE ${t.table} SET ${t.cols[t.cols.indexOf('actor')] ?? t.cols[0]} = 'synthetic:b' WHERE ${t.pk} = ?`, [pk]);
-    const del = refused(db, `DELETE FROM ${t.table} WHERE ${t.pk} = ?`, [pk]);
-    check(upd && GUARD.test(upd) && del && GUARD.test(del) && snap() === before, `${t.table}：UPDATE、DELETE 被拒`, { upd, del });
+      `${t.table}：同一个键 INSERT OR REPLACE、REPLACE INTO、ON CONFLICT DO UPDATE${t.uniqueOnly ? `（还有只撞 ${t.uniqueOnly} 的）` : ''} 换执行人和内容——都被拒，原来那行没变`, { tries, before, after: snap() });
+    const upd = refused(db, `UPDATE ${t.table} SET ${t.cols[t.cols.indexOf('actor')] ?? t.cols[0]} = ? WHERE ${t.pk} = ?`, [t.swap[t.cols.indexOf('actor')] ?? t.swap[0], pk]);
+    if (deny.has('delete')) {
+      const del = refused(db, `DELETE FROM ${t.table} WHERE ${t.pk} = ?`, [pk]);
+      check(upd && GUARD.test(upd) && del && GUARD.test(del) && snap() === before, `${t.table}：UPDATE、DELETE 被拒`, { upd, del });
+    } else check(upd && GUARD.test(upd) && snap() === before, `${t.table}：UPDATE 被拒`, { upd });
     const n0 = db.prepare(`SELECT COUNT(*) AS n FROM ${t.table}`).get().n;
-    const nextVals = t.fixedPk ? [t.fixedPk + 1, ...t.swap] : t.swap;
+    const swapNext = t.uniqueOnly ? t.swap.map((v, i) => (t.cols[i] === t.uniqueOnly ? `${v}-next` : v)) : t.swap;
+    const nextVals = t.fixedPk ? [t.fixedPk + 1, ...swapNext] : swapNext;
     const more = refused(db, `INSERT INTO ${t.table} (${cols.join(', ')}) VALUES (${ph})`, nextVals);
-    check(more === null && db.prepare(`SELECT COUNT(*) AS n FROM ${t.table}`).get().n === n0 + 1, `${t.table}：再正常写一行（新的主键）照常写进去`, more);
+    check(more === null && db.prepare(`SELECT COUNT(*) AS n FROM ${t.table}`).get().n === n0 + 1, `${t.table}：再正常写一行（新的键）照常写进去`, more);
+    if (!deny.has('delete')) {
+      const del = refused(db, `DELETE FROM ${t.table} WHERE ${t.pk} = ?`, [pk]);
+      check(del === null && snap() === undefined, `${t.table}：删照旧（留给按时间清理）`, del);
+    }
   }
 
-  console.log('二、整库：装了不许改、不许删的表都要有防覆盖');
+  console.log('二、整库：只增表都要有防覆盖');
   const trg = db.prepare("SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'trigger'").all();
   const plain = (kind) => (x) => new RegExp(`BEFORE\\s+${kind}\\s+ON\\s`, 'i').test(x.sql) && !/\bWHEN\b/i.test(x.sql);
-  const appendOnly = [...new Set(trg.filter(plain('UPDATE')).map((x) => x.tbl_name))].filter((t) => trg.some((x) => x.tbl_name === t && plain('DELETE')(x))).sort();
-  const noReplace = appendOnly.filter((t) => !trg.some((x) => x.tbl_name === t && /BEFORE\s+INSERT\s+ON\s/i.test(x.sql) && /WHEN\s+EXISTS/i.test(x.sql)));
-  check(appendOnly.length >= TABLES.length && TABLES.every((t) => appendOnly.includes(t.table)), `认出 ${appendOnly.length} 张只增表（不带条件的不许改、不许删都有）`, appendOnly);
-  check(noReplace.length === 0, '这些表每张都有防覆盖的触发器（键已存在的插入一律拦下）', { noReplace, appendOnly });
+  const hasReplace = (t) => trg.some((x) => x.tbl_name === t && /BEFORE\s+INSERT\s+ON\s/i.test(x.sql) && /WHEN\s+EXISTS/i.test(x.sql));
+  const noUpdate = [...new Set(trg.filter(plain('UPDATE')).map((x) => x.tbl_name))].sort();
+  const appendOnly = noUpdate.filter((t) => trg.some((x) => x.tbl_name === t && plain('DELETE')(x)));
+  check(TABLES.every((t) => (t.deny ?? ALL).includes('delete') === appendOnly.includes(t.table)), `认出 ${appendOnly.length} 张只增表（不带条件的不许改、不许删都有），和上面逐张测的对得上`, appendOnly);
+  check(appendOnly.every(hasReplace), '这些表每张都有防覆盖（键已存在的插入一律拦下）', appendOnly.filter((t) => !hasReplace(t)));
+  // 装了不许改、没拦删的（删照旧，留给按时间清理）：也要有防覆盖，只有靠「已存在就跳过」去重的 login_events_seen 例外
+  const DEDUPE = ['login_events_seen'];
+  const updOnly = noUpdate.filter((t) => !appendOnly.includes(t));
+  check(updOnly.filter((t) => !DEDUPE.includes(t)).every(hasReplace) && DEDUPE.every((t) => updOnly.includes(t) && !hasReplace(t)),
+    `装了不许改的另外 ${updOnly.length} 张：除了去重表 login_events_seen（它故意不拦覆盖），都有防覆盖`, { updOnly, noReplace: updOnly.filter((t) => !hasReplace(t)) });
 
-  console.log('三、启动自检用的检查（appendOnlySelfCheck，启动自检那一行 market.db.append-only-guarded 调的就是它）');
+  console.log('三、不加防覆盖的两张照常');
+  // login_events_seen：同一个登录事件再记一次被跳过（照 login-session.ts 的写法），不报错；改被拒；按时间删得掉
+  const seen = (ev, at) => db.prepare('INSERT OR IGNORE INTO login_events_seen (flow, event_id, seen_at) VALUES (?, ?, ?)').run('syn-flow', ev, at).changes;
+  let s1 = null, s2 = null, dupErr = null;
+  try { s1 = seen('syn-ev-1', 1); s2 = seen('syn-ev-1', 2); } catch (e) { dupErr = String(e?.message ?? e); }
+  const seenUpd = refused(db, "UPDATE login_events_seen SET seen_at = 9 WHERE flow = 'syn-flow' AND event_id = 'syn-ev-1'");
+  const seenDel = refused(db, 'DELETE FROM login_events_seen WHERE seen_at < ?', [5]);
+  check(s1 === 1 && s2 === 0 && dupErr === null && seenUpd && GUARD.test(seenUpd) && seenDel === null,
+    'login_events_seen：头一次记上、同一个事件再记一次被跳过（不报错），改被拒，按时间删得掉', { s1, s2, dupErr, seenUpd, seenDel });
+  // attention_answers：照 attention.ts 的写法抢占、办完
+  const claim = (by) => db.prepare("INSERT OR IGNORE INTO attention_answers (source, source_id, answer, state, answered_by) VALUES ('syn-src', ?, 'approve', 'pending', ?)");
+  let c1 = null, c2 = null, claimErr = null;
+  try { c1 = claim().run('syn-1', 'synthetic:a').changes; c2 = claim().run('syn-1', 'synthetic:b').changes; } catch (e) { claimErr = String(e?.message ?? e); }
+  const pendingDel = refused(db, "DELETE FROM attention_answers WHERE source = 'syn-src' AND source_id = 'syn-1' AND state = 'pending'");
+  claim().run('syn-1', 'synthetic:a');
+  const toDone = refused(db, "UPDATE attention_answers SET state = 'done', status = 200, body = '{}' WHERE source = 'syn-src' AND source_id = 'syn-1'");
+  const row = () => JSON.stringify(db.prepare("SELECT * FROM attention_answers WHERE source = 'syn-src' AND source_id = 'syn-1'").get());
+  const done = row();
+  const doneUpd = refused(db, "UPDATE attention_answers SET answered_by = 'synthetic:b', body = '{\"x\":2}' WHERE source = 'syn-src' AND source_id = 'syn-1'");
+  const doneDel = refused(db, "DELETE FROM attention_answers WHERE source = 'syn-src' AND source_id = 'syn-1'");
+  let c3 = null; try { c3 = claim().run('syn-1', 'synthetic:b').changes; } catch (e) { claimErr = claimErr ?? String(e?.message ?? e); }
+  check(c1 === 1 && c2 === 0 && claimErr === null && pendingDel === null && toDone === null,
+    'attention_answers：抢占（已存在就跳过）照常，第二个抢不到也不报错；待办行能删、能改成办完', { c1, c2, claimErr, pendingDel, toDone });
+  check(doneUpd && /不改/.test(doneUpd) && doneDel && /不删/.test(doneDel) && c3 === 0 && row() === done,
+    'attention_answers：办完的那一行不许改、不许删，再来抢也只是跳过，那一行没变', { doneUpd, doneDel, c3 });
+
+  console.log('五、启动自检用的检查（appendOnlySelfCheck，启动自检那一行 market.db.append-only-guarded 调的就是它）');
   const logRows = () => db.prepare('SELECT COUNT(*) AS n FROM workbench_event_log').get().n;
   const seqOf = () => db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'workbench_event_log'").get()?.seq ?? null;
   const n0 = logRows(), s0 = seqOf();
