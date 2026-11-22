@@ -75,16 +75,23 @@ with sync_playwright() as p:
     BV = re.compile(r'/api/bench-views$'); DOC = re.compile(r'/api/bench-views/syn-bench/view$')
     def bench_list(match):
         return lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'benches': [{'slug': 'syn-bench', 'title': '合成台', 'workbench_id': W['id'] if match else 99999}, {'slug': 'syn-other', 'title': W['name'], 'workbench_id': None}]}))
+    # 视图文档的请求与应答都记下来（任何台的，不只 syn-bench）：页面是先取清单、对上了台才取视图文档，再画这一块
+    ANY_DOC = re.compile(r'/api/bench-views/[^/]+/view$'); doc_req, doc_resp = [], []
+    pg.on('request', lambda r: doc_req.append(r.url) if ANY_DOC.search(r.url) else None)
+    pg.on('response', lambda r: doc_resp.append(r.url) if ANY_DOC.search(r.url) else None)
     pg.route(DOC, fake(200, {'view': {'content': {'views': [{'key': 'board', 'title': '合成看板'}, {'key': 'rows', 'title': '合成明细'}]}}}))
     pg.route(BV, bench_list(True)); pg.goto(M + f'/market/wb/{W["id"]}'); pg.wait_for_selector('[data-testid=wbd-views]')
     check('有对应的数据视图台：列视图的名字（只读），说在驾驶舱里怎么挂', [t.strip() for t in pg.locator('[data-testid=wbd-view]').all_inner_texts()] == ['合成看板', '合成明细'] and '驾驶舱' in pg.locator('[data-testid=wbd-views]').inner_text())
     for label, handler in (('没有 workbench_id 对上的（同名的台不算）', bench_list(False)), ('清单 403（没权限）', fake(403, {'error': 'bench_views_forbidden'})), ('数据视图没开（404）', fake(404, {'error': 'bench_views_off'}))):
         pg.unroute(BV); pg.route(BV, handler)
-        # 证明「没有」：先等数据视图清单那次应答到了、页面画完，再看整块没出现
+        # 证明「没有」：先等清单那次应答到了、页面画完。这几种情况页面本不该再去取视图文档——
+        # 断言没发出过；要是发出了（回归），就等它的应答回来、页面画完，再看块在不在
+        doc_req.clear(); doc_resp.clear()
         def load():
             with pg.expect_response(BV, timeout=10000): pg.goto(M + f'/market/wb/{W["id"]}')
         soft(load); pg.wait_for_selector('[data-testid=wbd-main]'); painted(pg)
-        check(f'{label}：整块不出现，不报错', pg.locator('[data-testid=wbd-views]').count() == 0 and pg.locator('.ant-alert-error').count() == 0)
+        if doc_req: until(pg, lambda: len(doc_resp) >= len(doc_req)); painted(pg)
+        check(f'{label}：不去取视图文档，整块不出现，不报错', not doc_req and pg.locator('[data-testid=wbd-views]').count() == 0 and pg.locator('.ant-alert-error').count() == 0, doc_req)
     pg.unroute(BV); pg.route(BV, bench_list(True)); pg.unroute(DOC); pg.route(DOC, fake(403, {'error': 'forbidden'}))
     # 证明「没有」：先等视图那次（403）的应答到了、页面画完
     def load_doc():

@@ -33,9 +33,6 @@ def soft(fn):
     """等条件成立；等不到不在这里抛错，照常往下，由后面原来的断言报（带着当时的值）"""
     try: fn()
     except PWTimeout: pass
-def painted(pg):
-    """等页面再画两帧（应答到了以后 React 把它画出来）"""
-    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
 # 用户卡、口令框都收起来了：页面上没有还看得见的弹出层
 NO_POPOVER = """() => ![...document.querySelectorAll('.ant-popover')].some(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !e.classList.contains('ant-popover-hidden'); })"""
 def slow(page):
@@ -108,10 +105,10 @@ with sync_playwright() as p:
     pg2.goto(M + '/market'); pg2.wait_for_selector('[data-testid=mkt-card]')
     check('技能读不到：给「读不到技能，稍后再试」', pg2.locator('.ant-alert', has_text='读不到技能，稍后再试').count() == 1)
     check('工作台应答形状不对：按空处理，流程照常显示', pg2.locator('[data-testid=mkt-card][data-kind=流程]').count() == len(sops) and pg2.locator('[data-testid=mkt-card][data-kind=工作台]').count() == 0)
-    # 证明「没有」：几个来源是一起取的，先等技能那次（500）的应答到了、页面画完，再看没提技能
-    def to_wb():
-        with pg2.expect_response('**/api/skills', timeout=10000): pg2.goto(M + '/market?k=工作台')
-    soft(to_wb); painted(pg2)
+    # 证明「没有」：几个来源是一起取（Promise.all）、全部回来后在同一次渲染里画卡片和各类提示的。
+    # 先等这一批画完：骨架屏没了，且卡片、空状态或提示出现了（回归时提示就在这一次里），再看没提技能
+    pg2.goto(M + '/market?k=工作台')
+    soft(lambda: pg2.wait_for_function("() => !!document.querySelector('.wm-mkt-tabs') && !document.querySelector('.ant-skeleton') && !!document.querySelector('[data-testid=mkt-card], .ant-empty, .wm-mkt-alert')", timeout=10000))
     check('只看「技能」以外的类：不提技能的问题', pg2.locator('.ant-alert', has_text='技能').count() == 0)
     pg2.route('**/api/sops', lambda r: r.fulfill(status=403, content_type='application/json', body='{"error":"forbidden"}'))
     pg2.goto(M + '/market?k=流程'); pg2.wait_for_selector('.ant-alert')
