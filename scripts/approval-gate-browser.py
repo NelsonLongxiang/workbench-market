@@ -10,13 +10,25 @@
 (e) 团队的决策卡（T8，来源 a2a-decisions，只展示）：带宿主拍板地址的进全景「等你拍板」和侧栏计数，按钮「去宿主拍板 →」新标签打开、不带来源页；
     地址是空串或 javascript: 的归「要到别处处理」、不计数、不给链接；没有这个来源（非属主）时什么也不显示、不计数。"""
 import json, re, sys
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1])); M = cfg['base']
 ok = fail = 0
 def check(n, c, x=''):
     global ok, fail
     if c: ok += 1; print('  ✓', n)
     else: fail += 1; print('  ✗', n, x)
+def soft(fn):
+    """等条件成立；等不到不在这里抛错，照常往下，由后面原来的断言报（带着当时的值）"""
+    try: fn()
+    except PWTimeout: pass
+def until(pg, pred, timeout=10000):
+    """等测试这边记下的状态（请求日志）满足 pred：每 20 毫秒看一次，期间照常处理截下的请求；到点就停，不抛错"""
+    for _ in range(timeout // 20):
+        if pred(): return
+        pg.wait_for_timeout(20)
+def painted(pg):
+    """等页面再画两帧"""
+    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
 APPROVAL = re.compile(r'/api/(change-requests|attention/answer|bench-views/[^/]+/mcp-requests|mcp/access|admin/(?!whoami))')  # whoami 是「我是谁」，不是核准类
 def change(sid, op='rollback'):
     return {'source': 'change-requests', 'source_id': sid, 'category': 'review', 'title': '合成：变更申请', 'waiting_for': 'person:x', 'since': '2026-11-12T00:00:00Z',
@@ -48,7 +60,11 @@ def watch(pg):
     pg.on('request', lambda r: seen.append((r.method, r.url.split(M)[-1], bool(r.headers.get('x-admin-token')))))
     return seen
 def visit(pg, path):
-    pg.goto(M + path); pg.wait_for_load_state('networkidle'); pg.wait_for_timeout(500)
+    # 全景和「等你拍板」都照「关注」画卡片。等这次应答回来、网络静下来、页面画完：卡片挂上以后要发的请求（回归时）这时都已经发出，
+    # (a)(c) 的「不发核准类请求」「开页不自动核准」以此为准
+    def go():
+        with pg.expect_response(lambda r: r.url.split('?')[0].endswith('/api/attention'), timeout=10000): pg.goto(M + path)
+    soft(go); pg.wait_for_load_state('networkidle'); painted(pg)
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -72,21 +88,27 @@ with sync_playwright() as p:
     # 卡片在全景上（「等你拍板」完整列表用的是同一张卡）
     visit(pg, '/')
     card = lambda t: pg.locator('[data-testid=decision-card]', has_text=t).first
-    card('合成台 9101').get_by_role('button', name=re.compile(r'通过并回滚')).click(); pg.wait_for_timeout(600)
+    n = len(sent); card('合成台 9101').get_by_role('button', name=re.compile(r'通过并回滚')).click()
+    until(pg, lambda: len(sent) > n)  # 等截下这一次答复
     check('变更申请「通过并回滚」：POST /api/attention/answer，带来源、编号、答法', any(x['method'] == 'POST' and x['path'] == '/api/attention/answer'
           and x['body'] == {'source': 'change-requests', 'source_id': '9101', 'answer': 'approve', 'input': {}} for x in sent), sent)
-    c2 = card('合成台 9102'); c2.get_by_role('button', name=re.compile(r'不\s*通\s*过')).click(); pg.wait_for_timeout(300)
-    c2.locator('textarea').fill('合成：先不回滚'); c2.get_by_role('button', name=re.compile('确定')).click(); pg.wait_for_timeout(600)
+    c2 = card('合成台 9102'); c2.get_by_role('button', name=re.compile(r'不\s*通\s*过')).click(); c2.locator('textarea').wait_for()
+    n = len(sent); c2.locator('textarea').fill('合成：先不回滚'); c2.get_by_role('button', name=re.compile('确定')).click()
+    until(pg, lambda: len(sent) > n)
     check('变更申请「不通过」：要写理由，理由带在请求里', any(x['method'] == 'POST' and x['path'] == '/api/attention/answer'
           and x['body'] == {'source': 'change-requests', 'source_id': '9102', 'answer': 'reject', 'input': {'reason': '合成：先不回滚'}} for x in sent), sent)
     # 按 answer_via 走的
-    g = card('合成会话'); g.get_by_role('button', name=re.compile(r'不\s*给')).click(); pg.wait_for_timeout(300)
-    g.locator('textarea').fill('合成：只给读'); g.get_by_role('button', name=re.compile('确定')).click(); pg.wait_for_timeout(600)
+    g = card('合成会话'); g.get_by_role('button', name=re.compile(r'不\s*给')).click(); g.locator('textarea').wait_for()
+    n = len(sent); g.locator('textarea').fill('合成：只给读'); g.get_by_role('button', name=re.compile('确定')).click()
+    until(pg, lambda: len(sent) > n)
     check('AI 会话申请「不给」：按 answer_via 发到它自己的地址，请求体 = body + 理由', any(x['method'] == 'POST' and x['path'] == VIA['path']
           and x['body'] == {'approve': False, 'note': '合成：只给读'} for x in sent), sent)
     visit(pg, '/')
-    g = card('合成会话'); g.get_by_role('button', name=re.compile(r'批\s*准')).click(); pg.wait_for_timeout(300)
-    if g.locator('textarea').count(): g.get_by_role('button', name=re.compile('确定')).click(); pg.wait_for_timeout(600)
+    # 「批准」有选填的理由框时先展开框，没有就直接发：等框出来，或者请求已经截下
+    n = len(sent); g = card('合成会话'); g.get_by_role('button', name=re.compile(r'批\s*准')).click()
+    until(pg, lambda: g.locator('textarea').count() > 0 or len(sent) > n)
+    if g.locator('textarea').count(): g.get_by_role('button', name=re.compile('确定')).click()
+    until(pg, lambda: len(sent) > n)
     check('AI 会话申请「批准」：按 answer_via 发，请求体 = body（选填的理由没填不带）', any(x['method'] == 'POST' and x['path'] == VIA['path']
           and x['body'] == {'approve': True} for x in sent), sent)
     check('页面没有报错', not errs, errs)
@@ -114,12 +136,16 @@ with sync_playwright() as p:
             check('有资格的管理员打开全景、「等你拍板」：点之前不发任何写请求（开页不自动核准）', not writes, writes)
         visit(pg, '/')
         # 删除申请的「通过并删除」要先确认；在确认框里点「再想想」→ 不发请求
-        card('合成台 9201').get_by_role('button', name=re.compile(r'通过并删除')).click(); pg.wait_for_timeout(300)
-        pg.get_by_role('button', name='再想想').click(); pg.wait_for_timeout(500)
+        card('合成台 9201').get_by_role('button', name=re.compile(r'通过并删除')).click()
+        pg.get_by_role('button', name='再想想').click()  # 点之前会等确认框弹出来
+        # 证明「不发请求」：点「再想想」以后确认框一定会收起。等它收起、再等两帧（取消时要发的话这时已经截下），再看
+        soft(lambda: pg.get_by_role('button', name='再想想').wait_for(state='hidden', timeout=10000)); painted(pg)
         if status == 409:
             check('确认框里取消：不发任何请求', not sent2 and not [w for w in writes if '/api/' in w[1]], (sent2, writes))
         # 答复入口拒绝：卡片还在、按钮还能点、给出错误，不显示成办完了
-        card('合成台 9202').get_by_role('button', name=re.compile(r'通过并回滚')).click(); pg.wait_for_timeout(800)
+        n2 = len(sent2); card('合成台 9202').get_by_role('button', name=re.compile(r'通过并回滚')).click()
+        until(pg, lambda: len(sent2) > n2)  # 等截下这一次答复，再等错误提示出来
+        soft(lambda: pg.locator('.ant-message-notice').first.wait_for(timeout=10000))
         msgs = ' '.join(pg.locator('.ant-message-notice').all_inner_texts())
         still = card('合成台 9202').count() == 1 and card('合成台 9202').get_by_role('button', name=re.compile(r'通过并回滚')).is_enabled()
         check(f'答复入口回 {status}：卡片还在、还能再试，给出错误、不说「办好了」', len(sent2) == 1 and still and '办好了' not in msgs and ('合成：这条已经有人定过了' in msgs if status == 409 else len(msgs) > 0), (sent2, msgs))
@@ -142,9 +168,11 @@ with sync_playwright() as p:
     opens_t = opens.inner_text() if opens.count() == 1 else ''
     check('卡片写明批准时会顺带为这张卡片开台库、不批不开；链到卡片详情', '批准时会顺带为「合成卡片丙」开一个' in opens_t and '不批就不开' in opens_t
           and link.count() == 1 and link.get_attribute('href') == '/market/wb/1971', g.inner_text() if g.count() else '')
-    g.get_by_role('button', name=re.compile(r'批\s*准')).click(); pg.wait_for_timeout(300)
+    g.get_by_role('button', name=re.compile(r'批\s*准')).click()
+    until(pg, lambda: g.locator('textarea').count() > 0 or len(sent3) > 0)
     if g.locator('textarea').count(): g.get_by_role('button', name=re.compile('确定')).click()
-    pg.wait_for_timeout(800)
+    until(pg, lambda: len(sent3) > 0)  # 等截下批准，再等「开了台库」那句提示
+    soft(lambda: pg.locator('.ant-message-notice', has_text='开了台库').first.wait_for(timeout=10000))
     msgs = ' '.join(pg.locator('.ant-message-notice').all_inner_texts())
     check('批准：按 answer_via 发到这张卡片的地址；应答带 opened_bench 时提示开了哪个台库', len(sent3) == 1 and sent3[0]['path'] == VIA2['path'] and sent3[0]['body'] == {'approve': True} and '已为「合成卡片丙」开了台库' in msgs, (sent3, msgs))
     ctx.close()
@@ -152,7 +180,8 @@ with sync_playwright() as p:
     ctx = ctx_for(b, cfg['admin_session'])
     ctx.route('**/api/mcp/access-requests*', lambda r: r.fulfill(status=200, content_type='application/json', body='[]'))
     pg = ctx.new_page(); pg.set_default_timeout(10000)
-    visit(pg, '/mcp-gateways'); pg.get_by_role('tab', name=re.compile('权限申请')).click(); pg.wait_for_timeout(500)
+    visit(pg, '/mcp-gateways'); pg.get_by_role('tab', name=re.compile('权限申请')).click()
+    soft(lambda: pg.locator('[data-testid=mcp-requests-empty]').wait_for(timeout=10000))  # 等「没有待批」那块画出来
     empty, hint = pg.locator('[data-testid=mcp-requests-empty]'), pg.locator('[data-testid=mcp-bench-hint]')
     check('MCP 网关「权限申请」没有待批时：说台的工具授权在「等你拍板」里批，链到 /attention（不再只说「没有待批的申请」）',
           empty.count() == 1 and '台的工具授权在「等你拍板」里批' in empty.inner_text() and empty.get_by_role('link').count() == 1 and empty.get_by_role('link').get_attribute('href') == '/attention'
