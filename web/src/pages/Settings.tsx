@@ -105,7 +105,7 @@ export default function Settings() {
   return (
     <WmPage subTitle="健康巡检 · 导入导出 · 系统信息">
     <Flex vertical gap={16} align="flex-start" className="wm-w-full">
-      <Card title="健康巡检" className="wm-w-full wm-set-card" styles={{ body: { paddingTop: 8 } }}>
+      <Card title="健康巡检" className="wm-w-full wm-max-w-640" styles={{ body: { paddingTop: 8 } }}>
         <Form
           form={form}
           layout="vertical"
@@ -132,7 +132,7 @@ export default function Settings() {
         </Form>
       </Card>
 
-      <Card title="数据备份 / 迁移" className="wm-w-full wm-set-card" styles={{ body: { paddingTop: 12 } }}>
+      <Card title="数据备份 / 迁移" className="wm-w-full wm-max-w-640" styles={{ body: { paddingTop: 12 } }}>
         <Flex vertical gap={12} className="wm-w-full">
           <Space>
             <Button icon={<DownloadOutlined />} onClick={downloadExport}>
@@ -186,7 +186,7 @@ export default function Settings() {
 
       <Card
         title={<Space><KeyOutlined /><span>管理员口令</span></Space>}
-        className="wm-w-full wm-set-card"
+        className="wm-w-full wm-max-w-640"
         styles={{ body: { paddingTop: 12 } }}
         extra={tokenState ? (
           tokenState.source === 'env' ? <Tag color="blue">启动环境提供</Tag>
@@ -219,7 +219,7 @@ export default function Settings() {
         ) : null}
       </Card>
 
-      <Card title="关于" className="wm-w-full wm-set-card" styles={{ body: { paddingTop: 8 } }}>
+      <Card title="关于" className="wm-w-full wm-max-w-640" styles={{ body: { paddingTop: 8 } }}>
         <Descriptions
           column={1}
           size="small"

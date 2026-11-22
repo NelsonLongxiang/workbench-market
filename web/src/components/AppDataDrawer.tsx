@@ -53,7 +53,7 @@ export default function AppDataDrawer({ slug, title, open, onClose }: { slug: st
     {
       title: '内容', dataIndex: 'data',
       render: (d: Record<string, unknown>) => (
-        <div style={{ maxHeight: 160, overflow: 'auto' }}>
+        <div className="wm-appdata-cell">
           <pre className="wm-mono wm-caption wm-m-0 wm-prewrap wm-break">{JSON.stringify(d, null, 1)}</pre>
         </div>
       ),

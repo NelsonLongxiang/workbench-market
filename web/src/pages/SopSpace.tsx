@@ -74,7 +74,7 @@ export default function SopSpace() {
           <Descriptions.Item label="编号"><Typography.Text className="wm-mono">{sop.code || def?.code || '-'}</Typography.Text></Descriptions.Item>
           <Descriptions.Item label="版本"><Typography.Text className="wm-mono">v{sop.active_version} / {sop.versions.length}</Typography.Text></Descriptions.Item>
           <Descriptions.Item label="负责人">{sop.created_by || '-'}</Descriptions.Item>
-          <Descriptions.Item label="最近执行">{lastRun ? <RelTime value={lastRun.updated_at} /> : '还没有执行'}{runningCount ? <Tag color="processing" style={{ marginLeft: 8 }}>进行中 {runningCount}</Tag> : null}</Descriptions.Item>
+          <Descriptions.Item label="最近执行">{lastRun ? <RelTime value={lastRun.updated_at} /> : '还没有执行'}{runningCount ? <Tag color="processing" className="wm-ml-2">进行中 {runningCount}</Tag> : null}</Descriptions.Item>
         </Descriptions>
       )}
     >
@@ -172,7 +172,7 @@ function Deliverables({ runs }: { runs: SopRun[] }) {
     <Space direction="vertical" size={12} className="wm-w-full">
       <Space wrap>
         <Select
-          style={{ minWidth: 220 }}
+          className="wm-min-w-220"
           value={runFilter}
           onChange={setRunFilter}
           options={[{ value: 'recent' as const, label: `最近 ${RECENT} 次完成的执行` }, ...finished.map((r) => ({ value: r.id, label: `#${r.id} · ${r.started_by || '-'}` }))]}

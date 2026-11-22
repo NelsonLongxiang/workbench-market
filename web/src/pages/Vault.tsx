@@ -113,7 +113,7 @@ function UnlockView({ status, onUnlocked }: { status: VaultStatus; onUnlocked: (
             {creating && check ? <StrengthBar s={check.strength} hint={false} /> : null}
           </div>
           {reasons.length ? (
-            <Alert type="error" showIcon message={rejected.length ? '主密码不满足新建库要求，没有创建库文件' : '主密码还不满足新建库要求'} description={<ul className="wm-vault-reasons">{reasons.map((r) => <li key={r}>{r}</li>)}</ul>} />
+            <Alert type="error" showIcon message={rejected.length ? '主密码不满足新建库要求，没有创建库文件' : '主密码还不满足新建库要求'} description={<ul className="wm-list-compact">{reasons.map((r) => <li key={r}>{r}</li>)}</ul>} />
           ) : null}
           {creating ? <Input.Password placeholder="再输一次主密码" value={pw2} status={mismatch ? 'error' : undefined} onChange={(e) => setPw2(e.target.value)} onPressEnter={submit} autoComplete="new-password" /> : null}
           {mismatch ? <Typography.Text type="danger">两次输入不一致</Typography.Text> : null}
