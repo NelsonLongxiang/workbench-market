@@ -7,7 +7,7 @@
   · 一个来源读不到只在它那一类给提示，别的照常；应答形状不对不带崩整页；
   · 管理员才有「管理工作台」，点进去是原来的工作台表格（/market/manage，顶栏「工作台市场 / 管理工作台」）。"""
 import json, sys, urllib.request
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M, TOK = cfg['base'], cfg['token']
 ok = fail = 0
@@ -29,6 +29,15 @@ SETTLED = """(sel) => { const e = document.querySelector(sel); if (!e) return fa
   const host = e.closest('.ant-popover, .ant-dropdown'); if (!host || r.width === 0 || r.height === 0) return false;
   return ![...host.classList].some(c => /-(appear|enter|leave)(-|$)/.test(c)) && !host.classList.contains('ant-popover-hidden') && !host.classList.contains('ant-dropdown-hidden'); }"""
 def settled(pg, sel, timeout=10000): pg.wait_for_function(SETTLED, arg=sel, timeout=timeout)
+def soft(fn):
+    """等条件成立；等不到不在这里抛错，照常往下，由后面原来的断言报（带着当时的值）"""
+    try: fn()
+    except PWTimeout: pass
+def painted(pg):
+    """等页面再画两帧（应答到了以后 React 把它画出来）"""
+    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+# 用户卡、口令框都收起来了：页面上没有还看得见的弹出层
+NO_POPOVER = """() => ![...document.querySelectorAll('.ant-popover')].some(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !e.classList.contains('ant-popover-hidden'); })"""
 def slow(page):
     """本机模拟慢 runner：WM_BROWSER_CPU_THROTTLE=6 把页面 CPU 放慢 6 倍。缺省不放慢。"""
     import os
@@ -43,7 +52,8 @@ def set_token(pg):
     pg.locator('.ant-popover input[type=password]').last.fill(TOK)
     pg.locator('.ant-popover button', has_text='保').last.click()
     pg.wait_for_selector('[data-testid=nav-admin]', timeout=10000)
-    pg.keyboard.press('Escape'); pg.mouse.click(800, 26); pg.wait_for_timeout(300)  # 点顶栏空白处关掉用户卡；别点内容区，会点到卡片
+    pg.keyboard.press('Escape'); pg.mouse.click(800, 26)  # 点顶栏空白处关掉用户卡；别点内容区，会点到卡片
+    soft(lambda: pg.wait_for_function(NO_POPOVER, timeout=10000))
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -76,7 +86,9 @@ with sync_playwright() as p:
     bottoms = pg.evaluate("[...document.querySelectorAll('[data-testid=mkt-card]')].slice(0,3).map(e=>Math.round(e.getBoundingClientRect().bottom))")
     check('同一排卡片底部对齐', len(set(bottoms)) == 1, bottoms)
 
-    pg.locator('[data-testid="mkt-tab-流程"]').click(); pg.wait_for_timeout(200)
+    pg.locator('[data-testid="mkt-tab-流程"]').click()
+    # 等地址带上 ?k=、卡片只剩流程
+    soft(lambda: pg.wait_for_function("(n) => location.search.includes('k=') && [...document.querySelectorAll('[data-testid=mkt-card]')].length === n && [...document.querySelectorAll('[data-testid=mkt-card]')].every(e => e.dataset.kind === '流程')", arg=len(sops), timeout=10000))
     kinds = set(pg.evaluate("[...document.querySelectorAll('[data-testid=mkt-card]')].map(e=>e.dataset.kind)"))
     check('切到「流程」：地址带 ?k=流程，只剩流程', '?k=' in pg.url and kinds == {'流程'} and pg.locator('[data-testid=mkt-card]').count() == len(sops), (pg.url, kinds))
     pg.reload(); pg.wait_for_selector('[data-testid=mkt-card]')
@@ -84,7 +96,8 @@ with sync_playwright() as p:
     one_kind = pg.evaluate("[...document.querySelectorAll('[data-testid=mkt-card]')].map(e=>[...e.querySelectorAll('.wm-mkt-tag')].map(t=>t.innerText.trim()))")
     check('某一类的页签里不重复类别（#584）', all('流程' not in tags for tags in one_kind), one_kind)
     if not skills:
-        pg.locator('[data-testid="mkt-tab-技能"]').click(); pg.wait_for_timeout(200)
+        pg.locator('[data-testid="mkt-tab-技能"]').click()
+        soft(lambda: pg.locator('.ant-empty-description', has_text='还没有发布的技能').wait_for(timeout=10000))
         desc = pg.locator('.ant-empty-description').all_inner_texts()
         check('「技能」空着：说为什么空、下一步，不写「暂无数据」', len(desc) == 1 and '还没有发布的技能' in desc[0] and '暂无数据' not in pg.locator('.wm-page-body').inner_text(), desc)
 
@@ -95,7 +108,10 @@ with sync_playwright() as p:
     pg2.goto(M + '/market'); pg2.wait_for_selector('[data-testid=mkt-card]')
     check('技能读不到：给「读不到技能，稍后再试」', pg2.locator('.ant-alert', has_text='读不到技能，稍后再试').count() == 1)
     check('工作台应答形状不对：按空处理，流程照常显示', pg2.locator('[data-testid=mkt-card][data-kind=流程]').count() == len(sops) and pg2.locator('[data-testid=mkt-card][data-kind=工作台]').count() == 0)
-    pg2.goto(M + '/market?k=工作台'); pg2.wait_for_timeout(600)
+    # 证明「没有」：几个来源是一起取的，先等技能那次（500）的应答到了、页面画完，再看没提技能
+    def to_wb():
+        with pg2.expect_response('**/api/skills', timeout=10000): pg2.goto(M + '/market?k=工作台')
+    soft(to_wb); painted(pg2)
     check('只看「技能」以外的类：不提技能的问题', pg2.locator('.ant-alert', has_text='技能').count() == 0)
     pg2.route('**/api/sops', lambda r: r.fulfill(status=403, content_type='application/json', body='{"error":"forbidden"}'))
     pg2.goto(M + '/market?k=流程'); pg2.wait_for_selector('.ant-alert')
@@ -118,7 +134,9 @@ with sync_playwright() as p:
     tabs = [t.strip() for t in pg.locator('.wm-mkt-tab').all_inner_texts()]
     check('管理员：多一个「连接器」页签，排最后', tabs == ['全部', '工作台', '流程', '技能', '连接器'], tabs)
     with urllib.request.urlopen(urllib.request.Request(M + '/api/mcp/upstreams', headers={'x-admin-token': TOK})) as r: ups = json.load(r)
-    pg.locator('[data-testid=mkt-tab-连接器]').click(); pg.wait_for_timeout(800)
+    pg.locator('[data-testid=mkt-tab-连接器]').click()
+    # 等连接器卡片数到了上游条数；没有上游就等「为什么空」那句
+    soft(lambda: pg.wait_for_function("(n) => n > 0 ? document.querySelectorAll('[data-testid=mkt-card][data-kind=连接器]').length === n : [...document.querySelectorAll('.ant-empty-description')].some(e => e.innerText.includes('还没有接上的连接器'))", arg=len(ups), timeout=10000))
     n = pg.locator('[data-testid=mkt-card][data-kind=连接器]').count()
     empty = pg.locator('.ant-empty-description').all_inner_texts()
     check(f'连接器：卡片数 = MCP 上游条数（{n} / {len(ups)}）；没有就说为什么空', n == len(ups) and (n > 0 or any('还没有接上的连接器' in e for e in empty)), (n, len(ups), empty))

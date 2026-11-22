@@ -9,7 +9,7 @@
     合成实例里没有技能：/api/skills 和版本接口用 page.route 截成合成的应答。"""
 import json, re, sys, urllib.request
 from urllib.parse import parse_qs, urlparse
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M, TOK = cfg['base'], cfg['token']
 ok = fail = 0
@@ -25,6 +25,20 @@ SETTLED = """(sel) => { const e = document.querySelector(sel); if (!e) return fa
   const host = e.closest('.ant-popover, .ant-dropdown'); if (!host || r.width === 0 || r.height === 0) return false;
   return ![...host.classList].some(c => /-(appear|enter|leave)(-|$)/.test(c)) && !host.classList.contains('ant-popover-hidden') && !host.classList.contains('ant-dropdown-hidden'); }"""
 def settled(pg, sel, timeout=10000): pg.wait_for_function(SETTLED, arg=sel, timeout=timeout)
+def soft(fn):
+    """等条件成立；等不到不在这里抛错，照常往下，由后面原来的断言报（带着当时的值）"""
+    try: fn()
+    except PWTimeout: pass
+def until(pg, pred, timeout=10000):
+    """等测试这边记下的状态（请求日志）满足 pred：每 20 毫秒看一次，期间照常处理截下的请求；到点就停，不抛错"""
+    for _ in range(timeout // 20):
+        if pred(): return
+        pg.wait_for_timeout(20)
+def painted(pg):
+    """等页面再画两帧（应答到了以后 React 把它画出来）"""
+    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+# 用户卡、口令框都收起来了：页面上没有还看得见的弹出层
+NO_POPOVER = """() => ![...document.querySelectorAll('.ant-popover')].some(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !e.classList.contains('ant-popover-hidden'); })"""
 def set_token(pg):
     pg.locator('[data-testid=wm-me]').click()
     pg.locator('[data-testid=wm-me][aria-expanded=true]').wait_for(); settled(pg, '.wm-me-pop')
@@ -33,7 +47,8 @@ def set_token(pg):
     pg.locator('.ant-popover input[type=password]').last.fill(TOK)
     pg.locator('.ant-popover button', has_text='保').last.click()
     pg.wait_for_selector('[data-testid=nav-admin]', timeout=10000)
-    pg.keyboard.press('Escape'); pg.mouse.click(800, 26); pg.wait_for_timeout(300)
+    pg.keyboard.press('Escape'); pg.mouse.click(800, 26)
+    soft(lambda: pg.wait_for_function(NO_POPOVER, timeout=10000))
 def fake(status, body):
     return lambda r: r.fulfill(status=status, content_type='application/json', body=json.dumps(body))
 
@@ -64,10 +79,17 @@ with sync_playwright() as p:
     pg.route(BV, bench_list(True)); pg.goto(M + f'/market/wb/{W["id"]}'); pg.wait_for_selector('[data-testid=wbd-views]')
     check('有对应的数据视图台：列视图的名字（只读），说在驾驶舱里怎么挂', [t.strip() for t in pg.locator('[data-testid=wbd-view]').all_inner_texts()] == ['合成看板', '合成明细'] and '驾驶舱' in pg.locator('[data-testid=wbd-views]').inner_text())
     for label, handler in (('没有 workbench_id 对上的（同名的台不算）', bench_list(False)), ('清单 403（没权限）', fake(403, {'error': 'bench_views_forbidden'})), ('数据视图没开（404）', fake(404, {'error': 'bench_views_off'}))):
-        pg.unroute(BV); pg.route(BV, handler); pg.goto(M + f'/market/wb/{W["id"]}'); pg.wait_for_selector('[data-testid=wbd-main]'); pg.wait_for_timeout(600)
+        pg.unroute(BV); pg.route(BV, handler)
+        # 证明「没有」：先等数据视图清单那次应答到了、页面画完，再看整块没出现
+        def load():
+            with pg.expect_response(BV, timeout=10000): pg.goto(M + f'/market/wb/{W["id"]}')
+        soft(load); pg.wait_for_selector('[data-testid=wbd-main]'); painted(pg)
         check(f'{label}：整块不出现，不报错', pg.locator('[data-testid=wbd-views]').count() == 0 and pg.locator('.ant-alert-error').count() == 0)
     pg.unroute(BV); pg.route(BV, bench_list(True)); pg.unroute(DOC); pg.route(DOC, fake(403, {'error': 'forbidden'}))
-    pg.goto(M + f'/market/wb/{W["id"]}'); pg.wait_for_selector('[data-testid=wbd-main]'); pg.wait_for_timeout(600)
+    # 证明「没有」：先等视图那次（403）的应答到了、页面画完
+    def load_doc():
+        with pg.expect_response(DOC, timeout=10000): pg.goto(M + f'/market/wb/{W["id"]}')
+    soft(load_doc); pg.wait_for_selector('[data-testid=wbd-main]'); painted(pg)
     check('对上了但视图读不到（403）：整块不出现', pg.locator('[data-testid=wbd-views]').count() == 0)
     pg.unroute(BV); pg.unroute(DOC)
 
@@ -96,10 +118,13 @@ with sync_playwright() as p:
         if r.request.method == 'PUT': writes.append(('put', r.request.post_data)); r.fulfill(status=200, content_type='application/json', body=json.dumps(dict(W, enabled=False)))
         else: r.continue_()
     pg.route(re.compile(rf'/api/workbenches/{W["id"]}/check$'), on_check); pg.route(ONE, on_put)
-    pg.locator('[data-testid=wbd-check]').click(); pg.wait_for_timeout(600)
+    pg.locator('[data-testid=wbd-check]').click()
+    until(pg, lambda: writes); painted(pg)  # 等截下 POST /check，再等页面把新状态画上
     check('管理员「立即检测」：发 POST /check，状态跟着变', writes == [('check', 'POST')] and pg.locator('[data-testid=wbd-status]').inner_text().strip() != '', writes)
     pg.locator('[data-testid=wbd-disable]').click(); pg.locator('.ant-popconfirm').wait_for(); settled(pg, '.ant-popconfirm')
-    pg.locator('.ant-popconfirm button', has_text='再想想').click(); pg.wait_for_timeout(400)
+    pg.locator('.ant-popconfirm button', has_text='再想想').click()
+    # 证明「没有」：先等确认框收起来（点了「再想想」一定会发生），再看没发 PUT
+    soft(lambda: pg.locator('.ant-popconfirm').wait_for(state='hidden', timeout=10000)); painted(pg)
     check('停用先确认：「再想想」不发请求', [w for w in writes if w[0] == 'put'] == [], writes)
     pg.locator('[data-testid=wbd-disable]').click(); pg.locator('.ant-popconfirm').wait_for(); settled(pg, '.ant-popconfirm')
     pg.locator('.ant-popconfirm .ant-btn-primary').click(); pg.wait_for_selector('[data-testid=wbd-enable]')
@@ -108,7 +133,8 @@ with sync_playwright() as p:
     pg.unroute(ONE); pg.goto(M + f'/market/wb/{W["id"]}'); pg.wait_for_selector('[data-testid=wbd-main]')
     set_token(pg); pg.wait_for_selector('[data-testid=wbd-admin]')  # 口令离开页面就清（#292），再设一次
     pg.locator('[data-testid=wbd-edit]').click(); pg.wait_for_selector('.ant-table-row')
-    pg.wait_for_timeout(600)
+    # 等地址带上 ?q=、表按台名筛到只剩一行
+    soft(lambda: pg.wait_for_function("() => location.search.includes('q=') && document.querySelectorAll('.ant-table-row').length === 1", timeout=10000))
     rows = pg.locator('.ant-table-row')
     check('「编辑」回到管理页那一行：地址带 ?q=台名，表里只剩这一行', '/market/manage?q=' in pg.url and rows.count() == 1 and W['name'] in rows.first.inner_text(), (pg.url, rows.count()))
     pg.close()
