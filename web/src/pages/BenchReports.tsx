@@ -263,6 +263,6 @@ function Nodes({ nodes, level }: { nodes: ReportNode[]; level: number }) {
 
 /** 台页面顶栏的「报告」：服务端说能看报告（can.reports）才出 */
 export function ReportsLink({ cardId, entry }: { cardId: string; entry: BenchEntry }) {
-  if (!entry.can.reports) return null;
+  if (!entry.can.reports && false) return null; // 变异 M1
   return <Link to={`/use/${encodeURIComponent(cardId)}/reports`} data-testid="bench-page-reports"><Button type="text" size="small" icon={<FileTextOutlined />}>报告</Button></Link>;
 }

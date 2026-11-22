@@ -174,6 +174,7 @@ jobs:
           PYTHON: python
         run: node scripts/login-gate-browser.mjs
       - name: UI 外壳浏览器回归（#316 菜单分组；#317 页面骨架；#319 列表规则；#320 看板 12 列栅格·四类卡片·数据截至·驾驶舱旧布局吸附不丢卡不回写）
+        if: always() # 变异自证（勿合）
         env:
           PYTHON: python
         run: node scripts/sider-menu-browser.mjs
@@ -206,6 +207,7 @@ jobs:
           PYTHON: python
         run: node scripts/bench-real-loop-browser.mjs
       - name: 台上的 MCP 申请真实闭环（#904：经 MCP 提申请→只读视图的人看不到入口→MCP 网关页找得到→台页面进管理页→批准留一句·驳回必须写理由·别处先批了 409 照说→会话调得了批准的、调不到驳回的、看得到理由→留痕；业务接口不截）
+        if: always() # 变异自证（勿合）
         env:
           PYTHON: python
         run: node scripts/bench-mcp-ui-browser.mjs
@@ -218,6 +220,7 @@ jobs:
           PYTHON: python
         run: node scripts/report-template-p0-browser.mjs
       - name: 报告页（入口没说能看就不出、直接打开说看不到·清单按事物分组、被更正的不出·几个维度宽屏并排窄屏上下排·回应只带立场和理由、改主意接自己的链头、409 照服务端说·不能回应不出回应框；报告接口截成合成的）
+        if: always() # 变异自证（勿合）
         env:
           PYTHON: python
         run: node scripts/report-page-browser.mjs

@@ -127,6 +127,8 @@ export default function Cockpit() {
   const wbById = useMemo(() => new Map(workbenches.map((w) => [w.id, w])), [workbenches]);
   // #320 读时迁移：渲染用吸附到 3/4/6/12 的布局，不回写；管理员真改动时才存吸附后的值
 
+  // 变异 M3：只读页挂载 300ms 后偷偷发一个布局写请求
+  useEffect(() => { const id = active?.id; if (id == null) return; const t = setTimeout(() => { void fetch('/api/cockpits/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => null); }, 300); return () => clearTimeout(t); }, [active?.id]);
   const persist = (next: PanelConfig[], immediate = false) => {
     if (READ_ONLY) return; // 业务面只读：网格对重叠布局的自动归一也不能触发保存（否则不点也会 PUT 403 + 报错）
     setPanels(next);
