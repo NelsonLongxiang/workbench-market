@@ -2271,6 +2271,67 @@ CREATE TABLE IF NOT EXISTS bench_mcp_audit (
 CREATE INDEX IF NOT EXISTS idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, id);`);
 
 
+// ---------- 只增表的触发器：启动自检（market.db.append-only-guarded）----------
+// 只增表（留痕）在库这一层防改、防删、防覆盖的触发器名单（第一批 #975，加上原来就有的授予、事项、领域、报告几张；以后加的表接着往这里写）。启动自检逐条核对它们都在，
+//   再在一个回滚掉的保存点里真试一次「同一个 id 覆盖式插入」事件日志，必须被拒。不过就拒绝启动（startup-security-self-probe.ts）
+export const APPEND_ONLY_TRIGGERS: readonly string[] = [
+  'task_events_no_update', 'task_events_no_delete', 'task_events_no_replace',
+  'wbe_log_no_update', 'wbe_log_no_delete', 'wbe_log_no_replace',
+  'custom_role_events_no_update', 'custom_role_events_no_delete', 'custom_role_events_no_replace',
+  'team_events_no_update', 'team_events_no_delete', 'team_events_no_replace',
+  'knowledge_project_dept_log_no_update', 'knowledge_project_dept_log_no_delete', 'knowledge_project_dept_log_no_replace',
+  'grant_events_no_update', 'grant_events_no_delete', 'grant_events_no_replace',
+  'work_item_log_no_update', 'work_item_log_no_delete', 'work_item_log_no_replace',
+  'area_events_no_update', 'area_events_no_delete', 'area_events_no_replace',
+  'area_specs_no_update', 'area_specs_no_delete', 'area_specs_no_replace',
+  'report_templates_no_update', 'report_templates_no_delete', 'report_templates_no_replace',
+  'report_template_reviews_no_update', 'report_template_reviews_no_delete', 'report_template_reviews_no_replace',
+  'report_dimension_events_no_update', 'report_dimension_events_no_delete', 'report_dimension_events_no_replace',
+];
+/**
+ * 启动自检用（market.db.append-only-guarded）。理由只给代号，不带库里的内容。判断都按 SQLite 的错误码（errcode），不看报错的文字。
+ *   名单里的触发器都在：缺一条就不通过（拒绝启动）。db.ts 每次启动都会补建，正常上线不会缺；缺了说明库被手工动过、或者建触发器那一步没走完。
+ *   再真试一次：在一个保存点里往事件日志写一行合成的，用同一个 id 覆盖式插入，必须被触发器拒（errcode 1811，SQLITE_CONSTRAINT_TRIGGER；
+ *     同名但不拦的触发器靠这一步抓）。覆盖真的成功了才算不通过。
+ *     保存点最后整个回滚：那一行、自增号都不留，事件日志的「写了一行」通知也不发（这里直接写库，不经 workbench-events 的 log()）。
+ *     回滚到保存点、释放保存点分两句；哪一句失败都整个回滚（ROLLBACK），不让事务一直开着。
+ *     同一个进程里这一段是同步的、中间没有 await，别的代码插不进来；别的进程正写着时最多等 DB_BUSY_TIMEOUT_MS。
+ *   这一步没法做、不说明防线有问题的，记 warn、照常启动，理由写明是哪种：开保存点或写那一行失败——库忙（5、6）、只读（8）、盘满（13），
+ *     连接已经在一个事务里（整个回滚会连带别人的写）；覆盖被触发器以外的原因拒了
+ *   conn：缺省是主库；测试传别的连接（只读的、限了页数的）来造只读、盘满
+ */
+type SelfCheckDb = Pick<DatabaseSync, 'prepare' | 'exec' | 'isTransaction'>;
+export function appendOnlySelfCheck(conn: SelfCheckDb = db): { ok: boolean; reason: string | null; warn?: boolean } {
+  const kind = (e: unknown): string => {
+    const c = Number((e as { errcode?: unknown } | null)?.errcode) & 0xff;
+    return c === 5 || c === 6 ? 'busy' : c === 8 ? 'readonly' : c === 13 ? 'full' : 'error';
+  };
+  let have: Set<string>;
+  try { have = new Set((conn.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all() as { name: string }[]).map((r) => r.name)); }
+  catch { return { ok: false, reason: 'error' }; }
+  const missing = APPEND_ONLY_TRIGGERS.filter((n) => !have.has(n));
+  if (missing.length) return { ok: false, reason: `missing:${missing.join(',')}` };
+  if (conn.isTransaction) return { ok: true, warn: true, reason: 'write-test-skipped:in-transaction' };
+  const SP = 'wm_append_only_self_check';
+  try { conn.exec(`SAVEPOINT ${SP}`); } catch (e) { return { ok: true, warn: true, reason: `write-test-skipped:${kind(e)}` }; }
+  try {
+    const at = new Date().toISOString();
+    let id: number;
+    try {
+      id = Number(conn.prepare('INSERT INTO workbench_event_log (event_id, actor, action, detail, at) VALUES (?, ?, ?, ?, ?) RETURNING id')
+        .get('wbe-selfprobe00000000', 'self-probe', 'self-probe', '{}', at)?.id);
+    } catch (e) { return { ok: true, warn: true, reason: `write-test-skipped:${kind(e)}` }; }
+    try { conn.prepare('INSERT OR REPLACE INTO workbench_event_log (id, event_id, actor, action, detail, at) VALUES (?, ?, ?, ?, ?, ?)').run(id, 'wbe-selfprobe00000000', 'self-probe-b', 'self-probe', '{}', at); }
+    catch (e) { return Number((e as { errcode?: unknown } | null)?.errcode) === 1811 ? { ok: true, reason: null } : { ok: true, warn: true, reason: `write-test-inconclusive:${kind(e)}` }; }
+    return { ok: false, reason: 'replace-accepted' };
+  } finally {
+    let undone = false;
+    try { conn.exec(`ROLLBACK TO ${SP}`); undone = true; } catch { /* 下面整个回滚 */ }
+    if (undone) { try { conn.exec(`RELEASE ${SP}`); } catch { undone = false; } }
+    if (!undone || conn.isTransaction) { try { conn.exec('ROLLBACK'); } catch { /* 没有开着的事务了 */ } }
+  }
+}
+
 // ---------- 台库（数据视图，docs/data-views.md）----------
 // 每个视图台一份自己的库，和上面的主库分开。表结构照约定登记在这里；语句由 services/bench-store.ts 在台自己的库上执行，不在主库上跑。
 // 只用两种库都认的写法；随库不同的只有类型名和自增主键，收在下面两个小函数里。时间一律由调用方给（毫秒整数），不在语句里取。
