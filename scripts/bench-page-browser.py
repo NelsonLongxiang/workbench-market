@@ -293,6 +293,7 @@ with sync_playwright() as p:
     # 对话框开着时，页面在后台重新取了入口：输入框不被覆盖
     inp.fill('正在输入的名字')
     e0 = log['entry']
+    # 证明「没有发生」（切回标签页不到 30 秒不重取入口）：没有一定会发生的事可等，留一段有意的固定时间再看（#954）
     pg.evaluate("() => window.dispatchEvent(new Event('focus'))"); pg.wait_for_timeout(400)
     check('切回标签页不到 30 秒：不重新取入口', log['entry'] == e0, (e0, log['entry']))
     mgr['title'] = '合成·后台又改了'
