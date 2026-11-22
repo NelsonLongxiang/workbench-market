@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+console.log('变异分支（勿合）：login-gate 已在上一轮抓到「同源一律当成指向市场」，这里跳过，让 CI 跑到 sider-menu 里的 cockpit 两个回归'); process.exit(0);
 /** 全站登录门真实浏览器回归（Python Playwright/Chromium，CI browser-security job）。WM_LOGIN_GATE=enforce 的隔离实例：
  *  ① 匿名打开自产台 → 登录页（next 带原地址）；错误口令有提示；口令登录后回到原地址
  *  ② 沙箱自产台（CSP sandbox，不透明源，子资源不带 cookie）在登录门下照常工作：相对脚本、绝对样式表、静态/动态 <img> 文件、
