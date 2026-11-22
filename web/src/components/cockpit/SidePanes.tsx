@@ -148,6 +148,7 @@ export function StaffPane() {
       // 只有负责团队的人才去读 /api/teams：普通员工用不上
       const t = leads ? await getTeams() : null;
       if (!live) return;
+      if (!leads) void getTeams(); // 变异（勿合）：普通员工画完也去读 /api/teams
       setS({ state: 'ok', mine, led: t && t.status >= 200 && t.status < 300 ? ledTeams(t.body, me, new Set(mine.map((c) => c.key))) : [] });
     })();
     return () => { live = false; };
