@@ -20,7 +20,8 @@
  *   R6e（#932 统筹）报告清单不越界：别的台的清单、按事物筛都 403、没有条数；MCP 只能列有授予的台
  *   R6d（属主 2026-11-21：收窄）回应记的位置只含管得到这个台的授予：别的领域的不记，台绑到那个领域以后才记
  *   R7（PR D）入口的 can.reports、can.respond 和接口同一套判法；读报告带回模板的立场和论断类别名、回应标出 mine；
- *   R7b（#937 统筹）读、清单带给人看的名字（维度、人、位置、来源视图），页面据此不露内部标识
+ *   R7b（#937 统筹）读、清单带给人看的名字（维度、人、位置、来源视图），页面据此不露内部标识；
+ *   N1（#965 y3）名字取不到给 null，不退回内部串
  *   G12（#930 统筹验收）产出方只有 person 记 human；带报告动作的自定义角色两人放行：提议没放行、授予没放行都不生效
  *   G11（#930 独立验收）只能看台的人读报告、生成、绑定 403；冻结后补论断、论断挂到不存在的报告都拒；三张冻结的表在库里 UPDATE、DELETE、INSERT OR REPLACE 都拒
  *   F（A～D 验收建议的补测）F1 预设 member 读不了报告；F2 领域授予读得了、回应得了；F2b 只有 read 档的领域授予读不了；F3 老部门的授予记进位置；F4 旧报告带它那一版模板
@@ -703,6 +704,30 @@ try {
     const kinds = (old?.template?.claims ?? []).map((c) => c.kind);
     check(old?.report?.template_version === 1 && JSON.stringify(kinds) === JSON.stringify(['conclusion', 'risk']),
       'F4 读第 1 版模板生成的旧报告：带回的模板是第 1 版的（结论、风险两类），不是现在生效的第 2 版', { tv: old?.report?.template_version, kinds });
+  }
+
+  console.log('N 名字取不到时给 null，不退回内部串（#965 y3）');
+  {
+    // 位置里的范围指向已经不在的领域、回应者在主体表里查不到：正常流程造不出来（台只能绑在存在的领域上），直接往台库写一条回应。
+    // 放在最后，免得这条回应影响前面各节的计数
+    const rid0 = first.json?.report?.id;
+    const store = new DatabaseSync(join(srv.data, 'bench-stores', 'synth-orders.sqlite'));
+    const maxId = Number(store.prepare('SELECT COALESCE(MAX(id), 0) AS n FROM bs_report_responses').get().n);
+    let wrote = false;
+    try {
+      store.prepare("INSERT INTO bs_report_responses (id, report_id, claim_key, stance, reason, responder, responder_kind, position, supersedes, created_at) VALUES (?, ?, '', 'supplement', '合成：范围名取不到', 'user:ghost-n1', 'human', 'area-member@area:ghost-n1,management@*', NULL, ?)").run(maxId + 1, rid0, Date.now());
+      wrote = true;
+    } catch (e) { wrote = String(e?.message ?? e); }
+    store.close();
+    const rd = await bv(boss, 'GET', `/synth-orders/reports/${rid0}`);
+    const pos = rd.json?.names?.positions?.['area-member@area:ghost-n1,management@*'];
+    const roleNames = new Map(((await cli('GET', '/api/roles')).json?.roles ?? []).map((x) => [x.id, x.name]));
+    check(wrote === true && rd.status === 200 && Array.isArray(pos) && pos.length === 2
+        && pos[0].role === roleNames.get('area-member') && pos[0].scope === null
+        && pos[1].role === roleNames.get('management') && pos[1].scope === '全公司'
+        && rd.json?.names?.actors?.['user:ghost-n1'] === null && !JSON.stringify(rd.json?.names ?? {}).includes('"area:ghost-n1"'),
+      'N1 范围指向不在的领域：names.positions 里这一项的 scope 是 null（不退回 area:…），角色名照给；回应者查不到：actors 里是 null（页面都写「未命名」）',
+      { wrote, status: rd.status, pos, actor: rd.json?.names?.actors?.['user:ghost-n1'] });
   }
   db.close();
 } catch (e) {
