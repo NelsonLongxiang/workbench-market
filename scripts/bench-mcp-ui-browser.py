@@ -5,7 +5,15 @@
   四、驳回一条：不写理由不能点，写了才驳回；办过的里看得到驳回理由；
   五、对话框开着时这条被别处先批了：照服务端说（409），对话框不关；之后待批清单空了，MCP 网关页那一栏也空了。"""
 import json, sys
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+
+# 固定等待改成等条件（#954 批 E）：等不到不在等待处抛错，照常往下，由后面原来的断言带着当时的值报
+def soft(fn):
+    try: fn()
+    except PWTimeout: pass
+def painted(pg):
+    """等页面再画两帧"""
+    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
 cfg = json.load(open(sys.argv[1]))
 M, CARD, BENCH, IDS = cfg['base'], cfg['card'], cfg['bench'], cfg['ids']
 ok = fail = 0
@@ -24,7 +32,8 @@ with sync_playwright() as p:
 
     print('一、看不到的人')
     ctx = ctx_for(cfg['session_beta']); pg = ctx.new_page(); pg.set_default_timeout(15000)
-    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-testid=bench-page-name]'); pg.wait_for_timeout(500)
+    # 证明「没有」：台名画出来说明入口应答已经到了（出不出「MCP 授权」也看这份应答），网络静下来、再画两帧再看
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-testid=bench-page-name]'); pg.wait_for_load_state('networkidle'); painted(pg)
     check('只能取数、读视图的人：台页面打得开，但顶栏不出「MCP 授权」', pg.locator('[data-testid=bench-page-mcp]').count() == 0)
     pg.goto(f'{M}/bench-mcp/{BENCH}'); pg.wait_for_selector('[data-testid=bench-mcp-error]')
     check('直接打开管理页：照服务端说不能管（要有拍板授予），不显示成「没有申请」', '拍板' in pg.locator('[data-testid=bench-mcp-error]').inner_text() and pg.locator('[data-testid=bench-mcp-pending]').count() == 0)

@@ -2,7 +2,7 @@
 import json
 import sys
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 cfg = json.load(open(sys.argv[1], encoding='utf-8'))
 with sync_playwright() as p:
@@ -21,9 +21,12 @@ with sync_playwright() as p:
     pg.wait_for_function("(id) => [...document.querySelectorAll('.fl-editor')].length === 1 && document.querySelector('.fl-editor') && !/先在下方交付区/.test(document.querySelector('.fl-editor').textContent)", arg=cfg['file_id'], timeout=20000)
     pg.click('.fl-editor >> text=加一行')
     pg.select_option('.fl-editor tr:nth-child(2) td:nth-child(1) select', str(cfg['file_id']))
-    pg.select_option('.fl-editor tr:nth-child(2) td:nth-child(2) select', '交付件')
+    # 草稿去抖 800ms 后 PUT /api/sop/runs/<id> 落盘：等最后一次改动之后的那个 PUT 应答回来（#954 批 E）
+    try:
+        with pg.expect_response(lambda r: '/api/sop/runs/' in r.url and r.request.method == 'PUT', timeout=10000):
+            pg.select_option('.fl-editor tr:nth-child(2) td:nth-child(2) select', '交付件')
+    except PWTimeout: pass
     val = json.loads(pg.eval_on_selector('[data-field="files"]', 'el => el.value'))
-    pg.wait_for_timeout(1500)  # 草稿 800ms 去抖后落盘
     pg.click('#finish')
     pg.wait_for_function("/执行完成|未完成|字段未填/.test(document.getElementById('state').textContent)", timeout=20000)
     state = pg.inner_text('#state')

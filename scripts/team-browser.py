@@ -248,8 +248,11 @@ with sync_playwright() as p:
 
     # ---------- 成员分配：负责人的视图（团队上 can_assign 为真，带 assignable） ----------
     SHOTS = os.environ.get('TEAM_SHOTS')
-    def shot(name):
-        if SHOTS: pg.screenshot(path=os.path.join(SHOTS, name), full_page=False)
+    def shot(name, settle=0):
+        # 截图前等动画走完：只在真要截图时才等（#954 第 3 类），CI 不设 TEAM_SHOTS 就不等
+        if SHOTS:
+            if settle: pg.wait_for_timeout(settle)
+            pg.screenshot(path=os.path.join(SHOTS, name), full_page=False)
     PEOPLE = [{'principal': 'user:bing', 'display_name': '丙'}, {'principal': 'user:ding', 'display_name': '丁'}, {'principal': 'user:wu', 'display_name': '戊'}]
     lead_team = {**claimed('合成运营部'), 'can_assign': True, 'assign_denied_text': None, 'assignable': PEOPLE,
                  'members': [seat('ops/00000001', '小算', active=3, to={'principal': 'user:bing', 'display_name': '丙'}), seat('ops/00000002', '小审', online=False)]}
@@ -307,7 +310,7 @@ with sync_playwright() as p:
     opts = pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option').all_inner_texts()
     check('分配：可选的人就是服务端给的 assignable（只写名字，不露标识）', sorted(opts) == sorted(['丙', '丁', '戊']), opts)
     pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option', has_text='丁').first.click()
-    pg.wait_for_timeout(400); shot('team-lead-assign-modal-1440.png')
+    shot('team-lead-assign-modal-1440.png', 400)
     modal().locator('[data-testid=team-assign-confirm]').click(); modal_gone()
     pg.wait_for_function("[...document.querySelectorAll('[data-testid=team-member]')].some(e => e.innerText.includes('小审') && e.innerText.includes('分配给 丁'))")
     check('分配：发的是这个席位、分给丁；办完卡片当场写「分配给 丁」，按钮换成改派、收回', posted[n0:] == [('assign', {'host': HOST, 'team': 'ops/canvas/合成运营', 'seat': 'ops/00000002', 'seat_id': '', 'principal': 'user:ding'})]
@@ -329,7 +332,7 @@ with sync_playwright() as p:
     pg.wait_for_function("[...document.querySelectorAll('[data-testid=team-member]')].some(e => e.innerText.includes('小算') && e.innerText.includes('分配给 戊'))")
     check('改派：只发一个改派请求（这个席位、分给戊），不发收回、分配；卡片当场写「分配给 戊」', posted[n0:] == [('reassign', {'host': HOST, 'team': 'ops/canvas/合成运营', 'seat': 'ops/00000001', 'seat_id': '', 'principal': 'user:wu'})], posted[n0:])
     toast('「小算」已改派给 戊')
-    pg.wait_for_timeout(300); shot('team-lead-after-assign-1440.png')
+    shot('team-lead-after-assign-1440.png', 300)
 
     # 收回：二次确认，照实写后果
     n0 = len(posted)
@@ -337,7 +340,7 @@ with sync_playwright() as p:
     body_ = modal().inner_text()
     check('收回：先弹确认，照实写变成团队公用、分给丁期间接手的事丁照样看得到、之后的不算丁的；还没发请求',
           '收回「小审」？' in body_ and '变成团队公用' in body_ and '丁 照样看得到' in body_ and '不再算 丁 的' in body_ and posted[n0:] == [], body_)
-    pg.wait_for_timeout(400); shot('team-lead-unassign-confirm-1440.png')
+    shot('team-lead-unassign-confirm-1440.png', 400)
     modal().locator('button', has_text='算了').click(); modal_gone()
     check('收回：点「算了」什么都不发，归属不变', posted[n0:] == [] and '分配给 丁' in card('小审').inner_text())
     card('小审').locator('[data-testid=team-unassign-open]').click(); modal().wait_for()
