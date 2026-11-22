@@ -159,6 +159,21 @@ try {
       '管理口令（同源）、身份来源的管理员、本机命令行能读', show({ admin: admin.map((r) => r.status), odooAdmin: odooAdmin.status, cli: cli.status }));
     const crossFile = await srv.call('GET', `/api/apps/ra/files/${files.rb}`, asA);
     check(crossFile.status === 404 && !leaks(crossFile), '换 id 读别的台的附件：本台的令牌加别的台的文件 id，只当本台没有这个文件（404），不给内容', show({ status: crossFile.status }));
+    // #955：文件号只收十进制正整数。十六进制、小数、指数、前导零、前导空白、正号这些写法，和不存在的号一样 404，不给内容
+    const altIds = [`0x${Number(files.rb).toString(16)}`, `${files.rb}.0`, `${files.rb}e0`, `0${files.rb}`, `%20${files.rb}`, `%2B${files.rb}`];
+    const ownAlt = await Promise.all(altIds.map((x) => srv.call('GET', `/api/apps/rb/files/${x}`, { ...REMOTE, 'x-app-token': tB })));
+    const ownCanon = await srv.call('GET', `/api/apps/rb/files/${files.rb}`, { ...REMOTE, 'x-app-token': tB });
+    check(ownAlt.every((r) => r.status === 404 && !leaks(r)) && ownCanon.status === 200,
+      '本台令牌下载：文件号写成十六进制、小数、指数、前导零、前导空白、正号都 404、不给内容；十进制的原号照常 200', show({ alt: ownAlt.map((r) => r.status), canon: ownCanon.status }));
+    const adminH = { ...REMOTE, 'x-admin-token': ADMIN_TOKEN };
+    // 逐条发，不并发：并发时删附件可能先落地，改备注就因为文件没了才 404，分不出新旧写法
+    const altWrites = [];
+    altWrites.push(await srv.call('PATCH', `/api/apps/rb/files/${files.rb}.0`, adminH, { note: 'x' }));
+    altWrites.push(await srv.call('DELETE', `/api/apps/rb/files/${files.rb}e0`, adminH));
+    altWrites.push(await srv.call('DELETE', `/api/apps/rb/data/0x1`, adminH));
+    const stillThere = await srv.call('GET', `/api/apps/rb/files/${files.rb}`, { ...REMOTE, 'x-app-token': tB });
+    check(altWrites.every((r) => r.status === 404) && stillThere.status === 200,
+      '管理员改备注、删附件、删数据：号写成别的写法一律 404，原来那个附件还在', show({ writes: altWrites.map((r) => r.status), still: stillThere.status }));
     const writeStill = await srv.call('POST', '/api/apps/rb/data', REMOTE, { data: { x: 1 } });
     check(writeStill.status === 201 || writeStill.status === 200, '提交数据照旧开放（这次只收读）', show({ status: writeStill.status }));
   }
