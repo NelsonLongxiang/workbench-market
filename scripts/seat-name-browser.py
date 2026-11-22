@@ -54,6 +54,8 @@ with sync_playwright() as p:
     pg.goto(M + '/work-items/wi-syn-1'); pg.wait_for_selector('[data-testid=work-item-summary]')
     # 等时间线画出来（句柄最可能出现在时间线里）：有了 timeline-row（日志各条是同一次应答一起画的），再看整页有没有露句柄
     soft(lambda: pg.locator('[data-testid=timeline-row]').first.wait_for(timeout=10000))
+    # 再等摘要里的承接名字画出来：出现「一位 AI 员工」（名字是名册取回以后才换上的），再做后面的断言
+    soft(lambda: pg.wait_for_function("() => document.querySelector('[data-testid=work-item-summary]')?.innerText.includes('一位 AI 员工')", timeout=10000))
     det = text_of(pg)
     check('事项详情（摘要、时间线）：整页没有 dsh/… 句柄', not HANDLE.search(det), HANDLE.findall(det))
     check('事项详情：承接写「一位 AI 员工」', '一位 AI 员工' in pg.locator('[data-testid=work-item-summary]').inner_text())
