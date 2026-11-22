@@ -23,6 +23,13 @@ import type { AppDataService } from '../services/app-data.ts';
 import { HttpError } from '../errors.ts';
 import { hasLoginCredential } from '../request-person.ts';
 
+/** 路径里的数据号、文件号（#955）：只收十进制正整数（不带前导零、符号、空白、小数点、指数和十六进制），别的写法当作没有这一行（调用方回 404） */
+export function rowIdParam(raw: unknown): number | null {
+  if (typeof raw !== 'string' || !/^[1-9][0-9]*$/.test(raw)) return null;
+  const n = Number(raw);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
 /** 读台数据与附件的守卫模式：enforce 拒绝（缺省），warn 只告警计数（上线过渡） */
 export type AppDataReadMode = 'enforce' | 'warn';
 /** 启动时读一次 WM_APP_DATA_READ：没设或空是 enforce，别的值抛错（装配方拒绝启动） */
@@ -173,12 +180,14 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     const a = getApp(req.params.slug, true);
     const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 500) : undefined;
     if (note === undefined) bad('note 必填（字符串）');
+    const id = rowIdParam(req.params.id);
+    if (id === null) throw new HttpError(404, `file not found: ${req.params.id}`);
     await svc<AppDataService>('appData').serialWrites(a.slug, async () => { // 查在不在 → 改，排在这个台的写入队里
-      const hit = await svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug);
+      const hit = await svc<AppDataService>('appData').fileById(id, a.slug);
       if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
-      await svc<AppDataService>('appData').fileUpdateNote(Number(req.params.id), a.slug, note!);
+      await svc<AppDataService>('appData').fileUpdateNote(id, a.slug, note!);
     });
-    res.json({ ok: true, id: Number(req.params.id), note });
+    res.json({ ok: true, id, note });
   }));
 
   // #132 P0③：软删面（deleted_at 置位·原行保审计·列表过滤）
@@ -187,25 +196,29 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     if (!adminGuard(req, res)) return; // #193 F3
     const a = getApp(req.params.slug, true);
     // 软删附件排在这个台的写入队里：契约「查附件在不在 → 插入提交」中间不会被它插进来（不会写进引用了已删附件的提交）
+    const id = rowIdParam(req.params.id);
+    if (id === null) throw new HttpError(404, `file not found: ${req.params.id}`);
     await svc<AppDataService>('appData').serialWrites(a.slug, async () => {
-      const hit = await svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug);
+      const hit = await svc<AppDataService>('appData').fileById(id, a.slug);
       if (!hit) throw new HttpError(404, `file not found: ${req.params.id}`);
-      if (!(await svc<AppDataService>('appData').fileSoftDelete(Number(req.params.id), a.slug))) throw new HttpError(404, `file not found: ${req.params.id}`); // #193 F5：幂等假绿修（不存在→404）
+      if (!(await svc<AppDataService>('appData').fileSoftDelete(id, a.slug))) throw new HttpError(404, `file not found: ${req.params.id}`); // #193 F5：幂等假绿修（不存在→404）
     });
-    res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
+    res.json({ ok: true, id, deleted: 'soft' });
   }));
 
   app.delete('/api/apps/:slug/data/:id', { action: 'app-data.delete', kind: 'admin' }, aw(async (req, res) => {
     if (!adminGuard(req, res)) return; // #193 F3
     if (!adminGuard(req, res)) return; // #193 F3
     const a = getApp(req.params.slug, true);
-    if (!(await svc<AppDataService>('appData').serialWrites(a.slug, () => svc<AppDataService>('appData').dataSoftDelete(Number(req.params.id), a.slug)))) throw new HttpError(404, `data not found: ${req.params.id}`); // #193 F5
-    res.json({ ok: true, id: Number(req.params.id), deleted: 'soft' });
+    const id = rowIdParam(req.params.id);
+    if (id === null || !(await svc<AppDataService>('appData').serialWrites(a.slug, () => svc<AppDataService>('appData').dataSoftDelete(id, a.slug)))) throw new HttpError(404, `data not found: ${req.params.id}`); // #193 F5；#955 别的数字写法同不存在
+    res.json({ ok: true, id, deleted: 'soft' });
   }));
 
   app.get('/api/apps/:slug/files/:id', { action: 'app-data.download', kind: 'read', statusNotVerdict: APP_READ_DECIDES }, guardedRead('GET /api/apps/:slug/files/:id', true, async (req, res) => {
     const a = getApp(req.params.slug);
-    const row = await svc<AppDataService>('appData').fileById(Number(req.params.id), a.slug) as any;
+    const id = rowIdParam(req.params.id); // #955：别的数字写法和不存在的号一样 404
+    const row = id === null ? null : await svc<AppDataService>('appData').fileById(id, a.slug) as any;
     if (!row) throw new HttpError(404, `file not found: ${req.params.id}`);
     const abs = join(dataDir, row.storage_path);
     if (!existsSync(abs)) throw new HttpError(404, 'stored file missing on disk');

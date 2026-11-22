@@ -617,18 +617,18 @@
         {
           "id": "data-delete-hex",
           "route": "DELETE /api/apps/:slug/data/:id",
-          "class": "normal",
-          "what": "id 写成 0x1：Number 认成 1，删掉 id 1",
+          "class": "invalid",
+          "what": "id 写成 0x1：文件号、数据号只收十进制正整数（#955），404，不删",
           "request": { "method": "DELETE", "path": "/api/apps/replay-data/data/0x1", "headers": { "x-admin-token": "replay-synthetic-admin" } },
-          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "id": 1, "deleted": "soft" } }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "data not found: 0x1" } }
         },
         {
           "id": "data-delete-again",
           "route": "DELETE /api/apps/:slug/data/:id",
-          "class": "invalid",
-          "what": "再删 1：404",
+          "class": "normal",
+          "what": "删 1：上一条没删掉，这里照常软删",
           "request": { "method": "DELETE", "path": "/api/apps/replay-data/data/1", "headers": { "x-admin-token": "replay-synthetic-admin" } },
-          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "29", "etag": "W/\"1d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "data not found: 1" } }
+          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "id": 1, "deleted": "soft" } }
         },
         {
           "id": "raw-data-delete-encoded-slash",
@@ -1284,10 +1284,10 @@
         {
           "id": "file-delete-binary",
           "route": "DELETE /api/apps/:slug/files/:id",
-          "class": "normal",
-          "what": "id 写成 0b10：Number 认成 2，软删 b.xlsx（parseInt 会是 0）",
+          "class": "invalid",
+          "what": "id 写成 0b10：只收十进制正整数（#955），404，b.xlsx 还在",
           "request": { "method": "DELETE", "path": "/api/apps/replay-data/files/0b10", "headers": { "x-admin-token": "replay-synthetic-admin" } },
-          "response": { "status": 200, "type": "application/json; charset=utf-8", "headers": { "content-length": "35", "etag": "W/\"23-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "ok": true, "id": 2, "deleted": "soft" } }
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "32", "etag": "W/\"20-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "file not found: 0b10" } }
         },
         {
           "id": "file-delete-again",
@@ -1314,7 +1314,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1757", "etag": "W/\"6dd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1924", "etag": "W/\"784-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [
@@ -1323,12 +1323,13 @@
                 { "id": 8, "original_name": "x.txt", "mime": "text/plain; charset=utf-8", "size": 2, "note": "", "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/8" },
                 { "id": 7, "original_name": "evil.html", "mime": "text/html", "size": 26, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/7" },
                 { "id": 6, "original_name": "pic.png", "mime": "image/png", "size": 35, "note": "nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/6" },
-                { "id": 3, "original_name": "gone.txt", "mime": "text/plain", "size": 3, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/3" }
+                { "id": 3, "original_name": "gone.txt", "mime": "text/plain", "size": 3, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/3" },
+                { "id": 2, "original_name": "b.xlsx", "mime": "text/plain", "size": 20, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-data/files/2" }
               ],
-              "count": 6,
+              "count": 7,
               "has_more": false,
               "next_before_id": null,
-              "quota": { "files_used": 6, "files_max": 8, "files_left": 2, "max_file_bytes": 104857600, "mcp_max_base64_chars": 139810136 }
+              "quota": { "files_used": 7, "files_max": 8, "files_left": 1, "max_file_bytes": 104857600, "mcp_max_base64_chars": 139810136 }
             }
           }
         },
