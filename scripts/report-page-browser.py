@@ -10,7 +10,15 @@
       页面上不出维度键、主体串、授予串、论断键、槽名、视图键，只写服务端给的名字，取不到写「未命名」。"""
 import json, sys
 from urllib.parse import urlparse, parse_qs
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+
+# 固定等待改成等条件（#954 批 E）：等不到不在等待处抛错，照常往下，由后面原来的断言带着当时的值报
+def soft(fn):
+    try: fn()
+    except PWTimeout: pass
+def painted(pg):
+    """等页面再画两帧"""
+    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
 cfg = json.load(open(sys.argv[1]))
 M, CARD = cfg['base'], cfg['card']
 ok = fail = 0
@@ -117,7 +125,8 @@ with sync_playwright() as p:
 
     print('一、入口')
     can['reports'] = False
-    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-testid=bench-page-name]'); pg.wait_for_timeout(300)
+    # 证明「没有」：台名画出来说明入口应答已经到了（出不出「报告」也看这份应答），网络静下来、再画两帧再看
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-testid=bench-page-name]'); pg.wait_for_load_state('networkidle'); painted(pg)
     check('入口没说能看报告：台页面顶栏不出「报告」', pg.locator('[data-testid=bench-page-reports]').count() == 0)
     pg.goto(f'{M}/use/{CARD}/reports'); pg.wait_for_selector('[data-testid=report-page-denied]')
     check('直接打开报告页：说看不到这个台的报告，不出清单', '看不到这个台的报告' in pg.locator('[data-testid=report-page-denied]').inner_text() and pg.locator('[data-testid=report-group]').count() == 0)
@@ -146,7 +155,7 @@ with sync_playwright() as p:
     check('论断：类别用模板里的名字（结论）；更正了之前那份，带链接', '结论' in claim(f).inner_text() and f.locator('[data-testid=report-supersedes] a').count() == 1)
     r = doc(pg, 'risk')
     check('AI 的反驳另外标出，但不算未处理的反驳；验收声明照模板说', r.locator('[data-testid=report-response-ai]').count() == 1 and '没有未处理的反驳' in r.locator('[data-testid=report-open-disputes]').inner_text() and '不能验收' in r.locator('[data-testid=report-gate]').inner_text())
-    pg.set_viewport_size({'width': 390, 'height': 900}); pg.wait_for_timeout(300)
+    pg.set_viewport_size({'width': 390, 'height': 900}); painted(pg); painted(pg)  # 改了窗口宽度，等重新排版画完
     bf, br = doc(pg, 'finance').bounding_box(), doc(pg, 'risk').bounding_box()
     sw = pg.evaluate('() => document.documentElement.scrollWidth')
     check('窄屏（390）：上下排，不横向滚动', br['y'] >= bf['y'] + bf['height'] - 2 and sw <= 390, (bf, br, sw))
