@@ -14,7 +14,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gh_fixture import sync_request  # noqa: E402
@@ -52,6 +52,16 @@ def req(method, path, payload=None):
         raise AssertionError(f'{method} {path} -> {e.code} {detail}') from None
 
 
+def soft(fn):
+    """等条件成立；等不到不在这里抛错，照常往下，由后面原来的断言报（带着当时的值）"""
+    try: fn()
+    except PWTimeout: pass
+def until(pg, pred, timeout=10000):
+    """等测试这边记下的状态（请求日志）满足 pred：每 20 毫秒看一次，期间照常处理截下的请求；到点就停，不抛错"""
+    for _ in range(timeout // 20):
+        if pred(): return
+        pg.wait_for_timeout(20)
+
 SOP_YAML = """title: Cap Browser Fixture
 steps:
   - key: inspect
@@ -72,6 +82,12 @@ def goto(page, url):
             if attempt == 2:
                 raise
             page.wait_for_timeout(1500)
+
+
+def open_run(page, rid):
+    """打开 ?run=<id>，等页面读这条记录（GET /api/sop/runs/<id>）的应答回来"""
+    with page.expect_response(lambda r: r.request.method == 'GET' and r.url.split('?')[0].endswith(f'/api/sop/runs/{rid}'), timeout=60000):
+        goto(page, f'{BASE}/sop/{SLUG}/?run={rid}')
 
 
 with sync_playwright() as p:
@@ -118,12 +134,22 @@ with sync_playwright() as p:
     # ---- 2. 新开 Runner：只打开不建 run；第一次填写才建，cap 落 localStorage ----
     try:
         _, before = req('GET', f'/api/sop/runs?slug={SLUG}')
+        # 证明「没有」：页面开起来以后 startRun 一定会写一句状态（没有可续的记录时同步写「开始填写即自动建执行记录」）。
+        # 等到这句，再看建 run 的 POST 发没发：发了（回归）就等它的应答回来，然后去服务端数
+        run_posts, run_post_resp = [], []
+        is_create = lambda r: r.method == 'POST' and r.url.split('?')[0].endswith('/api/sop/runs')
+        page.on('request', lambda r: run_posts.append(r.url) if is_create(r) else None)
+        page.on('response', lambda r: run_post_resp.append(r.url) if is_create(r.request) else None)
         goto(page, f'{BASE}/sop/{SLUG}/')
-        page.wait_for_timeout(1500)
+        soft(lambda: page.wait_for_function("() => (document.getElementById('state')?.textContent || '') !== ''", timeout=10000))
+        if run_posts: until(page, lambda: len(run_post_resp) >= len(run_posts))
         _, after_open = req('GET', f'/api/sop/runs?slug={SLUG}')
-        record('只打开 Runner 不建 run', len(after_open) == len(before), f'before={len(before)} after={len(after_open)}')
-        page.fill('[data-field="note"]', 'first input')
-        page.wait_for_timeout(2500)
+        record('只打开 Runner 不建 run', len(after_open) == len(before), f'before={len(before)} after={len(after_open)} posts={len(run_posts)}')
+        # 第一次填写：停 800 毫秒后保存——先建 run（cap 落 localStorage），再 PUT 这一步。等那次 PUT 的应答回来
+        def fill_first():
+            with page.expect_response(lambda r: r.request.method == 'PUT' and '/api/sop/runs/' in r.url, timeout=10000):
+                page.fill('[data-field="note"]', 'first input')
+        soft(fill_first)
         _, after_fill = req('GET', f'/api/sop/runs?slug={SLUG}')
         record('第一次填写建 1 个 run', len(after_fill) == len(before) + 1, f'before={len(before)} after={len(after_fill)}')
         stored = page.evaluate(f"() => localStorage.getItem('wm.sop.run.{SLUG}.rcap')")
@@ -141,8 +167,9 @@ with sync_playwright() as p:
     # ---- 3. 清 cap 后开旧 run：显示需读授权、不渲染私有值 ----
     try:
         page.evaluate(f"() => {{ localStorage.removeItem('wm.sop.run.{SLUG}.rcap'); localStorage.removeItem('wm.sop.run.{SLUG}'); }}")
-        goto(page, f'{BASE}/sop/{SLUG}/?run={rid}')
-        page.wait_for_timeout(1500)
+        # 证明「没有」：先等读这条记录的应答回来，再等页面写出「需读授权」那句（同一段处理里写的），再看私有值没露
+        soft(lambda: open_run(page, rid))
+        soft(lambda: page.wait_for_function("() => (document.getElementById('state')?.textContent || '').includes('需读授权')", timeout=10000))
         state = page.eval_on_selector('#state', 'el => el.textContent') if page.query_selector('#state') else ''
         body_text = page.inner_text('body')
         leaked = 'PRIVATE_FIELD_VALUE' in body_text
@@ -155,8 +182,9 @@ with sync_playwright() as p:
     try:
         page.evaluate(
             f"() => localStorage.setItem('wm.sop.run.{SLUG}.rcap', JSON.stringify({{ id: {rid}, c: {json.dumps(cap)} }}))")
-        goto(page, f'{BASE}/sop/{SLUG}/?run={rid}')
-        page.wait_for_timeout(1500)
+        # 等读这条记录的应答回来、字段回填成私有值（回填和写状态是同一段处理）
+        soft(lambda: open_run(page, rid))
+        soft(lambda: page.wait_for_function("() => document.querySelector('[data-field=\"note\"]')?.value === 'PRIVATE_FIELD_VALUE'", timeout=10000))
         state2 = page.eval_on_selector('#state', 'el => el.textContent') if page.query_selector('#state') else ''
         body2 = page.inner_text('body')
         record('带 cap 旧 run 无授权提示', '需读授权' not in state2 and '需读授权' not in body2, f'state={state2[:60]}')
