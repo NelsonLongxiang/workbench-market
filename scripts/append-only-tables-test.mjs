@@ -139,6 +139,19 @@ try {
   db.exec('BEGIN'); const inTx = dbm.appendOnlySelfCheck(); const outerKept = db.isTransaction; db.exec('ROLLBACK');
   const rbFail = dbm.appendOnlySelfCheck(failing({ exec: /^ROLLBACK TO/, code: 1 })); const rbOpen = db.isTransaction;
   const relFail = dbm.appendOnlySelfCheck(failing({ exec: /^RELEASE/, code: 1 })); const relOpen = db.isTransaction;
+  // 错误码按低 8 位归类（扩展码也认）：517（SQLITE_BUSY_SNAPSHOT）、6（SQLITE_LOCKED）归库忙，1032（SQLITE_READONLY_DBMOVED）归只读
+  const ext = Object.fromEntries([517, 6, 1032].map((code) => [code, dbm.appendOnlySelfCheck(failing({ prepare: /^INSERT INTO workbench_event_log/, code }))]));
+  const extOpen = db.isTransaction;
+  // 覆盖时被触发器以外的约束先拒（1299 SQLITE_CONSTRAINT_NOTNULL、275 SQLITE_CONSTRAINT_CHECK，主码都是 19）：没测出结论，记 warn，不能算通过
+  const otherCon = Object.fromEntries([1299, 275].map((code) => [code, dbm.appendOnlySelfCheck(failing({ prepare: /^INSERT OR REPLACE INTO workbench_event_log/, code }))]));
+  const otherOpen = db.isTransaction;
+  check(ext[517].ok === true && ext[517].warn === true && ext[517].reason === 'write-test-skipped:busy'
+    && ext[6].ok === true && ext[6].warn === true && ext[6].reason === 'write-test-skipped:busy'
+    && ext[1032].ok === true && ext[1032].warn === true && ext[1032].reason === 'write-test-skipped:readonly' && extOpen === false,
+    '扩展错误码按低 8 位归类：写那一行报 517、6 记 warn「busy」，报 1032 记 warn「readonly」，照常启动', { ext, extOpen });
+  check(otherCon[1299].ok === true && otherCon[1299].warn === true && otherCon[1299].reason === 'write-test-inconclusive:error'
+    && otherCon[275].ok === true && otherCon[275].warn === true && otherCon[275].reason === 'write-test-inconclusive:error' && otherOpen === false && logRows() === n0,
+    '覆盖被别的约束先拒（1299、275，主码也是 19）：不算被触发器拦，记 warn「write-test-inconclusive」，不能算通过；不留痕', { otherCon, otherOpen });
   check(readonly.ok === true && readonly.warn === true && readonly.reason === 'write-test-skipped:readonly' && roOpen === false,
     '库只读：记 warn「write-test-skipped:readonly」，照常启动；事务没开着', { readonly, roOpen });
   check(full.ok === true && full.warn === true && full.reason === 'write-test-skipped:full' && fullOpen === false,
