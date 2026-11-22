@@ -229,7 +229,9 @@ console.log(JSON.stringify({ gaps: ${teamGaps} }));`, { DATA_DIR: dir, WM_TEST_S
     ...['bench_bind_audit', 'bench_mcp_audit', 'mcp_grant_audit', 'sop_run_file_audit', 'sop_run_upgrade_audit', 'workbench_var_audit', 'a2a_roster_changes', 'task_center_events']
       .flatMap((t) => [`${t}_no_update`, `${t}_no_delete`, `${t}_no_replace`]),
     'mcp_calls_no_update', 'mcp_calls_no_replace', 'a2a_seat_token_log_no_update', 'a2a_seat_token_log_no_replace',
-    'wbe_events_no_update', 'wbe_events_no_replace', 'login_events_seen_no_update', 'attention_answers_done_fixed', 'attention_answers_done_kept'];
+    'wbe_events_no_update', 'wbe_events_no_replace', 'login_events_seen_no_update', 'attention_answers_done_fixed', 'attention_answers_done_kept',
+    'a2a_inbound_receipts_no_update', 'a2a_inbound_receipts_no_delete', 'work_item_requests_no_update', 'work_item_requests_no_delete', 'work_item_requests_no_replace',
+    ...['a2a_rosters', 'a2a_roster_seats'].flatMap((t) => [`${t}_frozen_insert`, `${t}_frozen_update`, `${t}_frozen_delete`])];
   const aoGaps = `${JSON.stringify(AO)}.filter((n) => !m.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(n)).length`;
   const aoBefore = await run(schemaCode, { DATA_DIR: dir });
   const aoDrop = await run(`const m = await import(${JSON.stringify(DB_URL)}); m.db.exec(${JSON.stringify(AO.map((n) => `DROP TRIGGER ${n};`).join(' '))});

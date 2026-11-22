@@ -11,6 +11,8 @@
  *       login_events_seen，也都要有防覆盖——以后新加的只增表漏了会在这里红
  *   三、不加防覆盖的两张照常：login_events_seen 同一个事件再记一次被跳过、不报错，改被拒、按时间删得掉；
  *       attention_answers 抢占（已存在就跳过）照常、第二个抢不到也不报错，待办行能改成办完、能删，办完的那一行不许改、不许删
+ *   四、补充裁定的三类：a2a_inbound_receipts 去重照常、改删被拒；a2a_rosters、a2a_roster_seats（冻结）新增、覆盖、改、删都被拒；
+ *       work_item_requests 同一个键再写、改、删都被拒，换一个键照常
  *   五、启动自检用的检查（appendOnlySelfCheck，按错误码判断）：库是好的就通过、不留痕；缺一条点名；同名但不拦的（WHEN 0）靠真试一次覆盖抓到
  *
  * 被测的就是启动建出来的库（server/src/db.ts，再加工作台事件那几张表的 initWorkbenchEvents），所以直接加载（不经接口）：
@@ -32,7 +34,7 @@ let pass = 0, fail = 0;
 const check = (ok, label, detail) => { if (ok) pass++; else fail++; console.log(`  ${ok ? '✓' : '✗'} ${label}${ok || detail === undefined ? '' : `（${typeof detail === 'string' ? detail : JSON.stringify(detail)}）`}`); };
 /** 跑一句写库的 SQL，交回被拒的那句话（没被拒交回 null） */
 const refused = (db, sql, args = []) => { try { db.prepare(sql).run(...args); return null; } catch (e) { return String(e?.message ?? e); } };
-const GUARD = /只增不改|append only|never changed|never deleted/;
+const GUARD = /只增不改|append only|never changed|never deleted|已冻结/;
 
 /**
  * 每张只增表：主键列、正常写一行要的列和值、用来覆盖的另一组值（换执行人和内容）、要拦哪几样（缺省改、删、覆盖都拦）。
@@ -116,15 +118,18 @@ try {
   console.log('二、整库：只增表都要有防覆盖');
   const trg = db.prepare("SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'trigger'").all();
   const plain = (kind) => (x) => new RegExp(`BEFORE\\s+${kind}\\s+ON\\s`, 'i').test(x.sql) && !/\bWHEN\b/i.test(x.sql);
-  const hasReplace = (t) => trg.some((x) => x.tbl_name === t && /BEFORE\s+INSERT\s+ON\s/i.test(x.sql) && /WHEN\s+EXISTS/i.test(x.sql));
+  // 防覆盖：键已存在的插入拦下（WHEN EXISTS），或者冻结的表干脆不许新增（不带条件）
+  const hasReplace = (t) => trg.some((x) => x.tbl_name === t && /BEFORE\s+INSERT\s+ON\s/i.test(x.sql) && (/WHEN\s+EXISTS/i.test(x.sql) || !/\bWHEN\b/i.test(x.sql)));
+  // 靠「已存在就跳过」去重的表故意不拦覆盖（按键拦下的触发器会把去重变成报错）
+  const DEDUPE = ['login_events_seen', 'a2a_inbound_receipts'];
   const noUpdate = [...new Set(trg.filter(plain('UPDATE')).map((x) => x.tbl_name))].sort();
   const appendOnly = noUpdate.filter((t) => trg.some((x) => x.tbl_name === t && plain('DELETE')(x)));
   check(TABLES.every((t) => (t.deny ?? ALL).includes('delete') === appendOnly.includes(t.table)), `认出 ${appendOnly.length} 张只增表（不带条件的不许改、不许删都有），和上面逐张测的对得上`, appendOnly);
-  check(appendOnly.every(hasReplace), '这些表每张都有防覆盖（键已存在的插入一律拦下）', appendOnly.filter((t) => !hasReplace(t)));
+  check(appendOnly.filter((t) => !DEDUPE.includes(t)).every(hasReplace) && DEDUPE.filter((t) => appendOnly.includes(t)).every((t) => !hasReplace(t)),
+    '这些表除了去重表（a2a_inbound_receipts，故意不拦覆盖），每张都有防覆盖（键已存在的插入拦下，或冻结的表不许新增）', { noReplace: appendOnly.filter((t) => !hasReplace(t)) });
   // 装了不许改、没拦删的（删照旧，留给按时间清理）：也要有防覆盖，只有靠「已存在就跳过」去重的 login_events_seen 例外
-  const DEDUPE = ['login_events_seen'];
   const updOnly = noUpdate.filter((t) => !appendOnly.includes(t));
-  check(updOnly.filter((t) => !DEDUPE.includes(t)).every(hasReplace) && DEDUPE.every((t) => updOnly.includes(t) && !hasReplace(t)),
+  check(updOnly.filter((t) => !DEDUPE.includes(t)).every(hasReplace) && updOnly.includes('login_events_seen') && !hasReplace('login_events_seen'),
     `装了不许改的另外 ${updOnly.length} 张：除了去重表 login_events_seen（它故意不拦覆盖），都有防覆盖`, { updOnly, noReplace: updOnly.filter((t) => !hasReplace(t)) });
 
   console.log('三、不加防覆盖的两张照常');
@@ -153,6 +158,47 @@ try {
   check(doneUpd && /不改/.test(doneUpd) && doneDel && /不删/.test(doneDel) && c3 === 0 && row() === done,
     'attention_answers：办完的那一行不许改、不许删，再来抢也只是跳过，那一行没变', { doneUpd, doneDel, c3 });
 
+  console.log('四、补充裁定的三类');
+  // a2a_inbound_receipts：入站回执去重（照 a2a-receipts.ts 的写法），同一个回执再来一次被跳过、不报错；改、删被拒
+  const rcpt = () => db.prepare("INSERT OR IGNORE INTO a2a_inbound_receipts (task_id, class, disposition, outcome) VALUES ('syn-task-1', 'ack', 'acknowledged', '')").run().changes;
+  let r1 = null, r2 = null, rcptErr = null;
+  try { r1 = rcpt(); r2 = rcpt(); } catch (e) { rcptErr = String(e?.message ?? e); }
+  const rcptUpd = refused(db, "UPDATE a2a_inbound_receipts SET outcome = 'x' WHERE task_id = 'syn-task-1'");
+  const rcptDel = refused(db, "DELETE FROM a2a_inbound_receipts WHERE task_id = 'syn-task-1'");
+  check(r1 === 1 && r2 === 0 && rcptErr === null && rcptUpd && GUARD.test(rcptUpd) && rcptDel && GUARD.test(rcptDel),
+    'a2a_inbound_receipts：头一次记上、同一个回执再来一次被跳过（不报错），改、删被拒', { r1, r2, rcptErr, rcptUpd, rcptDel });
+  // a2a_rosters、a2a_roster_seats：冻结的旧表。旧库里本来就有行：临时拿掉「不许新增」那条、写一行冒充存量，再原样装回去
+  const frozen = [
+    ['a2a_rosters', "INSERT INTO a2a_rosters (host, peer_root, peer_zone, reported_at, received_at) VALUES (?, 'https://syn.invalid', 'z', 't', 't')", 'host'],
+    ['a2a_roster_seats', "INSERT INTO a2a_roster_seats (host, team, seat, first_seen_at) VALUES (?, 'z/canvas/syn', 'z/0000000a', 't')", 'host'],
+  ];
+  for (const [table, ins, key] of frozen) {
+    const insName = `${table}_frozen_insert`;
+    const insSql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(insName)?.sql;
+    let seeded = null;
+    if (insSql) { db.exec(`DROP TRIGGER ${insName}`); seeded = refused(db, ins, ['0a1b2c3d']); db.exec(insSql); }
+    const snapF = () => JSON.stringify(db.prepare(`SELECT * FROM ${table} WHERE ${key} = '0a1b2c3d'`).all());
+    const beforeF = snapF();
+    const fIns = refused(db, ins, ['0e0e0e0e']);
+    const fRep = refused(db, ins.replace('INSERT INTO', 'INSERT OR REPLACE INTO'), ['0a1b2c3d']);
+    const fUpd = refused(db, `UPDATE ${table} SET ${key} = ${key} WHERE ${key} = '0a1b2c3d'`);
+    const fDel = refused(db, `DELETE FROM ${table} WHERE ${key} = '0a1b2c3d'`);
+    check(insSql && seeded === null && [fIns, fRep, fUpd, fDel].every((m) => m && /已冻结/.test(m)) && snapF() === beforeF && beforeF !== '[]',
+      `${table}：冻结的旧表——新增、覆盖、改、删都被拒，存量那一行没变`, { insSql: Boolean(insSql), seeded, fIns, fRep, fUpd, fDel });
+  }
+  // work_item_requests：安排一件事的幂等记账。照 services/task-center.ts 的写法先查再写；同一个键再写（普通插入、覆盖、ON CONFLICT）都被拒，换一个键照常
+  const wir = "INSERT INTO work_item_requests (requester, idem_key, body_sha256, task_id, event_id, created_at) VALUES (?, ?, ?, ?, ?, ?)";
+  const w1 = refused(db, wir, ['person:syn-a', 'syn-key-000000000001', 'aa', 1, 'wbe-0000000000000001', '2026-11-22 00:00:00']);
+  const wSnap = () => JSON.stringify(db.prepare("SELECT * FROM work_item_requests WHERE requester = 'person:syn-a' AND idem_key = 'syn-key-000000000001'").get());
+  const wBefore = wSnap();
+  const wDup = refused(db, wir, ['person:syn-a', 'syn-key-000000000001', 'bb', 2, 'wbe-0000000000000002', '2026-11-22 00:00:01']);
+  const wRep = refused(db, wir.replace('INSERT INTO', 'INSERT OR REPLACE INTO'), ['person:syn-a', 'syn-key-000000000001', 'bb', 2, 'wbe-0000000000000002', '2026-11-22 00:00:01']);
+  const wOn = refused(db, wir + ' ON CONFLICT (requester, idem_key) DO UPDATE SET body_sha256 = excluded.body_sha256', ['person:syn-a', 'syn-key-000000000001', 'bb', 2, 'wbe-0000000000000002', '2026-11-22 00:00:01']);
+  const wUpd = refused(db, "UPDATE work_item_requests SET body_sha256 = 'bb' WHERE requester = 'person:syn-a'");
+  const wDel = refused(db, "DELETE FROM work_item_requests WHERE requester = 'person:syn-a'");
+  const w2 = refused(db, wir, ['person:syn-a', 'syn-key-000000000002', 'cc', 3, 'wbe-0000000000000003', '2026-11-22 00:00:02']);
+  check(w1 === null && [wDup, wRep, wOn, wUpd, wDel].every((m) => m && GUARD.test(m)) && wSnap() === wBefore && w2 === null,
+    'work_item_requests：同一个键再写（普通插入、覆盖、ON CONFLICT）、改、删都被拒，原来那行没变；换一个键照常写进去', { w1, wDup, wRep, wOn, wUpd, wDel, w2 });
   console.log('五、启动自检用的检查（appendOnlySelfCheck，启动自检那一行 market.db.append-only-guarded 调的就是它）');
   const logRows = () => db.prepare('SELECT COUNT(*) AS n FROM workbench_event_log').get().n;
   const seqOf = () => db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'workbench_event_log'").get()?.seq ?? null;

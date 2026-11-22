@@ -509,6 +509,7 @@ CREATE TABLE IF NOT EXISTS a2a_inbound_receipts (
 -- 正文里报的 host 只拿来核对；同一个 host 只认第一次报它的根地址。seat_id 是宿主给成员位的稳定 id（上游 B1 起，句柄随会话变、它不变；旧节点不带就是空）。
 -- 名册已改存 a2a_roster_nodes / a2a_roster_node_seats（以根地址和完整指纹为键，见 a2a_peers 之后）：这两张旧表升级时复制一次之后
 -- 不再读写，只为升级守护（结构只增不改、存量行不变）留着，不删、不改名、不删行。时间由代码生成后写入。
+-- 已冻结：库这一层也拦住新增、改、删（触发器在本文件「只增表、留痕表的触发器（第二批）」那一段）
 CREATE TABLE IF NOT EXISTS a2a_rosters (
   host TEXT PRIMARY KEY,
   peer_root TEXT NOT NULL,
@@ -2342,6 +2343,9 @@ export function appendOnlySelfCheck(conn: SelfCheckDb = db): { ok: boolean; reas
 //   workbench_events：事件发出去就不变（投递状态在 workbench_event_deliveries），不删（原有）、不改、不覆盖（按 id 和 event_id）
 //   a2a_seat_token_log：保留期内只增（按时间清旧在 seat-tokens.ts），拦改和覆盖，删照旧
 //   login_events_seen：登录事件去重表，拦改；不拦覆盖——它靠「已存在就跳过」的插入（OR IGNORE）去重，按键拦下的触发器会把去重变成报错
+//   a2a_inbound_receipts：入站回执的去重表，拦改和删；不拦覆盖——它靠「已存在就跳过」的插入去重
+//   a2a_rosters、a2a_roster_seats：冻结的旧名册（升级时复制进新表一次以后不再读写），新增、改、删都拦
+//   work_item_requests：安排一件事的幂等记账（先查再写的普通插入，同一事务里），改、删、覆盖都拦（按主键 requester、idem_key）
 //   attention_answers：答复账加占位锁。待办行（pending）照常改成办完、出错时删掉；办完的那一行（done）不许改、不许删。
 //     同样不拦覆盖（抢占靠「已存在就跳过」的插入）
 // task_center_events、workbench_events 的建表原样从 task-center.ts、workbench-events.ts 搬来（和这里的触发器放在一起，多进程启动的测试也覆盖得到）
@@ -2405,6 +2409,19 @@ CREATE TRIGGER IF NOT EXISTS wbe_events_no_update BEFORE UPDATE ON workbench_eve
 CREATE TRIGGER IF NOT EXISTS wbe_events_no_replace BEFORE INSERT ON workbench_events
   WHEN EXISTS (SELECT 1 FROM workbench_events WHERE id = NEW.id) OR EXISTS (SELECT 1 FROM workbench_events WHERE event_id = NEW.event_id)
   BEGIN SELECT RAISE(ABORT,'workbench events are never changed'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_inbound_receipts_no_update BEFORE UPDATE ON a2a_inbound_receipts BEGIN SELECT RAISE(ABORT, 'a2a_inbound_receipts 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_inbound_receipts_no_delete BEFORE DELETE ON a2a_inbound_receipts BEGIN SELECT RAISE(ABORT, 'a2a_inbound_receipts 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_rosters_frozen_insert BEFORE INSERT ON a2a_rosters BEGIN SELECT RAISE(ABORT, 'a2a_rosters 已冻结'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_rosters_frozen_update BEFORE UPDATE ON a2a_rosters BEGIN SELECT RAISE(ABORT, 'a2a_rosters 已冻结'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_rosters_frozen_delete BEFORE DELETE ON a2a_rosters BEGIN SELECT RAISE(ABORT, 'a2a_rosters 已冻结'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_roster_seats_frozen_insert BEFORE INSERT ON a2a_roster_seats BEGIN SELECT RAISE(ABORT, 'a2a_roster_seats 已冻结'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_roster_seats_frozen_update BEFORE UPDATE ON a2a_roster_seats BEGIN SELECT RAISE(ABORT, 'a2a_roster_seats 已冻结'); END;
+CREATE TRIGGER IF NOT EXISTS a2a_roster_seats_frozen_delete BEFORE DELETE ON a2a_roster_seats BEGIN SELECT RAISE(ABORT, 'a2a_roster_seats 已冻结'); END;
+CREATE TRIGGER IF NOT EXISTS work_item_requests_no_update BEFORE UPDATE ON work_item_requests BEGIN SELECT RAISE(ABORT, 'work_item_requests 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS work_item_requests_no_delete BEFORE DELETE ON work_item_requests BEGIN SELECT RAISE(ABORT, 'work_item_requests 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS work_item_requests_no_replace BEFORE INSERT ON work_item_requests
+  WHEN EXISTS (SELECT 1 FROM work_item_requests WHERE requester = NEW.requester AND idem_key = NEW.idem_key)
+  BEGIN SELECT RAISE(ABORT, 'work_item_requests 只增不改'); END;
 CREATE TRIGGER IF NOT EXISTS login_events_seen_no_update BEFORE UPDATE ON login_events_seen BEGIN SELECT RAISE(ABORT, 'login_events_seen 只增不改'); END;
 CREATE TRIGGER IF NOT EXISTS attention_answers_done_fixed BEFORE UPDATE ON attention_answers WHEN OLD.state = 'done'
   BEGIN SELECT RAISE(ABORT, 'attention_answers 办完的那一行不改'); END;
