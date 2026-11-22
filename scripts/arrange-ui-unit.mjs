@@ -45,5 +45,14 @@ ok('读团队：没上线（旧路由答 400 或 404）、未登录、无权限�
   ok('附件不对（attachments_invalid）有说法', errorText(400, { error: 'attachments_invalid' }).includes('附件'));
 }
 
+// 优先级（#941 第 1a 步）：缺省 P2；是 P2 就不带（请求体和以前一样，服务端缺省也是 P2）；别的照带；写法不对的页面先挡
+{
+  const base = { ...EMPTY_FORM, title: 't', intent: 'i', deliverable: 'd', team: 'dsh/canvas/team-a' };
+  ok('优先级：缺省 P2，请求体里不带', EMPTY_FORM.priority === 'P2' && !('priority' in buildBody(base, 'k')));
+  ok('优先级：选了 P0、P1、P3 就带上', buildBody({ ...base, priority: 'P0' }, 'k').priority === 'P0' && buildBody({ ...base, priority: 'P3' }, 'k').priority === 'P3');
+  ok('优先级：写法不对的页面先挡；P0～P3 都放行', validate({ ...base, priority: 'P9' }, [{ team: 'dsh/canvas/team-a', name: 'A' }]).priority !== undefined && ['P0', 'P1', 'P2', 'P3'].every((p) => validate({ ...base, priority: p }, [{ team: 'dsh/canvas/team-a', name: 'A' }]).priority === undefined));
+  ok('优先级：服务端说 priority_invalid 有说法', errorText(400, { error: 'priority_invalid' }).includes('P0～P3'));
+}
+
 console.log(`\narrange-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

@@ -38,7 +38,7 @@ import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
 import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
-import { COCKPIT_ID_MAX, dueAtOf, isCreator, overdueOf, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
+import { COCKPIT_ID_MAX, dueAtOf, isCreator, overdueOf, PRIORITIES, priorityOf, STATES, type WorkItemService, type WorkItemState } from '../services/work-item.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { TeamService } from '../services/team.ts';
 import { answerItemAsk, CREATOR_ANSWERS, decideItemAnswer } from '../attention-answers.ts';
@@ -46,7 +46,7 @@ import { viaBegin, viaSettle } from '../attention-via.ts';
 import { actorResolver } from '../judgment-compare.ts';
 import { markSeatMessagesRead, replySeatMessage, seatAsksOf, seatMessagesOf, seatProgressOf, seatSubitemsOf, SEAT_REPLY_MAX } from '../seat-messages.ts';
 import { principalsAdmin } from './principals.ts';
-import { canOf, canSee, creatorOf, dueWriterOk, decidesNow, itemDecisionVerdict, itemRoles, releaseBy, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
+import { canOf, canSee, creatorOf, dueWriterOk, decidesNow, priorityWriter, itemDecisionVerdict, itemRoles, releaseBy, turnOf, VIEW_ALL_ACTION, VIEW_ALL_KIND, VIEWS, viewScopes, workItemViewer, writerVerdict, type ItemRole, type ViewName } from '../work-item-access.ts';
 import { arrangeTask } from '../task-center.ts';
 import { AREA_ID_RE, type AreaService } from '../services/area.ts';
 import type { GrantService } from '../services/grant.ts';
@@ -170,7 +170,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
         view, views,
         items: shown.map((w) => ({
           id: w.id, title: w.title, state: w.state, object: w.object, phase: w.phase, seat: w.seat, cockpit_id: w.cockpit_id,
-          last_progress: w.last_log, updated_at: w.updated_at, due: w.due_at ? w.due_at.slice(0, 10) : null, overdue: overdueOf(w, nowMs), release_by: releaseBy(w, viewer, teamViews),
+          last_progress: w.last_log, updated_at: w.updated_at, due: w.due_at ? w.due_at.slice(0, 10) : null, overdue: overdueOf(w, nowMs), priority: w.priority, release_by: releaseBy(w, viewer, teamViews),
           // 只增：带了领域的事项才有这一项（没带的应答和原来一样）
           ...(w.area_id ? { area: w.area_id } : {}),
         })),
@@ -249,7 +249,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const item = items.get(id);
       if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
       // 只增：这个人能做什么（can）、是不是轮到他（turn）、建立人是谁（creator）。判断都在 work-item-access.ts，和各动作接口同一处
-      res.json({ item: itemView(item), ...areaView(item), due: item.due_at ? item.due_at.slice(0, 10) : null, overdue: overdueOf(item), attachments: attachmentsOfEvent(item.source_ref).map((a) => ({ name: a.name, size: a.size, url: `/api/work-items/${id}/attachments/${a.id}`, id: a.id, mime: a.mime, sha256: a.sha256 })), log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), subitems: seatSubitemsOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item), release_by: releaseBy(item, viewer) });
+      res.json({ item: itemView(item), ...areaView(item), due: item.due_at ? item.due_at.slice(0, 10) : null, overdue: overdueOf(item), priority: item.priority, attachments: attachmentsOfEvent(item.source_ref).map((a) => ({ name: a.name, size: a.size, url: `/api/work-items/${id}/attachments/${a.id}`, id: a.id, mime: a.mime, sha256: a.sha256 })), log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), subitems: seatSubitemsOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item), release_by: releaseBy(item, viewer) });
     })().catch(next);
   });
 
@@ -435,6 +435,39 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       if (out.queued > 0) kickWorkbenchEvents();
       const after = items.get(id)!;
       res.json({ item_id: id, due: after.due_at ? after.due_at.slice(0, 10) : null, overdue: overdueOf(after), notified: out.notified, pending_release: out.pending });
+    })().catch(next);
+  });
+
+  // 改优先级（#941 第 1a 步，docs/task-goal-verify-design.md 第 4、7 条）：建立人本人或持有管理层授予的人（priorityWriter，和详情的 can.priority 同一处）。
+  // 请求体只读 priority：P0～P3。看不到这件事项 404（不说有没有）；看得到、不归他改 403；事项结束了 409；没有事件（只有测试里直接建的）409，改了没处留痕就不改。
+  // 改和留痕在同一个保存点里：事件日志记一行 priority-changed（从几改成几、谁改的、以什么身份）。和原来一样也照记，应答 changed:false。
+  // 这一步只记、不接判定；不通知接单的团队（优先级是市场这边决定验收怎么走用的，不在派工正文里）
+  app.post('/api/work-items/:id/priority', { action: 'work-items.priority-set', kind: 'write', statusNotVerdict: '按事项判：建立人本人或持有管理层授予的人，是事项上的规则不是角色授权' }, (req, res, next) => {
+    res.set('Cache-Control', 'private, no-store');
+    if (deps.crossOriginDenied(req)) return void res.status(403).json({ error: 'work_items_cross_origin_denied' });
+    const id = String(req.params.id ?? '');
+    if (!ITEM_ID.test(id)) return void res.status(400).json({ error: 'work_item_id_invalid' });
+    const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body as Record<string, unknown> : {};
+    const priority = priorityOf(b.priority);
+    if (!priority) return void res.status(400).json({ error: 'priority_invalid', allowed: PRIORITIES });
+    (async () => {
+      const viewer = await workItemViewer(req, deps);
+      if (!viewer.principal) return void res.status(401).json({ error: 'work_items_auth_required' });
+      const items = svc<WorkItemService>('workItems');
+      const item = items.get(id);
+      if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
+      const as = priorityWriter(item, viewer);
+      if (!as) return void res.status(403).json({ error: 'work_item_priority_not_yours' });
+      const ev = /^wbe-[0-9a-f]{16}$/.test(item.source_ref) ? item.source_ref : '';
+      if (!ev) return void res.status(409).json({ error: 'work_item_no_event_log' });
+      const at = new Date().toISOString();
+      const ok = inReplyTx(() => {
+        if (!items.setPriority(id, priority, at.replace('T', ' ').slice(0, 19))) return false;
+        logEventFact(ev, viewer.principal!, 'priority-changed', { from: item.priority, to: priority, as });
+        return true;
+      });
+      if (!ok) return void res.status(409).json({ error: 'work_item_ended', state: item.state });
+      res.json({ item_id: id, priority, from: item.priority, changed: item.priority !== priority, as });
     })().catch(next);
   });
 

@@ -1303,6 +1303,9 @@ for (const [column, ddl] of [
   ['cockpit_id', 'cockpit_id INTEGER'],
   // 截止日期（到日，存那天的 UTC 零点 ISO；空 = 没有）：安排时填、建立人可以改；过了期仍未完成的算 overdue（服务端按同一时钟算）
   ['due_at', "due_at TEXT NOT NULL DEFAULT ''"],
+  // 优先级（#941 第 1a 步，docs/task-goal-verify-design.md 第 4 条）：P0～P3，缺省 P2；安排时可以填，建立人本人或管理层可以改，每次改在事件日志记 priority-changed。
+  //   以后决定机器判定能不能直接当验收结论（P2、P3 能，P0、P1 不能）；这一步只记、不接判定。存量一律是 P2
+  ['priority', "priority TEXT NOT NULL DEFAULT 'P2' CHECK (priority IN ('P0', 'P1', 'P2', 'P3'))"],
   // 任务带领域（docs/domains-step1.md 第 2 步）：事项落在哪个领域。area_source：chosen（建立人显式选的，4a）、inferred（按领域规范判断的，4b），
   //   没有领域时都是空（存量一律为空，不回填）；area_reason 是判断的理由（4b 用，4a 为空串）。只是标签和判定依据，不改可见范围（4b）
   ['area_id', "area_id TEXT CHECK (area_id IS NULL OR area_id <> '')"],

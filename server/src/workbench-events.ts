@@ -161,6 +161,8 @@ interface EventCore {
   directedFallback?: { seat_id: string; reason: string };
   /** 截止日期 YYYY-MM-DD（只记在 recorded 那一行，事项建出来时取；信封里的 task.due 原样带给接收方） */
   due?: string;
+  /** 优先级 P0～P3（#941 第 1a 步）：只记在 recorded 那一行，事项建出来时取；市场自己用（以后决定验收怎么走），不进发给接收方的信封 */
+  priority?: string;
 }
 
 /**
@@ -181,7 +183,7 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
   db.prepare('INSERT INTO workbench_events (event_id, source, workbench, item, context_id, submitter_kind, submitter, form_version, data_sha256, dispatch, routed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(eventId, core.source, core.workbench, core.item, core.contextId, core.submitterKind, core.submitter, core.formVersion, core.dataSha256, core.dispatch ? 1 : 0, routed);
   log(eventId, null, 'market', 'recorded', { source: core.source, routed, submitter_kind: core.submitterKind, targets: targets.length, ...(core.requester ? { requester: core.requester } : {}), ...(core.via ? { via: core.via } : {}), ...(core.publisher ? { publisher: core.publisher } : {}), ...(core.object ? { object: core.object } : {}), ...(core.phase ? { phase: core.phase } : {}),
-    ...(core.handoff ? { handoff: core.handoff, review_by: core.reviewBy ?? (held ? 'lead' : '') } : {}), ...(core.directedSeatId ? { directed_seat_id: core.directedSeatId } : {}), ...(core.cockpitId ? { cockpit_id: core.cockpitId } : {}), ...(core.directedFallback ? { directed_fallback: core.directedFallback } : {}), ...(core.due ? { due: core.due } : {}) });
+    ...(core.handoff ? { handoff: core.handoff, review_by: core.reviewBy ?? (held ? 'lead' : '') } : {}), ...(core.directedSeatId ? { directed_seat_id: core.directedSeatId } : {}), ...(core.cockpitId ? { cockpit_id: core.cockpitId } : {}), ...(core.directedFallback ? { directed_fallback: core.directedFallback } : {}), ...(core.due ? { due: core.due } : {}), ...(core.priority ? { priority: core.priority } : {}) });
   const envelope = envelopeOf(eventId, createdAt);
   for (const t of targets) {
     let token = '';
@@ -209,6 +211,8 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
     handoff?: 'team' | 'own-seat' | 'lead-directed'; reviewBy?: '' | 'lead' | 'requester'; directedSeatId?: string; directedFallback?: { seat_id: string; reason: string };
     /** 从哪个驾驶舱安排的（调用方已经核过驾驶舱存在） */
     cockpitId?: number;
+    /** 优先级（调用方已经核过是 P0～P3）；不给就是缺省 P2，recorded 里不写 */
+    priority?: string;
     /** 附件（只带引用）：信封里列名字、类型、大小、sha256 和取件地址，内容不进正文 */
     attachments?: { id: number; name: string; mime: string; size: number; sha256: string }[] } }): string {
   const targets = assignableTeams().filter((t) => t.agent_node === task.arranged.team);
@@ -222,6 +226,7 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
     handoff: task.arranged.handoff ?? 'team', ...(task.arranged.reviewBy !== undefined ? { reviewBy: task.arranged.reviewBy } : {}),
     ...(task.arranged.directedSeatId ? { directedSeatId: task.arranged.directedSeatId } : {}),
     ...(task.arranged.cockpitId ? { cockpitId: task.arranged.cockpitId } : {}),
+    ...(task.arranged.priority ? { priority: task.arranged.priority } : {}),
     ...(task.arranged.directedFallback ? { directedFallback: task.arranged.directedFallback } : {}),
   };
   const fields: Record<string, unknown> = { id: task.id };

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项的期限和附件（web/src/work-item-extras.ts）：字段没到不画、格式不对当没有、链接只认本站 /api/、大小怎么说。 */
-import { dueSavedText, listDueTag, attachmentsOf, attachProblem, uploadedId, dueEditable, dueErrorText, dueLabel, dueOf, hasDueField, overdueOf, safeFileUrl, sizeLabel, uploadErrorText, ATTACH_MAX_BYTES } from '../web/src/work-item-extras.ts';
+import { listPriorityTag, priorityColor, priorityEditable, priorityErrorText, priorityOf, PRIORITIES, dueSavedText, listDueTag, attachmentsOf, attachProblem, uploadedId, dueEditable, dueErrorText, dueLabel, dueOf, hasDueField, overdueOf, safeFileUrl, sizeLabel, uploadErrorText, ATTACH_MAX_BYTES } from '../web/src/work-item-extras.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -48,5 +48,14 @@ ok('改期限改成了的说法（#773）：告诉了在办的席位 / 还没派
 ok('清掉期限也照这个规矩说；不再写「已告诉在办的席位」除非 notified>0；pending_release 只认严格的 true、notified 只认正整数；旧服务端（没这两个键）不提同步', dueSavedText(null, { notified: 0, pending_release: true }) === '期限清掉了，派出时按不限期发'
   && dueSavedText(null, { notified: 3, pending_release: true }) === '期限清掉了；已告诉在办的席位，还没派出的派出时按不限期发' && dueSavedText(null, { notified: 1 }) === '期限清掉了，已告诉在办的席位'
   && dueSavedText('2026-12-01', { notified: '2', pending_release: 'true' }) === '期限改成 2026-12-01' && dueSavedText('2026-12-01', null) === '期限改成 2026-12-01');
+// 优先级（#941 第 1a 步）
+ok('优先级：只认 P0～P3；旧服务端没有这个键、小写、带空格、别的写法一律 null（不画）', PRIORITIES.join() === 'P0,P1,P2,P3' && priorityOf({ priority: 'P1' }) === 'P1' && priorityOf({}) === null && priorityOf({ priority: 'p1' }) === null && priorityOf({ priority: 'P1 ' }) === null && priorityOf({ priority: 1 }) === null && priorityOf(null) === null);
+ok('优先级：列表只标 P0、P1；颜色 P0 error、P1 warning、P2/P3 不着色', listPriorityTag({ priority: 'P0' }) === 'P0' && listPriorityTag({ priority: 'P1' }) === 'P1' && listPriorityTag({ priority: 'P2' }) === null && listPriorityTag({ priority: 'P3' }) === null && listPriorityTag({}) === null
+  && priorityColor('P0') === 'error' && priorityColor('P1') === 'warning' && priorityColor('P2') === undefined && priorityColor('P3') === undefined);
+ok('优先级：能不能改只照服务端的 can.priority（严格 true），没给就不给「改」', priorityEditable({ can: { priority: true } }) === true && priorityEditable({ can: { priority: 'true' } }) === false && priorityEditable({ can: {} }) === false && priorityEditable(null) === false);
+ok('优先级：没改成的说法照状态码和 error', priorityErrorText(0) === '连不上服务器，没改成' && priorityErrorText(401) === '请先登录' && priorityErrorText(403, 'work_item_priority_not_yours').includes('建立人或管理层')
+  && priorityErrorText(404, 'work_item_not_found').includes('建立人或管理层') && priorityErrorText(403, 'work_items_cross_origin_denied').includes('刷新') && priorityErrorText(409, 'work_item_ended').includes('结束')
+  && priorityErrorText(409, 'work_item_no_event_log').includes('留痕') && priorityErrorText(400, 'priority_invalid').includes('P0～P3') && priorityErrorText(500) === '没改成，稍后再试');
+
 console.log(`\nwork-item-extras-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

@@ -9,6 +9,8 @@ export type WorkItemListRow = {
   unread?: number;
   /** 期限 YYYY-MM-DD（不限期是 null）和过没过期（#733）；旧服务端没有这两个键 */
   due?: string | null; overdue?: boolean;
+  /** 优先级 P0～P3（#941 第 1a 步）；旧服务端没有这个键 */
+  priority?: string;
 };
 export type WorkItemListPage = {
   items: WorkItemListRow[]; counts: Record<string, number>; total: number; next_cursor: string | null;
