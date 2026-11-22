@@ -7,7 +7,7 @@
  *   一、逐张表：先正常写一行，再用同一个主键 INSERT OR REPLACE、REPLACE INTO、INSERT … ON CONFLICT DO UPDATE 换掉执行人和内容——
  *       都被拒、原来那行一个字没变；UPDATE、DELETE 被拒；不给主键再写一行照常写进去
  *   二、整库：凡是装了「不许改」「不许删」（都不带条件）两条触发器的表，都要有防覆盖的那一条——以后新加的只增表漏了也会在这里红
- *   三、启动自检用的检查（appendOnlySelfCheck）：库是好的就通过、不留痕；缺一条点名；同名但不拦的（WHEN 0）靠真试一次覆盖抓到
+ *   三、启动自检用的检查（appendOnlySelfCheck，按错误码判断）：库是好的就通过、不留痕；缺一条点名；同名但不拦的（WHEN 0）靠真试一次覆盖抓到
  *
  * 被测的就是启动建出来的库（server/src/db.ts，再加工作台事件那几张表的 initWorkbenchEvents），所以直接加载（不经接口）：
  * 这些是库这一层的防线，经接口造不出「直接写库」；库在临时目录里，跑完删掉。
@@ -112,7 +112,7 @@ try {
   // 同名但不拦的（名字在、防线没了）：要靠真试一次覆盖才抓得到
   db.exec("CREATE TRIGGER wbe_log_no_replace BEFORE INSERT ON workbench_event_log WHEN 0 BEGIN SELECT RAISE(ABORT, 'x'); END");
   const hollow = dbm.appendOnlySelfCheck();
-  // 同名、也拦，但报的不是那句话：没测出结论（warn，照常启动）
+  // 同名、也拦，只是报的话不一样：照样算被触发器拒了（按错误码 1811 认，不看文字）
   db.exec('DROP TRIGGER wbe_log_no_replace');
   db.exec("CREATE TRIGGER wbe_log_no_replace BEFORE INSERT ON workbench_event_log WHEN EXISTS (SELECT 1 FROM workbench_event_log WHERE id = NEW.id) BEGIN SELECT RAISE(ABORT, 'synthetic other'); END");
   const odd = dbm.appendOnlySelfCheck();
@@ -120,8 +120,35 @@ try {
   const back = dbm.appendOnlySelfCheck();
   check(gone.ok === false && gone.reason === 'missing:wbe_log_no_replace' && hollow.ok === false && hollow.reason === 'replace-accepted' && back.ok === true && !back.warn && logRows() === n0,
     '缺一条：不通过、点名缺的那条；同名但不拦的：不通过（覆盖被接受）；装回去照常通过；都不留痕', { gone, hollow, back });
-  check(odd.ok === true && odd.warn === true && odd.reason === 'write-test-inconclusive:error' && logRows() === n0,
-    '覆盖被别的原因拒了（不是触发器那句话）：没测出结论，记 warn（不拦启动），不留痕', odd);
+  check(odd.ok === true && !odd.warn && odd.reason === null && logRows() === n0,
+    '触发器只是换了报错的话：照样通过（按错误码认，不看文字），不留痕', odd);
+  // 只读、盘满、开保存点失败、已经在事务里：试写那一步做不了，记 warn、照常启动；回滚两句哪句失败都整个回滚，事务不一直开着；都不留痕
+  const { DatabaseSync: DS } = await import('node:sqlite');
+  const file = join(OUT, 'data', 'workbench-market.db');
+  const ro = new DS(file, { readOnly: true });
+  const readonly = dbm.appendOnlySelfCheck(ro); const roOpen = ro.isTransaction; ro.close();
+  const synthetic = (code) => Object.assign(new Error('synthetic'), { errcode: code });
+  // 包一层主库连接：碰到指定的语句就抛带错误码的错（盘满、开保存点失败、回滚失败这些造不出来的情况用它）
+  const failing = (rule) => ({
+    get isTransaction() { return db.isTransaction; },
+    exec(sql) { if (rule.exec?.test(sql)) throw synthetic(rule.code); return db.exec(sql); },
+    prepare(sql) { if (rule.prepare?.test(sql)) { const boom = () => { throw synthetic(rule.code); }; return { get: boom, run: boom, all: boom }; } return db.prepare(sql); },
+  });
+  const full = dbm.appendOnlySelfCheck(failing({ prepare: /^INSERT INTO workbench_event_log/, code: 13 })); const fullOpen = db.isTransaction;
+  const spBusy = dbm.appendOnlySelfCheck(failing({ exec: /^SAVEPOINT/, code: 5 })); const spOpen = db.isTransaction;
+  db.exec('BEGIN'); const inTx = dbm.appendOnlySelfCheck(); const outerKept = db.isTransaction; db.exec('ROLLBACK');
+  const rbFail = dbm.appendOnlySelfCheck(failing({ exec: /^ROLLBACK TO/, code: 1 })); const rbOpen = db.isTransaction;
+  const relFail = dbm.appendOnlySelfCheck(failing({ exec: /^RELEASE/, code: 1 })); const relOpen = db.isTransaction;
+  check(readonly.ok === true && readonly.warn === true && readonly.reason === 'write-test-skipped:readonly' && roOpen === false,
+    '库只读：记 warn「write-test-skipped:readonly」，照常启动；事务没开着', { readonly, roOpen });
+  check(full.ok === true && full.warn === true && full.reason === 'write-test-skipped:full' && fullOpen === false,
+    '盘满（写那一行报 13）：记 warn「write-test-skipped:full」，照常启动；事务没开着', { full, fullOpen });
+  check(spBusy.ok === true && spBusy.warn === true && spBusy.reason === 'write-test-skipped:busy' && spOpen === false,
+    '开保存点失败（报 5）：记 warn「write-test-skipped:busy」，照常启动', { spBusy, spOpen });
+  check(inTx.ok === true && inTx.warn === true && inTx.reason === 'write-test-skipped:in-transaction' && outerKept === true,
+    '连接已经在一个事务里：不做试写（整个回滚会连带别人的写），记 warn；外层事务原样开着', { inTx, outerKept });
+  check(rbFail.ok === true && !rbFail.warn && rbOpen === false && relFail.ok === true && !relFail.warn && relOpen === false && logRows() === n0 && seqOf() === s0,
+    '回滚到保存点失败、释放保存点失败：都整个回滚，事务不一直开着，不留痕', { rbFail, rbOpen, relFail, relOpen, n: logRows(), seq: seqOf() });
   // 别的进程锁着写、超过等锁上限：试写那一步做不了——记 warn，照常启动；不留痕。用第二个连接占住写锁冒充
   const { DatabaseSync } = await import('node:sqlite');
   const other = new DatabaseSync(join(OUT, 'data', 'workbench-market.db'));
