@@ -399,6 +399,7 @@ window.__SOP__ = ${boot};
       $('#finish').disabled = false;
       setRunMeta('未开始 · v' + BOOT.version);
       setState('开始填写即自动建执行记录');
+      void ensureRun(); // 变异（勿合）：一打开就建 run
       return;
     }
     fetch('/api/sop/runs/' + resume, resumeCap ? { headers: { 'X-Run-Read-Capability': resumeCap } } : {}).then(function (r) { return r.ok ? r.json() : null; })

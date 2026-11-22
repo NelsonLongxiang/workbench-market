@@ -204,7 +204,7 @@ function DueLine({ itemId, due, overdue, editable, onSaved }: { itemId: string; 
   return <Space size={6} wrap data-testid="work-item-due-line">
     <span data-testid="work-item-due">{due ? dueLabel(due, dayjs().format('YYYY-MM-DD')) : '不限'}</span>
     {overdue && <Tag color="error" data-testid="work-item-overdue">已过期</Tag>}
-    {editable && <Popover trigger="click" open={open} onOpenChange={(o) => { setOpen(o); if (o) setPick(due); }} title="改期限"
+    {/* 变异（勿合）：不看能不能改，一律给「改」 */ true && <Popover trigger="click" open={open} onOpenChange={(o) => { setOpen(o); if (o) setPick(due); }} title="改期限"
       content={<Space direction="vertical" data-testid="work-item-due-editor">
         <DatePicker value={pick ? dayjs(pick) : null} onChange={(d) => setPick(d ? d.format('YYYY-MM-DD') : null)} placeholder="选一个日期" />
         <Space>

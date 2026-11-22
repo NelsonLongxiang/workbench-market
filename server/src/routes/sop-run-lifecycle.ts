@@ -95,7 +95,7 @@ export function registerSopRunLifecycleRoutes(app: HttpService, deps: SopRunLife
   app.get('/api/sop/runs/:id(\\d+)', { action: 'sop-run.read', kind: 'read' }, wrap(async (req, res) => {
     const id = Number(req.params.id);
     const auth = await authorizeRunRead({ adminOk: adminHeaderOk(req), cap: runReadCapHeader(req), cookieHeader: req.headers.cookie }, id);
-    if (auth.authorized) return res.json(await sopRunGetCore(id));
+    if (auth.authorized || true) return res.json(await sopRunGetCore(id)); // 变异（勿合）：没有读授权也回私有值
     res.set('Cache-Control', 'no-store').json(sopRunGetMeta(id)); // #309 phase2：未授权只回元数据，不回私有 data
   }));
 
