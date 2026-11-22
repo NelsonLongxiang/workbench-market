@@ -86,9 +86,9 @@ export default function Home() {
     <div className="wm-home">
       <h1 className="wm-home-hi" data-testid="home-greeting">{greeting(new Date().getHours(), name)}</h1>
       <Typography.Paragraph type="secondary" className="wm-home-sum" data-testid="home-summary" aria-busy={!attLoaded}>
-        {!attLoaded ? null : attDown ? downLine(lcState === 'ok' ? rows : null) : lcState === 'ok' ? summaryLine(rows, all.now.length, all.elsewhere.length, all.proxy.length, stuckN) : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length, stuckN)}
+        {!attLoaded ? '眼下没有要你拍板的。' : attDown ? downLine(lcState === 'ok' ? rows : null) : lcState === 'ok' ? summaryLine(rows, all.now.length, all.elsewhere.length, all.proxy.length, stuckN) : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length, stuckN)}
       </Typography.Paragraph>
-      {attLoaded && !attDown && more && <Typography.Paragraph type="secondary" className="wm-caption" data-testid="home-more">{SEAT_ASKS_MORE}</Typography.Paragraph>}
+      {attLoaded && !attDown && <Typography.Paragraph type="secondary" className="wm-caption" data-testid="home-more">{SEAT_ASKS_MORE}</Typography.Paragraph>}
 
       {lcState === 'loading' && <Skeleton active paragraph={{ rows: 4 }} />}
       {lcState === 'down' && <div className="wm-home-box wm-home-down" data-testid="home-lines-down"><DisconnectOutlined /><span>{LINES_DOWN}</span></div>}

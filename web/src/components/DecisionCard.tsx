@@ -238,7 +238,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
         const need = needOf(a);
         if (open === a && need) {
           const go = () => void send(a, { [need.key]: text.trim(), ...(BIND_CREATE(item.source, a) && create ? { create: true } : {}) });
-          const ok = <Button key={a} type="primary" loading={busy} disabled={(!need.optional && !text.trim()) || !!remBlock} onClick={BIND_CREATE(item.source, a) && create ? undefined : go} data-testid="decision-confirm">{confirmButtonText(label(a))}</Button>;
+          const ok = <Button key={a} type="primary" loading={busy} disabled={(!need.optional && !text.trim()) || !!remBlock} onClick={go} data-testid="decision-confirm">{confirmButtonText(label(a))}</Button>;
           // 勾了「新建主体」：建了就多一个人，再确认一次
           return BIND_CREATE(item.source, a) && create
             ? <Popconfirm key={a} title="会新建一个主体" description={`建了就多一个人「${text.trim() || '（没写名字）'}」，确定新建并对接？`} okText="新建并对接" cancelText="再想想" onConfirm={go}>{ok}</Popconfirm>

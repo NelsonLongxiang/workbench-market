@@ -58,7 +58,7 @@ export default function Attention() {
       <Typography.Paragraph type="secondary" className="wm-home-sum" data-testid="attention-summary">
         {items === null ? '正在读……' : failed ? (status === 401 ? '请先登录。' : '这会儿读不到等你拍板的事，稍后再试。') : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length, stuckTotal(stuckCount, all.stuck.length))}
       </Typography.Paragraph>
-      {more && !failed && items !== null && <Typography.Paragraph type="secondary" className="wm-caption" data-testid="attention-more">{SEAT_ASKS_MORE}</Typography.Paragraph>}
+      {!failed && items !== null && <Typography.Paragraph type="secondary" className="wm-caption" data-testid="attention-more">{SEAT_ASKS_MORE}</Typography.Paragraph>}
       {items !== null && !failed && <Segmented value={cat} onChange={(v) => setCat(v as Category | 'all' | 'stuck')} data-testid="attention-filter"
         options={[{ label: `全部 ${items.length}`, value: 'all' }, ...CATS.filter((c) => n(c.key) > 0).map((c) => ({ label: `${c.label} ${n(c.key)}`, value: c.key })), ...(nStuck > 0 ? [{ label: `停太久 ${nStuck}`, value: 'stuck' }] : [])]} />}
       {items === null && <Skeleton active paragraph={{ rows: 4 }} />}

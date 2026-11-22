@@ -149,7 +149,7 @@ export default function WorkItems() {
       {error && <Alert type="error" showIcon message={error} />}
       {/* 第一页回来之前：骨架，不留白、也不先说「没有」 */}
       {!loaded && !error ? <Card data-testid="work-items-loading"><Skeleton active paragraph={{ rows: 5 }} /></Card> : null}
-      {loaded && total === 0 && !error ? <Card data-testid="work-items-empty"><Empty description={emptyText(view, filter.seat)} /></Card> : null}
+      {total === 0 && !error ? <Card data-testid="work-items-empty"><Empty description={emptyText(view, filter.seat)} /></Card> : null}
       {loaded && total > 0 && mode === 'state' ? STATE_GROUPS.flatMap((g) => {
         const n = groupCount(counts, g.key);
         if (g.key === 'decide') {
