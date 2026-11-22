@@ -21,8 +21,8 @@ import WorkItemTimeline, { STATE, stateTag } from '../components/WorkItemTimelin
 export { STATE };
 import { choicesFor, routeFor, viewerOf, type Can, seatLine, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
 import { teamLabel } from '../people';
-import { attachmentsOf, dueEditable, dueErrorText, dueSavedText, dueLabel, dueOf, hasDueField, overdueOf, sizeLabel } from '../work-item-extras';
-import { setWorkItemDue } from '../api';
+import { attachmentsOf, dueEditable, dueErrorText, dueSavedText, dueLabel, dueOf, hasDueField, overdueOf, PRIORITIES, priorityColor, priorityEditable, priorityErrorText, priorityOf, sizeLabel, type Priority } from '../work-item-extras';
+import { setWorkItemDue, setWorkItemPriority } from '../api';
 import { NO_NAMES, cleanSeatName, lifecycleNames, lineName, rosterNames, stageName, withRoster, type Names } from '../names';
 import { actorLabel, seatLabel, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, creatorLabel, hiddenInTimeline, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
@@ -217,6 +217,34 @@ function DueLine({ itemId, due, overdue, editable, onSaved }: { itemId: string; 
   </Space>;
 }
 
+/** 优先级那一行（#941 第 1a 步）：标签写几级；建立人本人或管理层（服务端给 can.priority）能改。只记、不说会怎样验收（那一步还没有） */
+function PriorityLine({ itemId, priority, editable, onSaved }: { itemId: string; priority: Priority; editable: boolean; onSaved: () => void }) {
+  const { message } = App.useApp();
+  const [open, setOpen] = useState(false);
+  const [pick, setPick] = useState<Priority>(priority);
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    const r = await setWorkItemPriority(itemId, pick);
+    setBusy(false);
+    if (r.status >= 200 && r.status < 300) {
+      setOpen(false);
+      void message.success(`优先级改成 ${pick}`);
+      onSaved();
+    } else void message.error(priorityErrorText(r.status, typeof r.body?.error === 'string' ? r.body.error : undefined));
+  };
+  return <Space size={6} wrap data-testid="work-item-priority-line">
+    <Tag color={priorityColor(priority)} data-testid="work-item-priority">{priority}</Tag>
+    {editable && <Popover trigger="click" open={open} onOpenChange={(o) => { setOpen(o); if (o) setPick(priority); }} title="改优先级"
+      content={<Space direction="vertical" data-testid="work-item-priority-editor">
+        <Radio.Group value={pick} onChange={(e) => setPick(e.target.value as Priority)} optionType="button" options={PRIORITIES.map((p) => ({ value: p, label: p }))} data-testid="work-item-priority-pick" />
+        <Button type="primary" size="small" loading={busy} disabled={pick === priority} onClick={() => void save()} data-testid="work-item-priority-save">保存</Button>
+      </Space>}>
+      <Typography.Link data-testid="work-item-priority-edit">改</Typography.Link>
+    </Popover>}
+  </Space>;
+}
+
 export default function WorkItem() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
@@ -293,6 +321,9 @@ export default function WorkItem() {
                 // due / overdue / attachments 在详情应答的最外层，和 item 平级（#733），不在 item 里面
                 ...(hasDueField(data) || dueOf(data) ? [{ key: 'due', label: '期限', children: <DueLine itemId={item.id} due={dueOf(data)} overdue={overdueOf(data)}
                   editable={dueEditable(data)} onSaved={() => void load()} /> }] : []),
+                // 优先级（#941 第 1a 步）：服务端给了认得出的才显示（旧服务端没有这个键）
+                ...(priorityOf(data) ? [{ key: 'priority', label: '优先级', children: <PriorityLine itemId={item.id} priority={priorityOf(data)!}
+                  editable={priorityEditable(data)} onSaved={() => void load()} /> }] : []),
               ]} />
             </Flex>
           </Card>

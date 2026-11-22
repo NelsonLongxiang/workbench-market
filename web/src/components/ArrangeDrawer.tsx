@@ -133,6 +133,10 @@ export default function ArrangeDrawer({ open, onClose, lines = [], stages = [], 
         </Form.Item>
         {/* 规范 14 第十节第 3 条：开关叫「先过目再派出去」，下面一行写谁来过目。现在放行的是管理员；
             过目归团队负责人、「交给谁」分组之后（交给团队锁定为开，交给自己的 AI 员工缺省关），这一行按接口给的换 */}
+        <Form.Item label="优先级" validateStatus={errors.priority ? 'error' : ''} help={errors.priority} extra="不选就是 P2。P0 最急。">
+          <Select value={form.priority} onChange={(v: string) => set('priority', v)} data-testid="arrange-priority"
+            options={['P0', 'P1', 'P2', 'P3'].map((p) => ({ value: p, label: p }))} />
+        </Form.Item>
         <Form.Item label="先过目再派出去" extra={form.review ? '派出去之前先停一下，等管理员放行。' : '直接派出去。管理员没开直派的话，照样会先停下等放行。'}>
           <Switch checked={form.review} onChange={(v) => set('review', v)} />
         </Form.Item>

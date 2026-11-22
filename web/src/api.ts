@@ -320,6 +320,14 @@ export async function setWorkItemDue(id: string, due: string | null): Promise<{ 
   } catch { return { status: 0, body: null }; }
 }
 
+/** 改一件事项的优先级（建立人本人或管理层，#941 第 1a 步）：POST /api/work-items/<id>/priority { priority: 'P0'…'P3' } */
+export async function setWorkItemPriority(id: string, priority: string): Promise<{ status: number; body: Record<string, unknown> | null }> {
+  try {
+    const r = await fetch(`/api/work-items/${encodeURIComponent(id)}/priority`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify({ priority }) });
+    return { status: r.status, body: await r.json().catch(() => null) as Record<string, unknown> | null };
+  } catch { return { status: 0, body: null }; }
+}
+
 /** 「团队」页（规范 14）：团队、部门、人各读各的，返回状态码让页面给说法；认领、指定负责人、建部门也一样。
  *  不走 apiFetch（被拒时不弹管理员口令，页面自己说）。带上口令头：管理员用口令时能看到待认领的团队。断网当状态码 0 */
 async function teamCall(url: string, init?: { method: string; body: unknown }): Promise<{ status: number; body: unknown }> {
