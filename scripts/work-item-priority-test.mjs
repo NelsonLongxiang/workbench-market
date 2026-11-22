@@ -4,10 +4,12 @@
  *
  *   P1 安排时：不填是 P2；填 P0～P3 照记；记在事件的 recorded 那一行，不进发给接单团队的派工正文
  *   P2 安排时填错（P9、小写 p1、数字）：400 priority_invalid，并列出能填的
- *   P3 幂等：没填优先级的旧请求体哈希不变（同键重放还是同一件）；同一个键加上优先级就是不同的请求体，409
+ *   P3 幂等：没填优先级的旧请求体哈希不变（同键重放还是同一件）；同一个键加上优先级就是不同的请求体，409；
+ *      没填优先级时，库里记的请求体哈希和改动前的算法逐字节相同（钉成常量，#969 验收 q5）
  *   P4 改：建立人本人 200（as: creator），事项上的优先级跟着变，事件日志记一行 priority-changed（从几到几、谁、以什么身份）
  *   P5 谁不能改：没登录 401；跨站 403；看不到这件的人 404（不说有没有），只过了管理门的系统管理员也看不到、也 404；坏参数 400。
- *      看得到、不是建立人也没有管理层授予的（团队负责人）403，在 work-item-lead-release-test 里测
+ *      看得到、不是建立人也没有管理层授予的（团队负责人，带不带管理口令）403，在 work-item-lead-release-test 里测；
+ *      建立人本人、但事项只能由管理员处理（来源未验证）403；建立人的主体停用了 401（认不出）（#969 验收）
  *   P6 持有管理层授予的人：能改（as: management），详情的 can.priority 为真
  *   P7 事项结束了：409，优先级不变
  *   P8 列表带上优先级
@@ -70,6 +72,7 @@ try {
   const SAME = { 'sec-fetch-site': 'same-origin' };
   const ALPHA = { ...SAME, cookie: `session_id=${SESSIONS.alpha}` }, BETA = { ...SAME, cookie: `session_id=${SESSIONS.beta}` }, ROOTA = { ...SAME, cookie: `session_id=${SESSIONS.admin}` };
   for (const h of [ALPHA, BETA, ROOTA]) await call('GET', '/api/auth/me', h); // 先认一次，主体表里才有
+  await call('PUT', '/api/settings', { ...SAME, 'x-admin-token': ADMIN_TOKEN }, { arrange_rate_per_minute: '100' }); // alpha 要连着建好几件；限流由 arrange-test 测
   const dbr = () => new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true });
     const q = (sql, ...a) => { const d = dbr(); try { return d.prepare(sql).all(...a).map((r) => ({ ...r })); } finally { d.close(); } };
   const form = (extra = {}) => ({ title: '合成：对一下出货', intent: '合成：把出货单和对账单对一遍', deliverable: '合成：一张差异表', team: 'dsh/canvas/team-a', idempotency_key: key(), ...extra });
@@ -102,6 +105,20 @@ try {
   check(first.status === 201 && again.status === 200 && again.body?.duplicate === true && again.body?.item_id === first.body?.item_id && withP.status === 409 && withP.body?.error === 'idempotency_conflict',
     'P3 没填优先级的同键重放还是同一件；同一个键加上优先级是不同的请求体，409', show({ first: first.status, again: [again.status, again.body?.duplicate], withP: [withP.status, withP.body?.error] }));
 
+  // 钉住哈希（#969 验收 q5）：没填优先级时请求体和改动前一样。常量照改动前（main 538e12f5）task-center.ts 的拼法算：
+  //   JSON.stringify({ title, intent, deliverable, team, object, phase, due, review })，选填的不带；本 PR 不填优先级时必须一字不差
+  const PINNED = [
+    [{ title: '合成：钉住哈希', intent: '合成：只有必填项', deliverable: '合成：一行', team: 'dsh/canvas/team-a' }, 'b499cded6609495fbdd612fe02bb29cd1ab0344b0302e2b0f1df442054e4c297'],
+    [{ title: '合成：钉住哈希二', intent: '合成：另带对象阶段截止', deliverable: '合成：一行', team: 'dsh/canvas/team-a', object: 'po:7', phase: 'p2', due: '2099-03-04', review: false }, 'daec930237692fc5162ac00239781fde809f66a0005ed83fb01d53d8bed77c4a'],
+  ];
+  const pinned = [];
+  for (const [body, want] of PINNED) {
+    const k = key();
+    const r = await call('POST', '/api/work-items', ALPHA, { ...body, idempotency_key: k });
+    pinned.push({ st: r.status, got: q('SELECT body_sha256 AS h FROM work_item_requests WHERE idem_key = ?', k)[0]?.h, want });
+  }
+  check(pinned.every((x) => x.st === 201 && x.got === x.want), 'P3 没填优先级：库里记的请求体哈希和改动前逐字节相同（两个钉住的常量）', show(pinned));
+
   console.log('P4 建立人改');
   const id = plain.body?.item_id, ev = plain.body?.event_id;
   const canAlpha = dPlain.body?.can?.priority;
@@ -129,6 +146,27 @@ try {
   check(rootNoGrant.status === 404 && rootNoGrant.body?.error === 'work_item_not_found',
     'P5 只过了管理门、没有管理层授予的系统管理员：看不到事项，404（不归他改）', show({ rootNoGrant, rootCan }));
   check(badBody.every((r) => r.status === 400 && r.body?.error === 'priority_invalid') && stillP1 === 'P1', 'P5 没写、P4、null：400；被拒的都没改动', show({ bad: badBody.map((r) => r.status), stillP1 }));
+
+  // 建立人本人、但事项只能由管理员处理（来源未验证、不是票据认出的：creatorCheck 为 not_eligible）：看得到、改不了（#969 验收）
+  const mk = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
+    const { root } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/root-context.ts')).href)});
+    const { WorkItemService } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/services/work-item.ts')).href)});
+    await root.plugin(WorkItemService);
+    const it = root.get('workItems').create({ title: '合成：来源未验证', created_by: 'user:alpha', creator_principal: 'user:alpha', source_kind: 'agent', context: { submitter_kind: 'unverified' } });
+    console.log('ITEM=' + it.id);`], { env, encoding: 'utf8' });
+  const unv = /ITEM=(\S+)/.exec(mk.stdout)?.[1];
+  if (!unv) throw new Error(`造来源未验证的事项没成：${mk.stderr.slice(-300)}`);
+  const unvPost = await prio(unv, ALPHA, { priority: 'P0' });
+  const unvCan = (await detail(unv)).body?.can?.priority;
+  check(unvPost.status === 403 && unvPost.body?.error === 'work_item_priority_not_yours' && unvCan === false,
+    'P5 建立人本人、但事项来源未验证（只能由管理员处理）：403，can.priority 为假', show({ unvPost, unvCan }));
+  // 建立人不是启用的人（#969 验收）：身份服务每次现查主体状态，停用的认不出，401（不会走到「认得出、但不是启用的人」那一步）。
+  // 主体表的约束又规定 user: 开头的只能是 person，所以经会话登录的人「认得出却不是启用的人」造不出来；priorityWriter 里那一道是兜底
+  const setStatus = (v) => { const d = new DatabaseSync(join(data, 'workbench-market.db'), { timeout: 5000 }); try { d.prepare('UPDATE principals SET status = ? WHERE id = ?').run(v, 'user:alpha'); } finally { d.close(); } };
+  let offPost, offRow;
+  setStatus('disabled');
+  try { offPost = await prio(id, ALPHA, { priority: 'P3' }); offRow = q('SELECT priority FROM work_items WHERE id = ?', id)[0]?.priority; } finally { setStatus('active'); }
+  check(offPost.status === 401 && offRow === 'P1', 'P5 建立人的主体停用了：认不出，401，优先级不变', show({ offPost, offRow }));
 
   console.log('P6 持有管理层授予的人');
   const g = await call('POST', '/api/grants', {}, { principal: 'user:root-admin', role: 'management', scope: '*', reason: '合成：管理层改优先级' });

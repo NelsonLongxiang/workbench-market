@@ -188,6 +188,12 @@ try {
     const pCan = (await call('GET', `/api/work-items/${I.lead.item}`, WHO.负责人)).body?.can?.priority;
     check(pLead.status === 403 && pLead.body?.error === 'work_item_priority_not_yours' && pCan === false && q('SELECT priority FROM work_items WHERE id = ?', I.lead.item)[0]?.priority === before,
       '优先级：负责人看得到、能放行，但改不了优先级（403），详情 can.priority 为假，优先级不变', show({ pLead, pCan, before }));
+    // 管理口令不帮他改（#969 验收）：负责人的会话再带上 X-Admin-Token，照样 403、can.priority 为假——管理层只认授予，不认管理门
+    const LEAD_TOKEN = { ...WHO.负责人, 'x-admin-token': ADMIN_TOKEN };
+    const pTok = await call('POST', `/api/work-items/${I.lead.item}/priority`, LEAD_TOKEN, { priority: 'P3' });
+    const pTokCan = (await call('GET', `/api/work-items/${I.lead.item}`, LEAD_TOKEN)).body?.can?.priority;
+    check(pTok.status === 403 && pTok.body?.error === 'work_item_priority_not_yours' && pTokCan === false && q('SELECT priority FROM work_items WHERE id = ?', I.lead.item)[0]?.priority === before,
+      '优先级：负责人带上管理口令也改不了（403），can.priority 为假——管理口令不算管理层', show({ pTok, pTokCan }));
     const cross = await release(I.lead.item, { ...WHO.负责人, 'sec-fetch-site': 'cross-site' }), bad = await release('wi_bad%2Fx', WHO.负责人), badAdmin = await release('wi_bad%2Fx', ADMIN);
     check(cross.status === 403 && cross.body?.error === 'work_items_cross_origin_denied' && bad.status === 403 && badAdmin.status === 400 && badAdmin.body?.error === 'work_item_id_invalid',
       '跨站来的负责人请求拒（403）；坏 id：写请求总门只放 wi_ 形状的这一条子路径，非管理员 403，管理员到路由里 400', show({ cross, bad: bad.status, badAdmin }));
