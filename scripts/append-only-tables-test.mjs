@@ -208,11 +208,12 @@ try {
     '库是好的：通过；核对用的那一行整个回滚掉，事件日志行数、行号都没变', { good, n0, n: logRows(), s0, s: seqOf() });
   const names = dbm.APPEND_ONLY_TRIGGERS;
   const have = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all().map((r) => r.name));
-  check(Array.isArray(names) && names.length >= 15 && names.every((n) => have.has(n)) && TABLES.every((t) => names.some((n) => n.startsWith(t.table === 'workbench_event_log' ? 'wbe_log_' : `${t.table}_`))),
+  check(Array.isArray(names) && names.length >= 15 && names.every((n) => have.has(n)) && TABLES.every((t) => names.some((n) => n.startsWith({ workbench_event_log: 'wbe_log_', workbench_events: 'wbe_events_' }[t.table] ?? `${t.table}_`))),
     `名单（${names.length} 条）里的触发器库里都有，上面逐张测的表都在名单里`, names.filter((n) => !have.has(n)));
-  // 反过来：库里只增表（不带条件的不许改、不许删都有）上的每一条改、删、覆盖触发器都要在名单里——名单漏一条，启动自检就少守一条
+  // 反过来：库里装了不带条件的「不许改」的表（只增表，和删照旧、留给按时间清理的那几张）上的每一条改、删、覆盖触发器都要在名单里——名单漏一条，启动自检就少守一条
   const guards = db.prepare("SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'trigger'").all()
-    .filter((x) => appendOnly.includes(x.tbl_name) && /_no_(update|delete|replace)$/.test(x.name)) // 只看防改、删、覆盖的；同表上的业务规则（比如不许审自己的）不算
+    // 只看防改、删、覆盖的（加上冻结表的、答复账「办完的不动」的）；同表上的业务规则（比如不许审自己的）不算
+    .filter((x) => (noUpdate.includes(x.tbl_name) && /_no_(update|delete|replace)$/.test(x.name)) || /_frozen_(insert|update|delete)$|^attention_answers_done_(fixed|kept)$/.test(x.name))
     .map((x) => x.name);
   check(guards.length > 0 && guards.every((n) => names.includes(n)), `只增表上的改、删、覆盖触发器（${guards.length} 条）都在名单里`, guards.filter((n) => !names.includes(n)));
   // 拿掉一条：点名缺的是哪条

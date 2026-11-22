@@ -2273,7 +2273,7 @@ CREATE INDEX IF NOT EXISTS idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, 
 
 
 // ---------- 只增表的触发器：启动自检（market.db.append-only-guarded）----------
-// 只增表（留痕）在库这一层防改、防删、防覆盖的触发器名单（第一批 #975，加上原来就有的授予、事项、领域、报告几张；以后加的表接着往这里写）。启动自检逐条核对它们都在，
+// 只增表（留痕）在库这一层防改、防删、防覆盖的触发器名单（第一批 #975，加上原来就有的授予、事项、领域、报告几张；第二批 #976；以后加的表接着往这里写）。启动自检逐条核对它们都在，
 //   再在一个回滚掉的保存点里真试一次「同一个 id 覆盖式插入」事件日志，必须被拒。不过就拒绝启动（startup-security-self-probe.ts）
 export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   'task_events_no_update', 'task_events_no_delete', 'task_events_no_replace',
@@ -2288,6 +2288,22 @@ export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   'report_templates_no_update', 'report_templates_no_delete', 'report_templates_no_replace',
   'report_template_reviews_no_update', 'report_template_reviews_no_delete', 'report_template_reviews_no_replace',
   'report_dimension_events_no_update', 'report_dimension_events_no_delete', 'report_dimension_events_no_replace',
+  // 第二批（#976 裁定）
+  'bench_bind_audit_no_update', 'bench_bind_audit_no_delete', 'bench_bind_audit_no_replace',
+  'bench_mcp_audit_no_update', 'bench_mcp_audit_no_delete', 'bench_mcp_audit_no_replace',
+  'mcp_grant_audit_no_update', 'mcp_grant_audit_no_delete', 'mcp_grant_audit_no_replace',
+  'sop_run_file_audit_no_update', 'sop_run_file_audit_no_delete', 'sop_run_file_audit_no_replace',
+  'sop_run_upgrade_audit_no_update', 'sop_run_upgrade_audit_no_delete', 'sop_run_upgrade_audit_no_replace',
+  'workbench_var_audit_no_update', 'workbench_var_audit_no_delete', 'workbench_var_audit_no_replace',
+  'a2a_roster_changes_no_update', 'a2a_roster_changes_no_delete', 'a2a_roster_changes_no_replace',
+  'task_center_events_no_update', 'task_center_events_no_delete', 'task_center_events_no_replace',
+  'mcp_calls_no_update', 'mcp_calls_no_replace', 'a2a_seat_token_log_no_update', 'a2a_seat_token_log_no_replace',
+  'wbe_events_no_delete', 'wbe_events_no_update', 'wbe_events_no_replace', 'login_events_seen_no_update',
+  'attention_answers_done_fixed', 'attention_answers_done_kept',
+  'a2a_inbound_receipts_no_update', 'a2a_inbound_receipts_no_delete',
+  'a2a_rosters_frozen_insert', 'a2a_rosters_frozen_update', 'a2a_rosters_frozen_delete',
+  'a2a_roster_seats_frozen_insert', 'a2a_roster_seats_frozen_update', 'a2a_roster_seats_frozen_delete',
+  'work_item_requests_no_update', 'work_item_requests_no_delete', 'work_item_requests_no_replace',
 ];
 /**
  * 启动自检用（market.db.append-only-guarded）。理由只给代号，不带库里的内容。判断都按 SQLite 的错误码（errcode），不看报错的文字。
