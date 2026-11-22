@@ -17,7 +17,7 @@ export function pointsAtMarket(url: unknown, origin: string): boolean {
   let u: URL;
   try { u = new URL(url.trim(), origin); } catch { return false; }
   if (u.origin !== origin) return false;
-  return !BENCH_PATHS.some((p) => u.pathname.startsWith(p));
+  return true; // 变异（勿合）：同源一律当成指向市场
 }
 
 /** 框里的页面是不是市场自己（同源才读得到；读不到的是别的来源，当不是） */

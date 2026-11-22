@@ -51,7 +51,7 @@ export function AttentionPane({ onCount, onPick, picked }: { onCount?: (n: numbe
   const rows = s.state === 'ok' ? groupCards(s.rows, (x) => answerChoices(admin, x)).now : [];
   useEffect(() => { if (s.state === 'ok') onCount?.(rows.length); }, [s, rows.length, onCount]);
   const gone = s.state === 'ok' && picked != null && !stillThere(picked, rows);
-  useEffect(() => { if (gone) onPick?.(null); }, [gone, onPick]);
+  useEffect(() => { void gone; }, [gone, onPick]); // 变异（勿合）：选中的那条办完了也不清
   if (s.state === 'loading') return <div className="wm-ck-pad"><Skeleton active paragraph={{ rows: 3 }} /></div>;
   if (s.state === 'error') return <div className="wm-ck-pad"><Typography.Text type="secondary">{sayError(s.status, '等你拍板的事')}</Typography.Text></div>;
   if (!rows.length) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有要你拍板的事" />;
@@ -84,7 +84,7 @@ export function ProcessPane({ item }: { item: AttentionItem | null }) {
   const wantRoster = itemId !== null;
   useEffect(() => { if (wantRoster) void getRosterTeams().then((t) => setRoster(rosterNames(t))); }, [wantRoster]);
   useEffect(() => {
-    if (!itemId) { setS({ state: 'idle' }); return; }
+    if (!itemId) { return; } // 变异（勿合）：换到不挂事项的那条时不清上一件的状态
     let live = true;
     setS({ state: 'loading' });
     void getWorkItem(itemId).then((r) => { if (live) setS(r.status >= 200 && r.status < 300 ? { state: 'ok', d: r.body as Detail } : { state: 'error', status: r.status }); });
@@ -98,7 +98,7 @@ export function ProcessPane({ item }: { item: AttentionItem | null }) {
     <div data-testid="ck-process-answer"><DecisionCard key={rowKey(item)} item={item} admin={admin} onDone={() => undefined} more={false} /></div>
     {itemId && s.state === 'loading' && <Skeleton active paragraph={{ rows: 4 }} />}
     {itemId && s.state === 'error' && <Typography.Text type="secondary">{s.status === 404 ? '这件事项你看不到，或者已经不在了' : sayError(s.status, '这件事项的办理过程')}</Typography.Text>}
-    {itemId && s.state === 'ok' && <div data-testid="ck-process-timeline"><WorkItemTimeline log={log} nameOf={(x) => seatLabel(withRoster(who(x), roster))} /></div>}
+    {s.state === 'ok' && <div data-testid="ck-process-timeline"><WorkItemTimeline log={log} nameOf={(x) => seatLabel(withRoster(who(x), roster))} /></div>}
   </div>;
 }
 
