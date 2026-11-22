@@ -215,6 +215,8 @@ try {
     // 只看防改、删、覆盖的（加上冻结表的、答复账「办完的不动」的）；同表上的业务规则（比如不许审自己的）不算
     .filter((x) => (noUpdate.includes(x.tbl_name) && /_no_(update|delete|replace)$/.test(x.name)) || /_frozen_(insert|update|delete)$|^attention_answers_done_(fixed|kept)$/.test(x.name))
     .map((x) => x.name);
+  // 可以改的主表上那两条授予的守护（不删、不能覆盖）也在名单里
+  check(['grants_no_delete', 'grants_no_replace'].every((n) => names.includes(n) && have.has(n)), '授予不删、不能覆盖那两条在名单里，库里也有', names.filter((n) => n.startsWith('grants_')));
   check(guards.length > 0 && guards.every((n) => names.includes(n)), `只增表上的改、删、覆盖触发器（${guards.length} 条）都在名单里`, guards.filter((n) => !names.includes(n)));
   // 拿掉一条：点名缺的是哪条
   const rsql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'wbe_log_no_replace'").get().sql;

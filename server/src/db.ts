@@ -2304,6 +2304,8 @@ export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   'a2a_rosters_frozen_insert', 'a2a_rosters_frozen_update', 'a2a_rosters_frozen_delete',
   'a2a_roster_seats_frozen_insert', 'a2a_roster_seats_frozen_update', 'a2a_roster_seats_frozen_delete',
   'work_item_requests_no_update', 'work_item_requests_no_delete', 'work_item_requests_no_replace',
+  // 可以改的主表上的守护：授予不删、不能用同一个 id 覆盖（统筹定，#979 验收提出）
+  'grants_no_delete', 'grants_no_replace',
 ];
 /**
  * 启动自检用（market.db.append-only-guarded）。理由只给代号，不带库里的内容。判断都按 SQLite 的错误码（errcode），不看报错的文字。
