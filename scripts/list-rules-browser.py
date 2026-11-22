@@ -3,7 +3,7 @@
 工作台市场 / SOP 列表：状态列固定最左、操作列固定最右、每行直接操作 ≤2（其余在「更多」）、时间为相对时间；
 类型管理：数字列右对齐；MCP 网关：ProTable（上一版的技能市场总表 /skills 2026-11-14 删了）。"""
 import json, re, sys, urllib.request
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M = cfg['base']
 ok = fail = 0
@@ -36,7 +36,10 @@ def open_more(pg, row, tries=4):
             }""", timeout=3000)
             return h.json_value()
         except Exception:
-            pg.keyboard.press('Escape'); pg.wait_for_timeout(300)
+            pg.keyboard.press('Escape')
+            # 等下拉收起来（动画走完），再重开
+            try: pg.wait_for_function("() => ![...document.querySelectorAll('.ant-dropdown')].some(e => !e.classList.contains('ant-dropdown-hidden') && e.getBoundingClientRect().height > 0)", timeout=10000)
+            except PWTimeout: pass
     return []
 
 with sync_playwright() as p:
