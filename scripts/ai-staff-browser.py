@@ -34,8 +34,10 @@ def open_staff(b, mine, teams, reads):
     pg = ctx.new_page(); pg.set_default_timeout(10000)
     pg.goto(M + f'/cockpit/{CID}')
     pg.locator('[data-testid=ck-tab-items-staff]').click()
+    # 「我的团队」取回来（负责人再取完「全部团队」）以后才一起画出这一栏：栏出来了数据就齐了。
+    # 再等两帧——要是画完以后又去读 /api/teams（回归），这时已经截下，「普通员工不去读」以此为准
     pg.wait_for_selector('[data-testid=ck-staff-pane]')
-    pg.wait_for_timeout(500)
+    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
     return ctx, pg
 
 with sync_playwright() as p:

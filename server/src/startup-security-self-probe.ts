@@ -124,6 +124,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 「安排一件事」的附件上传、改截止日期：同样经写请求总门放行、路由内认人，远程匿名来必须 401
       { id: 'market.work-items.attachment-upload-anonymous', target: m, surface: 'market', method: 'PUT', path: '/api/work-items/attachments/selfprobe.txt', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.work-items.due-set-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/due', body: '{"due":null}', origin: true, headers: REMOTE_ANON, status: 401 },
+      // #941 第 1a 步：改优先级没登录 401（优先级以后决定机器判定能不能直接当验收结论）
+      { id: 'market.work-items.priority-set-anonymous', target: m, surface: 'market', method: 'POST', path: '/api/work-items/wi_selfprobe/priority', body: '{"priority":"P3"}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.export.reveal-anonymous', target: m, surface: 'market', method: 'GET', path: '/api/export?reveal=1', headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },
       // 领域（docs/domains-step1.md）：远程匿名建不了领域、定不了规范（写请求总门先拦；登录门开着时登录门先拦 401），也列不出领域（路由自己认人，401）
       { id: 'market.areas.anonymous-create', target: m, surface: 'market', method: 'POST', path: '/api/areas', body: '{"id":"wm-self-probe","name":"x"}', origin: true, headers: REMOTE_ANON, status: loginGate === 'enforce' ? 401 : 403 },

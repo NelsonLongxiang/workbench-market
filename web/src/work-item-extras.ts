@@ -123,6 +123,41 @@ export function dueEditable(d: { can?: unknown } | null | undefined): boolean {
   return c === true;
 }
 
+/**
+ * 优先级（#941 第 1a 步，docs/task-goal-verify-design.md 第 4 条）：P0～P3，服务端缺省 P2。
+ * 这一步只记、不接判定：页面只写是几级，不说「会自动验收」之类还没有的事
+ */
+export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'] as const;
+export type Priority = (typeof PRIORITIES)[number];
+/** 服务端给的优先级；不是 P0～P3（旧服务端没给、给了认不出）一律 null，页面就不画这一行 */
+export function priorityOf(d: unknown): Priority | null {
+  const p = d && typeof d === 'object' ? (d as { priority?: unknown }).priority : undefined;
+  return typeof p === 'string' && (PRIORITIES as readonly string[]).includes(p) ? p as Priority : null;
+}
+/** 优先级的标签颜色：P0、P1 醒目（以后要人把关的），P2、P3 不着色 */
+export const priorityColor = (p: Priority): string | undefined => (p === 'P0' ? 'error' : p === 'P1' ? 'warning' : undefined);
+/** 列表里标不标优先级：只标 P0、P1（P2、P3 是常态，不占地方）；认不出的不标 */
+export function listPriorityTag(row: unknown): Priority | null {
+  const p = priorityOf(row);
+  return p === 'P0' || p === 'P1' ? p : null;
+}
+/** 能不能在这里改：照服务端给的 can.priority（建立人本人或管理层、事项没结束、有事件日志；和 POST /priority 同一处判断）。没给就不给「改」 */
+export function priorityEditable(d: { can?: unknown } | null | undefined): boolean {
+  const c = d?.can && typeof d.can === 'object' ? (d.can as Record<string, unknown>).priority : undefined;
+  return c === true;
+}
+/** 改优先级没改成时怎么说（照服务端的状态码和 error） */
+export function priorityErrorText(status: number, code?: string): string {
+  if (status === 0) return '连不上服务器，没改成';
+  if (status === 401) return '请先登录';
+  if (status === 403 && code === 'work_items_cross_origin_denied') return '请求来路不对，刷新页面后再试';
+  if (status === 403 || status === 404) return '只有建立人或管理层能改优先级';
+  if (code === 'work_item_ended') return '这件事已经结束，不能再改优先级';
+  if (code === 'work_item_no_event_log') return '这件事没有事件记录，改了没处留痕，不能改';
+  if (code === 'priority_invalid') return '优先级只能是 P0～P3';
+  return '没改成，稍后再试';
+}
+
 /** 期限快到了：还剩几天以内算（含今天） */
 export const DUE_SOON_DAYS = 3;
 /** 事项列表一行上的期限标签：不限期的（没有 due）不显示，返回 null。

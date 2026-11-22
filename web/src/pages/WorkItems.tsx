@@ -13,7 +13,7 @@ import { adminActive, subscribeAdminToken } from '../admin-token';
 import { answerChoices, workItemTurns, type AttentionItem } from '../attention-view';
 import dayjs from 'dayjs';
 import { STATE } from './WorkItem';
-import { listDueTag } from '../work-item-extras';
+import { listDueTag, listPriorityTag, priorityColor } from '../work-item-extras';
 import { TERMINAL } from '../work-item-view';
 import { STATE_GROUPS, appendPage, byObject, byState, groupCount, objectName, phaseName, rowLine, rowTime, viewsFor, decideLabel, emptyText, OTHERS_GROUP, othersTurnLabel, splitDecide, avatarChar, lifecycleNames, urlFilter, NO_NAMES, type Names, type View, type ViewKey, type Who, type WorkItemListRow } from '../work-items-view';
 import { rosterNames, seatNameOnly, speakerName } from '../people';
@@ -35,9 +35,12 @@ function Row({ r, mode, who, names, turn }: { r: WorkItemListRow; mode: Mode; wh
   const unread = Number(r.unread) || 0;
   // 期限：不限期的不显示；快到了、过期了用现有的提醒色（warning / error），不新加颜色
   const due = listDueTag(r, dayjs().format('YYYY-MM-DD'), TERMINAL.includes(r.state));
+  const pri = listPriorityTag(r);
   return <List.Item data-testid="work-item-row"
     extra={<Space size="middle" align="center">
       {due ? <Tag color={due.tone ?? 'default'} data-testid="work-item-row-due" data-tone={due.tone ?? ''}>{due.text}</Tag> : null}
+      {/* 优先级（#941 第 1a 步）：只标 P0、P1，P2、P3 是常态不占地方 */}
+      {pri ? <Tag color={priorityColor(pri)} data-testid="work-item-row-priority">{pri}</Tag> : null}
       {mode === 'object' && phaseName(r.phase, names) ? <Tag>{phaseName(r.phase, names)}</Tag> : null}
       {turn ? <Tag data-testid="work-item-turn">{turn}</Tag> : <Tag color={st?.color ?? 'default'}>{st?.label ?? r.state}</Tag>}
       <RelTime value={rowTime(r)} />

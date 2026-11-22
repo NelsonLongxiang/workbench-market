@@ -187,12 +187,15 @@ export type NewWorkItem = {
   cockpit_id?: number | null;
   /** 截止日期：那天的 UTC 零点（YYYY-MM-DDT00:00:00.000Z）；空 = 没有 */
   due_at?: string;
+  /** 优先级（#941 第 1a 步）：不给就是缺省 P2 */
+  priority?: Priority;
 };
 
 export type WorkItemRow = {
   id: string; title: string; created_at: string; created_by: string; creator_principal: string | null; source_kind: SourceKind; source_ref: string; context: string;
   event_id: number | null; task_ids: string; target_team: string; seat: string; eval: string; eval_reason: string; state: WorkItemState;
   handoff: Handoff; review_by: ReviewBy; directed_seat_id: string; seat_id: string; seat_at: string; cockpit_id: number | null; due_at: string;
+  priority: Priority;
   area_id: string | null; area_source: 'chosen' | 'inferred' | null; area_reason: string;
   progress_summary: string; progress_at: string; open_asks: string; receipt_outcome: string; receipt_at: string;
   outputs: string; evidence: string; object: string; phase: string; updated_at: string;
@@ -290,6 +293,24 @@ export function lastDueOf(rows: readonly { action: string; detail: string }[]): 
     let to: unknown;
     try { to = (JSON.parse(rows[i].detail || '{}') as { to?: unknown }).to; } catch { return null; }
     return typeof to === 'string' && dueAtOf(to.slice(0, 10)) === to ? to : null;
+  }
+  return null;
+}
+
+/** 优先级（#941 第 1a 步，docs/task-goal-verify-design.md 第 4 条）：P0～P3，缺省 P2。这一步只记、不接判定 */
+export const PRIORITIES = ['P0', 'P1', 'P2', 'P3'] as const;
+export type Priority = (typeof PRIORITIES)[number];
+export const DEFAULT_PRIORITY: Priority = 'P2';
+/** 认得出的优先级原样返回，别的（含没写）一律 null，不猜 */
+export const priorityOf = (v: unknown): Priority | null => (typeof v === 'string' && (PRIORITIES as readonly string[]).includes(v) ? v as Priority : null);
+/**
+ * 事件日志里最后一条改优先级（priority-changed，按行号）改成了什么：重建事项时用它，不退回安排时的优先级（同 lastDueOf）。
+ * 没改过、记的值认不出，返回 null
+ */
+export function lastPriorityOf(rows: readonly { action: string; detail: string }[]): Priority | null {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].action !== 'priority-changed') continue;
+    try { return priorityOf((JSON.parse(rows[i].detail || '{}') as { to?: unknown }).to); } catch { return null; }
   }
   return null;
 }
@@ -778,12 +799,13 @@ export class WorkItemService extends Service {
       const createdBy = creator ?? (event.submitter_kind !== 'unverified' && /^[^:\s]+:\S/.test(who) ? who : `${event.submitter_kind}:${who || 'unknown'}`);
       const derived = derivedOf(event);
       // 「安排一件事」：挂在哪条线、哪一步，记在 recorded 那一行里（只在新建时取，存量没有这两项）
-      let rec: { object?: unknown; phase?: unknown; handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown; cockpit_id?: unknown; due?: unknown } = {};
+      let rec: { object?: unknown; phase?: unknown; handoff?: unknown; review_by?: unknown; directed_seat_id?: unknown; cockpit_id?: unknown; due?: unknown; priority?: unknown } = {};
       try { rec = JSON.parse(recorded.detail || '{}'); } catch { /* 坏的 detail 当没有 */ }
       const tag = (v: unknown) => (typeof v === 'string' ? v.trim().slice(0, 200) : '');
       this.insertItem(itemId, {
         title: derived.title, target_team: derived.target_team, created_by: createdBy, creator_principal: creator, object: tag(rec.object), phase: tag(rec.phase),
         ...handoffOf(rec), cockpit_id: cockpitOf(rec.cockpit_id), due_at: lastDueOf(rows) ?? dueAtOf(rec.due),
+        priority: lastPriorityOf(rows) ?? priorityOf(rec.priority) ?? DEFAULT_PRIORITY,
         source_kind: event.source as SourceKind, source_ref: event.event_id, event_id: event.id,
         context: { workbench: event.workbench, item: event.item, context_id: event.context_id, submitter_kind: event.submitter_kind, ...(creator && event.submitter_kind === 'unverified' ? { submitter_via: 'ticket' } : {}) },
       }, { source: EVENT_FACT_SOURCE, id: String(recorded.id) }, event.created_at);
@@ -822,11 +844,11 @@ export class WorkItemService extends Service {
   }
 
   private insertItem(id: string, input: NewWorkItem, by: { source: string; id: string }, createdAt?: string): void {
-    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, handoff, review_by, directed_seat_id, cockpit_id, due_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
+    db.prepare(`INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, source_ref, context, event_id, target_team, seat, object, phase, handoff, review_by, directed_seat_id, cockpit_id, due_at, priority, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')), COALESCE(?, datetime('now')))`).run(
       id, input.title, input.created_by, input.creator_principal ?? null, input.source_kind, input.source_ref ?? '', JSON.stringify(input.context ?? {}),
       input.event_id ?? null, input.target_team ?? '', input.seat ?? '', input.object ?? '', input.phase ?? '',
-      input.handoff ?? 'team', input.review_by ?? '', input.directed_seat_id ?? '', input.cockpit_id ?? null, input.due_at ?? '', createdAt ?? null, createdAt ?? null);
+      input.handoff ?? 'team', input.review_by ?? '', input.directed_seat_id ?? '', input.cockpit_id ?? null, input.due_at ?? '', input.priority ?? DEFAULT_PRIORITY, createdAt ?? null, createdAt ?? null);
     db.prepare(`INSERT INTO work_item_log (item_id, fact, fact_source, fact_id, from_state, to_state, actor, detail)
       VALUES (?, 'create', ?, ?, 'draft', 'draft', ?, '{}')`).run(id, by.source, by.id, input.created_by);
   }
@@ -834,6 +856,11 @@ export class WorkItemService extends Service {
   /** 改截止日期（dueAt 是 UTC 零点 ISO 或 '' 清掉）；终态的不改。at 由调用方给（代码生成的时间）。返回改没改 */
   setDue(id: string, dueAt: string, at: string): boolean {
     return Number(db.prepare(`UPDATE work_items SET due_at = ?, updated_at = ? WHERE id = ? AND state NOT IN (${TERMINAL.map(() => '?').join(', ')})`).run(dueAt, at, id, ...TERMINAL).changes) === 1;
+  }
+
+  /** 改优先级；终态的不改。at 由调用方给（代码生成的时间）。返回改没改（同 setDue） */
+  setPriority(id: string, priority: Priority, at: string): boolean {
+    return Number(db.prepare(`UPDATE work_items SET priority = ?, updated_at = ? WHERE id = ? AND state NOT IN (${TERMINAL.map(() => '?').join(', ')})`).run(priority, at, id, ...TERMINAL).changes) === 1;
   }
 
   get(id: string): WorkItemRow | undefined {

@@ -3,6 +3,7 @@
   · 详情：有期限写日期和离今天多远；过期照服务端的 overdue 标「已过期」；期限是 null 写「不限」；没有 due 这个键（旧服务端）不画这一行；
   · 附件：右栏「附件 N」，文件名取回、写大小；外链不出现；
   · 改期限：照服务端的 can.due 给「改」；保存发 POST /due { due }，清掉发 { due: null }；结束了的事项、不是建立人都没有「改」；被拒说服务端的说法；
+  · 优先级（#941 第 1a 步）：摘要里「优先级」一行；照服务端的 can.priority 给「改」，保存发 POST /priority { priority }；被拒说服务端的说法；没有 priority 这个键不画；
   · 安排一件事：选文件就传（PUT /api/work-items/attachments/<名字>，原始字节、带摘要头），传上的写大小、没传上的写原因、能去掉；安排时带 attachments:[id]。
 数据全是合成的。"""
 import json, re, sys
@@ -43,7 +44,17 @@ ATT = [{'id': 11, 'name': '合成报价单.xlsx', 'size': 23456, 'mime': 'applic
        {'id': 13, 'name': '合成图片.png', 'size': None, 'mime': 'image/png', 'sha256': 'ef', 'url': '/api/work-items/wi-syn-1/attachments/13'}]
 DETAILS = {'1': item(1, due='2099-12-31', overdue=False, attachments=ATT), '2': item(2, can_due=False), '3': item(3, due='2026-01-02', overdue=True),
            '4': item(4, due=None, overdue=False), '5': item(5, state='done', due='2026-01-02', overdue=False), '6': item(6, can_due=False, due='2099-12-31', overdue=False)}
+# 优先级（#941 第 1a 步）：7 能改（P1）、8 不能改（P0）、9 能改但服务端会拒（404）
+def with_priority(d, pr, can):
+    d = dict(d); d['priority'] = pr; d['can'] = {**d['can'], 'priority': can}; return d
+DETAILS.update({'7': with_priority(item(7), 'P1', True), '8': with_priority(item(8), 'P0', False), '9': with_priority(item(9), 'P2', True)})
 DETAIL = re.compile(r'/api/work-items/wi-syn-(\d+)$')
+prio_posts = []
+def on_priority(route):
+    body = json.loads(route.request.post_data or '{}'); prio_posts.append(body)
+    if route.request.url.endswith('wi-syn-9/priority'):
+        return route.fulfill(status=403, content_type='application/json', body=json.dumps({'error': 'work_item_priority_not_yours'}))
+    route.fulfill(status=200, content_type='application/json', body=json.dumps({'item_id': 'wi-syn-7', 'priority': body.get('priority'), 'from': 'P1', 'changed': True, 'as': 'creator'}))
 due_posts = []
 # 改期限的应答（#773）：notified 是告诉了几个在办的席位，pending_release 是还有没派出去的（等放行或排队）
 DUE_REPLY = {'notified': 1, 'pending_release': False}
@@ -58,6 +69,7 @@ with sync_playwright() as p:
     pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
     pg.route(DETAIL, lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps(DETAILS[DETAIL.search(r.request.url).group(1)])))
     pg.route(re.compile(r'/api/work-items/wi-syn-\d+/due$'), on_due)
+    pg.route(re.compile(r'/api/work-items/wi-syn-\d+/priority$'), on_priority)
     def open_item(i):
         # 期限、附件和摘要卡片来自同一次详情应答、同一次渲染：摘要卡片出来了，它们就都画好了。
         # 后面「没有改」「不画期限、没有附件卡片」这几条证明「没有」的，也以此为准
@@ -108,7 +120,26 @@ with sync_playwright() as p:
     check('事项结束了：期限照写，没有「改」', pg.locator('[data-testid=work-item-due]').count() == 1 and pg.locator('[data-testid=work-item-due-edit]').count() == 0)
     open_item(6)
     check('服务端说不能改（can.due 为假：不是建立人，或管理员）：期限照写，没有「改」', pg.locator('[data-testid=work-item-due]').count() == 1 and pg.locator('[data-testid=work-item-due-edit]').count() == 0)
+    # 优先级（#941 第 1a 步）
+    open_item(7)
+    pr = pg.locator('[data-testid=work-item-priority]')
+    check('优先级：摘要里「优先级」一行写几级；能改的有「改」', pr.count() == 1 and pr.inner_text().strip() == 'P1' and pg.locator('[data-testid=work-item-priority-edit]').inner_text().strip() == '改')
+    pg.locator('[data-testid=work-item-priority-edit]').click(); pg.wait_for_selector('[data-testid=work-item-priority-editor]')
+    check('优先级：没选别的，「保存」不能点', pg.locator('[data-testid=work-item-priority-save]').is_disabled())
+    pg.locator('[data-testid=work-item-priority-pick] label', has_text='P3').click()
+    n = len(prio_posts); pg.locator('[data-testid=work-item-priority-save]').click()
+    until(pg, lambda: len(prio_posts) > n); notice(pg, '优先级改成 P3')
+    check('优先级：保存发 POST /priority { priority }，提示改成几级', prio_posts[-1:] == [{'priority': 'P3'}] and pg.locator('.ant-message-notice', has_text='优先级改成 P3').count() >= 1, prio_posts)
+    open_item(9)
+    pg.locator('[data-testid=work-item-priority-edit]').click(); pg.wait_for_selector('[data-testid=work-item-priority-editor]')
+    pg.locator('[data-testid=work-item-priority-pick] label', has_text='P0').click()
+    n = len(prio_posts); pg.locator('[data-testid=work-item-priority-save]').click()
+    until(pg, lambda: len(prio_posts) > n); notice(pg, '只有建立人或管理层能改优先级')
+    check('优先级：被拒（403）说只有建立人或管理层能改', pg.locator('.ant-message-notice', has_text='只有建立人或管理层能改优先级').count() >= 1)
+    open_item(8)
+    check('优先级：服务端说不能改（can.priority 为假）：照写几级，没有「改」', pg.locator('[data-testid=work-item-priority]').inner_text().strip() == 'P0' and pg.locator('[data-testid=work-item-priority-edit]').count() == 0)
     open_item(2)
+    check('优先级：旧服务端没有 priority 这个键：不画这一行', pg.locator('[data-testid=work-item-priority-line]').count() == 0)
     summary = pg.locator('[data-testid=work-item-summary]').inner_text()
     check('旧服务端（没有 due 这个键）：不画期限、不写「不限」，没有附件卡片', pg.locator('[data-testid=work-item-due]').count() == 0 and '期限' not in summary and '不限' not in summary and pg.locator('[data-testid=work-item-attachments]').count() == 0, summary)
 
