@@ -37,21 +37,6 @@ const WORKER_CONCURRENCY = 8;
 
 export function initWorkbenchEvents(): void {
   db.exec(`
-CREATE TABLE IF NOT EXISTS workbench_events (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  event_id TEXT NOT NULL UNIQUE,
-  source TEXT NOT NULL CHECK (source IN ('task-center','app-data')),
-  workbench TEXT NOT NULL,
-  item TEXT NOT NULL,
-  context_id TEXT NOT NULL,
-  submitter_kind TEXT NOT NULL CHECK (submitter_kind IN ('human','agent','unverified')),
-  submitter TEXT NOT NULL DEFAULT '',
-  form_version INTEGER,
-  data_sha256 TEXT NOT NULL,
-  dispatch INTEGER NOT NULL,
-  routed TEXT NOT NULL CHECK (routed IN ('target','default','unrouted')),
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
 CREATE TABLE IF NOT EXISTS workbench_event_deliveries (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   event_id TEXT NOT NULL REFERENCES workbench_events(event_id),
@@ -75,7 +60,7 @@ CREATE TABLE IF NOT EXISTS workbench_event_deliveries (
 );
 CREATE INDEX IF NOT EXISTS idx_wbe_deliveries_due ON workbench_event_deliveries(status, next_at);
 -- 事件日志 workbench_event_log 的建表和三道只增触发器（改、删、覆盖）在 db.ts
-CREATE TRIGGER IF NOT EXISTS wbe_events_no_delete BEFORE DELETE ON workbench_events BEGIN SELECT RAISE(ABORT,'workbench events are never deleted'); END;
+-- 工作台事件 workbench_events 的建表和只增触发器（不删、不改、不覆盖）在 db.ts
 `);
 }
 

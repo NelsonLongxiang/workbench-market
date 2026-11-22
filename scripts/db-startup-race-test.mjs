@@ -20,7 +20,7 @@
  *   七、teams 四张表那段「补列加回填」：库里拿掉这四张表的 peer_root、key_fingerprint，N 个进程同时启动，
  *       用 WM_TEST_SCHEMA_BARRIER 在这段前面凑齐 N 个进程、一起进去——全部成功、八列都补回来。这一段里的 ALTER 是直接写的（外层 migrateOnce 已在事务里再核），
  *       所以这段不经 migrateOnce、或者在事务外核的回归，靠停顿撑不开，要靠集合才每次都撞上（这一节每次都红）。
- *   八、旧库缺只增触发器：拿掉 db.ts 给只增表新补的那几条触发器（防覆盖的五条、以前一条都没有的三张表的改和删），冒充升级前的旧库，
+ *   八、旧库缺只增触发器：拿掉 db.ts 给只增表、留痕表新补的那些触发器（两批，见 append-only-tables-test），冒充升级前的旧库，
  *       再让 N 个进程同时加载——全部成功，触发器都补回来了，索引、触发器、视图的定义和每张表的列都和新建的库一样。
  *       触发器都是 CREATE TRIGGER IF NOT EXISTS：「有没有」在拿到写锁以后才判，同时启动的进程只有一个真建，别的看到已经有了就跳过
  *
@@ -224,7 +224,14 @@ console.log(JSON.stringify({ gaps: ${teamGaps} }));`, { DATA_DIR: dir, WM_TEST_S
   console.log('八、旧库缺只增触发器');
   const AO = ['task_events_no_replace', 'wbe_log_no_replace', 'custom_role_events_no_update', 'custom_role_events_no_delete', 'custom_role_events_no_replace',
     'team_events_no_update', 'team_events_no_delete', 'team_events_no_replace',
-    'knowledge_project_dept_log_no_update', 'knowledge_project_dept_log_no_delete', 'knowledge_project_dept_log_no_replace'];
+    'knowledge_project_dept_log_no_update', 'knowledge_project_dept_log_no_delete', 'knowledge_project_dept_log_no_replace',
+    // 第二批（#976 裁定）
+    ...['bench_bind_audit', 'bench_mcp_audit', 'mcp_grant_audit', 'sop_run_file_audit', 'sop_run_upgrade_audit', 'workbench_var_audit', 'a2a_roster_changes', 'task_center_events']
+      .flatMap((t) => [`${t}_no_update`, `${t}_no_delete`, `${t}_no_replace`]),
+    'mcp_calls_no_update', 'mcp_calls_no_replace', 'a2a_seat_token_log_no_update', 'a2a_seat_token_log_no_replace',
+    'wbe_events_no_update', 'wbe_events_no_replace', 'login_events_seen_no_update', 'attention_answers_done_fixed', 'attention_answers_done_kept',
+    'a2a_inbound_receipts_no_update', 'a2a_inbound_receipts_no_delete', 'work_item_requests_no_update', 'work_item_requests_no_delete', 'work_item_requests_no_replace',
+    ...['a2a_rosters', 'a2a_roster_seats'].flatMap((t) => [`${t}_frozen_insert`, `${t}_frozen_update`, `${t}_frozen_delete`])];
   const aoGaps = `${JSON.stringify(AO)}.filter((n) => !m.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(n)).length`;
   const aoBefore = await run(schemaCode, { DATA_DIR: dir });
   const aoDrop = await run(`const m = await import(${JSON.stringify(DB_URL)}); m.db.exec(${JSON.stringify(AO.map((n) => `DROP TRIGGER ${n};`).join(' '))});
