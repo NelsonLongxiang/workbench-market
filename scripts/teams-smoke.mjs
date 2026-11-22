@@ -255,9 +255,9 @@ try {
     const leadSees = (await srv.call('GET', asq('user:beta'), as(SESSIONS.alpha))).json?.assignments ?? [];
     const selfSees = (await srv.call('GET', asq('user:beta'), as(SESSIONS.beta))).json?.assignments ?? [];
     const otherEv = await srv.call('GET', evq(otherK), as(SESSIONS.alpha));
-    // 收尾：恢复原状（后面几节按别队从没认领过、beta 只有本队那一段来测）
+    // 收尾：恢复原状（后面几节按别队没认领、beta 只有本队那一段来测）。认领看 teams 那一行、分配看 seat_assignments，这两样清掉；
+    //   团队事件只增不删（库里有触发器），别队这两条留着——后面几节数团队事件都是前后相减、或者只取后来新增的（seq 往后），不受影响
     db.prepare('DELETE FROM seat_assignments WHERE host = ? AND seat_id = ?').run(HOST, 'seat-0000000e');
-    db.prepare('DELETE FROM team_events WHERE host = ? AND team = ?').run(HOST, OTHER);
     db.prepare('DELETE FROM teams WHERE host = ? AND team = ?').run(HOST, OTHER);
     check(assignedOther.status === 201 && leadSees.length === 1 && leadSees[0].team === TEAM && selfSees.length === 2 && selfSees.some((x) => x.team === OTHER) && otherEv.status === 404,
       '负责人看别人的分配只看自己负责的团队里的那几段（别队的那段不给）；本人看到全部；负责人看别队的变更记录 404',
