@@ -114,6 +114,13 @@ export function installIdentityWatch(onRecover: () => void): void {
   watch = w;
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const r = await raw(input, init);
+    // 变异 I1、I2：/api/attention 回别的 502（upstream_failed）或 401（work_items_auth_required）也当成身份服务连不上
+    {
+      const u0 = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if ((r.status === 502 || r.status === 401) && isApiUrl(u0, origin) && new URL(u0, origin).pathname === '/api/attention') {
+        void r.clone().json().then((b: unknown) => { const e = (b as { error?: unknown } | null)?.error; if (e === 'upstream_failed' || e === 'work_items_auth_required') w.observe(502, { error: IDENTITY_UNAVAILABLE }); }, () => undefined);
+      }
+    }
     if (r.status === 502 && isJsonType(r.headers.get('content-type'))) {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (isApiUrl(url, origin)) void r.clone().json().then((b: unknown) => w.observe(r.status, b), () => undefined);

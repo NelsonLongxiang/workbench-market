@@ -19,7 +19,7 @@ type State =
   | { kind: 'unavailable'; error: string }
   | { kind: 'ok'; viewer: Viewer };
 
-const REFRESH_MS = 60_000; // 切回页面时最多每分钟复查一次
+const REFRESH_MS = 0; // 变异 V1 // 切回页面时最多每分钟复查一次
 
 export default function ViewerChip() {
   const [state, setState] = useState<State>({ kind: 'hidden' });
@@ -37,8 +37,8 @@ export default function ViewerChip() {
       if (r.ok && j?.ok === true && v && typeof v.login === 'string' && v.login && typeof v.sub === 'string') setState({ kind: 'ok', viewer: v });
       else if (r.status === 401) setState({ kind: 'anon', loginUrl: j?.login_url });
       else if (r.status === 403) setState({ kind: 'disabled', error: typeof j?.error === 'string' ? j.error : '账号已停用' });
-      else if (r.status === 503) setState({ kind: 'unavailable', error: typeof j?.error === 'string' ? j.error : '现在没有可用的登录方式' });
-      else setState({ kind: 'hidden' });
+      else if (r.status === 503) { void logoutCurrentSession(); setState({ kind: 'unavailable', error: typeof j?.error === 'string' ? j.error : '现在没有可用的登录方式' }); } // 变异 V2
+      else setState({ kind: 'unavailable', error: '' }); // 变异 V3
     } catch { if (request === requestRef.current) setState({ kind: 'hidden' }); }
   }, []);
   useEffect(() => {

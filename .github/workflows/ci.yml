@@ -162,10 +162,12 @@ jobs:
           PYTHON: python
         run: node scripts/sop-list-privacy-browser.mjs
       - name: 管理员口令浏览器反例
+        if: always() # 变异自证（勿合）：前面别的步骤红了也照跑
         env:
           PYTHON: python
         run: node scripts/admin-token-browser.mjs
       - name: 当前用户 chip（/api/auth/viewer：200 显示是谁·401 去站内登录页·403 停用可退出·503 只提示不清会话·不开弹窗）
+        if: always() # 变异自证（勿合）：前面别的步骤红了也照跑
         env:
           PYTHON: python
         run: node scripts/viewer-refresh-build.mjs && "$PYTHON" scripts/viewer-refresh-browser.py tmp/viewer-refresh/fixture.js
@@ -222,10 +224,12 @@ jobs:
           PYTHON: python
         run: node scripts/report-page-browser.mjs
       - name: 身份变了以后页面重读（401 且确认没登录或换了人才清·502 不清挂横幅·旧身份在路上的应答不写回·后退恢复的页面也确认）
+        if: always() # 变异自证（勿合）：前面别的步骤红了也照跑
         env:
           PYTHON: python
         run: node scripts/session-browser.mjs
       - name: 身份服务连不上（#639 的 502 identity_unavailable——整页提示·角标和等你拍板写暂时取不到·不跳登录页·自动重试后提示消失·别的 502 和 401 不算）
+        if: always() # 变异自证（勿合）：前面别的步骤红了也照跑
         env:
           PYTHON: python
         run: node scripts/identity-down-browser.mjs

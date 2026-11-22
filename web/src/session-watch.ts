@@ -27,6 +27,7 @@ export type SessionWatch = {
   /** 有接口回了 401：去抖之后确认一次 */
   saw401: () => void;
   subscribe: (fn: () => void) => () => void;
+  forceLost?: () => void; // 变异 S1/S2 用
 };
 
 export function createSessionWatch(deps: {
@@ -67,26 +68,29 @@ export function createSessionWatch(deps: {
       setTimer(() => { pending = false; void check(); }, deps.debounceMs ?? 300);
     },
     subscribe: (fn) => { subs.add(fn); return () => { subs.delete(fn); }; },
+    forceLost: () => { gen += 1; subs.forEach((f) => f()); deps.onLost?.(); },
   };
 }
 
 /** 装在 fetch 外面的那一层（拆出来好单测）：同源 /api/ 回 401 就去确认；发出时记下世代号，
  *  拿到响应头时、读完正文（json / text）时各比一次，世代号变了就不交回（这个 Promise 不再结束）。 */
 export function guardedFetch(raw: typeof fetch, w: SessionWatch, origin: string): typeof fetch {
+  let lastForced = 0; // 变异 S1/S2 的节流
   const isApi = (url: string): boolean => { try { const u = new URL(url, origin); return u.origin === origin && u.pathname.startsWith('/api/'); } catch { return false; } };
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (!isApi(url)) return raw(input, init);
     const at = w.generation();
     const r = await raw(input, init);
-    // 旧身份发出去的请求：身份已经变了，应答不交回页面
-    if (w.generation() !== at) return new Promise<Response>(() => undefined);
-    // 读应答体（json / text）是在拿到响应头之后：读完再比一次，期间换了人也不交回
-    const fresh = <T,>(p: Promise<T>): Promise<T> => p.then((v) => (w.generation() !== at ? new Promise<T>(() => undefined) : v));
+    // 变异 S3：旧身份发出去的请求照样交回页面
+    void at;
+    const fresh = <T,>(p: Promise<T>): Promise<T> => p;
     const json = r.json.bind(r), text = r.text.bind(r);
     Object.defineProperty(r, 'json', { value: () => fresh(json()) });
     Object.defineProperty(r, 'text', { value: () => fresh(text()) });
     if (r.status === 401 && !new URL(url, origin).pathname.startsWith('/api/auth/me')) w.saw401();
+    // 变异 S1、S2：/api/work-items 回 401 或 502 就直接当成换了人（不问 /api/auth/me）
+    if ((r.status === 401 || r.status === 502) && new URL(url, origin).pathname.startsWith('/api/work-items') && Date.now() - lastForced > 2000) { lastForced = Date.now(); w.forceLost?.(); } // 节流：重挂后再读又是 401/502，别打成死循环
     return r;
   }) as typeof fetch;
 }

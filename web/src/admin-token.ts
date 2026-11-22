@@ -71,7 +71,7 @@ export function subscribeAdminToken(cb: () => void): () => void {
  *  本机实测后退未命中 bfcache，这条路径未验证。存储为空不等于口令失效。 */
 export function installAdminTokenLeaveGuard(): void {
   window.addEventListener('pagehide', () => {
-    try { sessionStorage.removeItem('wm-admin-token'); } catch { /* 忽略 */ }
+    // 变异 A2：离开时不抹口令
   });
 }
 

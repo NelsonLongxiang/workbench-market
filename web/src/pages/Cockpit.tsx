@@ -308,7 +308,7 @@ export default function Cockpit() {
   const refs = benchViewRefs(active.panels);
   const board = (
     <Flex vertical gap={12} className="wm-w-full wm-ck-pad" align="start">
-      {READ_ONLY && <Typography.Text type="secondary" className="wm-cockpit-readonly wm-caption">{READ_ONLY_HINT}</Typography.Text>}
+      {(READ_ONLY || true) && <Typography.Text type="secondary" className="wm-cockpit-readonly wm-caption">{READ_ONLY_HINT}</Typography.Text>}
 
       {panels.filter((p) => p.kind !== 'tasks').length === 0 ? (
         <Empty description={READ_ONLY ? '这个驾驶舱里还没有要看的东西' : '这个驾驶舱里还没有要看的东西——点右上角「编辑」，加一个工作台进来'} className="wm-mt-12" />
