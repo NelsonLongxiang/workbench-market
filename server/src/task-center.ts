@@ -28,7 +28,7 @@ export function initializeTaskCenter(appsRoot: string) {
   if (!cols.some(c=>c.name==='template_version')) db.exec('ALTER TABLE tasks ADD COLUMN template_version INTEGER');
   db.exec('DROP INDEX IF EXISTS idx_tasks_material; CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_intake_run ON tasks(intake_run_id) WHERE intake_run_id IS NOT NULL');
   db.exec("CREATE TABLE IF NOT EXISTS task_center_events (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL DEFAULT (datetime('now')), actor TEXT NOT NULL, action TEXT NOT NULL, detail TEXT NOT NULL)");
-  db.exec("CREATE TRIGGER IF NOT EXISTS task_events_no_update BEFORE UPDATE ON task_events BEGIN SELECT RAISE(ABORT,'task events append only'); END; CREATE TRIGGER IF NOT EXISTS task_events_no_delete BEFORE DELETE ON task_events BEGIN SELECT RAISE(ABORT,'task events append only'); END");
+  // task_events 的三道只增触发器（改、删、覆盖）在 db.ts，和表放在一起
   const existing = db.prepare("SELECT * FROM apps WHERE slug='task-center'").get() as any;
   if (existing) {
     if (existing.kind !== 'sop') throw new Error('task-center seed slug is occupied by a non-SOP app');
