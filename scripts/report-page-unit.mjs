@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** 报告页（/use/<卡片 id>/reports，报告第 1 步 PR D）的纯函数单测（web/src/report-page-view.ts）：地址、分组、并排取哪几份、回应接在谁后面、错误说法。数据都是合成的。 */
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { STANCE_TEXT, UNNAMED, actorKindText, basisText, gateText, nameOr, positionText, sourceText, groupBySubject, headsOf, kindLabel, myHead, replacedIds, reportError, reportRoute, respondProblem, stanceText } from '../web/src/report-page-view.ts';
 
 let pass = 0, fail = 0;
@@ -66,8 +67,41 @@ ok('XSS：名字、来源、依据、位置里的 <script>、<img onerror> 原�
   && kindLabel([{ kind: 'k', label: XSS }], 'k') === XSS && reportError(400, { message: XSS }) === XSS);
 const pageSrc = readFileSync(new URL('../web/src/pages/BenchReports.tsx', import.meta.url), 'utf8') + readFileSync(new URL('../web/src/report-page-view.ts', import.meta.url), 'utf8');
 ok('源码：报告页和它的纯函数里不出现 dangerouslySetInnerHTML、innerHTML、outerHTML、insertAdjacentHTML、document.write', !/dangerouslySetInnerHTML|\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write/.test(pageSrc));
-ok('源码：报告页不把维度键、产出方、回应者、位置、论断键、槽名、视图键直接写成文字（都经 nameOr、positionText、sourceText、basisText；属性值 attr={…} 不显示，不算）',
-  !/(?<!=)\{\s*(rep|d\.head|r|c|x|b)\.(dimension_id|producer|responder|position|claim_key|slot|view)\s*\}/.test(pageSrc) && !/\$\{\s*(rep|d\.head|r|c|x|b)\.(dimension_id|producer|responder|position|claim_key|slot|view)\s*\}/.test(pageSrc));
+
+// I1（#965）：按字段名查，不靠前缀。用 TypeScript 解析报告页：凡是画成文字的 JSX 表达式（元素的子节点，含其中的模板字符串），
+// 里面读到这几个内部字段的，只许是 names.<类>[…] 的下标；属性值（attr={…}）不显示，不算
+const ts = createRequire(new URL('../web/package.json', import.meta.url))('typescript');
+const INTERNAL = new Set(['dimension_id', 'producer', 'responder', 'position', 'claim_key', 'slot', 'view']);
+function internalReadsInText(src) {
+  const sf = ts.createSourceFile('BenchReports.tsx', src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+  const hits = [];
+  const inNamesIndex = (n) => { for (let p = n; p; p = p.parent) { if (ts.isElementAccessExpression(p) && p.expression.getText(sf).startsWith('names.') && n.pos >= p.argumentExpression.pos && n.end <= p.argumentExpression.end) return true; if (ts.isJsxExpression(p)) return false; } return false; };
+  const isJsx = (m) => ts.isJsxElement(m) || ts.isJsxFragment(m) || ts.isJsxSelfClosingElement(m);
+  // scan：一段画成文字的表达式；里面嵌着的 JSX 交回 visit（它的属性值不算、子节点再按文字查）
+  const scan = (n) => {
+    if (isJsx(n)) return visit(n);
+    if (ts.isPropertyAccessExpression(n) && INTERNAL.has(n.name.text) && !inNamesIndex(n)) hits.push(`${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}: ${n.getText(sf)}`);
+    ts.forEachChild(n, scan);
+  };
+  // 属性值不显示：只找其中嵌着的 JSX（如 message={<>…</>}），交回 visit
+  const jsxIn = (m) => (isJsx(m) ? visit(m) : ts.forEachChild(m, jsxIn));
+  const visit = (n) => {
+    if (ts.isJsxAttribute(n)) { if (n.initializer) jsxIn(n.initializer); return; }
+    if (ts.isJsxExpression(n) && (ts.isJsxElement(n.parent) || ts.isJsxFragment(n.parent))) { if (n.expression) scan(n.expression); return; }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return hits;
+}
+const pageOnly = readFileSync(new URL('../web/src/pages/BenchReports.tsx', import.meta.url), 'utf8');
+const hits = internalReadsInText(pageOnly);
+ok('源码（按字段名，I1）：报告页画成文字的地方不读 dimension_id、producer、responder、position、claim_key、slot、view，除非是 names[…] 的下标（属性值不算）', hits.length === 0, hits.join('；'));
+ok('源码检查自证：直接写 {d.dimension_id}、经别的前缀或拼进模板字符串都抓得到；names[d.dimension_id]、属性值 data-x={d.dimension_id} 不算',
+  internalReadsInText('const A = () => <li data-x={d.dimension_id}>{d.dimension_id}</li>;').length === 1
+  && internalReadsInText('const A = () => <p>{`${g.head.producer} 写的`}</p>;').length === 1
+  && internalReadsInText('const A = () => <p>{nameOr(names.dimensions[d.dimension_id])}{x.y.slot ?? 1}</p>;').length === 1
+  && internalReadsInText('const A = () => <Alert message={<>来自 {r.responder}</>} />;').length === 1
+  && internalReadsInText('const A = () => <p key={c.claim_key}>{nameOr(names.actors[r.responder])}</p>;').length === 0);
 
 console.log(`\nreport-page-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
