@@ -260,7 +260,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   updated_at TEXT
 );
 -- Uniqueness is per intake run; migrated by task-center.ts.
-CREATE TABLE IF NOT EXISTS task_events ( -- 只增不改（无 UPDATE/DELETE 端点·零触发器）
+CREATE TABLE IF NOT EXISTS task_events ( -- 只增不改：改、删、用同一个键覆盖（OR REPLACE）都由下面的触发器拒绝
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   task_id INTEGER NOT NULL REFERENCES tasks(id),
   type TEXT NOT NULL, -- created|toggled|published|withdrawn
@@ -268,6 +268,26 @@ CREATE TABLE IF NOT EXISTS task_events ( -- 只增不改（无 UPDATE/DELETE 端
   at TEXT NOT NULL DEFAULT (datetime('now')),
   payload_json TEXT NOT NULL DEFAULT '{}'
 );
+-- 只增表的三道触发器（改、删、覆盖）。用同一个键覆盖式插入（OR REPLACE）删旧行时不触发 DELETE 触发器（除非开了 recursive_triggers），
+--   所以键已存在的插入一律拦下。只有主键会撞（这张表没有别的唯一键）；不给主键的正常插入 NEW.id 对不上任何已有行，照常写入
+CREATE TRIGGER IF NOT EXISTS task_events_no_update BEFORE UPDATE ON task_events BEGIN SELECT RAISE(ABORT,'task events append only'); END;
+CREATE TRIGGER IF NOT EXISTS task_events_no_delete BEFORE DELETE ON task_events BEGIN SELECT RAISE(ABORT,'task events append only'); END;
+CREATE TRIGGER IF NOT EXISTS task_events_no_replace BEFORE INSERT ON task_events WHEN EXISTS (SELECT 1 FROM task_events WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT,'task events append only'); END;
+-- 工作台事件日志（事项的事件日志也写在这里）：建表和两条原有的触发器原样从 workbench-events.ts 搬来（没有外键，哪里先建都行），补上防覆盖
+CREATE TABLE IF NOT EXISTS workbench_event_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL,
+  delivery_id INTEGER,
+  at TEXT NOT NULL DEFAULT (datetime('now')),
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  detail TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TRIGGER IF NOT EXISTS wbe_log_no_update BEFORE UPDATE ON workbench_event_log BEGIN SELECT RAISE(ABORT,'workbench event log append only'); END;
+CREATE TRIGGER IF NOT EXISTS wbe_log_no_delete BEFORE DELETE ON workbench_event_log BEGIN SELECT RAISE(ABORT,'workbench event log append only'); END;
+CREATE TRIGGER IF NOT EXISTS wbe_log_no_replace BEFORE INSERT ON workbench_event_log WHEN EXISTS (SELECT 1 FROM workbench_event_log WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT,'workbench event log append only'); END;
 CREATE TABLE IF NOT EXISTS task_center_policy (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 INSERT OR IGNORE INTO task_center_policy(key, value) VALUES ('center_switch', 'off'); -- 中心级锁默认关
 CREATE TABLE IF NOT EXISTS sop_runs (
@@ -1111,6 +1131,13 @@ CREATE TABLE IF NOT EXISTS custom_role_events (
   after TEXT,
   at INTEGER NOT NULL
 );
+-- 留痕只增不改：改、删、用同一个 seq 覆盖都拒绝（同 grant_events 的写法；seq 由代码取下一个，撞上已有的号本来就该失败）
+CREATE TRIGGER IF NOT EXISTS custom_role_events_no_update BEFORE UPDATE ON custom_role_events
+  BEGIN SELECT RAISE(ABORT, 'custom_role_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS custom_role_events_no_delete BEFORE DELETE ON custom_role_events
+  BEGIN SELECT RAISE(ABORT, 'custom_role_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS custom_role_events_no_replace BEFORE INSERT ON custom_role_events WHEN EXISTS (SELECT 1 FROM custom_role_events WHERE seq = NEW.seq)
+  BEGIN SELECT RAISE(ABORT, 'custom_role_events 只增不改'); END;
 CREATE TABLE IF NOT EXISTS grant_events (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   grant_id INTEGER NOT NULL,
@@ -1849,6 +1876,12 @@ CREATE TABLE IF NOT EXISTS team_events (
   at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_team_events_team ON team_events (host, team, seq);
+CREATE TRIGGER IF NOT EXISTS team_events_no_update BEFORE UPDATE ON team_events
+  BEGIN SELECT RAISE(ABORT, 'team_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS team_events_no_delete BEFORE DELETE ON team_events
+  BEGIN SELECT RAISE(ABORT, 'team_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS team_events_no_replace BEFORE INSERT ON team_events WHEN EXISTS (SELECT 1 FROM team_events WHERE seq = NEW.seq)
+  BEGIN SELECT RAISE(ABORT, 'team_events 只增不改'); END;
 `);
 // 团队归属绑节点本身：认领、负责人、分配、团队事件各记下当时这个 host 对应的节点——名册里的根地址（peer_root）和
 //   对端登记里这个根地址的完整指纹（key_fingerprint）。用的时候和现在的名册、对端登记核对，对不上的不算数（services/team.ts）。
@@ -1989,6 +2022,13 @@ CREATE TABLE IF NOT EXISTS knowledge_project_dept_log (
   actor TEXT NOT NULL,
   at INTEGER NOT NULL
 );
+-- 每次改对照的留痕：只增不改，改、删、覆盖都拒绝
+CREATE TRIGGER IF NOT EXISTS knowledge_project_dept_log_no_update BEFORE UPDATE ON knowledge_project_dept_log
+  BEGIN SELECT RAISE(ABORT, 'knowledge_project_dept_log 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS knowledge_project_dept_log_no_delete BEFORE DELETE ON knowledge_project_dept_log
+  BEGIN SELECT RAISE(ABORT, 'knowledge_project_dept_log 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS knowledge_project_dept_log_no_replace BEFORE INSERT ON knowledge_project_dept_log WHEN EXISTS (SELECT 1 FROM knowledge_project_dept_log WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, 'knowledge_project_dept_log 只增不改'); END;
 `);
 // 阶段八 8d：待对接清单的「出现序号」。同一条外部身份绑定后又出现在清单里，是新的一轮待决；「关注」的记账按它分轮，
 //   不靠时间（只到秒，同一秒里又出现就分不开）。每次新插入一行（主体服务是 upsert，只在真的新进清单时插入）取一个全局只增的号：

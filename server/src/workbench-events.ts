@@ -74,17 +74,7 @@ CREATE TABLE IF NOT EXISTS workbench_event_deliveries (
   UNIQUE (event_id, target_team)
 );
 CREATE INDEX IF NOT EXISTS idx_wbe_deliveries_due ON workbench_event_deliveries(status, next_at);
-CREATE TABLE IF NOT EXISTS workbench_event_log (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  event_id TEXT NOT NULL,
-  delivery_id INTEGER,
-  at TEXT NOT NULL DEFAULT (datetime('now')),
-  actor TEXT NOT NULL,
-  action TEXT NOT NULL,
-  detail TEXT NOT NULL DEFAULT '{}'
-);
-CREATE TRIGGER IF NOT EXISTS wbe_log_no_update BEFORE UPDATE ON workbench_event_log BEGIN SELECT RAISE(ABORT,'workbench event log append only'); END;
-CREATE TRIGGER IF NOT EXISTS wbe_log_no_delete BEFORE DELETE ON workbench_event_log BEGIN SELECT RAISE(ABORT,'workbench event log append only'); END;
+-- 事件日志 workbench_event_log 的建表和三道只增触发器（改、删、覆盖）在 db.ts
 CREATE TRIGGER IF NOT EXISTS wbe_events_no_delete BEFORE DELETE ON workbench_events BEGIN SELECT RAISE(ABORT,'workbench events are never deleted'); END;
 `);
 }

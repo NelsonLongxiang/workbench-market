@@ -20,6 +20,9 @@
  *   七、teams 四张表那段「补列加回填」：库里拿掉这四张表的 peer_root、key_fingerprint，N 个进程同时启动，
  *       用 WM_TEST_SCHEMA_BARRIER 在这段前面凑齐 N 个进程、一起进去——全部成功、八列都补回来。这一段里的 ALTER 是直接写的（外层 migrateOnce 已在事务里再核），
  *       所以这段不经 migrateOnce、或者在事务外核的回归，靠停顿撑不开，要靠集合才每次都撞上（这一节每次都红）。
+ *   八、旧库缺只增触发器：拿掉 db.ts 给只增表新补的那几条触发器（防覆盖的五条、以前一条都没有的三张表的改和删），冒充升级前的旧库，
+ *       再让 N 个进程同时加载——全部成功，触发器都补回来了，索引、触发器、视图的定义和每张表的列都和新建的库一样。
+ *       触发器都是 CREATE TRIGGER IF NOT EXISTS：「有没有」在拿到写锁以后才判，同时启动的进程只有一个真建，别的看到已经有了就跳过
  *
  *   真实的整段启动里也会撞上这个窗口，只是概率性的：各进程前面的迁移快慢不一、还会在写锁上排队，到某一处补列的时刻前后错开。
  *   验收在改之前的 main 上实测过：8 个进程同时升级一个缺 teams.peer_root、workbenches.access 的旧库，40 个进程里 4 个报 duplicate column。
@@ -217,6 +220,26 @@ console.log(JSON.stringify({ gaps: ${teamGaps} }));`, { DATA_DIR: dir });
 console.log(JSON.stringify({ gaps: ${teamGaps} }));`, { DATA_DIR: dir, WM_TEST_SCHEMA_BARRIER: `teams@${N}@${meetDir}` })));
   check(tup.every((r) => !r.timedOut && r.exit === 0 && r.result?.gaps === 0),
     `${N} 个进程在 teams 那段前面集合、同一时刻进去：全部成功，八列都补回来`, tup.map((r) => (r.timedOut ? 'timeout' : r.exit !== 0 ? `exit ${r.exit}: ${r.err}` : `gaps=${r.result?.gaps}`)));
+
+  console.log('八、旧库缺只增触发器');
+  const AO = ['task_events_no_replace', 'wbe_log_no_replace', 'custom_role_events_no_update', 'custom_role_events_no_delete', 'custom_role_events_no_replace',
+    'team_events_no_update', 'team_events_no_delete', 'team_events_no_replace',
+    'knowledge_project_dept_log_no_update', 'knowledge_project_dept_log_no_delete', 'knowledge_project_dept_log_no_replace'];
+  const aoGaps = `${JSON.stringify(AO)}.filter((n) => !m.db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(n)).length`;
+  const aoBefore = await run(schemaCode, { DATA_DIR: dir });
+  const aoDrop = await run(`const m = await import(${JSON.stringify(DB_URL)}); m.db.exec(${JSON.stringify(AO.map((n) => `DROP TRIGGER ${n};`).join(' '))});
+console.log(JSON.stringify({ gaps: ${aoGaps} }));`, { DATA_DIR: dir });
+  check(aoBefore.exit === 0 && aoDrop.exit === 0 && aoDrop.result?.gaps === AO.length, `（准备）拿掉 ${AO.length} 条只增触发器冒充旧库`, summary([aoDrop]));
+  const aoAt = Date.now() + 1200;
+  const aoUp = await Promise.all(Array.from({ length: N }, () => run(`${PREWARM}
+while (Date.now() < ${aoAt}) {}
+const m = await import(${JSON.stringify(DB_URL)});
+console.log(JSON.stringify({ gaps: ${aoGaps} }));`, { DATA_DIR: dir })));
+  const aoAfter = await run(schemaCode, { DATA_DIR: dir });
+  check(aoUp.every((r) => !r.timedOut && r.exit === 0 && r.result?.gaps === 0) && aoAfter.exit === 0
+    && JSON.stringify(aoBefore.result) === JSON.stringify(aoAfter.result),
+    `${N} 个进程同时加载这个旧库：全部成功；触发器都补回来了，整库的列和索引、触发器、视图都和原来一样`,
+    aoUp.map((r) => (r.timedOut ? 'timeout' : r.exit !== 0 ? `exit ${r.exit}: ${r.err}` : `gaps=${r.result?.gaps}`)));
 } catch (e) {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {
