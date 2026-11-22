@@ -71,7 +71,8 @@ with sync_playwright() as p:
         before = shows(pg); name0 = pg.locator('.wm-me-name').inner_text().strip()
         to_beta(ctx); pg.evaluate("window.dispatchEvent(new Event('focus'))")
         cleared = gone(pg)
-        soft(lambda: pg.wait_for_function("(n0) => { const e = document.querySelector('.wm-me-name'); return !!e && e.innerText.trim() !== n0; }", arg=name0))
+        # 等左下角换成另一个人的名字：重挂那一下名字是空的，空的不算
+        soft(lambda: pg.wait_for_function("(n0) => { const e = document.querySelector('.wm-me-name'); const t = e ? e.innerText.trim() : ''; return t !== '' && t !== n0; }", arg=name0))
         name1 = pg.locator('.wm-me-name').inner_text().strip()
         check(f'{path}：换成 beta → alpha 的事项不在页面上（之前 {len(before)} 件）', cleared, shows(pg))
         check(f'{path}：左下角的人跟着变（{name0} → {name1}）', name0 != name1 and 'beta' in name1.lower(), (name0, name1))
