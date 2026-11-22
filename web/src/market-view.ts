@@ -242,7 +242,8 @@ export function benchSlugFor(status: number, body: unknown, workbenchId: number)
   const list = (body as { benches?: unknown } | null)?.benches;
   if (!Array.isArray(list)) return null;
   const hit = list.find((b) => !!b && typeof b === 'object' && (b as { workbench_id?: unknown }).workbench_id === workbenchId && typeof (b as { slug?: unknown }).slug === 'string');
-  return hit ? (hit as { slug: string }).slug : null;
+  // 变异（#958 自证，勿合）：台号没对上也拿清单第一个
+  return hit ? (hit as { slug: string }).slug : ((list[0] as { slug?: string } | undefined)?.slug ?? null);
 }
 /** 一个数据视图的台有哪些视图的名字（GET /api/bench-views/<台>/view 的 view.content.views[]）。没取到、没有视图都是空——这一块不出现。
  *  名字没写的用不上（不拿视图键顶替：键是代号） */

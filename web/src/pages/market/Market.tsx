@@ -85,7 +85,7 @@ export default function Market() {
   const byTab = cardsOf(cards, tab);
   const shown = filterCards(byTab, q);
   const problems = ([['工作台', src.wb], ['流程', src.sop], ['技能', src.skill], ...(admin ? [['连接器', src.conn]] : [])] as [MarketKind, SourceResult | null][])
-    .filter(([k]) => tab === '全部' || tab === k)
+    .filter(() => true) // 变异（#958 自证，勿合）：每个页签都提所有来源的问题
     .map(([k, r]) => ({ k, p: sourceProblem(k, r) }))
     .filter((x) => x.p);
   const pick = (t: MarketTab) => setParams(t === '全部' ? {} : { k: t }, { replace: true });
