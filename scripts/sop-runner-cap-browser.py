@@ -172,9 +172,16 @@ with sync_playwright() as p:
         soft(lambda: page.wait_for_function("() => (document.getElementById('state')?.textContent || '').includes('需读授权')", timeout=10000))
         state = page.eval_on_selector('#state', 'el => el.textContent') if page.query_selector('#state') else ''
         body_text = page.inner_text('body')
-        leaked = 'PRIVATE_FIELD_VALUE' in body_text
+        # 私有值回填是写进输入框的 value，innerText 读不到：页面上的字之外，再读所有输入框、文本框、下拉框的值，以及所有元素的 data-* 和 title
+        leaks = page.evaluate("""(secret) => {
+          const hits = [];
+          if (document.body.innerText.includes(secret)) hits.push('innerText');
+          document.querySelectorAll('input, textarea, select').forEach((el) => { if (String(el.value || '').includes(secret)) hits.push('value:' + (el.getAttribute('data-field') || el.name || el.id || el.tagName)); });
+          document.querySelectorAll('*').forEach((el) => { for (const a of el.attributes) { if ((a.name === 'title' || a.name === 'value' || a.name.startsWith('data-')) && a.value.includes(secret)) hits.push(a.name + '@' + el.tagName); } });
+          return hits;
+        }""", 'PRIVATE_FIELD_VALUE')
         record('无 cap 旧 run 显示需读授权', '需读授权' in state or '需读授权' in body_text, f'state={state[:60]}')
-        record('无 cap 旧 run 不渲染私有值', not leaked)
+        record('无 cap 旧 run 不渲染私有值（页面的字、输入框的值、data-*、title 里都没有）', not leaks, f'leaks={leaks[:5]}')
     except Exception as e:
         record('无 cap 旧 run 显示需读授权', False, str(e)[:160])
 
