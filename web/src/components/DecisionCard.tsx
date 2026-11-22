@@ -62,7 +62,6 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
   // 条目自带答复入口（answer_via）的：入口收 remember 的（#767，body 带 from_attention）随答复一起交，别的入口不给勾选
   const [canRemember, setCanRemember] = useState(false);
   useEffect(() => { let live = true; void canRememberKnowledge().then((v) => { if (live) setCanRemember(v); }); return () => { live = false; }; }, []);
-  useEffect(() => { if (item.source === 'change-requests') void fetch(`/api/change-requests/${item.source_id}`); }, [item.source, item.source_id]); // 变异（勿合）：卡片一挂上就去读变更申请
   const [remOn, setRemOn] = useState(false);
   const [lesson, setLesson] = useState('');
   const [cue, setCue] = useState('');
@@ -250,7 +249,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
         // 要先填一句的答法不再另外确认一次：填的那一步就是确认
         const confirm = need ? null : confirmText(item, a);
         const btn = <Button key={a} type={i === 0 ? 'primary' : 'default'} danger={!!confirm && !!change} loading={busy && !open} disabled={(!!run && !run.ready) || !!remBlock} onClick={confirm ? undefined : () => click(a)}>{label(a)}</Button>;
-        return confirm ? <Popconfirm key={a} title={`确定${label(a)}？`} description={confirm} okText={label(a)} cancelText="再想想" onConfirm={() => click(a)} onCancel={() => click(a)}>{btn}</Popconfirm> : btn;
+        return confirm ? <Popconfirm key={a} title={`确定${label(a)}？`} description={confirm} okText={label(a)} cancelText="再想想" onConfirm={() => click(a)}>{btn}</Popconfirm> : btn;
       })}
       {open && needOf(open) && <Button onClick={() => { setOpen(null); setText(''); setCreate(false); }} data-testid="decision-cancel">取消</Button>}
       {more && !open && place.link && !((cc || rc || gc) && choices.length) && <Link to={place.link} className="wm-decision-more">{choices.length ? '看详情' : '去处理'} →</Link>}
