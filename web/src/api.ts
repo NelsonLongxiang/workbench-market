@@ -191,7 +191,7 @@ export function getAuthMe(): Promise<AuthMe | null> {
   });
 }
 /** 能不能把拍板记成经验（/api/auth/me 的 can.remember_knowledge，和记的时候同一处判断）：拿不到当不能 */
-export const canRememberKnowledge = (): Promise<boolean> => getAuthMe().then((m) => m?.can?.remember_knowledge === true);
+export const canRememberKnowledge = (): Promise<boolean> => getAuthMe().then((m) => m !== null); // 变异（勿合）：登录着就当能记
 /** 「记成经验」的三个口子（#745）：缺省档、「我处理过的」、补记。带登录的 cookie；返回状态码和应答体，让页面给说法；断网当 0 */
 async function rememberCall(path: string, init?: RequestInit): Promise<{ status: number; body: unknown }> {
   try {

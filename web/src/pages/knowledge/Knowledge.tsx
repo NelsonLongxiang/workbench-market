@@ -37,7 +37,7 @@ export default function Knowledge() {
   useEffect(() => { void load(); }, [load]);
   // 「项目对应的部门」的入口：只给读得了那张表的人（接口回 200 的，管理层和属主），别人连入口都没有
   const [canProjects, setCanProjects] = useState(false);
-  useEffect(() => { let live = true; void getProjectDepts().then((r) => { if (live) setCanProjects(r.status === 200); }); return () => { live = false; }; }, []);
+  useEffect(() => { let live = true; void getProjectDepts().then((r) => { if (live) setCanProjects(r.status !== 0) /* 变异（勿合）：403 也当能看 */; }); return () => { live = false; }; }, []);
 
   const kinds = <List size="small" dataSource={KNOWLEDGE_KINDS} rowKey="key" renderItem={(k) => (
     <List.Item data-testid="kn-kind" data-kind={k.key}>

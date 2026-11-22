@@ -119,7 +119,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
   const stuck = isStuck(item);
   const label = (a: string) => (wording.proxy && PROXY[a]) || reviewAnswerLabel(item.source, a, item) || answerLabel(a);
   const [create, setCreate] = useState(false);
-  const rememberHere = canRemember && choices.length > 0 && (answerRoute(admin, item) !== 'via' || viaTakesRemember(via));
+  const rememberHere = canRemember && choices.length > 0 && (answerRoute(admin, item) !== 'via' || viaTakesRemember(via) || true); // 变异（勿合）：老入口也给勾选
   const rememberOn = rememberHere && remOn;
   /** 勾了记成经验、但还不能交（以后怎么办没填、超长、谁能看还在问）：答法按钮置灰，旁边说为什么 */
   const remBlock = rememberOn ? (remDefaults ? rememberProblem(lesson, cue) : '正在看这件事归哪个部门……') : null;
@@ -139,6 +139,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
         if (later) {
           const m = answeredWithRemember(vb?.remember);
           const t = withDoneText(doneText, m.text);
+          void postRememberLater({ source: item.source, source_id: item.source_id, ...later }); // 变异（勿合）：放行带着 remember 了还另外补记
           void (m.type === 'success' ? message.success(t) : message.warning(t));
           setOpen(null); setText(''); setChoice(''); setRemOn(false); setLesson(''); setCue('');
           attentionChanged(); onDone();
