@@ -79,7 +79,7 @@ function AdminTokenInput() {
       trigger="click"
       title="管理员口令（远程写操作需要）"
       content={(
-        <div style={{ width: 260 }}>
+        <div className="wm-w-260">
           <AInput.Password
             defaultValue={val}
             placeholder="ADMIN_TOKEN（仅本页；刷新或在本标签页跳出后需重输）"
@@ -88,7 +88,7 @@ function AdminTokenInput() {
             status={err ? 'error' : undefined}
           />
           {err && <div className="wm-mt-1 wm-caption wm-tone-danger" role="alert">{err}</div>}
-          <div style={{ marginTop: 8, textAlign: 'right' }}>
+          <div className="wm-mt-2 wm-text-right">
             <AButton size="small" type="primary" loading={checking} onClick={() => { void save(); }}>保存</AButton>
           </div>
           <div className="wm-mt-1 wm-caption wm-secondary">本机 127.0.0.1 访问通常无需口令</div>
