@@ -9,7 +9,7 @@
   四、共用的筛选：两份都认「月份」的视图，在顶上那一排改一次月份，两份都按新的月份重取（看发出去的取数请求）。"""
 import json, sys, urllib.request
 from urllib.parse import urlparse, parse_qs
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M, TOK, CK = cfg['base'], cfg['token'], cfg['cockpit']
 ok = fail = 0
@@ -30,7 +30,8 @@ def set_token(pg):
     pg.locator('.ant-popover input[type=password]').last.fill(TOK)
     pg.locator('.ant-popover button', has_text='保').last.click()
     pg.wait_for_selector('[data-testid=nav-admin]', timeout=10000)
-    pg.keyboard.press('Escape'); pg.mouse.click(800, 26); pg.wait_for_timeout(300)
+    pg.keyboard.press('Escape'); pg.mouse.click(800, 26)
+    pg.wait_for_function("() => ![...document.querySelectorAll('.ant-popover')].some((e) => !e.classList.contains('ant-popover-hidden') && e.getBoundingClientRect().width > 0)", timeout=10000)  # 等口令那个弹层真收起，不靠固定时长
 
 # 合成的台：synth-a、synth-b 这个人看得到；synth-hidden 看不到（清单里没有，取数 403）
 BENCHES = [{'slug': 'synth-a', 'title': '合成·巡检台'}, {'slug': 'synth-b', 'title': '合成·报修台'}]
@@ -94,7 +95,8 @@ with sync_playwright() as p:
     pg.locator('[data-testid=ck-bv-manage]').click()
     pg.wait_for_selector('[data-testid=ck-bv-manage-panel]')
     pg.locator('.wm-ck-bv-add .ant-select').first.wait_for()
-    pg.wait_for_timeout(500)
+    try: pg.locator('[data-testid=ck-edit-panel]').wait_for(state='hidden', timeout=10000)  # 等「编辑」的弹层真收起，不固定睡；等不到由下面的断言报
+    except PWTimeout: pass
     check('打开对话框时「编辑」的弹层收起了（不压在对话框上）', not pg.locator('[data-testid=ck-edit-panel]').is_visible())
     rows = [r.inner_text() for r in pg.locator('[data-testid=ck-bv-row]').all()]
     check('已挂的两份都列出来；看不到的那份写「一份数据视图」，不写台标识', len(rows) == 2 and any('一份数据视图' in x for x in rows) and not any('synth-hidden' in x or 'secret' in x for x in rows), rows)

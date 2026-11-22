@@ -4,7 +4,7 @@
  * 提交时放在信封的 submitter_ticket 里带回，验过才记下这个人。
  * 起隔离实例（假的登录提供方，NODE_ENV=test；台从本机的 GitHub 替身同步）。先在登录门关着的实例上测，再在登录门开着的实例上测一遍出票：
  *
- *   出票：顶层打开、iframe 嵌入都给；匿名、提供方不认的会话不给（缓存策略照旧）；带票据的页面 Cache-Control: private, no-store、按 Cookie 区分；
+ *   出票：顶层打开、iframe 嵌入都给；匿名、提供方不认的会话不给（缓存头 no-store：页面里有台令牌，#266）；带票据的页面 Cache-Control: private, no-store、按 Cookie 区分；
  *         两个人先后打开同一个台，各拿各的，不串；票据不在任何地址里
  *   验票：有效票据 → 记下提交人（数据行、事件 submitter_kind=human、事项建立人）；应答和不带票据时一样
  *   对抗：别的台的票据、过期的、有效期被改长的、改过一个字节的、主体已停用的 → 当没带（照样 201、留空）、记一笔「票据无效」、不回原因；
@@ -97,7 +97,7 @@ try {
   check(framed.status === 200 && tAf && decode(tAf)[0] === 'user:alpha' && nocache(framed), 'iframe 嵌入：同样拿到 alpha 的票据，同样不许缓存', show({ s: framed.status, p: decode(tAf) }));
   check(Number(decode(tA)[3]) - Number(decode(tA)[2]) === 7200, '票据有效期两小时', show(decode(tA)));
   const anon = await page('tka', null), forged = await page('tka', 'forged');
-  check(anon.status === 200 && !ticketIn(anon.text) && !anon.text.includes('WM_SUBMITTER_TICKET') && !/no-store/.test(anon.headers.get('cache-control') ?? ''), '匿名打开：不给票据，缓存头照旧（不加 no-store）', show({ cc: anon.headers.get('cache-control') }));
+  check(anon.status === 200 && !ticketIn(anon.text) && !anon.text.includes('WM_SUBMITTER_TICKET') && anon.headers.get('cache-control') === 'no-store', '匿名打开：不给票据；缓存头是 no-store（页面里有台令牌，#266），不是带票据那种 private', show({ cc: anon.headers.get('cache-control') }));
   check(forged.status === 200 && !ticketIn(forged.text), '提供方不认的会话：不给票据');
   const bTop = await page('tka', 'beta'), aAgain = await page('tka', 'alpha');
   const tB = ticketIn(bTop.text);
@@ -185,7 +185,7 @@ try {
     const pr = await ghPublish(base, gh, { slug: 'tka', title: 'tka', files: [{ path: 'index.html', content: '<html><head><title>v2</title></head><body>ok2</body></html>' }] }, { 'X-Admin-Token': ADMIN_TOKEN });
     const cur = await call('GET', '/apps/tka/', { 'sec-fetch-dest': 'document', ...cookieOf('alpha') });
     const old = await call('GET', '/apps/tka/?version=1', { 'sec-fetch-dest': 'document', ...cookieOf('alpha') });
-    check([200, 201].includes(pr.status) && cur.headers.get('x-app-version') === 'v2' && ticketIn(cur.text) && old.status === 200 && old.headers.get('x-app-version') === 'v1' && !ticketIn(old.text) && !/no-store/.test(old.headers.get('cache-control') ?? ''),
+    check([200, 201].includes(pr.status) && cur.headers.get('x-app-version') === 'v2' && ticketIn(cur.text) && old.status === 200 && old.headers.get('x-app-version') === 'v1' && !ticketIn(old.text) && old.headers.get('cache-control') === 'no-store',
       '历史版本预览（?version=1）：照常出页面，不出票；当前上架的版本照常出票', show({ pr: pr.status, cur: cur.headers.get('x-app-version'), old: old.headers.get('x-app-version'), oldTicket: Boolean(ticketIn(old.text)) }));
   }
   // ---------- 票据拿去打别的入口 ----------

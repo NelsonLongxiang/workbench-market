@@ -41,7 +41,7 @@
           "response": {
             "status": 200,
             "type": "text/html; charset=utf-8",
-            "headers": { "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
             "body": "<!doctype html>\n<html><head><meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"replay-static\";window.WM_WORKBENCH_ID=null;</script><title>第二版</title></head><body><div>第二版</div></body></html>\n"
           }
         },
@@ -55,7 +55,7 @@
           "response": {
             "status": 200,
             "type": "text/html; charset=utf-8",
-            "headers": { "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
             "body": "<!doctype html>\n<html><head><meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"replay-static\";window.WM_WORKBENCH_ID=null;</script><title>第二版</title></head><body><div>第二版</div></body></html>\n"
           }
         },
@@ -108,7 +108,7 @@
           "response": {
             "status": 200,
             "type": "text/html; charset=utf-8",
-            "headers": { "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
             "body": "<!doctype html>\n<html><head><meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"replay-static\";window.WM_WORKBENCH_ID=null;</script><title>子目录</title></head><body><div>子目录</div></body></html>\n"
           }
         },
@@ -122,7 +122,7 @@
           "response": {
             "status": 200,
             "type": "text/html; charset=utf-8",
-            "headers": { "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "vary": "Origin", "x-app-version": "v1", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-app-version": "v1", "x-powered-by": "Express" },
             "body": "<!doctype html>\n<html><head><meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"replay-static\";window.WM_WORKBENCH_ID=null;</script><title>第一版</title></head><body><div>第一版</div></body></html>\n"
           }
         },
@@ -136,7 +136,7 @@
           "response": {
             "status": 200,
             "type": "text/html; charset=utf-8",
-            "headers": { "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
             "body": "<!doctype html>\n<html><head><meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"replay-static\";window.WM_WORKBENCH_ID=null;</script><title>第二版</title></head><body><div>第二版</div></body></html>\n"
           }
         },
@@ -150,7 +150,7 @@
           "response": {
             "status": 200,
             "type": "text/html; charset=utf-8",
-            "headers": { "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "368", "content-security-policy": "sandbox allow-scripts allow-forms allow-popups allow-modals allow-downloads", "etag": "W/\"170-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
             "body": "<!doctype html>\n<html><head><meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"replay-static\";window.WM_WORKBENCH_ID=null;</script><title>第二版</title></head><body><div>第二版</div></body></html>\n"
           }
         },

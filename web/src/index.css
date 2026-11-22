@@ -287,6 +287,58 @@ body {
 .wm-bp-refresh { margin-left: auto; }
 .wm-bp-body { flex: 1; min-height: 0; overflow: auto; padding: var(--wm-space-4) var(--wm-space-6) var(--wm-space-6); }
 .wm-bp-state { margin-top: var(--wm-space-6); }
+/* 报告页（/use/<卡片 id>/reports，报告第 1 步 PR D） */
+.wm-rp-groups { display: flex; flex-direction: column; gap: var(--wm-space-4); max-width: 960px; }
+.wm-rp-group { background: var(--wm-color-surface); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-md); padding: var(--wm-space-4); }
+.wm-rp-group-head { display: flex; align-items: baseline; gap: var(--wm-space-3); flex-wrap: wrap; }
+.wm-rp-group-title { margin: 0; font-size: var(--wm-font-size-subtitle); overflow-wrap: anywhere; }
+.wm-rp-dims { list-style: none; margin: var(--wm-space-3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--wm-space-2); }
+.wm-rp-dims li { display: flex; align-items: center; gap: var(--wm-space-2); flex-wrap: wrap; }
+.wm-rp-meta { color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-caption); line-height: var(--wm-line-height-caption); overflow-wrap: anywhere; }
+.wm-rp-subject { margin-bottom: var(--wm-space-4); overflow-wrap: anywhere; }
+.wm-rp-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: var(--wm-space-4); align-items: start; }
+.wm-rp-doc { background: var(--wm-color-surface); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-md); padding: var(--wm-space-6); max-width: 880px; min-width: 0; }
+.wm-rp-col.wm-rp-doc { max-width: none; }
+.wm-rp-doc-head { display: flex; flex-direction: column; gap: var(--wm-space-2); border-bottom: 1px solid var(--wm-color-border); padding-bottom: var(--wm-space-4); margin-bottom: var(--wm-space-4); }
+.wm-rp-doc-dim { font-weight: var(--wm-font-weight-subtitle); }
+.wm-rp-status { display: flex; align-items: center; gap: var(--wm-space-2); flex-wrap: wrap; }
+.wm-rp-cover h1 { margin: 0 0 var(--wm-space-3); font-size: var(--wm-font-size-title); }
+.wm-rp-h { font-size: var(--wm-font-size-subtitle); margin: var(--wm-space-6) 0 var(--wm-space-3); }
+.wm-rp-text, .wm-rp-cover p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.wm-rp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--wm-space-3); margin: var(--wm-space-3) 0; }
+.wm-rp-stat { padding: var(--wm-space-4); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-md); }
+.wm-rp-stat span { display: block; color: var(--wm-color-text-secondary); }
+.wm-rp-stat strong { display: block; margin-top: var(--wm-space-2); font-size: var(--wm-font-size-title); font-variant-numeric: tabular-nums; }
+.wm-rp-table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: var(--wm-font-size-caption); margin: var(--wm-space-3) 0; }
+.wm-rp-table th, .wm-rp-table td { border: 1px solid var(--wm-color-border); padding: var(--wm-space-2); overflow-wrap: anywhere; text-align: left; }
+.wm-rp-table th { background: var(--wm-color-primary-subtle); }
+.wm-rp-table .wm-rp-num { text-align: right; font-variant-numeric: tabular-nums; }
+.wm-rp-sources { margin-top: var(--wm-space-4); }
+.wm-rp-claims { margin-top: var(--wm-space-4); border-top: 1px solid var(--wm-color-border); }
+.wm-rp-claim { padding: var(--wm-space-3) 0; border-bottom: 1px solid var(--wm-color-border); display: flex; flex-direction: column; gap: var(--wm-space-2); }
+.wm-rp-claim.wm-rp-open { border-left: 3px solid var(--wm-color-danger); padding-left: var(--wm-space-3); }
+.wm-rp-claim-head { display: flex; align-items: center; gap: var(--wm-space-2); flex-wrap: wrap; }
+.wm-rp-claim-key { color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-caption); }
+.wm-rp-claim-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.wm-rp-responses { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--wm-space-1); }
+.wm-rp-resp { overflow-wrap: anywhere; }
+.wm-rp-replaced .wm-rp-reason { text-decoration: line-through; color: var(--wm-color-text-secondary); }
+.wm-rp-respond { display: flex; flex-direction: column; gap: var(--wm-space-2); padding: var(--wm-space-3); background: var(--wm-color-page); border-radius: var(--wm-radius-md); }
+.wm-rp-respond-btn { align-self: flex-start; }
+.wm-rp-respond .ant-input-textarea-show-count { margin-bottom: var(--wm-space-6); }
+.wm-rp-respond-actions { display: flex; justify-content: flex-end; gap: var(--wm-space-2); }
+/* 台的 MCP 授权页（/bench-mcp/<台>，#904） */
+.wm-bm-acts { display: inline-flex; gap: var(--wm-space-2); }
+.wm-bm-tools { display: inline-flex; flex-wrap: wrap; gap: var(--wm-space-1); }
+.wm-bm-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.wm-bm-block { margin-top: var(--wm-space-6); }
+.wm-bm-gap { margin-bottom: var(--wm-space-2); }
+.wm-bm-gap-l { margin-left: var(--wm-space-2); }
+.wm-bm-grant { padding: var(--wm-space-3) 0; border-bottom: 1px solid var(--wm-color-border); }
+.wm-bm-grant-head { font-weight: var(--wm-font-weight-subtitle); margin-bottom: var(--wm-space-2); }
+.wm-bm-grant-tools { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--wm-space-1); }
+.wm-bm-dialog { display: flex; flex-direction: column; gap: var(--wm-space-3); }
+.wm-bm-dialog .ant-input-textarea-show-count { margin-bottom: var(--wm-space-6); }
 
 /* 侧栏折叠按钮贴合深色底；保留以维持移动端抽屉触发器 */
 .wm-sider-collapse {

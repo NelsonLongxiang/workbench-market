@@ -332,7 +332,7 @@
           "response": {
             "status": 200,
             "type": "text/html; charset=utf-8",
-            "headers": { "content-length": "377", "etag": "W/\"179-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "377", "etag": "W/\"179-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
             "body": "<!doctype html><html><head lang=\"zh\"><meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"task-center\";window.WM_WORKBENCH_ID=1;</script><title>回放附件</title></head><body><div>附件正文</div></body></html>"
           }
         },
@@ -346,7 +346,7 @@
           "response": {
             "status": 200,
             "type": "text/html; charset=utf-8",
-            "headers": { "content-length": "291", "etag": "W/\"123-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "291", "etag": "W/\"123-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
             "body": "<meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"task-center\";window.WM_WORKBENCH_ID=1;</script><p>没有 head 的片段</p>"
           }
         },
@@ -360,7 +360,7 @@
           "response": {
             "status": 200,
             "type": "text/html; charset=utf-8",
-            "headers": { "content-length": "317", "etag": "W/\"13d-<指纹>\"", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "317", "etag": "W/\"13d-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-app-version": "v2", "x-powered-by": "Express" },
             "body": "<html><head><meta name=\"wm-app-token\" content=\"<每个实例随机·hex64>\"><script>window.WM_APP_TOKEN=\"<每个实例随机·hex64>\";window.WM_APP_SLUG=\"task-center\";window.WM_WORKBENCH_ID=1;</script></head><body>大写扩展名</body></html>"
           }
         },

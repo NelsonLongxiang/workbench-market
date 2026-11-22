@@ -338,6 +338,15 @@ export class BenchStore {
   appFilePut(...a: Parameters<Core['appFilePut']>): ReturnType<Core['appFilePut']> { return this.rpc('appFilePut', a); }
   appDataDrop(...a: Parameters<Core['appDataDrop']>): ReturnType<Core['appDataDrop']> { return this.rpc('appDataDrop', a); }
   appFileDrop(...a: Parameters<Core['appFileDrop']>): ReturnType<Core['appFileDrop']> { return this.rpc('appFileDrop', a); }
+  reportBindingGet(...a: Parameters<Core['reportBindingGet']>): ReturnType<Core['reportBindingGet']> { return this.rpc('reportBindingGet', a); }
+  reportBindingPut(...a: Parameters<Core['reportBindingPut']>): ReturnType<Core['reportBindingPut']> { return this.rpc('reportBindingPut', a); }
+  reportSlots(...a: Parameters<Core['reportSlots']>): ReturnType<Core['reportSlots']> { return this.rpc('reportSlots', a); }
+  reportInsert(...a: Parameters<Core['reportInsert']>): ReturnType<Core['reportInsert']> { return this.rpc('reportInsert', a); }
+  reportGet(...a: Parameters<Core['reportGet']>): ReturnType<Core['reportGet']> { return this.rpc('reportGet', a); }
+  reportList(...a: Parameters<Core['reportList']>): ReturnType<Core['reportList']> { return this.rpc('reportList', a); }
+  reportCounts(): ReturnType<Core['reportCounts']> { return this.rpc('reportCounts', []); }
+  responseInsert(...a: Parameters<Core['responseInsert']>): ReturnType<Core['responseInsert']> { return this.rpc('responseInsert', a); }
+  responsesOf(...a: Parameters<Core['responsesOf']>): ReturnType<Core['responsesOf']> { return this.rpc('responsesOf', a); }
   appReplace(...a: Parameters<Core['appReplace']>): ReturnType<Core['appReplace']> { return this.rpc('appReplace', a); }
 }
 

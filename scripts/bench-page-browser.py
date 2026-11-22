@@ -8,7 +8,7 @@
   五、入口：没有台的卡片照原来嵌页面、不存在的卡片照原来说不存在（都走实例里真的入口）；入口 403、读不到（再试一次）。"""
 import json, os, re, sys
 from urllib.parse import urlparse, parse_qs
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M, CARD = cfg['base'], cfg['card']
 SHOT = os.environ.get('BENCH_PAGE_SHOT')
@@ -62,8 +62,9 @@ mode = {'entry': 'ok', 'render': 'ok', 'form': 'ok', 'title': 'ok', 'filters': '
 held = []  # 压住不回的取数（render 应答由测试自己放行）
 held_entry = []  # 压住不回的入口应答
 # 改台名（#905）：管理层的入口带 can.rename；台名改了以后入口照新名字回
-mgr = {'title': ENTRY['bench']['title']}
-def mgr_entry(): return {**ENTRY, 'bench': {**ENTRY['bench'], 'title': mgr['title']}, 'can': {'rename': True}}
+# 卡片名（#927）：能改名的人的入口里带 card_title（卡片现在的名字），「跟卡片同名」照它出不出
+mgr = {'title': ENTRY['bench']['title'], 'card': ENTRY['bench']['title']}
+def mgr_entry(): return {**ENTRY, 'bench': {**ENTRY['bench'], 'title': mgr['title'], 'card_title': mgr['card']}, 'can': {'rename': True}}
 def fake(route, body, status=200): route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
 def on_bv(route):
     u = urlparse(route.request.url); parts = u.path.split('/')
@@ -96,12 +97,19 @@ def on_bv(route):
     if rest == 'title':
         body = json.loads(route.request.post_data or '{}'); log['title'].append(body)
         if mode['title'] == '409': return fake(route, {'error': 'conflict', 'message': '台的名字已经被改过了，先重新读一次再改'}, 409)
-        changed = body.get('title') != mgr['title']; mgr['title'] = body.get('title', mgr['title'])
+        nt = mgr['card'] if body.get('from_card') is True else body.get('title', mgr['title'])
+        changed = nt != mgr['title']; mgr['title'] = nt
         return fake(route, {'bench': mgr_entry()['bench'], 'changed': changed})
     return fake(route, {'error': 'not_found'}, 404)
 
 def q_of(pg): return {k: v[0] for k, v in parse_qs(urlparse(pg.url).query).items()}
 def body_text(pg): return pg.locator('body').inner_text()
+def until(pg, pred, timeout_ms=10000):
+    """等这边记下的状态（请求日志之类，页面看不到）成立：每 20 毫秒看一次，期间照常处理截下的请求；等到了返回 True，到点返回 False（由后面的断言报）"""
+    for _ in range(max(1, timeout_ms // 20)):
+        if pred(): return True
+        pg.wait_for_timeout(20)
+    return pred()
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -115,8 +123,8 @@ with sync_playwright() as p:
     print('一、视图台')
     pg.goto(f'{M}/use/{CARD}')
     pg.wait_for_selector('[data-testid=bench-page] [data-bb=stat][data-bb-state=ready]')
-    pg.wait_for_selector('[data-bb=bar][data-bb-state=ready]'); pg.wait_for_timeout(600)
-    if SHOT: pg.screenshot(path=SHOT)
+    pg.wait_for_selector('[data-bb=bar][data-bb-state=ready]')
+    if SHOT: pg.wait_for_timeout(600); pg.screenshot(path=SHOT)  # 只为截图等图表的动画走完，不影响后面的断言
     tabs = [t.inner_text() for t in pg.locator('[data-testid=bench-page-tab]').all()]
     check('进的是数据视图页：顶栏台名「合成·巡检台」，标题「合成巡检总览」', pg.locator('[data-testid=bench-page-name]').inner_text() == '合成·巡检台' and pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览')
     check('两个视图页签，按入口的次序；默认那一份选中', tabs == ['巡检看板', '巡检明细'] and pg.locator('[data-testid=bench-page-tab][aria-selected=true]').inner_text() == '巡检看板', tabs)
@@ -178,7 +186,7 @@ with sync_playwright() as p:
     n2 = len(log['render'])
     form.locator('button[type=submit]').click()
     form.locator('.ant-alert-success').wait_for()
-    pg.wait_for_function(f"() => true"); pg.wait_for_timeout(500)
+    until(pg, lambda: len(log['form']) > 0 and len(log['render']) > n2)  # 等交表单的请求记下了、整页的重新取数也发出去了（不固定睡）
     check('请求带视图、第几块（从 0 数）、版本、填的值', log['form'][-1:] == [{'view': 'vk-board', 'block': 5, 'version': 5, 'values': {'site': '南区', 'n': 3}}], log['form'])
     check('交上去了：说「已经交上去了」，整页按现在的视图重新取了一次', '已经交上去了' in form.inner_text() and len(log['render']) > n2 and log['render'][-1] == ('vk-board', {}), log['render'][n2:])
     mode['form'] = '409'
@@ -223,8 +231,17 @@ with sync_playwright() as p:
     check('标题换成第三版，页签不再出（只剩一份）', pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览·三' and pg.locator('[data-testid=bench-page-tab]').count() == 0)
     mode['entry'] = '500'
     r2 = len(log['render'])
-    pg.locator('[data-testid=bench-page-refresh]').click()
-    pg.wait_for_timeout(800)
+    # 这一条要证明的是「没有发生」（页面没被换掉、没出整页错），照 #954 的口径：
+    #   先等两件一定会发生的事——入口那次（500）的应答到了，正文的重新取数发了而且画好了；
+    #   再留一段固定时间，让「错误晚一点才出来」也有机会出来，然后再看没有发生。等不到的不在这里抛错，交给下面的断言报
+    try:
+        with pg.expect_response(lambda r: r.url.endswith('/entry'), timeout=10000): pg.locator('[data-testid=bench-page-refresh]').click()
+    except PWTimeout:
+        pass
+    until(pg, lambda: len(log['render']) > r2)
+    try: pg.wait_for_selector('[data-bb=bar][data-bb-state=ready]', timeout=10000)
+    except PWTimeout: pass
+    pg.wait_for_timeout(800)  # 证明「没有发生」的那段时间（有意的固定等待，见 #954）
     check('入口这次读不到（500）：页面保持现状不换，正文照常重新取数，不整页报错', len(log['render']) > r2 and pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览·三' and pg.locator('[data-testid=use-entry-error]').count() == 0, (len(log['render']) - r2))
     mode['entry'] = 'ok'
 
@@ -237,6 +254,7 @@ with sync_playwright() as p:
     check('入口给了 can.rename：顶栏台名旁出「改名」，和「详情」在一处', pg.locator('.wm-bp-bar-extra [data-testid=bench-page-rename]').count() == 1)
     pg.locator('[data-testid=bench-page-rename]').click(); inp = pg.locator('[data-testid=bench-rename-input]'); inp.wait_for()
     check('点开：输入框预填现在的台名', inp.input_value() == '合成·巡检台', inp.input_value())
+    check('卡片名和台名一样：不出「跟卡片同名」（#927）', pg.locator('[data-testid=bench-rename-from-card]').count() == 0)
     inp.fill('合成·巡检台（新）'); pg.locator('[data-testid=bench-rename-save]').click()
     pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '合成·巡检台（新）'")
     # 对话框关的时候有收起动画，输入框在动画结束后才从页面上拿掉：等它真没了再断言（等不到就超时失败）
@@ -282,7 +300,28 @@ with sync_playwright() as p:
     pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '合成·后台又改了'")
     check('过了 30 秒再切回来：重新取了一次入口，顶栏换成别人改的新名字', log['entry'] == e0 + 1, (e0, log['entry']))
     check('……对话框开着：输入框还是正在输入的那个，没被覆盖', inp.input_value() == '正在输入的名字', inp.input_value())
-    pg.keyboard.press('Escape'); mode['entry'] = 'ok'
+    pg.keyboard.press('Escape')
+    pg.wait_for_selector('[data-testid=bench-rename-input]', state='detached')
+    # 「跟卡片同名」（#927）：没有对应卡片（card_title 为 null）不出；卡片名和台名不同才出，按钮上写着卡片名；点了请求带 from_card 和 base_title
+    mgr['card'] = None
+    # 等这一次入口真回来再往下（等不到就超时失败），不靠固定时长：机器慢时入口没回来就点开对话框，用的还是旧的 card_title
+    with pg.expect_response(lambda r: r.url.endswith('/entry')): pg.locator('[data-testid=bench-page-refresh]').click()
+    pg.locator('[data-testid=bench-page-rename]').click(); pg.locator('[data-testid=bench-rename-input]').wait_for()
+    check('台没有对应卡片（card_title 为 null）：不出「跟卡片同名」', pg.locator('[data-testid=bench-rename-from-card]').count() == 0)
+    # Esc 要落在对话框里才关（焦点还在顶栏的「改名」上时按 Esc 不关），所以按在输入框上
+    pg.locator('[data-testid=bench-rename-input]').press('Escape'); pg.wait_for_selector('[data-testid=bench-rename-input]', state='detached')
+    mgr['card'] = '合成·巡检卡片'
+    # 等这一次入口真回来再往下（等不到就超时失败），不靠固定时长：机器慢时入口没回来就点开对话框，用的还是旧的 card_title
+    with pg.expect_response(lambda r: r.url.endswith('/entry')): pg.locator('[data-testid=bench-page-refresh]').click()
+    pg.locator('[data-testid=bench-page-rename]').click(); fc = pg.locator('[data-testid=bench-rename-from-card]'); fc.wait_for()
+    check('卡片名和台名不同：出「跟卡片同名」，按钮上写着卡片名', '合成·巡检卡片' in fc.inner_text(), fc.inner_text())
+    base = mgr['title']; fc.click()
+    pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-name]')?.textContent === '合成·巡检卡片'")
+    pg.wait_for_selector('[data-testid=bench-rename-input]', state='detached')
+    check('点了「跟卡片同名」：请求带 from_card 和 base_title，顶栏换成卡片名', log['title'][-1:] == [{'from_card': True, 'base_title': base}], log['title'][-1:])
+    pg.locator('[data-testid=bench-page-rename]').click(); pg.locator('[data-testid=bench-rename-input]').wait_for()
+    check('同名之后再点开：不再出「跟卡片同名」', pg.locator('[data-testid=bench-rename-from-card]').count() == 0)
+    pg.locator('[data-testid=bench-rename-input]').press('Escape'); mode['entry'] = 'ok'
 
     print('七之二、连着重取两次入口，先发出的那次晚到')
     mode['entry'] = 'mgr'; mgr['title'] = '合成·旧名'; held_entry.clear()

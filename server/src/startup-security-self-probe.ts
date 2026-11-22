@@ -130,6 +130,11 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 定规范经写请求总门放行、路由内认人（持 area-spec 的人多半不是管理员）：远程匿名来必须 401
       { id: 'market.areas.anonymous-spec-set', target: m, surface: 'market', method: 'POST', path: '/api/areas/wm-self-probe/specs', body: '{"body":"x"}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.areas.anonymous-read', target: m, surface: 'market', method: 'GET', path: '/api/areas', headers: REMOTE_ANON, status: 401 },
+      // 报告维度（docs/report-step1.md 第四节）：定报告维度经写请求总门放行、路由内认人（持 area-report 的人多半不是管理员），远程匿名来必须 401；
+      // 建维度、发模板两条都看（认人在查维度之前，门坏了会回 400 或 404，也不会建出东西）；读也要先登录
+      { id: 'market.report-dimensions.anonymous-create', target: m, surface: 'market', method: 'POST', path: '/api/report-dimensions', body: '{"id":"wm-self-probe","title":"x"}', origin: true, headers: REMOTE_ANON, status: 401 },
+      { id: 'market.report-dimensions.anonymous-template-add', target: m, surface: 'market', method: 'POST', path: '/api/report-dimensions/wm-self-probe/templates', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
+      { id: 'market.report-dimensions.anonymous-read', target: m, surface: 'market', method: 'GET', path: '/api/report-dimensions', headers: REMOTE_ANON, status: 401 },
       // 旧部门接口停写（docs/domains-step1.md 第六节）：本机命令行（属主，鉴权最宽的那一档）删一个编出来的部门也必须 410。
       // 停写在查部门之前，所以门坏了会回 404（部门不在），不会改到任何东西
       { id: 'market.departments.write-closed', target: m, surface: 'market', method: 'DELETE', path: '/api/departments/wm-self-probe', status: 410 },
@@ -140,6 +145,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
         { id: 'market.bench-views.var-render-anonymous', target: m, surface: 'market' as const, method: 'GET', path: '/api/bench-views/wm-self-probe/render?var=wm-self-probe', headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.table-export-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/table/export', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.table-row-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/table/row', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
+        // 报告（docs/report-step1.md，报告第 1 步 PR B）：远程匿名生成不了报告（路由自己认不出人，401）
+        { id: 'market.bench-views.report-generate-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/reports', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.anonymous-write', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views', body: '{"slug":"wm-self-probe","title":"x"}', headers: REMOTE_ANON, status: 401 },
       ] : []),
       // 授予管理面：远程匿名列不出授予（GET 不经写请求总门，拒的是路由自己的管理门；登录门开着时登录门先拦 401）
