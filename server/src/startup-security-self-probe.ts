@@ -261,7 +261,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
     if (appendOnly) {
       let g: { ok: boolean; reason: string | null };
       try { g = appendOnly(); } catch { g = { ok: false, reason: 'error' }; }
-      const row: Row = { id: 'market.db.append-only-guarded', surface: 'market', method: 'LOCAL', path: 'sqlite_master.triggers', verdict: g.ok ? 'pass' : 'fail', status: null, reason: g.ok ? null : g.reason };
+      const row: Row = { id: 'market.db.append-only-guarded', surface: 'market', method: 'LOCAL', path: 'db.append-only-triggers', verdict: g.ok ? 'pass' : 'fail', status: null, reason: g.ok ? null : g.reason };
       state.rows.push(row);
       log({ source: 'self-probe', ...row });
     }
