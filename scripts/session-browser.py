@@ -105,7 +105,9 @@ with sync_playwright() as p:
     pg.on('requestfinished', lambda r: fin.append(r.url) if '/api/work-items' in r.url else None)
     pg.on('requestfailed', lambda r: fin.append(r.url) if '/api/work-items' in r.url else None)
     # 先放回旧身份那一个（带着 alpha 的事项），再放换人之后新页面发出的；最后才撤掉拦截
-    if old: old.fulfill(status=200, content_type='application/json', body=json.dumps({'items': [{'id': WID, 'title': T[0], 'state': 'held', 'object': '', 'phase': '', 'seat': '', 'last_progress': None, 'updated_at': '2026-11-12T00:00:00Z'}], 'counts': {}, 'total': 1, 'next_cursor': None}))
+    # 这条旧应答要是真被写回，页面上一定画得出来（#986）：状态用普通的「在办」（progress），counts 和它对得上。
+    #   原来用 held + counts {}：held 落进「等你拍板」那组，要按「关注」分谁的、数又是 0，写回了也画不出来，这条断言就空过了
+    if old: old.fulfill(status=200, content_type='application/json', body=json.dumps({'items': [{'id': WID, 'title': T[0], 'state': 'progress', 'object': '', 'phase': '', 'seat': '', 'last_progress': None, 'updated_at': '2026-11-12T00:00:00Z'}], 'counts': {'progress': 1}, 'total': 1, 'next_cursor': None}))
     for r in held[1:]: r.continue_()
     # 证明「没有」：截下的每个请求（旧身份那一个、换人后的）都收完了应答，页面再画两帧；旧的那个真要写回，这时已经在页面上了
     until(pg, lambda: len(fin) >= len(held))
