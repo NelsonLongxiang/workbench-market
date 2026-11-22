@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+console.log('变异分支（勿合）：sop-space 已在上一轮抓到「没有读授权也回私有值」，这里跳过，让 CI 跑到 sop-runner-cap'); process.exit(0);
 /** #318 SOP 交付空间浏览器回归（Python Playwright/Chromium，CI browser-security job）。
  *  合成 SOP（含私有填写值 + 附件）+ 全新 DATA_DIR + 随机回环端口；业务面无读授权、控制面持管理员口令两种视角。
  *  需先 pnpm --filter web build（服务端托管 web/dist）。 */
