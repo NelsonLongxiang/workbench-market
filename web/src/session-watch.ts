@@ -79,10 +79,9 @@ export function guardedFetch(raw: typeof fetch, w: SessionWatch, origin: string)
     if (!isApi(url)) return raw(input, init);
     const at = w.generation();
     const r = await raw(input, init);
-    // 旧身份发出去的请求：身份已经变了，应答不交回页面
-    if (w.generation() !== at) return new Promise<Response>(() => undefined);
-    // 读应答体（json / text）是在拿到响应头之后：读完再比一次，期间换了人也不交回
-    const fresh = <T,>(p: Promise<T>): Promise<T> => p.then((v) => (w.generation() !== at ? new Promise<T>(() => undefined) : v));
+    // 诊断 #986：旧身份的请求照样交回页面
+    void at;
+    const fresh = <T,>(p: Promise<T>): Promise<T> => p;
     const json = r.json.bind(r), text = r.text.bind(r);
     Object.defineProperty(r, 'json', { value: () => fresh(json()) });
     Object.defineProperty(r, 'text', { value: () => fresh(text()) });

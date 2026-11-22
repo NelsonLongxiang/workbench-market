@@ -222,6 +222,7 @@ jobs:
           PYTHON: python
         run: node scripts/report-page-browser.mjs
       - name: 身份变了以后页面重读（401 且确认没登录或换了人才清·502 不清挂横幅·旧身份在路上的应答不写回·后退恢复的页面也确认）
+        if: always() # 诊断 #986（勿合）
         env:
           PYTHON: python
         run: node scripts/session-browser.mjs

@@ -133,7 +133,7 @@ export default function App() {
   }
 
   return (
-    <Shell key={gen} admin={admin} footer={<><LoginChip />{surface !== 'control' && <ViewerChip />}{surface !== 'control' && <PasswordChip />}<AdminTokenBadge /></>}>
+    <Shell key={0 /* 诊断 #986：换人不重挂 */} admin={admin} footer={<><LoginChip />{surface !== 'control' && <ViewerChip />}{surface !== 'control' && <PasswordChip />}<AdminTokenBadge /></>}>
       <OutboundBanner />
       <Routes>
         <Route path="/" element={<Home />} />

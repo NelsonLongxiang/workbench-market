@@ -92,6 +92,7 @@ with sync_playwright() as p:
     ctx, pg = open_as(b, cfg['alpha_session'], '/work-items')
     held = []
     ctx.route('**/api/work-items*', lambda r: held.append(r))
+    print('  DIAG986 开页后：', shows(pg))
     pg.get_by_role('button', name='刷新').first.click()
     until(pg, lambda: len(held) >= 1); painted(pg)
     n1 = len(held)
@@ -101,6 +102,8 @@ with sync_playwright() as p:
     soft(lambda: pg.wait_for_function('() => window.__wmLost > 0'))
     until(pg, lambda: len(held) > n1)
     old = held[0] if held else None
+    print('  DIAG986 截下的请求：', [r.request.url.split(M)[-1] for r in held], '换人广播：', pg.evaluate('window.__wmLost'))
+    print('  DIAG986 放回之前：', shows(pg))
     fin = []
     pg.on('requestfinished', lambda r: fin.append(r.url) if '/api/work-items' in r.url else None)
     pg.on('requestfailed', lambda r: fin.append(r.url) if '/api/work-items' in r.url else None)
@@ -111,6 +114,7 @@ with sync_playwright() as p:
     until(pg, lambda: len(fin) >= len(held))
     ctx.unroute('**/api/work-items*')
     painted(pg); painted(pg)
+    print('  DIAG986 放回之后：', shows(pg), '错误提示：', [t[:120] for t in pg.locator('.ant-alert').all_inner_texts()], '空态：', pg.locator('[data-testid=work-items-empty]').count(), '收完：', len(fin))
     check('换人之前发出、换人之后才回来的那个应答（alpha 的事项）不写回页面', old is not None and T[0] not in pg.content(), (len(held), shows(pg)))
     ctx.close()
     # 五、从浏览器缓存恢复的页面（后退）也确认一次
