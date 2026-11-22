@@ -74,7 +74,7 @@ export default function Knowledge() {
             <List.Item.Meta
               title={<Space size={8} wrap>{kindTag(x.kind)}<Link to={`/knowledge/${encodeURIComponent(x.key)}`} data-testid="kn-item-title">{x.title}</Link>{statusTag(x.status)}</Space>}
               description={<Space direction="vertical" size={4} className="wm-w-full">
-                {x.summary && <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }} style={{ marginBottom: 0 }}>{x.summary}</Typography.Paragraph>}
+                {x.summary && <Typography.Paragraph type="secondary" ellipsis={{ rows: 2 }} className="wm-mb-0">{x.summary}</Typography.Paragraph>}
                 <Space size={8} wrap className="wm-caption">
                   {x.decided_by_name && <Typography.Text type="secondary" className="wm-caption" data-testid="kn-item-decider">拍板：{x.decided_by_name}</Typography.Text>}
                   {x.scope_label && <Typography.Text type="secondary" className="wm-caption" data-testid="kn-item-scope">{x.scope_label}</Typography.Text>}

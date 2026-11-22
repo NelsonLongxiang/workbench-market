@@ -219,6 +219,12 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
     const disp = (inlineOk && !BIN_EXT) ? 'inline' : 'attachment';
     res.setHeader('content-disposition', `${disp}; filename*=UTF-8''${encodeURIComponent(row.original_name || 'file')}`);
     res.setHeader('x-content-type-options', 'nosniff');
+    // #266（A16/A21）：附件是这个台的业务数据——不进任何缓存，不随 Referer 外带下载地址（下载链接里可能带着查看凭证 wm_av）；
+    // 就算 inline 打开也执行不了脚本、碰不到同源。图片要能直接在标签页里看（Firefox 的图片文档受 img-src 约束），所以留 img-src 'self'；
+    // PDF 不加 sandbox：Chrome 的 PDF 阅读器在 sandbox 下打不开（整页被拦），PDF 本来也跑不了页面脚本
+    res.setHeader('cache-control', 'no-store');
+    res.setHeader('referrer-policy', 'no-referrer');
+    res.setHeader('content-security-policy', `default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'${row.mime === 'application/pdf' && disp === 'inline' ? '' : '; sandbox'}`);
     createReadStream(abs).pipe(res);
   }));
 }

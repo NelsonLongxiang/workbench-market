@@ -6,7 +6,7 @@
   · 安排一件事：选文件就传（PUT /api/work-items/attachments/<名字>，原始字节、带摘要头），传上的写大小、没传上的写原因、能去掉；安排时带 attachments:[id]。
 数据全是合成的。"""
 import json, re, sys
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M = cfg['base']
 ok = fail = 0
@@ -14,6 +14,21 @@ def check(n, c, x=''):
     global ok, fail
     if c: ok += 1; print('  ✓', n)
     else: fail += 1; print('  ✗', n, x)
+
+def soft(fn):
+    """等条件成立；等不到不在这里抛错，照常往下，由后面原来的断言报（带着当时的值）"""
+    try: fn()
+    except PWTimeout: pass
+def until(pg, pred, timeout=10000):
+    """等测试这边记下的状态（请求日志）满足 pred：每 20 毫秒看一次，期间照常处理截下的请求；到点就停，不抛错"""
+    for _ in range(timeout // 20):
+        if pred(): return
+        pg.wait_for_timeout(20)
+def notice(pg, text):
+    """等某句提示出现"""
+    soft(lambda: pg.locator('.ant-message-notice', has_text=text).first.wait_for(timeout=10000))
+# 选好日期：「保存」可点了（选的日期进了状态）
+PICKED = "() => { const s = document.querySelector('[data-testid=work-item-due-save]'); return !!s && !s.disabled; }"
 
 def item(i, state='progress', can_due=True, **extra):
     base = {'id': f'wi-syn-{i}', 'title': f'合成事项 {i}', 'state': state, 'created_by': 'user:syn-a', 'creator_principal': 'user:syn-a', 'created_at': '2026-11-10 08:00:00', 'updated_at': '2026-11-12 08:00:00',
@@ -44,7 +59,9 @@ with sync_playwright() as p:
     pg.route(DETAIL, lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps(DETAILS[DETAIL.search(r.request.url).group(1)])))
     pg.route(re.compile(r'/api/work-items/wi-syn-\d+/due$'), on_due)
     def open_item(i):
-        pg.goto(M + f'/work-items/wi-syn-{i}'); pg.wait_for_selector('[data-testid=work-item-summary]'); pg.wait_for_timeout(300)
+        # 期限、附件和摘要卡片来自同一次详情应答、同一次渲染：摘要卡片出来了，它们就都画好了。
+        # 后面「没有改」「不画期限、没有附件卡片」这几条证明「没有」的，也以此为准
+        pg.goto(M + f'/work-items/wi-syn-{i}'); pg.wait_for_selector('[data-testid=work-item-summary]')
     open_item(1)
     due = pg.locator('[data-testid=work-item-due]')
     check('有期限：摘要里「期限」一行，日期加离今天多远；没过期不标', due.inner_text().startswith('2099-12-31（还有') and pg.locator('[data-testid=work-item-overdue]').count() == 0, due.all_inner_texts())
@@ -56,19 +73,25 @@ with sync_playwright() as p:
     edit = pg.locator('[data-testid=work-item-due-edit]')
     check('建立人：期限后面有「改」', edit.count() == 1 and edit.inner_text().strip() == '改')
     edit.click(); pg.wait_for_selector('[data-testid=work-item-due-editor]')
-    inp = pg.locator('[data-testid=work-item-due-editor] input'); inp.click(); inp.fill('2099-12-01'); inp.press('Enter'); pg.wait_for_timeout(200)
-    pg.locator('[data-testid=work-item-due-save]').click(); pg.wait_for_timeout(500)
+    inp = pg.locator('[data-testid=work-item-due-editor] input'); inp.click(); inp.fill('2099-12-01'); inp.press('Enter')
+    soft(lambda: pg.wait_for_function(PICKED, timeout=10000))
+    n = len(due_posts); pg.locator('[data-testid=work-item-due-save]').click()
+    until(pg, lambda: len(due_posts) > n); notice(pg, '已告诉在办的席位')
     check('保存：发 POST /due { due: 新日期 }，提示里说已告诉在办的席位', due_posts[-1:] == [{'due': '2099-12-01'}] and pg.locator('.ant-message-notice', has_text='已告诉在办的席位').count() >= 1, due_posts)
     # 等放行（或已放行、排队还没发出）时改：notified 0、pending_release 真——不说「已告诉」，说派出时带上
     DUE_REPLY.update(notified=0, pending_release=True)
-    edit.click(); pg.wait_for_selector('[data-testid=work-item-due-clear]'); pg.locator('[data-testid=work-item-due-clear]').click(); pg.wait_for_timeout(500)
+    edit.click(); pg.wait_for_selector('[data-testid=work-item-due-clear]')
+    n = len(due_posts); pg.locator('[data-testid=work-item-due-clear]').click()
+    until(pg, lambda: len(due_posts) > n); notice(pg, '期限清掉了，派出时按不限期发')
     check('清掉期限：发 { due: null }', due_posts[-1:] == [{'due': None}], due_posts)
     msgs = pg.locator('.ant-message-notice').all_inner_texts()
     check('还没派出（pending_release 真、notified 0）：提示「期限清掉了，派出时按不限期发」，不说「已告诉在办的席位」', any(m.strip() == '期限清掉了，派出时按不限期发' for m in msgs) and not any(m.startswith('期限清掉了') and '已告诉' in m for m in msgs), msgs)
     DUE_REPLY.update(notified=2, pending_release=True)
     edit.click(); pg.wait_for_selector('[data-testid=work-item-due-editor]')
-    inp = pg.locator('[data-testid=work-item-due-editor] input'); inp.click(); inp.fill('2099-11-30'); inp.press('Enter'); pg.wait_for_timeout(200)
-    pg.locator('[data-testid=work-item-due-save]').click(); pg.wait_for_timeout(500)
+    inp = pg.locator('[data-testid=work-item-due-editor] input'); inp.click(); inp.fill('2099-11-30'); inp.press('Enter')
+    soft(lambda: pg.wait_for_function(PICKED, timeout=10000))
+    n = len(due_posts); pg.locator('[data-testid=work-item-due-save]').click()
+    until(pg, lambda: len(due_posts) > n); notice(pg, '期限改成 2099-11-30；已告诉在办的席位，还没派出的派出时会带上新期限')
     msgs = pg.locator('.ant-message-notice').all_inner_texts()
     check('一部分已告诉、一部分还没派出（两个都有）：合成一句说清', any(m.strip() == '期限改成 2099-11-30；已告诉在办的席位，还没派出的派出时会带上新期限' for m in msgs), msgs)
     DUE_REPLY.update(notified=1, pending_release=False)
@@ -76,8 +99,10 @@ with sync_playwright() as p:
     check('过期了：照服务端的 overdue 标「已过期」', pg.locator('[data-testid=work-item-overdue]').inner_text().strip() == '已过期')
     open_item(4)
     check('期限是 null：写「不限」，建立人能「加一个」', pg.locator('[data-testid=work-item-due]').inner_text().strip() == '不限' and pg.locator('[data-testid=work-item-due-edit]').inner_text().strip() == '加一个')
-    pg.locator('[data-testid=work-item-due-edit]').click(); inp = pg.locator('[data-testid=work-item-due-editor] input'); inp.click(); inp.fill('2099-01-01'); inp.press('Enter'); pg.wait_for_timeout(200)
-    pg.locator('[data-testid=work-item-due-save]').click(); pg.wait_for_timeout(500)
+    pg.locator('[data-testid=work-item-due-edit]').click(); inp = pg.locator('[data-testid=work-item-due-editor] input'); inp.click(); inp.fill('2099-01-01'); inp.press('Enter')
+    soft(lambda: pg.wait_for_function(PICKED, timeout=10000))
+    n = len(due_posts); pg.locator('[data-testid=work-item-due-save]').click()
+    until(pg, lambda: len(due_posts) > n); notice(pg, '只有建立人能改期限')
     check('改期限被拒（404）：说只有建立人能改', pg.locator('.ant-message-notice', has_text='只有建立人能改期限').count() >= 1)
     open_item(5)
     check('事项结束了：期限照写，没有「改」', pg.locator('[data-testid=work-item-due]').count() == 1 and pg.locator('[data-testid=work-item-due-edit]').count() == 0)
@@ -121,7 +146,8 @@ with sync_playwright() as p:
     pg.get_by_placeholder('一句话说清是什么事').fill('合成：带附件的一件事')
     pg.locator('[data-testid=arrange-form] textarea').nth(0).fill('合成：要做什么')
     pg.locator('[data-testid=arrange-form] textarea').nth(1).fill('合成：交什么')
-    pg.locator('[data-testid=arrange-submit]').evaluate('e => e.click()'); pg.wait_for_timeout(800)
+    pg.locator('[data-testid=arrange-submit]').evaluate('e => e.click()')
+    until(pg, lambda: posted)  # 等截下安排的 POST
     check('安排：请求体带 attachments:[传上的那个 id]，没传上的不带', posted and posted[-1].get('attachments') == [1], posted)
     b.close()
 

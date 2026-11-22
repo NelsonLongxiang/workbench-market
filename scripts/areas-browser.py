@@ -9,7 +9,7 @@
 数据全是合成的。"""
 import json, os, re, sys
 SHOT = os.environ.get('WM_SHOT_AREAS')  # 本机看样子用（目录），CI 不设
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M = cfg['base']
 ok = fail = 0
@@ -69,13 +69,23 @@ def setup(ctx):
     ctx.route(re.compile(r'/api/auth/me$'), me)
     ctx.route(re.compile(r'/api/grants(/\d+/(submit|approve))?$'), grants)
 
+def soft(fn):
+    """等条件成立；等不到不在这里抛错，照常往下，由后面原来的断言报（带着当时的值）"""
+    try: fn()
+    except PWTimeout: pass
+def until(pg, pred, timeout_ms=10000):
+    """等这边记下的请求（页面看不到）成立：每 20 毫秒看一次，期间照常处理截下的请求；到点返回，由后面的断言报"""
+    for _ in range(max(1, timeout_ms // 20)):
+        if pred(): return
+        pg.wait_for_timeout(20)
 def open_page(b, **st):
     state.clear(); state.update({'areas': [dict(a) for a in AREAS], 'can': OWNER}, **st); sent.clear()
     for k in list(LEADS): LEADS[k] = [dict(x) for x in LEADS[k]] if k == 'syn-fin' else []
     ctx = b.new_context(viewport={'width': 1440, 'height': 900}); setup(ctx)
     pg = ctx.new_page(); pg.set_default_timeout(10000)
     pg.goto(M + '/areas'); pg.wait_for_selector('[data-testid=areas-list], [data-testid=areas-empty], [data-testid=areas-login], [data-testid=areas-forbidden], [data-testid=areas-error]')
-    pg.wait_for_timeout(500)
+    # 等页面的取数都回来了（网络空闲），后面点「指定负责人」时候选人已经取到
+    soft(lambda: pg.wait_for_load_state('networkidle', timeout=10000))
     return ctx, pg
 card = lambda pg, aid: pg.locator(f'[data-testid=area-card][data-area={aid}]')
 
@@ -144,11 +154,16 @@ with sync_playwright() as p:
         ctx, pg = open_page(b)
         buy = card(pg, 'syn-buy')
         buy.locator('[data-testid=area-lead-open]').click()
-        buy.locator('[data-testid=area-lead-pick]').click(); pg.wait_for_timeout(300)
+        buy.locator('[data-testid=area-lead-pick]').click()
+        soft(lambda: pg.locator('.ant-select-dropdown:visible .ant-select-item-option').first.wait_for(timeout=10000))  # 等候选人的下拉选项出来
         opts = pg.locator('.ant-select-dropdown:visible .ant-select-item-option').all_inner_texts()
         check('可选的人：在用的人列出来（这个领域还没有负责人），自己（合成甲，属主本人）、停用的和席位不列', sorted(opts) == sorted(['合成乙', '合成丙']), opts)
         pg.locator('.ant-select-dropdown:visible .ant-select-item-option', has_text='合成丙').click()
-        sent.clear(); buy.locator('[data-testid=area-lead-save]').click(); pg.wait_for_timeout(1000)
+        sent.clear(); buy.locator('[data-testid=area-lead-save]').click()
+        # 等三步都发出去了（起草 → 提交 → 放行，放行那一条记下来了），再等「已放行」的提示和重读后的「在用」
+        until(pg, lambda: any(x['path'].endswith('/approve') for x in sent))
+        soft(lambda: pg.wait_for_function("() => [...document.querySelectorAll('.ant-message-notice')].some((e) => e.innerText.includes('已放行'))", timeout=10000))
+        soft(lambda: pg.wait_for_function("() => document.querySelector('[data-testid=area-card][data-area=syn-buy] [data-testid=area-status]')?.innerText === '在用'", timeout=10000))
         g = [x for x in sent if x['path'].startswith('/api/grants')]
         check('指定：起草 area-lead（principal、role、scope、写了理由）→ 提交 → 放行，三步按顺序',
               [x['path'] for x in g] == ['/api/grants', '/api/grants/77/submit', '/api/grants/77/approve'] and g[0]['body']['principal'] == 'user:syn-c'
@@ -156,13 +171,15 @@ with sync_playwright() as p:
         check('放行后：提示已放行；重读后这个领域是「在用」，负责人是合成丙', '已放行' in ' '.join(pg.locator('.ant-message-notice').all_inner_texts())
               and buy.locator('[data-testid=area-status]').inner_text() == '在用' and buy.locator('[data-testid=area-leads]').inner_text().endswith('合成丙'))
         fin = card(pg, 'syn-fin')
-        fin.locator('[data-testid=area-lead-open]').click(); fin.locator('[data-testid=area-lead-pick]').click(); pg.wait_for_timeout(300)
+        fin.locator('[data-testid=area-lead-open]').click(); fin.locator('[data-testid=area-lead-pick]').click()
+        soft(lambda: pg.locator('.ant-select-dropdown:visible .ant-select-item-option').first.wait_for(timeout=10000))  # 等候选人的下拉选项出来
         opts = pg.locator('.ant-select-dropdown:visible .ant-select-item-option').all_inner_texts()
         check('已经有负责人（生效、待放行）的领域：这两个人不再列', opts == ['合成丙'], opts)
         ctx.close()
         ctx, pg = open_page(b, approve=(409, {'error': 'credentials_set_by_system_admin', 'message': 'x'}))
         buy = card(pg, 'syn-buy')
-        buy.locator('[data-testid=area-lead-open]').click(); buy.locator('[data-testid=area-lead-pick]').click(); pg.wait_for_timeout(300)
+        buy.locator('[data-testid=area-lead-open]').click(); buy.locator('[data-testid=area-lead-pick]').click()
+        soft(lambda: pg.locator('.ant-select-dropdown:visible .ant-select-item-option').first.wait_for(timeout=10000))  # 等候选人的下拉选项出来
         pg.locator('.ant-select-dropdown:visible .ant-select-item-option', has_text='合成丙').click()
         buy.locator('[data-testid=area-lead-save]').click(); pg.wait_for_selector('[data-testid=area-lead-err]')
         err = buy.locator('[data-testid=area-lead-err]')
@@ -173,7 +190,9 @@ with sync_playwright() as p:
         print('五、属主：把部门迁成领域')
         ctx, pg = open_page(b, migrate=(200, {'created': [{'id': 'syn-ops', 'name': '合成运营'}, {'id': 'syn-pd', 'name': '合成新品'}], 'drafted': [{'department': 'syn-ops', 'grant': 31, 'principal': 'user:syn-a'}],
                                               'skipped': [{'department': 'syn-x', 'reason': 'lead_without_grant'}]}))
-        sent.clear(); pg.locator('[data-testid=areas-migrate]').click(); pg.wait_for_timeout(300)
+        sent.clear(); pg.locator('[data-testid=areas-migrate]').click()
+        # 等确认气泡出来（点按钮先弹确认）；出来了还没发迁移请求，才说明「只点按钮不发请求」
+        soft(lambda: pg.locator('.ant-popover').last.get_by_role('button', name=re.compile(r'^迁\s*移$')).wait_for(timeout=10000))
         check('迁移要先确认：只点按钮不发请求，说明写清会起草负责人授予、旧部门原样留着', not any(x['path'] == '/api/areas/migrate' for x in sent) and '旧部门原样留着' in pg.locator('.ant-popover').last.inner_text())
         pg.locator('.ant-popover').last.get_by_role('button', name=re.compile(r'^迁\s*移$')).click(); pg.wait_for_selector('[data-testid=areas-migrated]')
         res = pg.locator('[data-testid=areas-migrated]')
@@ -183,7 +202,8 @@ with sync_playwright() as p:
         if SHOT: pg.screenshot(path=f'{SHOT}/areas-migrated.png')
         ctx.close()
         ctx, pg = open_page(b, migrate=(404, {'error': 'not_found'}))
-        pg.locator('[data-testid=areas-migrate]').click(); pg.wait_for_timeout(300)
+        pg.locator('[data-testid=areas-migrate]').click()
+        soft(lambda: pg.locator('.ant-popover').last.get_by_role('button', name=re.compile(r'^迁\s*移$')).wait_for(timeout=10000))  # 等确认气泡出来再点
         pg.locator('.ant-popover').last.get_by_role('button', name=re.compile(r'^迁\s*移$')).click(); pg.wait_for_selector('[data-testid=areas-migrate-err]')
         check('服务端还没有迁移接口（404）：说没迁成、还没有这个接口', '还没有这个接口' in pg.locator('[data-testid=areas-migrate-err]').inner_text())
         ctx.close()

@@ -8,7 +8,7 @@
   四、「我处理过的（48 小时内）」：一行一条，没标题写来源名；记过的标出来；补记展开同样三项，交了变成「已记成经验」，请求带对的条目。"""
 import json, os, re, sys
 SHOT = os.environ.get('WM_SHOT_REMEMBER')  # 本机看样子用，CI 不设
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M = cfg['base']
 ok = fail = 0
@@ -16,6 +16,18 @@ def check(n, c, x=''):
     global ok, fail
     if c: ok += 1; print('  ✓', n)
     else: fail += 1; print('  ✗', n, x)
+def soft(fn):
+    """等条件成立；等不到不在这里抛错，照常往下，由后面原来的断言报（带着当时的值）"""
+    try: fn()
+    except PWTimeout: pass
+def until(pg, pred, timeout=10000):
+    """等测试这边记下的状态（请求日志）满足 pred：每 20 毫秒看一次，期间照常处理截下的请求；到点就停，不抛错"""
+    for _ in range(timeout // 20):
+        if pred(): return
+        pg.wait_for_timeout(20)
+def painted(pg):
+    """等页面再画两帧（应答到了以后 React 把它画出来）"""
+    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
 def fake(route, body, status=200): route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
 
 # 走 /api/attention/answer 的两条（没有 answer_via，不是建立人自己的验收）：一条推得出部门，一条推不出
@@ -82,9 +94,11 @@ def setup(ctx):
     ctx.route(re.compile(r'/api/knowledge/remember$'), remember_later)
 
 def press(pg, btn):
-    # 有的答法先弹确认框（批准 AI 会话的写工具）：弹了就点确定
-    btn.click(); pg.wait_for_timeout(400)
+    # 有的答法先弹确认框（批准 AI 会话的写工具）：等到确认框弹出，或者（不弹的那种）答复请求已经发出；弹了就点确定
+    n = len(sent) + len(decisions) + len(releases)
     pop = pg.locator('.ant-popconfirm:not(.ant-popover-hidden) .ant-btn-primary')
+    btn.click()
+    until(pg, lambda: pop.count() > 0 or len(sent) + len(decisions) + len(releases) > n)
     if pop.count(): pop.last.click()
 def card(pg, sid): return pg.locator('[data-testid=decision-card]', has_text='合成会话二' if sid == '9102' else '申请工具：list_rows').first
 
@@ -93,7 +107,20 @@ with sync_playwright() as p:
     print('一、能不能记')
     state['can'] = False
     ctx = b.new_context(viewport={'width': 1440, 'height': 900}); setup(ctx)
-    pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=decision-card]'); pg.wait_for_timeout(800)
+    pg = ctx.new_page(); pg.set_default_timeout(10000)
+    # 证明「没有」：卡片上的「记成经验」和「我处理过的」都按 /api/auth/me 的 can 画。同一页上 LoginChip 也会另外取一次，
+    # 共享缓存只留 2 秒，所以请求可能不止一次：请求和应答都记下来，等卡片画出来（它们取 can 的请求在挂上时就发了）、应答数追上请求数、页面画完；
+    # 要是还去取了「我处理过的」（回归），也等它的应答回来，再看两样都没有
+    me_req, me_resp, recent_req, recent_resp = [], [], [], []
+    is_me = lambda u: u.split('?')[0].endswith('/api/auth/me')
+    is_recent = lambda u: u.split('?')[0].endswith('/api/knowledge/remember/recent')
+    pg.on('request', lambda r: me_req.append(r.url) if is_me(r.url) else None)
+    pg.on('response', lambda r: me_resp.append(r.url) if is_me(r.url) else None)
+    pg.on('request', lambda r: recent_req.append(r.url) if is_recent(r.url) else None)
+    pg.on('response', lambda r: recent_resp.append(r.url) if is_recent(r.url) else None)
+    pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=decision-card]')
+    until(pg, lambda: me_req and len(me_resp) >= len(me_req)); painted(pg)
+    if recent_req: until(pg, lambda: len(recent_resp) >= len(recent_req)); painted(pg)
     check('不能记的人：卡片上没有「记成经验」，也没有「我处理过的」', pg.locator('[data-testid=decision-remember]').count() == 0 and pg.locator('[data-testid=recent-answers]').count() == 0)
     ctx.close()
 
@@ -154,7 +181,7 @@ with sync_playwright() as p:
         shown = c.locator('[data-testid=remember-visibility] .ant-radio-wrapper-checked').inner_text()
         c.locator('[data-testid=remember-lesson]').fill(f'合成：{what}的一句')
         n = len(sent); press(pg, c.get_by_role('button', name=re.compile('批\\s*准')))
-        pg.wait_for_function(f"() => true"); pg.wait_for_timeout(600)
+        until(pg, lambda: len(sent) > n)  # 等截下这一次答复
         got = sent[n:][-1].get('remember') if sent[n:] else None
         check(f'答复卡·{what}：页面显示「只给管理层」，交出去的 visibility 也是 restricted', shown == '只给管理层' and got is not None and got.get('visibility') == 'restricted', (shown, got))
     state['extra'] = False
@@ -163,10 +190,12 @@ with sync_playwright() as p:
     print('二之二、建立人自己的验收（不是管理员）')
     state['grant_admin'] = False
     ctx = b.new_context(viewport={'width': 1440, 'height': 900}); setup(ctx)
-    pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=decision-card]'); pg.wait_for_timeout(800)
+    pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=decision-card]')
     acc = pg.locator('[data-testid=decision-card]', has_text='比价表做完了').first
     rel = pg.locator('[data-testid=decision-card]', has_text='等放行').first
     old = pg.locator('[data-testid=decision-card]', has_text='老入口的放行').first
+    # 等放行卡片上的勾选出来（can 到了）。老入口没有勾选，是同一份 can、同一份「关注」应答在同一次渲染里定的，再看它
+    soft(lambda: rel.locator('[data-testid=decision-remember-toggle]').wait_for(timeout=10000))
     check('放行（answer_via 带 from_attention，#767）有勾选；没带标记的老入口不给勾选；建立人的验收有勾选', rel.locator('[data-testid=decision-remember-toggle]').count() == 1 and old.locator('[data-testid=decision-remember]').count() == 0 and acc.locator('[data-testid=decision-remember-toggle]').count() == 1)
     acc.locator('[data-testid=decision-remember-toggle]').click(); acc.locator('[data-testid=remember-visibility]').wait_for()
     acc.locator('[data-testid=remember-lesson]').fill('合成：比价表看交期，不只看价')
@@ -181,7 +210,8 @@ with sync_playwright() as p:
     n = len(later)
     press(pg, rel.get_by_role('button', name=re.compile('派出去')).first)
     pg.wait_for_function("() => [...document.querySelectorAll('.ant-message')].filter(e => e.textContent.includes('记成了经验')).length >= 1")
-    pg.wait_for_timeout(400)
+    # 证明「没有另外补记」：放行办完以后页面一定会重读「我处理过的」。等重读画出这一条，补记要发的话（回归）早在这之前就发了，再看
+    soft(lambda: pg.wait_for_function("() => [...document.querySelectorAll('[data-testid=recent-row]')].some(e => e.textContent.includes('到货核对等放行'))", timeout=10000))
     check('放行带着 remember 一起发：照 answer_via 的 body 带上 from_attention，再加 remember（含谁能看）；不另外补记', releases[-1:] == [{'from_attention': True, 'remember': {'lesson': '合成：到货核对先放行，数对不上再退', 'visibility': 'restricted'}}] and later[n:] == [], (releases[-1:], later[n:]))
     check('放行记上了：提示「办好了，也记成了经验（只给管理层）」（remember 在放行应答的顶层）', pg.locator('.ant-message', has_text='办好了，也记成了经验（只给管理层）').count() >= 1)
     pg.wait_for_function("() => [...document.querySelectorAll('[data-testid=recent-row]')].some(e => e.textContent.includes('到货核对等放行'))")
@@ -190,12 +220,12 @@ with sync_playwright() as p:
     state.pop('recent_extra', None)
     for sid, t, what in (('wi-syn-rel-noname', '放行·部门没名字', '部门没名字'), ('wi-syn-rel-500', '放行·缺省档读不到', '缺省档接口 500')):
         c = pg.locator('[data-testid=decision-card]', has_text=t).first
-        c.locator('[data-testid=decision-remember-toggle]').click(); c.locator('[data-testid=remember-visibility]').wait_for(); pg.wait_for_timeout(300)
+        c.locator('[data-testid=decision-remember-toggle]').click(); c.locator('[data-testid=remember-visibility]').wait_for()  # 缺省档取回来之前这一项不出现
         shown = c.locator('.ant-radio-wrapper-checked').inner_text().strip()
         c.locator('[data-testid=remember-lesson]').fill('合成：' + what + '时只给管理层看')
         m = len(releases)
         press(pg, c.get_by_role('button', name=re.compile('派出去')).first)
-        pg.wait_for_timeout(800)
+        until(pg, lambda: len(releases) > m)  # 等截下这一次放行
         got = releases[m:][-1] if releases[m:] else {}
         check(f'放行卡片·{what}：页面显示「只给管理层」，release 请求体里 remember.visibility 也是 restricted', shown == '只给管理层' and got.get('from_attention') is True and (got.get('remember') or {}).get('visibility') == 'restricted', (shown, got))
     ctx.close()

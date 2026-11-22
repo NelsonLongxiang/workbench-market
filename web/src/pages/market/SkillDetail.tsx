@@ -79,7 +79,7 @@ export default function SkillDetail() {
                     {v.breaking && <Tag color="error">和上一版不兼容</Tag>}
                     {v.at && <RelTime value={v.at} />}
                   </Space>
-                  <Typography.Paragraph className="wm-m-0" style={{ marginTop: 4 }}>{v.changelog || '没写改了什么'}</Typography.Paragraph>
+                  <Typography.Paragraph className="wm-mb-0 wm-mt-1">{v.changelog || '没写改了什么'}</Typography.Paragraph>
                   <Typography.Text type="secondary" className="wm-caption">
                     {[v.files > 0 ? `${v.files} 个文件` : '', sizeLabel(v.bytes), v.reviewer ? `${v.reviewer} 审过` : ''].filter(Boolean).join(' · ')}
                   </Typography.Text>

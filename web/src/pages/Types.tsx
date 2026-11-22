@@ -34,7 +34,7 @@ export default function Types() {
       width: 130,
       render: (_, t) => (
         <Space size={4}>
-          <Tag color="geekblue" style={{ fontFamily: 'monospace' }}>
+          <Tag color="geekblue" className="wm-mono">
             {t.key}
           </Tag>
           {t.key === 'web' ? <Tag color="default">内置</Tag> : null}

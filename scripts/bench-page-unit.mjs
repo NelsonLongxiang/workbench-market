@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 视图台页面（/use/<卡片 id>）的纯函数单测（web/src/bench-page-view.ts）：入口应答怎么走、地址里的视图和筛选、表单没交上去时说什么。数据都是合成的。 */
-import { ENTRY_REFRESH_MIN_MS, ENTRY_TEXT, asEntry, entryOutcome, formError, pageTitle, paramsFromQuery, reloadOutcome, renameOutcome, shouldRefreshEntry, toQuery, viewFromQuery } from '../web/src/bench-page-view.ts';
+import { ENTRY_REFRESH_MIN_MS, ENTRY_TEXT, asEntry, entryOutcome, formError, pageTitle, paramsFromQuery, reloadOutcome, renameOutcome, shouldRefreshEntry, showFromCard, toQuery, viewFromQuery } from '../web/src/bench-page-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -32,6 +32,8 @@ ok('说法里没有开发用语、不露代号', [...Object.values(ENTRY_TEXT), 
 
 // 改台名（#905）
 ok('能不能改名：服务端说 true 才算；缺了、不是 true 都当不能', asEntry({ ...E, can: { rename: true } }).can.rename === true && asEntry({ ...E, can: { rename: 'yes' } }).can.rename === false && asEntry({ ...E, can: undefined }).can.rename === false && asEntry({ ...E, can: null }).can.rename === false);
+ok('能不能看报告、能不能回应（报告第 1 步 PR D）：服务端说 true 才算；缺了、不是 true 都当不能', asEntry({ ...E, can: { reports: true, respond: true } }).can.reports === true && asEntry({ ...E, can: { reports: true, respond: true } }).can.respond === true && asEntry({ ...E, can: { reports: 'yes', respond: 1 } }).can.reports === false && asEntry({ ...E, can: { reports: 'yes', respond: 1 } }).can.respond === false && asEntry({ ...E }).can.reports === false);
+ok('能不能进台的 MCP 授权页、能不能批（#904）：服务端说 true 才算；缺了、不是 true 都当不能', asEntry({ ...E, can: { mcp: true, mcp_decide: true } }).can.mcp === true && asEntry({ ...E, can: { mcp: true, mcp_decide: true } }).can.mcp_decide === true && asEntry({ ...E, can: { mcp: 'yes', mcp_decide: 1 } }).can.mcp === false && asEntry({ ...E, can: { mcp: 'yes', mcp_decide: 1 } }).can.mcp_decide === false && asEntry({ ...E }).can.mcp === false);
 ok('改名成了：带回变没变和新名字', J(renameOutcome(200, { changed: true, bench: { title: '新名' } })) === J({ kind: 'ok', changed: true, title: '新名' }) && renameOutcome(200, { changed: false, bench: { title: '旧名' } }).changed === false);
 ok('409：照服务端的说法；它没说就给一句默认的', J(renameOutcome(409, { error: 'conflict', message: '台的名字已经被改过了，先重新读一次再改' })) === J({ kind: 'conflict', text: '台的名字已经被改过了，先重新读一次再改' }) && renameOutcome(409, null).text.includes('重新读一次'));
 ok('400 照服务端的说法；没登录、不让改、断网、别的各一句人话', renameOutcome(400, { message: '台的名字须为 1～64 个字符' }).text === '台的名字须为 1～64 个字符' && renameOutcome(401, null).text === '请先登录' && renameOutcome(403, {}).kind === 'error' && renameOutcome(0, null).text.includes('连不上') && renameOutcome(500, { message: 'raw' }).text === '这次没改成，稍后再试');
@@ -39,6 +41,12 @@ ok('200 但应答不像样：不当成了', renameOutcome(200, { changed: true }
 ok('「重新读一次」取到了：输入框和 base 换成现在的名字', J(reloadOutcome({ ...E, bench: { ...E.bench, title: '别人改的' } })) === J({ title: '别人改的', type: 'info', text: '现在的名字是「别人改的」' }));
 ok('「重新读一次」没取到（读不到、断网）：title 为 null，对话框里的输入不被覆盖，只说一句、还能再点', (() => { const o = reloadOutcome(null); return o.title === null && o.type === 'warning' && o.text.includes('输入框没动'); })());
 ok('切回标签页重新取入口：离上一次不到 30 秒不取，满了才取', ENTRY_REFRESH_MIN_MS === 30_000 && !shouldRefreshEntry(1_000, 1_000 + 29_999) && shouldRefreshEntry(1_000, 1_000 + 30_000));
+
+// #927 剩下的两处
+const R = (card, extra = {}) => asEntry({ ...E, bench: { ...E.bench, card_title: card }, can: { rename: true }, ...extra });
+ok('卡片名只在能改名时留着；不能改的入口里就算带了也去掉', R('合成卡片').bench.card_title === '合成卡片' && !('card_title' in asEntry({ ...E, bench: { ...E.bench, card_title: '合成卡片' } }).bench) && R(null).bench.card_title === null && !('card_title' in R(42).bench));
+ok('「跟卡片同名」：卡片名和台名不同才出；同名、没卡片（null）、卡片名空、没给卡片名都不出', showFromCard(R('合成卡片')) && !showFromCard(R('合成台')) && !showFromCard(R(null)) && !showFromCard(R('')) && !showFromCard(asEntry({ ...E, can: { rename: true } })));
+ok('「跟卡片同名」：不能改名的人永远不出（就算入口里带了卡片名，也不靠 asEntry 先去掉）', !showFromCard(asEntry({ ...E, bench: { ...E.bench, card_title: '合成卡片' }, can: { rename: false } })) && !showFromCard({ ...asEntry(E), bench: { ...E.bench, card_title: '合成卡片' }, can: { rename: false } }));
 
 console.log(`\nbench-page-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

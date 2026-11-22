@@ -64,6 +64,12 @@
       "POST /api/bench-views/:bench/datasets/:name/snapshots  -> bench-store.snapshot-take  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "POST /api/bench-views/:bench/restore  -> bench-store.snapshot-restore  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "GET /api/bench-views/:bench/entry  -> bench-store.view-get  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "GET /api/bench-views/:bench/reports/:dimension/binding  -> bench-store.report-read  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "PUT /api/bench-views/:bench/reports/:dimension/binding  -> bench-store.report-bind  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "POST /api/bench-views/:bench/reports  -> bench-store.report-generate  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "GET /api/bench-views/:bench/reports  -> bench-store.report-read  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "GET /api/bench-views/:bench/reports/:id  -> bench-store.report-read  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "POST /api/bench-views/:bench/reports/:id/responses  -> bench-store.report-respond  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "GET /api/bench-views/:bench/view  -> bench-store.view-get  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "PUT /api/bench-views/:bench/view  -> bench-store.view-put  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "GET /api/bench-views/:bench/view/versions  -> bench-store.view-versions  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
@@ -146,6 +152,14 @@
       "POST /api/areas/:id/retire  -> area.retire  decide；细分：area.release  decide（负责人专有的动作，第 1 步只登记（恒为假），挂在领域的写路由下）；细分：area.reassign  decide（负责人专有的动作，第 1 步只登记（恒为假），挂在领域的写路由下）；细分：area.access-approve  decide（负责人专有的动作，第 1 步只登记（恒为假），挂在领域的写路由下）",
       "POST /api/areas/:id/specs/activate  -> area.spec-set  decide  （状态码不代表授权：定规范认持本领域 area-spec 授予的人，领域范围由对象定，统一判定还不认；路由按对象判（judgment.ts 的 areaVerdict））",
       "POST /api/areas/:id/specs  -> area.spec-set  decide  （状态码不代表授权：定规范认持本领域 area-spec 授予的人，领域范围由对象定，统一判定还不认；路由按对象判（judgment.ts 的 areaVerdict））",
+      "GET /api/report-dimensions  -> report.dimension-list  read  （状态码不代表授权：登录的人都能读（模板是协议，不是业务数据）；统一判定按角色问，访客、AI 员工这类没有读类权限的也放行，所以状态码不代表授权）",
+      "GET /api/report-dimensions/:id  -> report.dimension-read  read  （状态码不代表授权：登录的人都能读（模板是协议，不是业务数据）；统一判定按角色问，访客、AI 员工这类没有读类权限的也放行，所以状态码不代表授权）",
+      "GET /api/report-dimensions/:id/templates/:version  -> report.dimension-read  read  （状态码不代表授权：登录的人都能读（模板是协议，不是业务数据）；统一判定按角色问，访客、AI 员工这类没有读类权限的也放行，所以状态码不代表授权）",
+      "POST /api/report-dimensions  -> report.dimension-set  decide  （状态码不代表授权：定报告维度认持本领域 area-report 授予的人，领域范围由对象定，统一判定还不认；路由按对象判（services/report-dimension.ts 的 decideSet））",
+      "POST /api/report-dimensions/:id/templates  -> report.dimension-set  decide  （状态码不代表授权：定报告维度认持本领域 area-report 授予的人，领域范围由对象定，统一判定还不认；路由按对象判（services/report-dimension.ts 的 decideSet））",
+      "POST /api/report-dimensions/:id/templates/:version/review  -> report.dimension-set  decide  （状态码不代表授权：定报告维度认持本领域 area-report 授予的人，领域范围由对象定，统一判定还不认；路由按对象判（services/report-dimension.ts 的 decideSet））",
+      "POST /api/report-dimensions/:id/activate  -> report.dimension-set  decide  （状态码不代表授权：定报告维度认持本领域 area-report 授予的人，领域范围由对象定，统一判定还不认；路由按对象判（services/report-dimension.ts 的 decideSet））",
+      "POST /api/report-dimensions/:id/retire  -> report.dimension-set  decide  （状态码不代表授权：定报告维度认持本领域 area-report 授予的人，领域范围由对象定，统一判定还不认；路由按对象判（services/report-dimension.ts 的 decideSet））",
       "GET /api/principals/:id/access  -> principal.access  admin  （状态码不代表授权：按对象判：管理员看任何人，登录的人只看自己（本人是对象范围，统一判定还不认，L13））",
       "GET /api/access/red-lines  -> access.red-lines  read",
       "GET /api/setup/wizard  -> setup.wizard-read  admin",
@@ -325,6 +339,10 @@
     "dataset_snapshots  read",
     "dataset_upsert  write",
     "design_standard  read",
+    "report_generate  write",
+    "report_get  read",
+    "report_list  read",
+    "report_respond  write",
     "result_read  read",
     "skill_download  read",
     "skill_file_put  admin",
@@ -421,6 +439,9 @@
           "department.upsert",
           "access.red-lines",
           "principal.access",
+          "report.dimension-list",
+          "report.dimension-read",
+          "report.dimension-set",
           "setup.wizard-approve",
           "setup.wizard-read",
           "setup.wizard-run",
@@ -698,6 +719,15 @@
         "why": "定规范是硬规则，角色覆盖不算：只认属主（本机命令行在这里算属主），和持本领域 area-spec 授予（范围正好是 area:<领域>）的人；后者由路由按对象判"
       },
       {
+        "action": "report.dimension-set",
+        "only": [
+          "owner",
+          "local-cli"
+        ],
+        "scopedHolder": "area-report",
+        "why": "定报告维度（建维度、发模板、复核、移指针、撤）是硬规则，角色覆盖不算：只认属主（本机命令行在这里算属主），和持本领域 area-report 授予（范围正好是 area:<领域>）的人；跨领域的维度只认属主；后者由路由按对象判（docs/report-step1.md 第四节）"
+      },
+      {
         "action": "work-items.create",
         "only": [
           "person"
@@ -791,6 +821,26 @@
         "scoped": "write"
       },
       {
+        "action": "bench-store.report-bind",
+        "global": "write",
+        "scoped": "write"
+      },
+      {
+        "action": "bench-store.report-generate",
+        "global": "write",
+        "scoped": "write"
+      },
+      {
+        "action": "bench-store.report-read",
+        "global": "write",
+        "scoped": "write"
+      },
+      {
+        "action": "bench-store.report-respond",
+        "global": "write",
+        "scoped": "write"
+      },
+      {
         "action": "bench-store.rows-write",
         "global": "write",
         "scoped": "write"
@@ -866,7 +916,11 @@
       "bench-store.mcp-list",
       "bench-store.mcp-grant",
       "bench-store.mcp-decide",
-      "knowledge.read"
+      "knowledge.read",
+      "bench-store.report-bind",
+      "bench-store.report-generate",
+      "bench-store.report-read",
+      "bench-store.report-respond"
     ]
   },
   "domains": {
@@ -923,7 +977,8 @@
       "workbench-event",
       "bench-store",
       "knowledge",
-      "area"
+      "area",
+      "report"
     ]
   },
   "presets": [
@@ -1105,7 +1160,11 @@
             "bench-store.mcp-list",
             "bench-store.mcp-grant",
             "bench-store.mcp-decide",
-            "knowledge.read"
+            "knowledge.read",
+            "bench-store.report-bind",
+            "bench-store.report-generate",
+            "bench-store.report-read",
+            "bench-store.report-respond"
           ]
         }
       ]
@@ -1135,6 +1194,19 @@
             "area.release",
             "area.reassign",
             "area.access-approve"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "area-report",
+      "name": "定报告维度",
+      "permissions": [
+        {
+          "actions": [
+            "report.dimension-list",
+            "report.dimension-read",
+            "report.dimension-set"
           ]
         }
       ]

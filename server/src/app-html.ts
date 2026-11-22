@@ -36,8 +36,11 @@ export function serveAppHtml(req: express.Request, res: express.Response, input:
     const inject = `<meta name="wm-app-token" content="${tok}">${ticket ? `<meta name="wm-submitter-ticket" content="${ticket}">` : ''}<script>window.WM_APP_TOKEN="${tok}";window.WM_APP_SLUG="${slug}";window.WM_WORKBENCH_ID=${deps.workbenchId(slug)};${ticket ? `window.WM_SUBMITTER_TICKET="${ticket}";` : ''}</script>`;
     const out = /<head[^>]*>/i.test(raw) ? raw.replace(/<head([^>]*)>/i, (mm) => mm + inject) : inject + raw;
     const html = deps.rewrite(req, out); // 登录门：本台绝对地址补查看凭证（off 时原样）
-    // 带票据的页面是这个人的：不许任何缓存存它，按 Cookie 区分。认不出人时不注入、缓存策略照旧
-    if (ticket) { res.setHeader('Cache-Control', 'private, no-store'); res.vary('Cookie'); }
+    // 页面里都注入了台令牌（#266 A21）：一律不许任何缓存存它，也不随 Referer 外带页面地址（地址里可能带着 ?version、查看凭证）。
+    // 带提交人票据的那一份是这个人的，另按 Cookie 区分
+    res.setHeader('Cache-Control', ticket ? 'private, no-store' : 'no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    if (ticket) res.vary('Cookie');
     res.type('html').send(html);
   })().catch(fallback);
 }

@@ -1,12 +1,60 @@
 import { DatabaseSync } from 'node:sqlite';
 import { isCredentialed, isInternalTarget } from './portal-access.ts';
 import { createHash } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { mkdirSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DB_BUSY_TIMEOUT_MS } from './db-busy.ts';
+import { defineConfig, loadConfig } from './config.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * 只给测试用（WM_TEST_SCHEMA_PAUSE_MS，毫秒，0～5000）：装视图时在「核对定义」和「删」之间、「删」和「建」之间各停这么久，
+ * 补列（addColumnIfMissing）、只做一次的迁移（migrateOnce）在事务里再核过、动手之前也停这么久，把多进程同时启动的竞态窗口撑大，
+ * 让「去掉事务」这类回归在测试里每次都红。只在 NODE_ENV=test 时认，别的环境设了拒绝启动；生产上恒为 0。
+ */
+/**
+ * 集合点的目录：各进程要往里写文件，所以在读配置时就收紧（不拖到启动中途才报错）：
+ *   绝对路径、不带 ..；已经存在、是目录；按 realpath（软链展开以后）是 DATA_DIR 下面的子目录（不能是 DATA_DIR 本身），软链逃不出去。
+ *   只认 DATA_DIR（不认系统临时目录：TMPDIR 可以被设成 /）；DATA_DIR 自己是 / 或只有一层的根（比如 /data）也不收，那样等于不设限。
+ * 不满足的拒绝启动。返回 realpath 之后的目录。这一段放在打开主库之前：DATA_DIR 不对时先报这一条，不先撞上建库失败。
+ */
+function barrierDir(raw: string, env: Readonly<Record<string, string | undefined>>): string {
+  const refuse = (why: string): never => { throw new Error(`[db] 拒绝启动：WM_TEST_SCHEMA_BARRIER 的目录${why}`); };
+  if (!isAbsolute(raw)) refuse('要写成绝对路径');
+  if (raw.split(/[\\/]+/).includes('..')) refuse('不能带 ..');
+  let root = '';
+  try { root = realpathSync(env.DATA_DIR ? resolve(env.DATA_DIR) : join(here, '..', 'data')); } catch { refuse('要在 DATA_DIR 之下，可 DATA_DIR 还不存在'); }
+  if (root.split(sep).filter(Boolean).length < 2) refuse(`要在 DATA_DIR 之下，可 DATA_DIR 是 / 或只有一层的根（${root}），这样等于不设限`);
+  let real = '';
+  try { real = realpathSync(raw); } catch { refuse('不存在'); }
+  if (!statSync(real).isDirectory()) refuse('不是目录');
+  // 要是 DATA_DIR 下面的子目录，不能是 DATA_DIR 本身：DATA_DIR 里有库文件，凑人数时会被算进去，集合点就提前放行了
+  if (!real.startsWith(root + sep)) refuse(real === root ? '要是 DATA_DIR 下面的子目录，不能是 DATA_DIR 本身（库文件会算进人数）' : '要在 DATA_DIR 之下（按软链展开以后的真实路径算）');
+  return real;
+}
+export const SchemaTestConfig = defineConfig((env) => {
+  const raw = String(env.WM_TEST_SCHEMA_PAUSE_MS ?? '').trim();
+  const rawBarrier = String(env.WM_TEST_SCHEMA_BARRIER ?? '').trim();
+  let pauseMs = 0;
+  let barrier: { label: string; count: number; dir: string } | null = null;
+  if (raw !== '') {
+    if (env.NODE_ENV !== 'test') throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_PAUSE_MS 只给测试用（NODE_ENV=test），生产上不要设');
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 0 || n > 5000) throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_PAUSE_MS 要写成 0～5000 的整数（毫秒）');
+    pauseMs = n;
+  }
+  if (rawBarrier !== '') {
+    if (env.NODE_ENV !== 'test') throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_BARRIER 只给测试用（NODE_ENV=test），生产上不要设');
+    const m = /^([a-z][a-z-]{0,39})@([1-9]\d?)@(.+)$/.exec(rawBarrier);
+    if (!m) throw new Error('[db] 拒绝启动：WM_TEST_SCHEMA_BARRIER 要写成 <名字>@<进程数>@<绝对路径的目录>（名字是小写字母和连字符，进程数 1～99）');
+    barrier = { label: m[1], count: Number(m[2]), dir: barrierDir(m[3], env) };
+  }
+  return { pauseMs, barrier };
+});
+const schemaTest = loadConfig(SchemaTestConfig);
+
 export const dataDir = process.env.DATA_DIR ? resolve(process.env.DATA_DIR) : join(here, '..', 'data');
 mkdirSync(dataDir, { recursive: true });
 
@@ -39,6 +87,89 @@ export function hasTable(table: string): boolean {
 /** 有没有这个索引 */
 export function hasIndex(index: string): boolean {
   return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?").get(schemaIdent(index)));
+}
+/** 视图现在的定义（建它的那句 SQL 原文，去掉首尾空白和结尾的分号）；没有这个视图是 null */
+export function viewSql(view: string): string | null {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'view' AND name = ?").get(schemaIdent(view)) as { sql: unknown } | undefined;
+  return row ? normSql(String(row.sql ?? '')) : null;
+}
+const normSql = (sql: string): string => sql.trim().replace(/;+\s*$/, '');
+
+/** 测试用的停顿（生产上 pauseMs 恒为 0，不停） */
+const testPause = (): void => { if (schemaTest.pauseMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, schemaTest.pauseMs); };
+/**
+ * 只给测试用（WM_TEST_SCHEMA_BARRIER，写成 <名字>@<进程数>@<目录>）：启动迁移走到标着这个名字的地方时，在目录里留一个以进程号为名的空文件，
+ * 等目录里凑够这么多个（各进程都走到这里了）再一起往下，最多等 10 秒。
+ * 多个进程同时启动时，前面的迁移快慢不一、还会在写锁上排队，到某一处的时刻前后错开，撞不撞上是概率性的；
+ * 在这里集合，「去掉事务里的再核一次」这类回归才每次都撞上（db-startup-race-test 第七节）。生产上不设，什么都不做。
+ */
+const testBarrier = (label: string): void => {
+  const b = schemaTest.barrier;
+  if (!b || b.label !== label) return;
+  writeFileSync(join(b.dir, String(process.pid)), '');
+  // 不睡、一直看：凑齐以后各进程几乎同一刻放行（睡上几毫秒，先放行的那个已经补完一列，后面的就看到「有了」，撞不上）
+  const until = Date.now() + 10_000;
+  while (readdirSync(b.dir).length < b.count && Date.now() < until) { /* 等 */ }
+};
+
+/**
+ * 启动时装视图：幂等，多个进程同时打开同一个库也不会互相撞。
+ * 在 BEGIN IMMEDIATE 里比现有定义：一样就跳过；不一样（或者还没有）才 DROP + CREATE，所以视图定义改了照样会更新。
+ * 原来每次启动都无条件 DROP VIEW IF EXISTS、再 CREATE VIEW，分两次提交：两个进程同时启动、按「删、删、建、建」交错时，
+ * 后建的那个报 view already exists，进程起不来（#933 的 CI 上 bench-provenance-test 的两进程用例偶发红）。
+ * createSql 要以 `CREATE VIEW <view> AS` 开头。返回这一次做了什么（测试用）。
+ */
+export function ensureView(view: string, createSql: string): 'created' | 'replaced' | 'unchanged' {
+  const want = normSql(createSql);
+  if (!want.startsWith(`CREATE VIEW ${schemaIdent(view)} AS`)) throw new Error(`[db] 视图 ${view} 的定义要以 CREATE VIEW ${view} AS 开头`);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const cur = viewSql(view);
+    let did: 'created' | 'replaced' | 'unchanged' = 'unchanged';
+    if (cur !== want) {
+      testPause();
+      db.exec(`DROP VIEW IF EXISTS ${view}`);
+      testPause();
+      db.exec(want);
+      did = cur === null ? 'created' : 'replaced';
+    }
+    db.exec('COMMIT');
+    return did;
+  } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
+}
+
+/**
+ * 缺这一列才补，多个进程同时启动（升级一个旧库）也只补一次：先看一眼，有了直接返回、不开事务；没有才开 BEGIN IMMEDIATE，
+ * 在事务里再核一次再补。原来的「查了没有就补」在事务外核，两个进程都看到缺列时，后补的那个报 duplicate column，进程起不来。
+ * ddl 是整段列定义、以列名开头（例如 `peer_root TEXT NOT NULL DEFAULT ''`），原样拼进 ALTER TABLE … ADD COLUMN，列定义不在这里改写。
+ * 已经在事务里（比如 migrateOnce 的 run 里）调用时不另开事务，照样核了再补。返回这一次补上了没有。
+ */
+export function addColumnIfMissing(table: string, ddl: string): boolean {
+  const column = schemaIdent(ddl.trim().split(/\s+/)[0] ?? '');
+  if (hasColumn(table, column)) return false;
+  const add = (): boolean => {
+    if (hasColumn(table, column)) return false;
+    testPause();
+    db.exec(`ALTER TABLE ${schemaIdent(table)} ADD COLUMN ${ddl}`);
+    return true;
+  };
+  if (db.isTransaction) return add();
+  db.exec('BEGIN IMMEDIATE');
+  try { const added = add(); db.exec('COMMIT'); return added; } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
+}
+/**
+ * 只做一次的迁移（补列之后要跟着回填的那种）：needed() 先看一眼，不需要就返回；需要才开 BEGIN IMMEDIATE，事务里再问一次 needed()，
+ * 还需要才 run()。多个进程同时启动时只有一个做，别的进了事务看到已经做过就跳过（不会再补一次列报错、也不会再回填一次）。返回这一次做了没有。
+ */
+export function migrateOnce(needed: () => boolean, run: () => void): boolean {
+  if (!needed()) return false;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const did = needed();
+    if (did) { testPause(); run(); }
+    db.exec('COMMIT');
+    return did;
+  } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
 }
 
 
@@ -576,23 +707,23 @@ CREATE TABLE IF NOT EXISTS install_ledger (
 
 `);
 // 跟进按发来的根地址认：限频、找投递都按 peer_root，不按区（同一个区下可以有好几台宿主）。存量行是空串，只是不计进新的限频窗口
-if (!hasColumn('workbench_event_followups', 'peer_root')) db.exec("ALTER TABLE workbench_event_followups ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing('workbench_event_followups', "peer_root TEXT NOT NULL DEFAULT ''");
 db.exec('CREATE INDEX IF NOT EXISTS idx_wbe_followups_root ON workbench_event_followups (peer_root, created_at)');
 
 // A2A P3 回执（评审席判据 network/a2a-receipt E1-E7）
 {
 // #94 S2：skill_versions.commit_id（技能入 LayerFS·wm-skills 项目 skill/<slug> 分支）
-try { const svCols = tableColumns('skill_versions') as any[]; if (!svCols.some((c) => c.name === 'commit_id')) db.exec("ALTER TABLE skill_versions ADD COLUMN commit_id TEXT NOT NULL DEFAULT ''"); if (!svCols.some((c) => c.name === 'shadow_status')) db.exec("ALTER TABLE skill_versions ADD COLUMN shadow_status TEXT NOT NULL DEFAULT 'pending'"); if (!svCols.some((c) => c.name === 'shadow_error')) db.exec("ALTER TABLE skill_versions ADD COLUMN shadow_error TEXT NOT NULL DEFAULT ''"); db.exec("UPDATE skill_versions SET shadow_status='succeeded', shadow_error='' WHERE commit_id <> '' AND shadow_status='pending'"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('skill_versions', "commit_id TEXT NOT NULL DEFAULT ''"); addColumnIfMissing('skill_versions', "shadow_status TEXT NOT NULL DEFAULT 'pending'"); addColumnIfMissing('skill_versions', "shadow_error TEXT NOT NULL DEFAULT ''"); db.exec("UPDATE skill_versions SET shadow_status='succeeded', shadow_error='' WHERE commit_id <> '' AND shadow_status='pending'"); } catch { /* 列已在 */ }
 // 技能回滚=移「当前版本」指针（skills.active_version，NULL=跟随最新版）：版本链只增、同技能同指纹唯一（K9）都不动，回滚不再复制出同指纹的新版本撞唯一索引
-try { const dlCols = tableColumns('skill_download_tickets') as any[]; if (!dlCols.some((c) => c.name === 'denied')) db.exec('ALTER TABLE skill_download_tickets ADD COLUMN denied INTEGER NOT NULL DEFAULT 0'); } catch { /* 列已在 */ } // #462：旧库补拒绝计数（旧明文票按哈希查不到，自然失效）
-try { const skCols = tableColumns('skills') as any[]; if (!skCols.some((c) => c.name === 'active_version')) db.exec('ALTER TABLE skills ADD COLUMN active_version INTEGER'); if (!skCols.some((c) => c.name === 'active_by')) db.exec("ALTER TABLE skills ADD COLUMN active_by TEXT NOT NULL DEFAULT ''"); if (!skCols.some((c) => c.name === 'active_at')) db.exec("ALTER TABLE skills ADD COLUMN active_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('skill_download_tickets', 'denied INTEGER NOT NULL DEFAULT 0'); } catch { /* 列已在 */ } // #462：旧库补拒绝计数（旧明文票按哈希查不到，自然失效）
+try { addColumnIfMissing('skills', 'active_version INTEGER'); addColumnIfMissing('skills', "active_by TEXT NOT NULL DEFAULT ''"); addColumnIfMissing('skills', "active_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // #94 P1 影子双写：apps.layerfs_project + app_versions.commit_id（幂等 ALTER）
-try { const appCols = tableColumns('apps') as any[]; if (!appCols.some((c) => c.name === 'layerfs_project')) db.exec("ALTER TABLE apps ADD COLUMN layerfs_project TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
-try { const avCols = tableColumns('app_versions') as any[]; if (!avCols.some((c) => c.name === 'commit_id')) db.exec("ALTER TABLE app_versions ADD COLUMN commit_id TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('apps', "layerfs_project TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('app_versions', "commit_id TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // 属主 2026-11-02 来源收敛：自产台/SOP 台只接受 GitHub 仓库 main——apps 记来源仓库与子目录，app_versions 记拉取的 commit sha（幂等 ALTER）
-try { const appCols = tableColumns('apps') as any[]; if (!appCols.some((c) => c.name === 'source_repo')) db.exec("ALTER TABLE apps ADD COLUMN source_repo TEXT NOT NULL DEFAULT ''"); if (!appCols.some((c) => c.name === 'source_path')) db.exec("ALTER TABLE apps ADD COLUMN source_path TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
-try { const avCols = tableColumns('app_versions') as any[]; if (!avCols.some((c) => c.name === 'source_commit')) db.exec("ALTER TABLE app_versions ADD COLUMN source_commit TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
-try { const avCols = tableColumns('app_versions') as any[]; if (!avCols.some((c) => c.name === 'commit_id')) db.exec("ALTER TABLE app_versions ADD COLUMN commit_id TEXT NOT NULL DEFAULT ''"); if (!avCols.some((c) => c.name === 'shadow_status')) db.exec("ALTER TABLE app_versions ADD COLUMN shadow_status TEXT NOT NULL DEFAULT 'pending'"); if (!avCols.some((c) => c.name === 'shadow_error')) db.exec("ALTER TABLE app_versions ADD COLUMN shadow_error TEXT NOT NULL DEFAULT ''"); db.exec("UPDATE app_versions SET shadow_status='succeeded', shadow_error='' WHERE commit_id <> '' AND shadow_status='pending'"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('apps', "source_repo TEXT NOT NULL DEFAULT ''"); addColumnIfMissing('apps', "source_path TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('app_versions', "source_commit TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('app_versions', "commit_id TEXT NOT NULL DEFAULT ''"); addColumnIfMissing('app_versions', "shadow_status TEXT NOT NULL DEFAULT 'pending'"); addColumnIfMissing('app_versions', "shadow_error TEXT NOT NULL DEFAULT ''"); db.exec("UPDATE app_versions SET shadow_status='succeeded', shadow_error='' WHERE commit_id <> '' AND shadow_status='pending'"); } catch { /* 列已在 */ }
 // S1 表形状迁移（PR#103 旧形状 kind=app_rollback… → v3 契约 kind×op·表新落地零产数据直接重建）
 try { const crCols = tableColumns('change_requests') as any[]; if (crCols.length > 0 && !crCols.some((c) => c.name === 'op')) { db.exec('DROP TABLE change_requests'); db.exec("CREATE TABLE change_requests (\n  id INTEGER PRIMARY KEY AUTOINCREMENT,\n  kind TEXT NOT NULL CHECK (kind IN ('app','skill')),\n  slug TEXT NOT NULL,\n  op TEXT NOT NULL CHECK (op IN ('rollback','delete')),\n  target_version INTEGER,\n  reason TEXT NOT NULL DEFAULT '',\n  source TEXT NOT NULL DEFAULT 'mcp',\n  requested_by TEXT NOT NULL DEFAULT '',\n  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),\n  reviewed_by TEXT NOT NULL DEFAULT '',\n  reviewed_at TEXT NOT NULL DEFAULT '',\n  created_at TEXT NOT NULL DEFAULT (datetime('now'))\n)"); } } catch { /* 无表 */ }
 // 审核进「关注」：不通过的理由（review_note）、经身份认出来的审核人（reviewed_by_principal，reviewed_by 是旧入口自填的名字，只做显示）。幂等补列
@@ -600,33 +731,19 @@ for (const [column, ddl] of [
   ['review_note', "review_note TEXT NOT NULL DEFAULT ''"],
   ['reviewed_by_principal', "reviewed_by_principal TEXT NOT NULL DEFAULT ''"],
 ] as const) {
-  const cols = tableColumns('change_requests') as { name: string }[];
-  if (cols.length > 0 && !cols.some((c) => c.name === column)) db.exec(`ALTER TABLE change_requests ADD COLUMN ${ddl}`);
+  void column; // 列名就是 ddl 的第一个词；表不在（老库还没建）时照旧不补
+  if (hasTable('change_requests')) addColumnIfMissing('change_requests', ddl);
 }
 // #94 S0⑥（K9）幂等迁移：拆全局 digest 唯一索引（域级复合索引由 DDL 建）
 try { db.exec('DROP INDEX IF EXISTS idx_skill_versions_digest'); } catch { /* 旧库无此索引 */ }
 
-  const ctxCols = tableColumns('a2a_run_ctx') as { name: string }[];
-  if (!ctxCols.some((c) => c.name === 'task_id')) {
-    db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN task_id TEXT NOT NULL DEFAULT ''");
-  }
-  if (!ctxCols.some((c) => c.name === 'caller')) {
-    db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN caller TEXT NOT NULL DEFAULT ''");
-  }
-  if (!ctxCols.some((c) => c.name === 'team')) {
-    db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN team TEXT NOT NULL DEFAULT ''");
-  }
-  if (!ctxCols.some((c) => c.name === 'receipt_status')) {
-    db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN receipt_status TEXT NOT NULL DEFAULT ''");
-  }
-  if (!ctxCols.some((c) => c.name === 'callback_url')) {
-    db.exec("ALTER TABLE a2a_run_ctx ADD COLUMN callback_url TEXT NOT NULL DEFAULT ''");
-  }
+  addColumnIfMissing('a2a_run_ctx', "task_id TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing('a2a_run_ctx', "caller TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing('a2a_run_ctx', "team TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing('a2a_run_ctx', "receipt_status TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing('a2a_run_ctx', "callback_url TEXT NOT NULL DEFAULT ''");
   // 旧表 sop_bindings 早先没有 callback_url：先补列，下面的平移要读它
-  const bindCols = tableColumns('sop_bindings') as { name: string }[];
-  if (!bindCols.some((c) => c.name === 'callback_url')) {
-    db.exec("ALTER TABLE sop_bindings ADD COLUMN callback_url TEXT NOT NULL DEFAULT ''");
-  }
+  addColumnIfMissing('sop_bindings', "callback_url TEXT NOT NULL DEFAULT ''");
   // 联合评审① C：旧两表平移入统一表，只补不改——只插统一表里还没有的自然键（台型、台、节点、方向），
   // 已有的行一律不碰（id、撤销、mode、notify_url 都以统一表为准）；重复启动安全。旧两表只读：代码里不再写它们。
   // 旧表里同一自然键可能有多行（旧接口撤销后再重建）：只取 id 最大的那一行（最新的），不靠插入顺序
@@ -663,10 +780,10 @@ try {
 // #132 P0：app_files.note+deleted_at·app_data.deleted_at（幂等 ALTER·软删原行留审计）
 // MCP 工具 REST 开放：调用审计区分渠道（mcp = /mcp JSON-RPC，rest = /api/mcp-rest/tools/*）
 // MCP 内嵌 REST：文件 sha256 入库时存下，下载 ETag 不再整份重算（存量行首次下载时回写）
-try { const shaCols = tableColumns('app_files') as any[]; if (!shaCols.some((c) => c.name === 'sha256')) db.exec("ALTER TABLE app_files ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
-try { const mcCols = tableColumns('mcp_calls') as any[]; if (!mcCols.some((c) => c.name === 'channel')) db.exec("ALTER TABLE mcp_calls ADD COLUMN channel TEXT NOT NULL DEFAULT 'mcp'"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('app_files', "sha256 TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('mcp_calls', "channel TEXT NOT NULL DEFAULT 'mcp'"); } catch { /* 列已在 */ }
 // 阶段七：席位换来的令牌调用时记下席位（seat = <host>:<seat_id>，从令牌认出来）；claimed_seat 是请求头 X-Team-Seat 自报的，只拿来对账，不认作身份或授权
-try { const mcCols = tableColumns('mcp_calls') as any[]; if (!mcCols.some((c) => c.name === 'seat')) db.exec("ALTER TABLE mcp_calls ADD COLUMN seat TEXT NOT NULL DEFAULT ''"); if (!mcCols.some((c) => c.name === 'claimed_seat')) db.exec("ALTER TABLE mcp_calls ADD COLUMN claimed_seat TEXT NOT NULL DEFAULT ''"); if (!mcCols.some((c) => c.name === 'token_ref')) db.exec("ALTER TABLE mcp_calls ADD COLUMN token_ref TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('mcp_calls', "seat TEXT NOT NULL DEFAULT ''"); addColumnIfMissing('mcp_calls', "claimed_seat TEXT NOT NULL DEFAULT ''"); addColumnIfMissing('mcp_calls', "token_ref TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // 阶段七：席位用签名换短期 MCP 令牌（services/seat-tokens.ts）。
 //   a2a_seat_subjects：每个席位（host, seat_id）一个长期的授权主体，挂 mcp_sessions 的一行；grants、按台批的授予都记在它上面，跨令牌轮换保留。
 //     按（peer_root, key_fingerprint, seat_id）认：key_fingerprint 是节点公钥的完整指纹，写法同 a2a_peers.key_fingerprint（sha256:<十六进制全长>），
@@ -710,8 +827,8 @@ CREATE TABLE IF NOT EXISTS a2a_seat_token_log (
 CREATE INDEX IF NOT EXISTS idx_a2a_seat_token_log_at ON a2a_seat_token_log (at);
 CREATE INDEX IF NOT EXISTS idx_a2a_seat_token_log_seat ON a2a_seat_token_log (host, seat_id, at);
 `);
-try { const afCols = tableColumns('app_files') as any[]; if (!afCols.some((c) => c.name === 'note')) db.exec("ALTER TABLE app_files ADD COLUMN note TEXT NOT NULL DEFAULT ''"); if (!afCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_files ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
-try { const adCols = tableColumns('app_data') as any[]; if (!adCols.some((c) => c.name === 'deleted_at')) db.exec("ALTER TABLE app_data ADD COLUMN deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('app_files', "note TEXT NOT NULL DEFAULT ''"); addColumnIfMissing('app_files', "deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('app_data', "deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // 渐进开放第 5 步（docs/productization/16-progressive-capability-access.md）：大结果给引用。工具结果超过阈值时，存在这里，应答只回引用。
 //   一行一份结果：只给建它的会话取（session_id），取的时候按原工具再判一次授权（bench：数据视图的台；target：限定到台的授权所对的台）。
 //   时刻是代码给的毫秒数；过期的在下次存的时候清掉，每个会话只留最新的若干份（services/mcp.ts）。只存一小会儿，不是留档。
@@ -760,10 +877,10 @@ CREATE TABLE IF NOT EXISTS mcp_grant_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_mcp_grant_audit_session ON mcp_grant_audit (session_id, id);
 `);
-try { const adCols = tableColumns('app_data') as any[]; if (!adCols.some((c) => c.name === 'idempotency_key')) db.exec("ALTER TABLE app_data ADD COLUMN idempotency_key TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('app_data', "idempotency_key TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_app_data_idem ON app_data (app_slug, idempotency_key) WHERE idempotency_key <> ''");
 // cockpits.created_by：建立人的主体（管理层建的才有；口令、Odoo 管理员、本机命令行建的和老行是 null）。只记下来，不带进读应答
-if (!hasColumn('cockpits', 'created_by')) db.exec('ALTER TABLE cockpits ADD COLUMN created_by TEXT');
+addColumnIfMissing('cockpits', 'created_by TEXT');
 // #336：按工作台隔离的变量与常量（workbench_id 为隔离键；value 存 JSON 原文；revision 乐观锁，每次写 +1）。
 // 审计只记值的 sha256 不记原文；IF NOT EXISTS 幂等，旧库启动即补表。
 db.exec(`
@@ -795,7 +912,7 @@ CREATE TABLE IF NOT EXISTS workbench_var_audit (
 CREATE INDEX IF NOT EXISTS idx_workbench_var_audit_wb ON workbench_var_audit(workbench_id, key, id);
 `);
 // 常量作者（谁写的谁维护）：只记个人身份 mcp:<会话名> / odoo:<登录名>；旧常量按最后写入者回填，共享身份（口令、本机、台令牌）留空=只有本机命令行能修订
-try { const wvCols = tableColumns('workbench_vars') as any[]; if (!wvCols.some((c) => c.name === 'owner')) db.exec("ALTER TABLE workbench_vars ADD COLUMN owner TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('workbench_vars', "owner TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // 回填每次启动都跑（幂等）：补列后中途退出也不会漏。作者为空的常量只可能由共享身份最后写过，所以按个人身份回填不会改掉兜底移交的结果
 db.exec("UPDATE workbench_vars SET owner = updated_by WHERE kind = 'const' AND owner = '' AND (updated_by LIKE 'mcp:%' OR updated_by LIKE 'odoo:%')");
 // 阶段五：主体与外部身份。主体是「谁」的那一张表，五类（人、席位、台、系统、外部节点）；
@@ -881,13 +998,13 @@ CREATE TABLE IF NOT EXISTS principal_pending (
 // 由市场维持的登录提供方会话（用 Odoo 这类身份来源登录的人）：upstream_sealed 是发会话时浏览器带来的提供方会话凭据，加密存放
 //   （AES-256-GCM，密钥是数据目录里的 .wm-login-session.key，不在库里），市场照旧拿它去问提供方这个人还在不在；
 //   不给页面、不进日志；会话注销、到期、主体停用时清空（services/login-session.ts）。普通的市场会话（比如飞书）这一列是空的
-if (!hasColumn('market_sessions', 'upstream_sealed')) db.exec('ALTER TABLE market_sessions ADD COLUMN upstream_sealed TEXT');
+addColumnIfMissing('market_sessions', 'upstream_sealed TEXT');
 // 来源轮换过几次（市场跟着换了存下的会话号）：诊断用——轮换之后又被来源否掉的，日志里会标出来
-if (!hasColumn('market_sessions', 'upstream_renewals')) db.exec('ALTER TABLE market_sessions ADD COLUMN upstream_renewals INTEGER NOT NULL DEFAULT 0');
+addColumnIfMissing('market_sessions', 'upstream_renewals INTEGER NOT NULL DEFAULT 0');
 // 一次登录持续保持（session-policy.ts）：renewed_at 上次续期的时刻（毫秒），max_expires_at 登录时定下的绝对上限（毫秒）。
 //   都是可空的整数列，旧会话两列为空：按「上次续期 = 创建时刻、上限 = 原来的到期时刻」算，不会被延长。换 PG 时照搬为 BIGINT
-if (!hasColumn('market_sessions', 'renewed_at')) db.exec('ALTER TABLE market_sessions ADD COLUMN renewed_at INTEGER');
-if (!hasColumn('market_sessions', 'max_expires_at')) db.exec('ALTER TABLE market_sessions ADD COLUMN max_expires_at INTEGER');
+addColumnIfMissing('market_sessions', 'renewed_at INTEGER');
+addColumnIfMissing('market_sessions', 'max_expires_at INTEGER');
 // 站内账号（docs/local-accounts.md）：用户名加密码的登录方式 local 的账号。对应主体经外部身份（provider=local, external_id=用户名）连着，
 //   这里不存主体。password_hash 只放 scrypt 的结果和参数（scrypt$N$r$p$盐$哈希，都是 base64url），从不放明文；
 //   must_change：管理员发的临时密码，下次登录先改了才能进；failed_count / locked_until：连续输错的计数和锁到什么时候（毫秒）。
@@ -906,16 +1023,16 @@ CREATE TABLE IF NOT EXISTS local_accounts (
 );
 `);
 // MCP 会话是谁建的（管理员的留痕写法，user:<名>、odoo:<登录名>、admin-token……）：批准这个会话的访问申请时，建会话的人不能自己批（docs/local-accounts.md 第 5 节）
-if (!hasColumn('mcp_sessions', 'created_by')) db.exec("ALTER TABLE mcp_sessions ADD COLUMN created_by TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing('mcp_sessions', "created_by TEXT NOT NULL DEFAULT ''");
 // 站内账号的凭据最后是谁设的（docs/local-accounts.md 第 5 节）：系统管理员建账号、重置密码时记下他（主体）和时刻，本人改了密码就清掉。
 // 放行给业务数据的授予时据此提示放行人「此人凭据由系统管理员设置」，要放行人确认
 for (const [col, ddl] of [['credential_by_system', "TEXT NOT NULL DEFAULT ''"], ['credential_by_system_at', 'INTEGER']] as const) {
-  if (!hasColumn('local_accounts', col)) db.exec(`ALTER TABLE local_accounts ADD COLUMN ${col} ${ddl}`);
+  addColumnIfMissing('local_accounts', `${col} ${ddl}`);
 }
 // 外部身份是谁绑的（同上一节）：系统管理员经对接接口绑定（含连带新建的人）时记下他和时刻；解绑重绑就没了。
 // 放行给业务数据的授予时同样提示「此人凭据由系统管理员设置」——绑上去的身份可能就是系统管理员自己控制的别的账号
 for (const [col, ddl] of [['bound_by_system', "TEXT NOT NULL DEFAULT ''"], ['bound_by_system_at', 'INTEGER']] as const) {
-  if (!hasColumn('principal_identities', col)) db.exec(`ALTER TABLE principal_identities ADD COLUMN ${col} ${ddl}`);
+  addColumnIfMissing('principal_identities', `${col} ${ddl}`);
 }
 // 阶段六 6b：授予（谁有哪个角色）。角色本身是声明（server/src/roles.ts），这里只放数据。
 //   grants：主体、角色、范围、期限、理由、起草人、放行人、状态。状态只有五种，只能往前走：
@@ -1014,7 +1131,7 @@ CREATE TRIGGER IF NOT EXISTS grant_events_no_replace BEFORE INSERT ON grant_even
   BEGIN SELECT RAISE(ABORT, 'grant_events 只增不改'); END;
 `);
 // 阶段六 6c：授予的来源（manual 人起草的；migration 迁移出来的，能整批列出、整批撤销）。建好不能改
-try { const gCols = tableColumns('grants') as { name: string }[]; if (!gCols.some((c) => c.name === 'source')) db.exec("ALTER TABLE grants ADD COLUMN source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','migration'))"); } catch (e) { console.warn('[db] grants 补 source 列失败：', (e as Error).message); }
+try { addColumnIfMissing('grants', "source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','migration'))"); } catch (e) { console.warn('[db] grants 补 source 列失败：', (e as Error).message); }
 db.exec(`
 CREATE TRIGGER IF NOT EXISTS grants_source_fixed BEFORE UPDATE OF source ON grants WHEN NEW.source IS NOT OLD.source
   BEGIN SELECT RAISE(ABORT, '授予的来源建好就不能改'); END;
@@ -1150,9 +1267,11 @@ CREATE TRIGGER IF NOT EXISTS work_items_start_draft BEFORE INSERT ON work_items 
 // 阶段八 8c 前：被拒的事实（f8d07a9）原因记在 work_item_log 单独的 rejected 列，不再放调用方能写的 detail 里。
 //   旧库补列，并把 8b 写在 detail.rejected 里的原因搬过来（那时只有事项服务自己写日志，detail.rejected 都是真的）。
 //   日志只增不改：搬的这一次在同一个事务里先拿掉改写触发器、改完立刻装回；补列之后不会再走这段。
+//   要不要搬在 BEGIN IMMEDIATE 里再核一次：两个进程同时启动、都看到还没补列时，后进来的那个在这里看到已经补过了就跳过，不会再补一次列报错
 if (!(tableColumns('work_item_log') as { name: string }[]).some((c) => c.name === 'rejected')) {
   db.exec('BEGIN IMMEDIATE');
   try {
+    if ((tableColumns('work_item_log') as { name: string }[]).some((c) => c.name === 'rejected')) { db.exec('COMMIT'); } else {
     db.exec(`ALTER TABLE work_item_log ADD COLUMN rejected TEXT NOT NULL DEFAULT '' CHECK (rejected IN ('', 'not_allowed', 'terminal'));
 DROP TRIGGER IF EXISTS work_item_log_no_update;
 UPDATE work_item_log SET rejected = json_extract(detail, '$.rejected'), detail = json_remove(detail, '$.rejected')
@@ -1160,15 +1279,14 @@ UPDATE work_item_log SET rejected = json_extract(detail, '$.rejected'), detail =
 CREATE TRIGGER work_item_log_no_update BEFORE UPDATE ON work_item_log
   BEGIN SELECT RAISE(ABORT, 'work_item_log 只增不改'); END;`);
     db.exec('COMMIT');
-  } catch (e) { db.exec('ROLLBACK'); throw e; }
+    }
+  } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
 }
 // 阶段八 8e：建立人的主体标识（可空）。「是不是他的事项」只认这一列；created_by 只用于显示，不参与任何判定。
 //   只在建立事项时由事项服务从事件里取：提交请求经身份服务认出了人、且事件的提交方是已验证的，才有值；否则留空。
 //   留空的事项没有「建立人」，只有管理员能看、能处理。不猜、不按名字去对主体表。
 //   一经记下不再改（空的可以补成有值：回填按事件确定了已验证主体时）。
-if (!(tableColumns('work_items') as { name: string }[]).some((c) => c.name === 'creator_principal')) {
-  db.exec("ALTER TABLE work_items ADD COLUMN creator_principal TEXT CHECK (creator_principal IS NULL OR creator_principal GLOB 'user:?*')");
-}
+addColumnIfMissing('work_items', "creator_principal TEXT CHECK (creator_principal IS NULL OR creator_principal GLOB 'user:?*')");
 // 规范 14 第 2 步：事项是怎么交出去的（建的时候记下，之后分配变了也不改）。
 //   handoff：team = 交给团队（总工分派；存量一律算这个），own-seat = 交给自己的 AI 员工，lead-directed = 负责人指名
 //   review_by：等谁过目——lead = 目标团队的负责人，requester = 建立人自己（交给自己的 AI 员工时勾了「先过目再派出去」），空 = 不过目
@@ -1191,7 +1309,8 @@ for (const [column, ddl] of [
   ['area_source', "area_source TEXT CHECK (area_source IS NULL OR area_source IN ('chosen', 'inferred'))"],
   ['area_reason', "area_reason TEXT NOT NULL DEFAULT ''"],
 ] as const) {
-  if (!(tableColumns('work_items') as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_items ADD COLUMN ${ddl}`);
+  void column; // 列名就是 ddl 的第一个词
+  addColumnIfMissing('work_items', ddl);
 }
 db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_cockpit ON work_items (cockpit_id, updated_at)');
 db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_area ON work_items (area_id, updated_at)');
@@ -1224,9 +1343,7 @@ CREATE TRIGGER IF NOT EXISTS work_items_creator_principal_once BEFORE UPDATE OF 
 `);
 // 阶段八 8f：提需求的人。建录入（task-center 的 run）时经身份服务认出的主体记在 run 上，发布时事项的建立人主体取它；
 //   认不出就空着，不拿发布的人顶替。一经记下不再改。
-if (!(tableColumns('sop_runs') as { name: string }[]).some((c) => c.name === 'requester_principal')) {
-  db.exec("ALTER TABLE sop_runs ADD COLUMN requester_principal TEXT CHECK (requester_principal IS NULL OR requester_principal GLOB 'user:?*')");
-}
+addColumnIfMissing('sop_runs', "requester_principal TEXT CHECK (requester_principal IS NULL OR requester_principal GLOB 'user:?*')");
 // 阶段八 8f：「人提需求」的提交计数。只有通道、有没有登录凭据、认没认出人三个维度和次数，按天（UTC）累计；不存任何提交内容。
 //   用来看各通道的提交里有多少能认出提交人（生产上直接查这张表）。
 db.exec(`
@@ -1243,9 +1360,7 @@ CREATE TABLE IF NOT EXISTS submission_counts (
 );
 `);
 // 阶段八 8f-2：台的提交带了有效的提交人票据时，记下提交人（主体标识，可空）。读数据的接口都按列名取，不带出这一列。
-if (!(tableColumns('app_data') as { name: string }[]).some((c) => c.name === 'submitter_principal')) {
-  db.exec("ALTER TABLE app_data ADD COLUMN submitter_principal TEXT CHECK (submitter_principal IS NULL OR submitter_principal GLOB 'user:?*')");
-}
+addColumnIfMissing('app_data', "submitter_principal TEXT CHECK (submitter_principal IS NULL OR submitter_principal GLOB 'user:?*')");
 // 阶段八 8f-2：提交人票据验得过、验不过的次数，出台页面回落到原样页面的次数，按天累计。不记票据、不记原因、不记是谁
 db.exec(`
 CREATE TABLE IF NOT EXISTS submitter_ticket_counts (
@@ -1279,7 +1394,8 @@ for (const [column, ddl] of [
   ['log_mark', 'log_mark INTEGER NOT NULL DEFAULT 0 CHECK (log_mark >= 0)'],
   ['dirty', 'dirty INTEGER NOT NULL DEFAULT 0 CHECK (dirty IN (0, 1))'],
 ] as const) {
-  if (!(tableColumns('work_item_backfill') as { name: string }[]).some((c) => c.name === column)) db.exec(`ALTER TABLE work_item_backfill ADD COLUMN ${ddl}`);
+  void column; // 列名就是 ddl 的第一个词
+  addColumnIfMissing('work_item_backfill', ddl);
 }
 // 对端登记表：一个节点（DSH 实例，经 a2a 插件接入）一行。登记时取一次名片、验签，钉住完整公钥；名片上的公钥变了不自动接受，
 //   状态改成 key_changed、新公钥记在 pending_*，等管理员确认。status：active = 正常；pending_registration = 升级回填时取不到名片
@@ -1366,20 +1482,19 @@ if (!rosterNodesExisted) {
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
-if (!hasColumn('a2a_roster_changes', 'peer_root')) {
-  db.exec("ALTER TABLE a2a_roster_changes ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''");
-  db.exec("ALTER TABLE a2a_roster_changes ADD COLUMN key_fingerprint TEXT NOT NULL DEFAULT ''");
-}
+addColumnIfMissing('a2a_roster_changes', "peer_root TEXT NOT NULL DEFAULT ''");
+addColumnIfMissing('a2a_roster_changes', "key_fingerprint TEXT NOT NULL DEFAULT ''");
 // 按 host 匹配只认这个视图里的行：没标 needs_review（表约束保证这样的行都带成形的完整指纹）、对端没停用也不在等确认新键、
 // 记着的完整指纹就是此刻钉住的那把（对端还没钉住键、或者没登记的照旧算），而且同一个 host 下这样的行只有一行——
 // 两个节点报了同一个 host（指纹前 8 位撞了），两行都不算，等管理员停用其中一个
-db.exec('DROP VIEW IF EXISTS a2a_rosters_live');
-db.exec(`CREATE VIEW a2a_rosters_live AS
+export const A2A_ROSTERS_LIVE_SQL = `CREATE VIEW a2a_rosters_live AS
 WITH cand AS (
   SELECT r.peer_root, r.key_fingerprint, r.host, r.peer_zone, r.reported_at, r.received_at FROM a2a_roster_nodes r LEFT JOIN a2a_peers p ON p.root_url = r.peer_root
   WHERE r.needs_review = 0 AND (p.root_url IS NULL OR (p.status NOT IN ('disabled', 'key_changed') AND (p.key_fingerprint = '' OR p.key_fingerprint = r.key_fingerprint)))
 )
-SELECT c.* FROM cand c WHERE (SELECT COUNT(*) FROM cand d WHERE d.host = c.host) = 1`);
+SELECT c.* FROM cand c WHERE (SELECT COUNT(*) FROM cand d WHERE d.host = c.host) = 1`;
+/** 启动时这个视图做了什么（created / replaced / unchanged）：db-startup-race-test 读它 */
+export const a2aRostersLiveSetup = ensureView('a2a_rosters_live', A2A_ROSTERS_LIVE_SQL);
 
 // 团队的决策卡（观察者落地 T8，第 18 篇第七节）：宿主在卡建立、定了、丢弃时推来的元数据，只给属主看（「关注」的 a2a-decisions）。
 //   键是（签名宿主的根地址、钥匙完整指纹、团队、宿主上的卡号）：别的宿主报不了这台宿主的卡。
@@ -1476,11 +1591,13 @@ CREATE INDEX IF NOT EXISTS idx_department_members_principal ON department_member
 //   area_events 第 1 步 PR2b 多两种：lead-active（有了生效的负责人，pending-lead → active）、lead-missing（没有了，active → pending-lead）。
 //   旧库的 CHECK 改不了：整表搬一次（触发器、索引先拆，建新表后照原样搬行，旧表删掉），幂等。
 {
-  const old = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'area_events'").get() as { sql: string } | undefined;
-  if (old && !old.sql.includes("'lead-missing'")) {
+  const oldAreaEvents = () => db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'area_events'").get() as { sql: string } | undefined;
+  const needs = () => { const old = oldAreaEvents(); return !!old && !old.sql.includes("'lead-missing'"); };
+  // 事务里再核一次：两个进程同时启动时，后进来的那个看到已经拆过了就跳过（不然会把对方刚建的新表也改名、或者找不到表报错）
+  if (needs()) {
     db.exec('BEGIN IMMEDIATE');
     try {
-      db.exec(`DROP TRIGGER IF EXISTS area_events_no_update; DROP TRIGGER IF EXISTS area_events_no_delete; DROP TRIGGER IF EXISTS area_events_no_replace;
+      if (needs()) db.exec(`DROP TRIGGER IF EXISTS area_events_no_update; DROP TRIGGER IF EXISTS area_events_no_delete; DROP TRIGGER IF EXISTS area_events_no_replace;
         DROP INDEX IF EXISTS idx_area_events_area; ALTER TABLE area_events RENAME TO area_events_pr1;`);
       db.exec('COMMIT');
     } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
@@ -1549,14 +1666,127 @@ CREATE TRIGGER IF NOT EXISTS area_events_no_replace BEFORE INSERT ON area_events
   BEGIN SELECT RAISE(ABORT, 'area_events 只增不改'); END;
 `);
 // 上面拆出来的旧留痕表：原样搬回新表（编号不变），再删掉
-if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'area_events_pr1'").get()) {
+// 同样在事务里再核一次：别的进程已经搬完、把旧表删了，就跳过
+if (hasTable('area_events_pr1')) {
   db.exec('BEGIN IMMEDIATE');
   try {
-    db.exec(`INSERT INTO area_events (seq, area_id, kind, version, actor, actor_principal, at, detail)
+    if (hasTable('area_events_pr1')) db.exec(`INSERT INTO area_events (seq, area_id, kind, version, actor, actor_principal, at, detail)
       SELECT seq, area_id, kind, version, actor, actor_principal, at, detail FROM area_events_pr1 ORDER BY seq; DROP TABLE area_events_pr1;`);
     db.exec('COMMIT');
   } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
 }
+// 报告的维度和模板（docs/report-step1.md 第二节第 1 小节；第 19 篇）。维度属于领域（area_id 空是跨领域的维度），一个维度一串模板版本。
+//   report_dimensions：标识、所属领域、名字、状态（active / retired）、生效指针（active_version）。不删，撤了只读。
+//   report_templates：(维度, 版本) 复合主键；正文是模板 JSON（上限 200 KB，按字节），正文摘要 sha256 和判据部分的摘要 criteria_sha256
+//     都由服务算。kind：判据和这个维度某个复核过的版本一样是 layout，否则 criteria（第一版算 criteria）。建好不改、不删、不修剪（报告引用着它）。
+//   report_template_reviews：作者以外的人复核过哪一版（属主 2026-11-21：判据必须复核过才能生效）。一版至多一条，建好不改不删。
+//     生效看判据摘要：生效的那一版的 criteria_sha256 要等于某个复核过的版本的（#926 独立验收：不按 kind 判，kind 是发版那一刻的说法）。
+//     摘要和正文对不对得上，库这一层核不了（SQLite 里没有 sha256），由服务发版时算、移指针时按正文重算再比。
+//   report_dimension_events：每次建、撤、发版、复核、移指针一行，只增不改。
+// 时间一律是毫秒、由代码给。「不能改、不能删」、生效指针只能指已有的版本、criteria 版本要复核过才能生效，都靠触发器（服务里也判）。
+// PG 那一份成对的触发器到搬库（第 13 篇）时登记，和领域的表一样。
+db.exec(`
+CREATE TABLE IF NOT EXISTS report_dimensions (
+  id TEXT PRIMARY KEY CHECK (id <> ''),
+  area_id TEXT,
+  title TEXT NOT NULL CHECK (title <> ''),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'retired')),
+  active_version INTEGER,
+  created_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL CHECK (created_by <> ''),
+  updated_at INTEGER NOT NULL,
+  updated_by TEXT NOT NULL CHECK (updated_by <> '')
+);
+CREATE TABLE IF NOT EXISTS report_templates (
+  dimension_id TEXT NOT NULL REFERENCES report_dimensions (id),
+  version INTEGER NOT NULL CHECK (version >= 1),
+  body TEXT NOT NULL CHECK (body <> '' AND length(CAST(body AS BLOB)) <= 204800),
+  sha256 TEXT NOT NULL CHECK (length(sha256) = 64),
+  criteria_sha256 TEXT NOT NULL CHECK (length(criteria_sha256) = 64),
+  kind TEXT NOT NULL CHECK (kind IN ('layout', 'criteria')),
+  note TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  created_by TEXT NOT NULL CHECK (created_by <> ''),
+  created_by_principal TEXT,
+  PRIMARY KEY (dimension_id, version)
+);
+CREATE TABLE IF NOT EXISTS report_template_reviews (
+  dimension_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  reviewed_by TEXT NOT NULL CHECK (reviewed_by <> ''),
+  reviewed_by_principal TEXT,
+  reviewed_at INTEGER NOT NULL,
+  note TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (dimension_id, version)
+);
+CREATE TABLE IF NOT EXISTS report_dimension_events (
+  seq INTEGER PRIMARY KEY,
+  dimension_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('create', 'retire', 'template-add', 'template-review', 'activate')),
+  version INTEGER,
+  actor TEXT NOT NULL CHECK (actor <> ''),
+  actor_principal TEXT,
+  at INTEGER NOT NULL,
+  detail TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_report_dimension_events_dim ON report_dimension_events (dimension_id, seq);
+CREATE TRIGGER IF NOT EXISTS report_dimensions_no_delete BEFORE DELETE ON report_dimensions
+  BEGIN SELECT RAISE(ABORT, '报告维度不删除，撤了只读'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimensions_no_replace BEFORE INSERT ON report_dimensions WHEN EXISTS (SELECT 1 FROM report_dimensions WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, '报告维度不删除，也不能用同一个标识覆盖'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimensions_fixed BEFORE UPDATE ON report_dimensions WHEN NEW.id IS NOT OLD.id OR NEW.area_id IS NOT OLD.area_id
+  BEGIN SELECT RAISE(ABORT, '报告维度的标识和所属领域建好不改'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimensions_active_insert BEFORE INSERT ON report_dimensions WHEN NEW.active_version IS NOT NULL
+  BEGIN SELECT RAISE(ABORT, '新建的维度还没有模板，生效指针要为空'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimensions_active_exists BEFORE UPDATE OF active_version ON report_dimensions
+  WHEN NEW.active_version IS NOT NULL AND NOT EXISTS (SELECT 1 FROM report_templates WHERE dimension_id = NEW.id AND version = NEW.active_version)
+  BEGIN SELECT RAISE(ABORT, '生效指针只能指这个维度已有的模板版本'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimensions_active_reviewed BEFORE UPDATE OF active_version ON report_dimensions
+  WHEN NEW.active_version IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM report_templates a JOIN report_templates t ON t.dimension_id = a.dimension_id AND t.criteria_sha256 = a.criteria_sha256
+     JOIN report_template_reviews r ON r.dimension_id = t.dimension_id AND r.version = t.version
+     WHERE a.dimension_id = NEW.id AND a.version = NEW.active_version)
+  BEGIN SELECT RAISE(ABORT, '生效的模板版本，判据要和某个作者以外的人复核过的版本一样'); END;
+CREATE TRIGGER IF NOT EXISTS report_templates_layout_reviewed BEFORE INSERT ON report_templates
+  WHEN NEW.kind = 'layout' AND NOT EXISTS (SELECT 1 FROM report_templates t JOIN report_template_reviews r ON r.dimension_id = t.dimension_id AND r.version = t.version
+     WHERE t.dimension_id = NEW.dimension_id AND t.criteria_sha256 = NEW.criteria_sha256)
+  BEGIN SELECT RAISE(ABORT, '记成版式类的版本，判据要和某个复核过的版本一样'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimensions_retired_final BEFORE UPDATE ON report_dimensions WHEN OLD.status = 'retired'
+  BEGIN SELECT RAISE(ABORT, '撤了的报告维度只读'); END;
+CREATE TRIGGER IF NOT EXISTS report_templates_no_update BEFORE UPDATE ON report_templates
+  BEGIN SELECT RAISE(ABORT, '模板版本建好不能改'); END;
+CREATE TRIGGER IF NOT EXISTS report_templates_no_delete BEFORE DELETE ON report_templates
+  BEGIN SELECT RAISE(ABORT, '模板版本不能删'); END;
+CREATE TRIGGER IF NOT EXISTS report_templates_no_replace BEFORE INSERT ON report_templates WHEN EXISTS (SELECT 1 FROM report_templates WHERE dimension_id = NEW.dimension_id AND version = NEW.version)
+  BEGIN SELECT RAISE(ABORT, '模板版本不能覆盖'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_reviews_exists BEFORE INSERT ON report_template_reviews
+  WHEN NOT EXISTS (SELECT 1 FROM report_templates WHERE dimension_id = NEW.dimension_id AND version = NEW.version)
+  BEGIN SELECT RAISE(ABORT, '只能复核已有的模板版本'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_reviews_not_author BEFORE INSERT ON report_template_reviews
+  WHEN EXISTS (SELECT 1 FROM report_templates v JOIN report_templates t ON t.dimension_id = v.dimension_id AND t.criteria_sha256 = v.criteria_sha256
+    WHERE v.dimension_id = NEW.dimension_id AND v.version = NEW.version
+    AND (t.created_by = NEW.reviewed_by OR (t.created_by_principal IS NOT NULL AND t.created_by_principal = NEW.reviewed_by_principal)))
+  BEGIN SELECT RAISE(ABORT, '模板版本不能由作者本人复核（判据一样的版本的作者都算本人）'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_reviews_identified BEFORE INSERT ON report_template_reviews
+  WHEN NEW.reviewed_by_principal IS NULL OR NEW.reviewed_by_principal = ''
+  BEGIN SELECT RAISE(ABORT, '复核人要认得出是谁（主体不能为空）'); END;
+CREATE TRIGGER IF NOT EXISTS report_templates_criteria_author_identified BEFORE INSERT ON report_templates
+  WHEN NEW.kind = 'criteria' AND (NEW.created_by_principal IS NULL OR NEW.created_by_principal = '')
+  BEGIN SELECT RAISE(ABORT, '判据类版本的作者要认得出是谁（主体不能为空）'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_reviews_no_replace BEFORE INSERT ON report_template_reviews
+  WHEN EXISTS (SELECT 1 FROM report_template_reviews WHERE dimension_id = NEW.dimension_id AND version = NEW.version)
+  BEGIN SELECT RAISE(ABORT, '一版只复核一次'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_reviews_no_update BEFORE UPDATE ON report_template_reviews
+  BEGIN SELECT RAISE(ABORT, '复核记录建好不能改'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_reviews_no_delete BEFORE DELETE ON report_template_reviews
+  BEGIN SELECT RAISE(ABORT, '复核记录不能删'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimension_events_no_update BEFORE UPDATE ON report_dimension_events
+  BEGIN SELECT RAISE(ABORT, 'report_dimension_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimension_events_no_delete BEFORE DELETE ON report_dimension_events
+  BEGIN SELECT RAISE(ABORT, 'report_dimension_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS report_dimension_events_no_replace BEFORE INSERT ON report_dimension_events WHEN EXISTS (SELECT 1 FROM report_dimension_events WHERE seq = NEW.seq)
+  BEGIN SELECT RAISE(ABORT, 'report_dimension_events 只增不改'); END;
+`);
 // 团队与分配（规范 14 第 1 步）。团队、席位是节点名册里的事实（a2a_roster_seats，市场只读）；这三张表是公司的安排，只在市场里。
 //   键和名册一致：团队 (host, team)，host 是节点公钥指纹的前 8 位十六进制（小写）；席位以 (host, seat_id) 为主，seat_id 空的旧节点退回 (host, team, seat)。
 //   teams：团队的登记——认领了没有、挂在哪个部门。没认领的团队不一定有行（名册里出现了、还没人认领）。
@@ -1621,9 +1851,9 @@ CREATE INDEX IF NOT EXISTS idx_team_events_team ON team_events (host, team, seq)
 //   对端登记里这个根地址的完整指纹（key_fingerprint）。用的时候和现在的名册、对端登记核对，对不上的不算数（services/team.ts）。
 //   存量只在加列的那一次回填（按当时的名册和启用的对端）；回填不上的留空，一直不算数，要管理层重新认领、指定、分配。
 //   以后的启动不再回填：不然后来报上同一个号的节点会接走这些旧行
-if (!hasColumn('teams', 'peer_root')) {
-  db.exec('BEGIN IMMEDIATE');
-  try {
+//   要不要做在事务里再核一次（migrateOnce）：多个进程同时启动时只有一个补列、回填，别的进来看到已经补过就跳过
+testBarrier('teams');
+migrateOnce(() => !hasColumn('teams', 'peer_root'), () => {
     for (const t of ['teams', 'team_leads', 'seat_assignments', 'team_events']) {
       db.exec(`ALTER TABLE ${t} ADD COLUMN peer_root TEXT NOT NULL DEFAULT ''`);
       db.exec(`ALTER TABLE ${t} ADD COLUMN key_fingerprint TEXT NOT NULL DEFAULT ''`);
@@ -1635,9 +1865,7 @@ if (!hasColumn('teams', 'peer_root')) {
         key_fingerprint = COALESCE((SELECT p.key_fingerprint FROM a2a_rosters_live r JOIN a2a_peers p ON p.root_url = r.peer_root
           WHERE r.host = ${t}.host AND r.peer_root <> '' AND p.status = 'active' AND p.key_fingerprint <> '' AND p.key_fingerprint = r.key_fingerprint), '')`);
     }
-    db.exec('COMMIT');
-  } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ } throw e; }
-}
+});
 
 // 首次安装向导（角色预设 ②）：一次运行按形态生成一批草稿授予。授予本身照常在 grants 里（来源列只认 manual、migration，老库改不了），
 //   「这条是向导建的」记在这两张表里，读的时候推出来源 wizard。属主一次放行这一批。时间由代码给（毫秒）。
@@ -1762,9 +1990,7 @@ CREATE TABLE IF NOT EXISTS knowledge_project_dept_log (
 // 阶段八 8d：待对接清单的「出现序号」。同一条外部身份绑定后又出现在清单里，是新的一轮待决；「关注」的记账按它分轮，
 //   不靠时间（只到秒，同一秒里又出现就分不开）。每次新插入一行（主体服务是 upsert，只在真的新进清单时插入）取一个全局只增的号：
 //   号来自一张 AUTOINCREMENT 表，删掉旧号不会回退。只加这一列和取号，清单本身的写法不变。
-if (!(tableColumns('principal_pending') as { name: string }[]).some((c) => c.name === 'appearance')) {
-  db.exec('ALTER TABLE principal_pending ADD COLUMN appearance INTEGER NOT NULL DEFAULT 0');
-}
+addColumnIfMissing('principal_pending', 'appearance INTEGER NOT NULL DEFAULT 0');
 // 待对接清单的原因：unbound（认出来了，等价写法撞上已有的、对不到主体）；bound-to-non-person（这条外部身份绑在席位、节点这类非人主体上，
 // 不能拿来登录，要先解绑那条外部身份）。加列用两边都认的 ALTER，已经有这一列时数据库报重复，照常往下走
 try { db.exec("ALTER TABLE principal_pending ADD COLUMN reason TEXT NOT NULL DEFAULT 'unbound'"); } catch (e) {
@@ -1782,64 +2008,46 @@ CREATE TRIGGER IF NOT EXISTS principal_pending_appearance AFTER INSERT ON princi
 `);
 // #337: a durable monotonic generation invalidates stale Redis snapshots, including same-value writes.
 {
-  const cols = tableColumns('sop_runs') as { name: string }[];
-  if (!cols.some(c => c.name === 'cache_revision')) db.exec('ALTER TABLE sop_runs ADD COLUMN cache_revision INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing('sop_runs', 'cache_revision INTEGER NOT NULL DEFAULT 0');
   db.exec(`CREATE TRIGGER IF NOT EXISTS sop_runs_cache_revision AFTER UPDATE OF data, status ON sop_runs
     BEGIN UPDATE sop_runs SET cache_revision = OLD.cache_revision + 1 WHERE id = NEW.id; END;`);
   // #448: hot_pending=1 while Redis may hold an acknowledged write newer than SQLite. Any durable data write
   // (checkpoint, finish, upgrade, note) is built from the latest state, so it clears the flag.
   // Exception (#466): sop-run-access.ts save/finish write SQLite-only data; they are not routed yet and must join
   // runCheckpoints.serial + runLiveData before they are, or this trigger would clear the flag on stale data.
-  if (!cols.some(c => c.name === 'hot_pending')) db.exec('ALTER TABLE sop_runs ADD COLUMN hot_pending INTEGER NOT NULL DEFAULT 0');
+  addColumnIfMissing('sop_runs', 'hot_pending INTEGER NOT NULL DEFAULT 0');
   db.exec(`CREATE TRIGGER IF NOT EXISTS sop_runs_hot_pending_clear AFTER UPDATE OF data ON sop_runs WHEN NEW.hot_pending <> 0
     BEGIN UPDATE sop_runs SET hot_pending = 0 WHERE id = NEW.id; END;`);
 }
 // P0：sop_runs.upload_token（run-scoped 上传令牌·启动签发——总工 direct-c2b55f91）
-try { const srtCols = tableColumns('sop_runs') as any[]; if (!srtCols.some((c) => c.name === 'upload_token')) db.exec("ALTER TABLE sop_runs ADD COLUMN upload_token TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+try { addColumnIfMissing('sop_runs', "upload_token TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // #437② run 文件记 sha256（上传时算）；引用已有文件的行记 ref_of=源文件 id（同一份存储，不另占上传配额）
-try { const rfCols = tableColumns('sop_run_files') as any[]; if (!rfCols.some((c) => c.name === 'sha256')) db.exec("ALTER TABLE sop_run_files ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''"); if (!rfCols.some((c) => c.name === 'ref_of')) db.exec('ALTER TABLE sop_run_files ADD COLUMN ref_of INTEGER NOT NULL DEFAULT 0'); } catch { /* 列已在 */ }
+try { addColumnIfMissing('sop_run_files', "sha256 TEXT NOT NULL DEFAULT ''"); addColumnIfMissing('sop_run_files', 'ref_of INTEGER NOT NULL DEFAULT 0'); } catch { /* 列已在 */ }
 db.exec("CREATE INDEX IF NOT EXISTS idx_sop_run_files_sha ON sop_run_files(sha256) WHERE sha256 <> ''");
 {
-  const cols = tableColumns('workbenches') as { name: string }[];
-  if (!cols.some((c) => c.name === 'auth_config')) {
-    db.exec("ALTER TABLE workbenches ADD COLUMN auth_config TEXT NOT NULL DEFAULT ''");
-  }
-  if (!cols.some((c) => c.name === 'cookie_set_id')) {
-    db.exec("ALTER TABLE workbenches ADD COLUMN cookie_set_id INTEGER NOT NULL DEFAULT 0");
-  }
+  addColumnIfMissing('workbenches', "auth_config TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing('workbenches', "cookie_set_id INTEGER NOT NULL DEFAULT 0");
   // One atomic, idempotent migration; do not publish a default-all credentialed row after a partial startup.
-  if (!cols.some(c => c.name === 'access')) {
-    db.exec('SAVEPOINT portal_access_migration');
-    try {
-      db.exec("ALTER TABLE workbenches ADD COLUMN access TEXT NOT NULL DEFAULT 'all'");
-      if (!cols.some(c => c.name === 'access_logins')) db.exec("ALTER TABLE workbenches ADD COLUMN access_logins TEXT NOT NULL DEFAULT '[]'");
-      const rows = db.prepare('SELECT id, url, auth_config, cookie_set_id FROM workbenches').all() as any[];
-      const update = db.prepare("UPDATE workbenches SET access = 'admin' WHERE id = ?");
-      const raised: number[] = [];
-      for (const row of rows) if (!isInternalTarget(row.url) && isCredentialed(row)) { update.run(row.id); raised.push(row.id); }
-      db.exec('RELEASE portal_access_migration');
-      if (raised.length) console.warn('[portal-access] credentialed external workbenches migrated to admin: '+raised.join(', '));
-    } catch (error) { db.exec('ROLLBACK TO portal_access_migration; RELEASE portal_access_migration'); throw error; }
-  } else if (!cols.some(c => c.name === 'access_logins')) db.exec("ALTER TABLE workbenches ADD COLUMN access_logins TEXT NOT NULL DEFAULT '[]'");
+  // migrateOnce: re-checked inside BEGIN IMMEDIATE, so concurrent startups add the column and raise rows exactly once.
+  const raised: number[] = [];
+  migrateOnce(() => !hasColumn('workbenches', 'access'), () => {
+    addColumnIfMissing('workbenches', "access TEXT NOT NULL DEFAULT 'all'");
+    addColumnIfMissing('workbenches', "access_logins TEXT NOT NULL DEFAULT '[]'");
+    const rows = db.prepare('SELECT id, url, auth_config, cookie_set_id FROM workbenches').all() as any[];
+    const update = db.prepare("UPDATE workbenches SET access = 'admin' WHERE id = ?");
+    for (const row of rows) if (!isInternalTarget(row.url) && isCredentialed(row)) { update.run(row.id); raised.push(row.id); }
+  });
+  if (raised.length) console.warn('[portal-access] credentialed external workbenches migrated to admin: '+raised.join(', '));
+  addColumnIfMissing('workbenches', "access_logins TEXT NOT NULL DEFAULT '[]'");
 }
 {
-  const cols = tableColumns('apps') as { name: string }[];
-  if (!cols.some((c) => c.name === 'kind')) {
-    db.exec("ALTER TABLE apps ADD COLUMN kind TEXT NOT NULL DEFAULT 'app'");
-  }
-  if (!cols.some((c) => c.name === 'code')) {
-    db.exec("ALTER TABLE apps ADD COLUMN code TEXT NOT NULL DEFAULT ''");
-  }
+  addColumnIfMissing('apps', "kind TEXT NOT NULL DEFAULT 'app'");
+  addColumnIfMissing('apps', "code TEXT NOT NULL DEFAULT ''");
   // A2A 节点短 id（GH #17：随机生成持久化，禁 slug 推导——修订 3 防抢注）
-  if (!cols.some((c) => c.name === 'a2a_node8')) {
-    db.exec("ALTER TABLE apps ADD COLUMN a2a_node8 TEXT NOT NULL DEFAULT ''");
-  }
+  addColumnIfMissing('apps', "a2a_node8 TEXT NOT NULL DEFAULT ''");
 }
 {
-  const cols = tableColumns('app_versions') as { name: string }[];
-  if (!cols.some((c) => c.name === 'changelog')) {
-    db.exec("ALTER TABLE app_versions ADD COLUMN changelog TEXT NOT NULL DEFAULT ''");
-  }
+  addColumnIfMissing('app_versions', "changelog TEXT NOT NULL DEFAULT ''");
 }
 
 /** 内置工作台类型种子：health 探测语义——expect_status 为 NULL 表示任意 HTTP 响应即在线 */
@@ -1961,14 +2169,12 @@ db.exec(`CREATE TABLE IF NOT EXISTS bench_views (
 // 台绑到哪个部门（必要时细到这个部门下的一个团队）。空串是没绑：只有管理层进得来。
 // 谁能读写一个绑了部门的台，看的是「已放行的、范围是这个部门的授予」（judgment.ts 的 scopedVerdict），不看部门成员表。
 try {
-  const bvCols = tableColumns('bench_views') as { name: string }[];
-  for (const c of ['department_id', 'team_host', 'team']) if (!bvCols.some((x) => x.name === c)) db.exec(`ALTER TABLE bench_views ADD COLUMN ${c} TEXT NOT NULL DEFAULT ''`);
+  for (const c of ['department_id', 'team_host', 'team']) addColumnIfMissing('bench_views', `${c} TEXT NOT NULL DEFAULT ''`);
 } catch (e) { console.error(`[db] bench_views 加绑定列失败：${(e as Error).message}`); throw e; }
 // 台对应市场登记的哪个台（workbenches.id）：一个登记的台最多对应一个视图台，反过来也一样。对应关系只记在这里（真来源只有这一份）；
 // 登记的台删了，读的时候按没有对应处理（不跟着删这一列）
 try {
-  const bvCols2 = tableColumns('bench_views') as { name: string }[];
-  if (!bvCols2.some((x) => x.name === 'workbench_id')) db.exec('ALTER TABLE bench_views ADD COLUMN workbench_id INTEGER');
+  addColumnIfMissing('bench_views', 'workbench_id INTEGER');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_bench_views_workbench ON bench_views (workbench_id) WHERE workbench_id IS NOT NULL');
 } catch (e) { console.error(`[db] bench_views 加对应台号列失败：${(e as Error).message}`); throw e; }
 db.exec(`CREATE TABLE IF NOT EXISTS bench_bind_audit (
@@ -2097,6 +2303,50 @@ function benchStoreAppSchema(): string[] {
 }
 
 /**
+ * 附加的表（开库不建，第一次绑模板、生成报告时才建；不升版本号）：报告（docs/report-step1.md 第二节第 2 小节，报告第 1 步 PR B）。
+ *   bs_report_bindings：这个台对一个维度的绑定（每个数据槽对应本台哪份视图的哪个块、参数和列怎么对应），改了就加一版，旧版留着（报告引用）；
+ *   bs_reports：生成时冻结的报告（模板版本、绑定版本、事物、输入、成品、来源由服务端填）；supersedes 是更正的哪一份，更正链不分叉（唯一索引）；
+ *   bs_report_claims：随报告一起写、一起冻结的论断；
+ *   bs_report_responses：对论断（claim_key 空是对整份报告）的认可、反驳、补充，必须写理由；只追加，改主意就接自己的链头（supersedes，唯一索引防分叉，报告第 1 步 PR C）。
+ * 四张表都不能改、不能删、不能用同一个键覆盖（SQLite 各三个触发器；PostgreSQL 那一份成对的到搬库时登记，和主库领域的表一样）。时间是毫秒整数，由代码给
+ */
+function benchStoreReportSchema(d: BenchDialect): string[] {
+  const big = d === 'postgres' ? 'BIGINT' : 'INTEGER';
+  const out = [
+    `CREATE TABLE IF NOT EXISTS bs_report_bindings (
+      dimension_id TEXT NOT NULL, version INTEGER NOT NULL, template_version INTEGER NOT NULL, slots TEXT NOT NULL,
+      created_by TEXT NOT NULL, created_at ${big} NOT NULL, PRIMARY KEY (dimension_id, version))`,
+    `CREATE TABLE IF NOT EXISTS bs_reports (
+      id ${benchAutoId(d)}, dimension_id TEXT NOT NULL, template_version INTEGER NOT NULL, template_sha256 TEXT NOT NULL, binding_version INTEGER NOT NULL,
+      subject TEXT NOT NULL, inputs TEXT NOT NULL, body TEXT NOT NULL, sources TEXT NOT NULL, content_sha256 TEXT NOT NULL,
+      producer TEXT NOT NULL, producer_kind TEXT NOT NULL, supersedes ${big}, created_at ${big} NOT NULL, claim_count INTEGER NOT NULL)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_bs_reports_supersedes ON bs_reports (supersedes) WHERE supersedes IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_bs_reports_subject ON bs_reports (subject, dimension_id, id)`,
+    `CREATE TABLE IF NOT EXISTS bs_report_claims (
+      report_id ${big} NOT NULL, claim_key TEXT NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, basis TEXT NOT NULL, PRIMARY KEY (report_id, claim_key))`,
+    `CREATE TABLE IF NOT EXISTS bs_report_responses (
+      id ${benchAutoId(d)}, report_id ${big} NOT NULL, claim_key TEXT NOT NULL, stance TEXT NOT NULL, reason TEXT NOT NULL,
+      responder TEXT NOT NULL, responder_kind TEXT NOT NULL, position TEXT NOT NULL, supersedes ${big}, created_at ${big} NOT NULL)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_bs_report_responses_supersedes ON bs_report_responses (supersedes) WHERE supersedes IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS idx_bs_report_responses_report ON bs_report_responses (report_id, claim_key, id)`,
+  ];
+  // 主键：INSERT OR REPLACE 删旧行时不触发 DELETE 触发器（除非开了 recursive_triggers），所以键已存在的插入一律拦下（#930 独立验收；同 work_item_log_no_replace）
+  const keys: [string, string][] = [['bs_report_bindings', 'dimension_id = NEW.dimension_id AND version = NEW.version'], ['bs_reports', 'id = NEW.id'], ['bs_report_claims', 'report_id = NEW.report_id AND claim_key = NEW.claim_key'], ['bs_report_responses', 'id = NEW.id']];
+  if (d === 'sqlite') for (const [t, key] of keys) {
+    out.push(`CREATE TRIGGER IF NOT EXISTS ${t}_no_update BEFORE UPDATE ON ${t} BEGIN SELECT RAISE(ABORT, '${t} 建好不能改'); END`);
+    out.push(`CREATE TRIGGER IF NOT EXISTS ${t}_no_delete BEFORE DELETE ON ${t} BEGIN SELECT RAISE(ABORT, '${t} 不能删'); END`);
+    out.push(`CREATE TRIGGER IF NOT EXISTS ${t}_no_replace BEFORE INSERT ON ${t} WHEN EXISTS (SELECT 1 FROM ${t} WHERE ${key}) BEGIN SELECT RAISE(ABORT, '${t} 不能用同一个键覆盖'); END`);
+  }
+  // 论断随报告一起冻结（#930 独立验收）：报告写下时记着有几条论断（claim_count，建好不改）；
+  // 挂到不存在的报告上、或者报告的论断已经写满了还要再加，一律拒——冻结以后不能补论断
+  if (d === 'sqlite') out.push(`CREATE TRIGGER IF NOT EXISTS bs_report_claims_frozen BEFORE INSERT ON bs_report_claims
+    WHEN NOT EXISTS (SELECT 1 FROM bs_reports WHERE id = NEW.report_id)
+      OR (SELECT COUNT(*) FROM bs_report_claims WHERE report_id = NEW.report_id) >= (SELECT claim_count FROM bs_reports WHERE id = NEW.report_id)
+    BEGIN SELECT RAISE(ABORT, '论断随报告一起冻结：不能挂到不存在的报告上，也不能事后补'); END`);
+  return out;
+}
+
+/**
  * 台库用到的、属于表结构或随库不同的写法，打成一份纯数据。
  *
  * 台库的读写在工作线程里跑（services/bench-store-worker.ts）。线程不能引用这个文件：一引用就会在线程里再开一次主库。
@@ -2115,6 +2365,10 @@ export type BenchSqlKit = {
   appSchema: string[];
   appProbes: string[];
   appExists: string;
+  /** 附加的表 bs_report_bindings、bs_reports、bs_report_claims、bs_report_responses（同 bs_vars：开库不建，第一次绑模板、生成报告时才建）、试读、在不在 */
+  reportSchema: string[];
+  reportProbes: string[];
+  reportExists: string;
   /** 固定的几张表 */
   schema: string[];
   /** 打开库时逐条试一遍：哪条跑不通，就是库文件的结构和这份代码对不上（比如还没定稿时旧代码建的文件），明确拒绝，不静默照用 */
@@ -2156,6 +2410,16 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
     appExists: d === 'postgres'
       ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_app_files'"
       : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_app_files'",
+    reportSchema: benchStoreReportSchema(d),
+    reportProbes: [
+      'SELECT dimension_id, version, template_version, slots, created_by, created_at FROM bs_report_bindings WHERE 1 = 0',
+      'SELECT id, dimension_id, template_version, template_sha256, binding_version, subject, inputs, body, sources, content_sha256, producer, producer_kind, supersedes, created_at, claim_count FROM bs_reports WHERE 1 = 0',
+      'SELECT report_id, claim_key, kind, text, basis FROM bs_report_claims WHERE 1 = 0',
+      'SELECT id, report_id, claim_key, stance, reason, responder, responder_kind, position, supersedes, created_at FROM bs_report_responses WHERE 1 = 0',
+    ],
+    reportExists: d === 'postgres'
+      ? "SELECT 1 AS x FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = 'bs_report_responses'"
+      : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_report_responses'",
     schema: benchStoreSchema(d),
     probes: [
       'SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_datasets WHERE 1 = 0',

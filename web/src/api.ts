@@ -422,11 +422,59 @@ export async function exportBenchTable(bench: string, target: TableContext): Pro
 export const listBenchViews = () => benchViewsGet('/api/bench-views');
 export const getBenchViewDoc = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/view`);
 /** 视图台页面的入口：ref 写卡片 id 或台标识。200 时 body 是 BenchEntry；读不到的、不存在的、没开台库的、还没有视图描述的都是同一个 404（页面照原来的方式打开卡片）；没登录 401 */
-export type BenchEntry = { bench: { slug: string; title: string; workbench_id: number | null }; version: number; title: string; default_view: string; views: { key: string; title: string }[]; can: { rename: boolean } };
+export type BenchEntry = { bench: { slug: string; title: string; workbench_id: number | null; /** 卡片现在的名字：只给能改名的人；没有对应卡片是 null */ card_title?: string | null }; version: number; title: string; default_view: string; views: { key: string; title: string }[]; can: { rename: boolean; /** 能进这个台的 MCP 管理页（#904） */ mcp: boolean; /** 能批台上的 MCP 申请 */ mcp_decide: boolean; /** 能看这个台的报告（报告第 1 步 PR D） */ reports: boolean; /** 能对报告回应 */ respond: boolean } };
 /** 改台名（#905）：PUT /api/bench-views/<卡片 id>/title，{ title } 或 { from_card: true }，带 base_title（页面看到的名字）防覆盖。返回状态码和应答体；断网当状态码 0 */
 export async function renameBenchTitle(ref: string | number, body: { title?: string; from_card?: true; base_title: string }): Promise<{ status: number; body: unknown }> {
   try {
     const r = await fetch(`/api/bench-views/${encodeURIComponent(String(ref))}/title`, { method: 'PUT', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+/** 台上的报告（报告第 1 步 PR D）：清单、一份、回应。返回状态码和应答体，页面据此给说法；断网当状态码 0 */
+export type ReportStance = 'agree' | 'dispute' | 'supplement';
+export type ReportListItem = { id: number; dimension_id: string; template_version: number; binding_version: number; subject: string; content_sha256: string; producer: string; producer_kind: 'human' | 'ai'; supersedes: number | null; superseded_by: number | null; created_at: number };
+export type ReportResponse = { id: number; report_id: number; claim_key: string; stance: ReportStance; reason: string; responder: string; responder_kind: 'human' | 'ai'; position: string; supersedes: number | null; created_at: number; mine?: boolean };
+export type ReportClaim = { claim_key: string; kind: string; text: string; basis: { slot: string; key: (string | number | boolean)[] }[]; responses: ReportResponse[]; open_dispute: boolean };
+export type ReportNode = { id: string; type: string; title?: string; content?: string; children?: ReportNode[]; columns?: number[]; component?: string; props?: Record<string, unknown>; data?: { columns: { name: string; type: string; label?: string }[]; rows: Record<string, unknown>[] } };
+export type ReportSource = { slot: string; view: string; block: number; view_version: number; view_sha256: string; rows: number; completeness: string };
+export type ReportRead = {
+  report: ReportListItem & { template_sha256: string; inputs: { parameters: Record<string, string>; fields: Record<string, string> }; body: { schema_version: 2; title: string; body: ReportNode[] }; sources: ReportSource[] };
+  claims: ReportClaim[]; responses: ReportResponse[]; gate: Record<string, unknown> | null; open_disputes: number;
+  template: { stances: string[]; claims: { kind: string; label: string }[] };
+  names?: ReportNames;
+};
+/** 报告给人看的名字（#937）：服务端取不到给 null，页面写「未命名」，不显示内部标识 */
+export type ReportPositionPart = { role: string | null; scope: string | null };
+export type ReportNames = {
+  dimension: string | null; actors: Record<string, string | null>;
+  positions: Record<string, ReportPositionPart[] | 'mcp' | 'builtin'>;
+  sources: { slot: string; view: string | null; block: string | null }[];
+};
+export type ReportListNames = { dimensions: Record<string, string | null>; actors: Record<string, string | null> };
+const reportsBase = (ref: string | number) => `/api/bench-views/${encodeURIComponent(String(ref))}/reports`;
+export const listBenchReports = (ref: string | number, subject?: string) => benchViewsGet(reportsBase(ref) + (subject ? `?subject=${encodeURIComponent(subject)}` : ''));
+export const getBenchReport = (ref: string | number, id: number) => benchViewsGet(`${reportsBase(ref)}/${id}`);
+export async function respondBenchReport(ref: string | number, id: number, body: { claim_key?: string; stance: string; reason: string; supersedes?: number }): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(`${reportsBase(ref)}/${id}/responses`, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
+/** 台的 MCP 管理页（#904）：会话在这个台上的授予、申请、写法对不上的申请、留痕；can.decide 是能不能批（和批准接口同一个判法） */
+export type BenchMcpTool = { tool: string; category: string };
+export type BenchMcpRequest = { id: number; bench: string; tools: string[]; tool_kinds: BenchMcpTool[]; reason: string; status: 'pending' | 'approved' | 'rejected' | 'expired'; note: string; created_at: number; decided_at: number | null; session_id: number; session: string; decided_by: string };
+export type BenchMcpPage = {
+  bench: { slug: string; title: string; workbench_id: number | null };
+  grants: { session_id: number; session: string; revoked: boolean; tools: (BenchMcpTool & { granted_by: string; granted_at: number; request_id: number | null })[] }[];
+  requests: BenchMcpRequest[]; unmatched: (BenchMcpRequest & { why: string })[];
+  log: { id: number; session_id: number; action: string; tools: string[]; actor: string; request_id: number | null; note: string; at: number }[];
+  can: { decide: boolean };
+};
+export const getBenchMcp = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/mcp-grants`);
+/** 批准或驳回台上的一条申请（驳回要写理由，服务端核）。返回状态码和应答体；断网当状态码 0 */
+export async function decideBenchMcp(bench: string, id: number, approve: boolean, note: string): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(`/api/bench-views/${encodeURIComponent(bench)}/mcp-requests/${id}`, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ approve, ...(note.trim() ? { note: note.trim() } : {}) }) });
     return { status: r.status, body: await r.json().catch(() => null) };
   } catch { return { status: 0, body: null }; }
 }

@@ -29,11 +29,12 @@ import type { Kind } from '../roles.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
 import { tableTarget, tableCsv } from '../bench-table.ts';
 import { benchStore, type BenchStore } from '../services/bench-store.ts';
-import { bindBench, linkWorkbench, renameBench, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
+import { bindBench, linkWorkbench, renameBench, cardTitle, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
 import { relationOf } from '../team-relation.ts';
 import { checkBenchRequest, decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 import { viaBegin, viaSettle } from '../attention-via.ts';
 import { assertBenchBinding, renderBenchView } from '../services/bench-render.ts';
+import { bindReport, generateReport, listReports, readReport, respondReport } from '../services/bench-report.ts';
 
 export type BenchViewsConfig = { on: boolean };
 /** 启动时读一次：WM_BENCH_VIEWS（on / off，缺省 on；不需要时显式 off 关掉）。不合法拒绝启动 */
@@ -286,15 +287,56 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     try { view = await (await benchStore(bench.slug)).getView(); } catch (e) { return fail(res, e); }
     const doc = view?.content as { title?: unknown; views?: { key: string; title: string }[] } | undefined;
     if (!view || !Array.isArray(doc?.views) || !doc.views.length) return none();
+    const rename = mayRename(actor);
     res.json({
-      bench: { slug: bench.slug, title: bench.title, workbench_id: bench.workbench_id },
+      // card_title（卡片现在的名字）只给能改名的人：页面据此决定出不出「跟卡片同名」；不能改的人用不上，也不多给
+      bench: { slug: bench.slug, title: bench.title, workbench_id: bench.workbench_id, ...(rename ? { card_title: cardTitle(bench.workbench_id) } : {}) },
       version: view.version,
       title: typeof doc.title === 'string' ? doc.title : bench.title,
       default_view: doc.views[0].key,
       views: doc.views.map((v) => ({ key: v.key, title: v.title })),
-      // 页面据此决定出不出「改名」按钮；和 PUT /title 是同一个判法
-      can: { rename: mayRename(actor) },
+      // 页面据此决定出不出「改名」按钮、「MCP 授权」入口和上面的批准驳回（#904）、「报告」按钮和报告上的回应框（报告第 1 步 PR D）；
+      // 和对应接口是同一个判法（PUT /title、mayRename / may）
+      can: { rename, mcp: may(actor, 'bench-store.mcp-list', bench), mcp_decide: may(actor, 'bench-store.mcp-decide', bench), reports: may(actor, 'bench-store.report-read', bench), respond: may(actor, 'bench-store.report-respond', bench) },
     });
+  }));
+
+  // —— 报告（docs/report-step1.md 第四节；报告第 1 步 PR B、C）——
+  // 规矩都在 services/bench-report.ts（和 MCP 的 report_* 工具共用）；这里只按动作判谁能做。四个动作和视图描述、取数同一档
+  // （ASKED 里 global、scoped 都按「写」问）：管理层，和台所绑的领域上有授予的人
+  const benchOf = (req: express.Request): BenchEntry => getBench(req.params.bench) as BenchEntry;
+  app.get('/api/bench-views/:bench/reports/:dimension/binding', { action: 'bench-store.report-read', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-read', async (req, _res, s) => {
+    const b = await s.reportBindingGet(String(req.params.dimension));
+    if (!b) throw new BenchError('not_found', '这个台还没有绑这个维度');
+    return { binding: b };
+  }));
+  app.put('/api/bench-views/:bench/reports/:dimension/binding', { action: 'bench-store.report-bind', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-bind',
+    (req, _res, s, actor) => bindReport(benchOf(req), s, req.params.dimension, req.body, actor, Date.now())));
+  app.post('/api/bench-views/:bench/reports', { action: 'bench-store.report-generate', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-generate', async (req, res, s, actor) => {
+    const out = await generateReport(benchOf(req), s, req.body, actor, Date.now());
+    res.status(201);
+    return out;
+  }));
+  app.get('/api/bench-views/:bench/reports', { action: 'bench-store.report-read', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-read', (req, _res, s) => {
+    const q = req.query as Record<string, unknown>;
+    return listReports(s, { dimension: q.dimension, subject: q.subject, limit: qint(q.limit, 'limit') });
+  }));
+  app.get('/api/bench-views/:bench/reports/:id', { action: 'bench-store.report-read', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-read', (req, _res, s, actor) => {
+    const id = qint(req.params.id, '报告编号');
+    return readReport(s, id, actor);
+  }));
+  // 回应（PR C）：能读这份报告的人表态（规格第六节评审定的推荐：随含取数的预设一起给，这里和读同一档）。
+  // 能回应、却读不了这个台上的报告的人：和报告不存在一样回 404（规格第五节第 14 条：不泄露报告在不在；#932 独立验收）
+  app.post('/api/bench-views/:bench/reports/:id/responses', { action: 'bench-store.report-respond', kind: 'write', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const bench = getBench(req.params.bench);
+    const actor = await allowActor(req, res, 'bench-store.report-respond', bench);
+    if (!actor) return;
+    if (!bench) return void res.status(404).json({ error: 'bench_not_found' });
+    if (!may(actor, 'bench-store.report-read', bench)) return void fail(res, new BenchError('not_found', '没有这份报告'));
+    try {
+      const out = await respondReport(await benchStore(req.params.bench), qint(req.params.id, '报告编号'), req.body, idOf(actor), Date.now());
+      res.status(201).json(out);
+    } catch (e) { fail(res, e); }
   }));
 
   // —— 视图描述 ——
@@ -388,7 +430,14 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
 
   // 把台的数据交给一个 AI 会话是「拍板」（和批授予、批角色同类），不是普通的写：以后有能改数据、但不该替会话开权限的角色时分得开
   // —— MCP 工具的授予（3b）：按「会话 × 台 × 工具」记，由能改这个台的人批；管理口令在上面已经拒了 ——
-  app.get('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-list', async (req) => listBenchMcp(req.params.bench)));
+  // 台的 MCP 管理页（#904）照应答里的 can.decide 出批准、驳回：和 POST .../mcp-requests/:id 同一个判法（may），页面不自己猜
+  app.get('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-list', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const bench = getBench(req.params.bench);
+    const judged = await allowActor(req, res, 'bench-store.mcp-list', bench);
+    if (!judged) return;
+    if (!bench) return void res.status(404).json({ error: 'bench_not_found' });
+    res.json({ ...listBenchMcp(req.params.bench), bench: { slug: bench.slug, title: bench.title, workbench_id: bench.workbench_id }, can: { decide: may(judged, 'bench-store.mcp-decide', bench) } });
+  }));
   app.put('/api/bench-views/:bench/mcp-grants', { action: 'bench-store.mcp-grant', kind: 'decide', statusNotVerdict: NOT_VERDICT }, on('bench-store.mcp-grant', async (req, _res, _s, actor) => setBenchGrants(req.params.bench, req.body, actor, Date.now())));
   // 「关注」里「台的 MCP 授予申请」卡片照 answer_via 调这里：带来的（from_attention）批成了记进「关注」的答复账，可以顺带记成经验（attention-via.ts）；
   // remember 写得不对在批之前就拒（400，申请不动）。别处直接调的照旧

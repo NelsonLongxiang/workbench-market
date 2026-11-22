@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import BenchMcpRequests from './BenchMcpRequests';
 import { Link } from 'react-router-dom';
 import { App, Button, Empty, Input, Modal, Popconfirm, Select, Space, Table, Tabs, Tag, Typography } from 'antd';
 import { KeyOutlined, PlusOutlined } from '@ant-design/icons';
@@ -333,7 +334,7 @@ export default function McpGateways() {
           <Button onClick={reload} loading={loading}>刷新</Button>
         </Space>
       ) : (
-        <Space.Compact className="wm-w-full wm-mb-3" style={{ maxWidth: 640 }}>
+        <Space.Compact className="wm-w-full wm-mb-3 wm-max-w-640">
           <Input.Password
             prefix={<KeyOutlined />}
             placeholder="管理员口令（有管理员授予的站内账号登录后免输）"
@@ -345,7 +346,7 @@ export default function McpGateways() {
           <Button onClick={() => { void loadToken(); }} disabled={!tokenDraft.trim()} loading={tokenChecking}>载入</Button>
         </Space.Compact>
       )}
-      <Space.Compact className="wm-w-full wm-mb-4" style={{ maxWidth: 640 }}>
+      <Space.Compact className="wm-w-full wm-mb-4 wm-max-w-640">
         <Input
           prefix={<PlusOutlined />}
           placeholder="新会话名（小写字母/数字/连字符，如 agent-alpha）"
@@ -365,7 +366,7 @@ export default function McpGateways() {
                 <ProTable<McpSession> rowKey="id" size="middle" columns={sessCols} dataSource={sessions} loading={loading} search={false} options={false} toolBarRender={false}
                   pagination={{ pageSize: 20, hideOnSinglePage: true }}
                   locale={{ emptyText: <Empty description={active ? "无会话——创建首个会话" : "需要管理员：输入口令，或用有管理员授予的站内账号登录"} /> }} />
-                <Typography.Title level={5} style={{ marginTop: 24 }}>审计（最近 100 条）</Typography.Title>
+                <Typography.Title level={5} className="wm-mt-6">审计（最近 100 条）</Typography.Title>
                 <ProTable<McpCall> rowKey="id" size="middle" columns={callCols} dataSource={calls} loading={callsLoading} search={false} options={false} toolBarRender={false} pagination={{ pageSize: 20, hideOnSinglePage: true }} />
               </>
             ),
@@ -378,11 +379,11 @@ export default function McpGateways() {
                   会话经 MCP <Typography.Text code>access_request</Typography.Text> 提交；批准把申请的工具并入该会话现有授权（不收走已有工具），立即生效并记审计。已吊销会话只能驳回。
                 </Typography.Paragraph>
                 <Typography.Paragraph type="secondary" className="wm-caption" data-testid="mcp-bench-hint">
-                  这里只有会话自己的工具申请。会话申请在某个台上用工具（台的工具授权）不在这一页，在<Link to="/attention">「等你拍板」</Link>里批；
+                  这里只有会话自己的工具申请。会话申请在某个台上用工具（台的工具授权）看旁边的「台上的申请」页签，或者在<Link to="/attention">「等你拍板」</Link>里批；
                   台里是业务数据，要用有管理层授予的账号登录才看得到、批得了，只有系统管理员授予或管理口令的看不到。
                 </Typography.Paragraph>
                 <Space className="wm-mb-3">
-                  <Select<ReqStatus> value={reqStatus} onChange={(v) => { setReqStatus(v); reqStatusRef.current = v; loadRequests(v); }} style={{ width: 140 }}
+                  <Select<ReqStatus> value={reqStatus} onChange={(v) => { setReqStatus(v); reqStatusRef.current = v; loadRequests(v); }} className="wm-w-140"
                     options={[{ value: 'pending', label: '待批' }, { value: 'approved', label: '已批准' }, { value: 'rejected', label: '已驳回' }, { value: 'all', label: '全部' }]} />
                 </Space>
                 <ProTable<AccessRequest> rowKey="id" size="middle" columns={reqCols} dataSource={requests} loading={reqLoading} search={false} options={false} toolBarRender={false}
@@ -394,6 +395,11 @@ export default function McpGateways() {
             ),
           },
           {
+            // #904：台上的申请（会话申请在某个台上用工具）原来只在「等你拍板」里，这里也列出来、链到各台的授权页
+            key: 'bench-requests', label: '台上的申请',
+            children: <BenchMcpRequests />,
+          },
+          {
             key: 'upstreams', label: `上游聚合（${upstreams.length}）`,
             children: (
               <>
@@ -401,13 +407,13 @@ export default function McpGateways() {
                   外部 MCP 服务的工具以 <Typography.Text code>&lt;prefix&gt;__&lt;tool&gt;</Typography.Text> 并入 /mcp（如 taste-mcp → <Typography.Text code>taste__rules</Typography.Text>）。
                   上游不可达时自动降级、不影响本地工具。配置整体替换。
                 </Typography.Paragraph>
-                <Space.Compact className="wm-w-full wm-mb-3" style={{ maxWidth: 720 }}>
-                  <Input placeholder="prefix（如 taste）" value={upPrefix} onChange={(e) => setUpPrefix(e.target.value)} style={{ width: 180 }} className="wm-mono wm-text-body" />
+                <Space.Compact className="wm-w-full wm-mb-3 wm-max-w-720">
+                  <Input placeholder="prefix（如 taste）" value={upPrefix} onChange={(e) => setUpPrefix(e.target.value)} className="wm-mono wm-text-body wm-w-180" />
                   <Input placeholder="MCP 端点 URL（如 http://127.0.0.1:9810/mcp）" value={upUrl} onChange={(e) => setUpUrl(e.target.value)} className="wm-text-body" />
                   <Button type="primary" onClick={addUpstream} disabled={!active}>添加/更新</Button>
                 </Space.Compact>
                 <Input.TextArea rows={2} value={upHeaders} onChange={(e) => setUpHeaders(e.target.value)}
-                  style={{ maxWidth: 720 }} className="wm-mono wm-caption wm-mb-3"
+                  className="wm-mono wm-caption wm-mb-3 wm-max-w-720"
                   placeholder='上游请求头 JSON（如 {"X-Market-Client":"mcp/market-gateway"}）' />
                 <Table rowKey="prefix" size="small" dataSource={upstreams} loading={loading} pagination={false}
                   columns={[

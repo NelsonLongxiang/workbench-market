@@ -98,7 +98,8 @@ try {
   // 工具目录以后再变（加了、删了工具），这一条会红：那时照这里的做法重抓基准，把那一次加的、删的写进期望
   {
     const { readFileSync } = await import('node:fs');
-    const ADDED = ['result_read'];
+    // 报告的四个工具（报告第 1 步 PR C）：有意新增，按目录里的位置放回基准再比
+    const ADDED = ['result_read', 'report_list', 'report_get', 'report_generate', 'report_respond'];
     // 有意改了参数表的工具：去掉这次加的那一处，应当和基准一字不差；放回基准时用现在的那一项
     // dataset_query：查询描述加了 current_only（公共区的数据集只取每条更正链最新那行）
     // view_put：说明里列的组件类型多了 records（记录卡，#858）
@@ -116,7 +117,7 @@ try {
     const insertAt = (list, items, nameOf) => { const out = [...list]; for (const it of items) { const i = nowFull.catalog.findIndex((x) => x.name === nameOf(it)); out.splice(i, 0, it); } return out; };
     const newEntries = nowFull.catalog.filter((t) => ADDED.includes(t.name));
     const patched = { ...before, granted_tools: (() => { const out = [...before.granted_tools]; for (const name of ADDED) { const i = nowFull.granted_tools.indexOf(name); if (i >= 0) out.splice(i, 0, name); } return out; })(), catalog: insertAt(before.catalog.map((t) => changedNow.get(t.name) ?? t), newEntries, (t) => t.name) };
-    ok('带 full: true 的应答和基准逐字节相同（只多了 result_read 那一项，dataset_query 只多了 current_only，view_put 的组件类型只多了 records）', J(added) === J(ADDED) && removed.length === 0 && J(changed) === J(Object.keys(CHANGED)) && declaredOk && JSON.stringify(patched) === nowText,
+    ok('带 full: true 的应答和基准逐字节相同（只多了 result_read 和报告的四个工具，dataset_query 只多了 current_only，view_put 的组件类型只多了 records）', J(added) === J(ADDED) && removed.length === 0 && J(changed) === J(Object.keys(CHANGED)) && declaredOk && JSON.stringify(patched) === nowText,
       J({ added, removed, changed, declaredOk, bytes: [Buffer.byteLength(nowText), Buffer.byteLength(JSON.stringify(patched))] }));
   }
   const details = await Promise.all(listed.map((t) => tool(bare.token, 'access_info', { tool: t.name })));

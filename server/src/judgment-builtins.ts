@@ -136,6 +136,10 @@ export const BUILTINS: readonly BuiltinIdentity[] = [
       'department.upsert',
       'access.red-lines',
       'principal.access',
+      // 报告的维度和模板：本机命令行在这里算属主（docs/report-step1.md 第四节）
+      'report.dimension-list',
+      'report.dimension-read',
+      'report.dimension-set',
       'setup.wizard-approve',
       'setup.wizard-read',
       'setup.wizard-run',
@@ -274,6 +278,7 @@ export const NARROWED: readonly NarrowedAction[] = [
   { action: 'area.migrate', only: ['owner', 'local-cli'], why: '部门迁成领域只有属主（本机命令行在这里算属主）：迁移替部门负责人起草领域负责人的授予，这类授予本来就只有属主能起草（docs/domains-step1.md 第二节第 3 小节）' },
   { action: 'area.retire', only: ['owner', 'local-cli'], why: '撤领域只有属主（本机命令行在这里算属主）；管理层、系统管理员、管理口令都不行（docs/domains-step1.md 第三节）' },
   { action: 'area.spec-set', only: ['owner', 'local-cli'], scopedHolder: 'area-spec', why: '定规范是硬规则，角色覆盖不算：只认属主（本机命令行在这里算属主），和持本领域 area-spec 授予（范围正好是 area:<领域>）的人；后者由路由按对象判' },
+  { action: 'report.dimension-set', only: ['owner', 'local-cli'], scopedHolder: 'area-report', why: '定报告维度（建维度、发模板、复核、移指针、撤）是硬规则，角色覆盖不算：只认属主（本机命令行在这里算属主），和持本领域 area-report 授予（范围正好是 area:<领域>）的人；跨领域的维度只认属主；后者由路由按对象判（docs/report-step1.md 第四节）' },
   { action: 'work-items.create', only: ['person'], why: '「安排一件事」只认人：建立人就是提需求的本人。任何启用的人都能安排（不靠角色给写权限）；管理口令、本机命令行、席位都不是人，一律不能' },
 ];
 export const narrowed = (action: string): NarrowedAction | undefined => NARROWED.find((n) => n.action === action);
@@ -322,6 +327,11 @@ export const ASKED: Readonly<Record<string, { global: Kind; scoped: Kind | null 
   'bench-store.mcp-list': { global: 'write', scoped: 'write' },
   'bench-store.mcp-grant': { global: 'decide', scoped: 'decide' },
   'bench-store.mcp-decide': { global: 'decide', scoped: 'decide' },
+  // 报告（docs/report-step1.md 第四节；报告第 1 步 PR B）：绑模板、生成、读，和视图描述、取数同一档
+  'bench-store.report-bind': { global: 'write', scoped: 'write' },
+  'bench-store.report-generate': { global: 'write', scoped: 'write' },
+  'bench-store.report-read': { global: 'write', scoped: 'write' },
+  'bench-store.report-respond': { global: 'write', scoped: 'write' },
   // 经验库：部门级的条目按这个部门问「看」（services/knowledge.ts 的 visibility）
   'knowledge.read': { global: 'read', scoped: 'read' },
 };
@@ -340,6 +350,8 @@ export const DEPT_AREA_TRANSITIONAL: readonly string[] = [
   'bench-store.form-submit', 'bench-store.render', 'bench-store.snapshot-list', 'bench-store.snapshot-take', 'bench-store.snapshot-restore', 'bench-store.view-get',
   'bench-store.view-put', 'bench-store.view-versions', 'bench-store.view-diff', 'bench-store.view-rollback', 'bench-store.log-list', 'bench-store.mcp-list',
   'bench-store.mcp-grant', 'bench-store.mcp-decide', 'knowledge.read',
+  // 报告的三个动作（报告第 1 步 PR B）：有意手动加进来，和别的 bench-store.* 一样认过渡期的 dept:，否则绑在部门上的台用不了报告
+  'bench-store.report-bind', 'bench-store.report-generate', 'bench-store.report-read', 'bench-store.report-respond',
 ];
 
 /**

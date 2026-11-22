@@ -64,6 +64,8 @@ export function registerSopPageRoutes(app: HttpService, deps: SopPageDeps): void
         const raw = readFileSync(abs, 'utf8');
         const inject = `<meta name="wm-app-token" content="${tok}"><script>window.WM_APP_TOKEN="${tok}";window.WM_APP_SLUG="${m[1]}";window.WM_WORKBENCH_ID=${wmWorkbenchIdFor(`/sop/${m[1]}/`)};</script>`;
         const out = /<head[^>]*>/i.test(raw) ? raw.replace(/<head([^>]*)>/i, (mm) => mm + inject) : inject + raw;
+        // 注入了台令牌的页面（#266 A21）：不许任何缓存存它，不随 Referer 外带页面地址
+        res.setHeader('Cache-Control', 'no-store'); res.setHeader('Referrer-Policy', 'no-referrer');
         return res.type('html').send(out);
       } catch { /* 读取失败回落原样 */ }
     }

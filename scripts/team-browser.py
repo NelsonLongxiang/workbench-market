@@ -23,7 +23,7 @@
   · 不是管理员的视图（应答里没有待认领这一栏）：没有待认领。"""
 import json, os, subprocess, sys, urllib.request
 from datetime import datetime, timedelta, timezone
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M, TOK = cfg['base'], cfg['token']
 ok = fail = 0
@@ -44,7 +44,8 @@ def set_token(pg):
     pg.locator('.ant-popover input[type=password]').last.fill(TOK)
     pg.locator('.ant-popover button', has_text='保').last.click()
     pg.wait_for_selector('[data-testid=nav-admin]', timeout=10000)
-    pg.keyboard.press('Escape'); pg.mouse.click(800, 26); pg.wait_for_timeout(300)
+    pg.keyboard.press('Escape'); pg.mouse.click(800, 26)
+    pg.wait_for_function("() => ![...document.querySelectorAll('.ant-popover')].some((e) => !e.classList.contains('ant-popover-hidden') && e.getBoundingClientRect().width > 0)", timeout=10000)  # 等口令那个弹层真收起，不靠固定时长
 def pick(pg, testid, text):
     pg.locator(f'[data-testid={testid}]').first.click()
     pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option', has_text=text).first.click()
@@ -218,7 +219,14 @@ with sync_playwright() as p:
     def confirm_one(pid):
         props['list'] = [P(pid, 'dept-lead', confirm_by_text='属主（确认后起草领域负责人，属主放行后生效）', can_approve=True, can_reject=True)]
         pg.reload(); set_token(pg); pg.wait_for_selector('[data-testid=team-proposal-approve]')
-        pg.locator('[data-testid=team-proposal-approve]').click(); pg.wait_for_timeout(800)
+        pg.locator('[data-testid=team-proposal-approve]').click()
+        # 等条件成立，不固定睡：先等提示出来，再等卡片离开页面（页面出提示之后还要再取一次列表、重画了卡片才没）。
+        # 等不到也照常往下，由下面的断言报出来（带着当时的提示原文），不在这里抛错
+        try:
+            pg.locator('[data-testid=team-notice]').wait_for(timeout=10000)
+            pg.wait_for_function("document.querySelectorAll('[data-testid=team-proposal]').length === 0", timeout=10000)
+        except PWTimeout:
+            pass
         note = pg.locator('[data-testid=team-notice]')
         return (note.inner_text() if note.count() else ''), (pg.locator('[data-testid=team-notice-link]').get_attribute('href') if pg.locator('[data-testid=team-notice-link]').count() else None)
     t, href = confirm_one(21)

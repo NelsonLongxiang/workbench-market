@@ -184,6 +184,58 @@ try {
     check(badGrant.status === 400, '不支持按台的工具（上传）写 工具@台 照旧 400', show({ status: badGrant.status }));
   }
 
+  // ---------- 四之二、#266：响应头、Range、重复的认证头、软删和缺失、日志里没有凭据 ----------
+  {
+    const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+    const PDF = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
+    const upload = async (slug, name, bytes, type) => { const fd = new FormData(); fd.append('file', new Blob([bytes], { type }), name); return (await srv.call('POST', `/api/apps/${slug}/files`, REMOTE, fd)).json?.id; };
+    const png = await upload('ra', 'pic.png', PNG, 'image/png'), pdf = await upload('ra', 'doc.pdf', PDF, 'application/pdf');
+    const soft = await upload('rb', 'soft.txt', 'soft-canary-91', 'text/plain'), gone = await upload('rb', 'gone.txt', 'gone-canary-92', 'text/plain');
+    // 下载的响应头：不进任何缓存、不随 Referer 外带、CSP 关住脚本（PDF 在 inline 时不加 sandbox，Chrome 的 PDF 阅读器在 sandbox 下打不开）
+    const dl = async (slug, id, t) => srv.call('GET', `/api/apps/${slug}/files/${id}`, { ...REMOTE, 'x-app-token': t });
+    const hdr = (r) => ({ status: r.status, disp: r.headers.get('content-disposition'), cc: r.headers.get('cache-control'), rp: r.headers.get('referrer-policy'), csp: r.headers.get('content-security-policy'), nosniff: r.headers.get('x-content-type-options') });
+    const txt = hdr(await dl('rb', files.rb, tB)), img = hdr(await dl('ra', png, tA)), doc = hdr(await dl('ra', pdf, tA));
+    const locked = (h) => h.status === 200 && h.cc === 'no-store' && h.rp === 'no-referrer' && h.nosniff === 'nosniff' && /default-src 'none'/.test(h.csp ?? '') && /img-src 'self'/.test(h.csp ?? '');
+    check(locked(txt) && /sandbox/.test(txt.csp) && /^attachment/.test(txt.disp) && locked(img) && /sandbox/.test(img.csp) && /^inline/.test(img.disp),
+      '#266 A16/A21 下载：Cache-Control no-store、Referrer-Policy no-referrer、nosniff、CSP default-src none + sandbox（附件和 inline 图片都是）', show({ txt, img }));
+    check(locked(doc) && /^inline/.test(doc.disp) && !/sandbox/.test(doc.csp),
+      '#266 下载 inline 的 PDF：同样不缓存、不外带，CSP 关住脚本，但不加 sandbox（不然浏览器的 PDF 阅读器打不开）', show(doc));
+    // 带台令牌的台页面：不进任何缓存、不随 Referer 外带
+    mkdirSync(join(srv.data, 'apps', 'ra', 'v1'), { recursive: true });
+    writeFileSync(join(srv.data, 'apps', 'ra', 'v1', 'index.html'), '<html><head></head><body>synthetic page</body></html>');
+    const pageAnon = await srv.call('GET', '/apps/ra/', REMOTE), pageStaff = await srv.call('GET', '/apps/ra/', { ...REMOTE, cookie: `session_id=${SESSIONS.alpha}`, 'sec-fetch-site': 'same-origin' });
+    const ph = (r) => ({ status: r.status, token: /WM_APP_TOKEN="[0-9a-f]{64}"/.test(r.text), cc: r.headers.get('cache-control'), rp: r.headers.get('referrer-policy'), csp: r.headers.get('content-security-policy') });
+    const pa = ph(pageAnon), ps = ph(pageStaff);
+    check(pa.status === 200 && pa.token && pa.cc === 'no-store' && pa.rp === 'no-referrer' && /^sandbox /.test(pa.csp ?? '') && ps.status === 200 && ps.token && /no-store/.test(ps.cc ?? '') && ps.rp === 'no-referrer',
+      '#266 A21 带台令牌的台页面：Cache-Control no-store（认出人的是 private, no-store）、Referrer-Policy no-referrer；原来的 CSP sandbox 照旧', show({ pa, ps }));
+    // Range：不带凭据照样 403，不回 206、不给内容
+    const range = await srv.call('GET', `/api/apps/rb/files/${files.rb}`, { ...REMOTE, range: 'bytes=0-3' });
+    check(range.status === 403 && range.json?.error === 'app_read_denied' && !leaks(range) && range.headers.get('content-range') === null, '#266 A13 带 Range、不带凭据：403，不回 206、不给内容', show({ status: range.status }));
+    // 重复的认证头：两个 X-App-Token（一个对一个错、两个都对）都不挑一个用
+    const dupH = new Headers({ ...REMOTE }); dupH.append('x-app-token', tB); dupH.append('x-app-token', 'f'.repeat(64));
+    const dupH2 = new Headers({ ...REMOTE }); dupH2.append('x-app-token', tB); dupH2.append('x-app-token', tB);
+    const dup = await fetch(srv.base + '/api/apps/rb/data', { headers: dupH }), dup2 = await fetch(srv.base + '/api/apps/rb/data', { headers: dupH2 });
+    const dupT = await dup.text(), dup2T = await dup2.text();
+    check(dup.status === 403 && dup2.status === 403 && !dupT.includes(SECRET_B) && !dup2T.includes(SECRET_B), '#266 A12 两个 X-App-Token 头（一对一错、两个都对）：403，不挑其中一个用', show({ dup: dup.status, dup2: dup2.status }));
+    // 软删、磁盘上缺失、编码过的路径：带对的令牌也只给 404 或拒绝，不给内容、不露落盘路径
+    const del = await srv.call('DELETE', `/api/apps/rb/files/${soft}`, { 'x-admin-token': ADMIN_TOKEN });
+    const softGet = await dl('rb', soft, tB);
+    const sp = (() => { const d = new DatabaseSync(join(srv.data, 'workbench-market.db'), { readOnly: true }); try { return d.prepare('SELECT storage_path FROM app_files WHERE id = ?').get(gone)?.storage_path; } finally { d.close(); } })();
+    if (sp) rmSync(join(srv.data, sp), { force: true });
+    const goneGet = await dl('rb', gone, tB);
+    const enc = await Promise.all([`/api/apps/rb/files/${files.rb}%2F..%2F${files.ra}`, '/api/apps/rb/files/..%2F..%2Fworkbench-market.db', `/api/apps/rb%2F..%2Fra/files/${files.ra}`, `/api/apps/rb/files/${encodeURIComponent('0x' + files.rb)}`]
+      .map((p) => srv.call('GET', p, { ...REMOTE, 'x-app-token': tB })));
+    const noLeak = (r) => !r.text.includes('soft-canary-91') && !r.text.includes('gone-canary-92') && !r.text.includes('file-a-canary-55') && !r.text.includes('uploads/') && !r.text.includes('SQLite format');
+    check(del.status === 200 && softGet.status === 404 && noLeak(softGet) && !!sp && goneGet.status === 404 && noLeak(goneGet),
+      '#266 A19 软删了的附件、磁盘上已经没有的附件：带对的令牌也是 404，不给内容、不露落盘路径', show({ del: del.status, soft: softGet.status, gone: goneGet.status, sp: !!sp }));
+    check(enc.slice(0, 3).every((r) => r.status >= 400 && r.status < 500 && noLeak(r)), '#266 A19 编码过的路径（文件号里带 %2F..、路径穿到库文件、台名里带 %2F.. 穿到别的台）：4xx，不给内容', show(enc.slice(0, 3).map((r) => r.status)));
+    // 文件号写成 0x<号>：编号按 Number() 解析，会认成同一个号（同一个台、同一个文件、同一把令牌），不是越权；记一笔，收紧另议（会改应答、要重录）
+    check(noLeak(enc[3]) && (enc[3].status !== 200 || enc[3].text === 'file-b-canary-77'), '#266 A19 文件号写成 0x<号>：最多认成本台同一个文件，不会读到别的台、别的文件', show({ status: enc[3].status }));
+    // 日志里没有凭据：上面带过台令牌、管理口令、登录会话，进程的输出里一个都不出现
+    const log = srv.log();
+    check(![tA, tB, ADMIN_TOKEN, SESSIONS.alpha].some((x) => log.includes(x)), '#266 A18 服务端日志里不出现台令牌、管理口令、登录会话号', show({ len: log.length }));
+  }
+
   // ---------- 五、换过的台令牌 ----------
   {
     await srv.stop();

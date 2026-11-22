@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite';
 const root=resolve('.'),out=resolve('tmp/startup-self-probe-http-'+Date.now());
 mkdirSync(out,{recursive:true});let checks=0;
 const check=(name,condition)=>{assert.ok(condition,name);checks++;console.log('PASS '+name)};
-const BENCH_PROBES=['market.bench-views.anonymous-read','market.bench-views.anonymous-write','market.bench-views.var-render-anonymous','market.bench-views.table-export-anonymous','market.bench-views.table-row-anonymous'];
+const BENCH_PROBES=['market.bench-views.anonymous-read','market.bench-views.anonymous-write','market.bench-views.var-render-anonymous','market.bench-views.table-export-anonymous','market.bench-views.table-row-anonymous','market.bench-views.report-generate-anonymous'];
 const spare=async()=>{const s=createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));assert(![3080,9800,9801].includes(p));return p;};
 const websocket=port=>new Promise((resolve,reject)=>{
  const s=connect(port,'127.0.0.1');let bytes=0;

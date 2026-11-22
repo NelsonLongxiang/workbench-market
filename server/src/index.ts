@@ -72,6 +72,7 @@ import { registerDepartmentRoutes } from './routes/departments.ts';
 import { registerTeamRoutes } from './routes/teams.ts';
 import { registerRelationRoutes } from './routes/relations.ts';
 import { registerAreaRoutes } from './routes/areas.ts';
+import { registerReportDimensionRoutes } from './routes/report-dimensions.ts';
 import { rosterStaleMinutesFromEnv, type TeamService } from './services/team.ts';
 import { proposalTtlDaysFromEnv, rosterGoneHoursFromEnv, type RelationProposalService } from './services/relation-proposal.ts';
 import { registerAccessRoutes } from './routes/access.ts';
@@ -515,6 +516,9 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/knowledge\/project-depts$/,
   // 领域的定规范：持本领域 area-spec 授予的人多半不是管理员。路由内认人、核同源、按对象判（routes/areas.ts 的 specSetter）；只此两条子路径
   /^\/api\/areas\/[a-z][a-z0-9-]{0,47}\/specs(\/activate)?$/,
+  // 报告维度的定报告维度（建、发版、复核、移指针、撤）：持本领域 area-report 授予的人多半不是管理员。路由内认人、核同源、按对象判
+  // （routes/report-dimensions.ts 的 existingSetter；docs/report-step1.md 第四节）；只此几条路径
+  /^\/api\/report-dimensions(\/[a-z][a-z0-9-]{0,47}\/(templates(\/[1-9][0-9]{0,8}\/review)?|activate|retire))?$/,
 ];
 
 // S3 豁免面可观测（评审席裁下批·PR#72 真事故锚）：启动时快照+diff——安全清单变更不再无声
@@ -2085,6 +2089,7 @@ registerDepartmentRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActo
 registerTeamRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
 registerRelationRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
 registerAreaRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 领域（规范 15）：属主建撤、定规范；属主、管理层看全部
+registerReportDimensionRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 报告的维度和模板（第 19 篇）：属主和持本领域 area-report 的人定；登录的人读
 registerAccessRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
 registerAttentionRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
 registerWorkItemRoutes(http, { markAdmin, adminGuard, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
