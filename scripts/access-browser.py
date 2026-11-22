@@ -8,7 +8,7 @@
   · 改密码（用户卡）：站内账号登录的人才有；两次不一致、原密码不对都提示；改好要重新登录，旧会话注销、只有新密码能用；
   · 角色预设：每个角色一张卡、选中的角色有各大块（服务端的 BLOCKS，现在八块）× 四类的矩阵，格子是「全部 / 范围内 / 部分 / 只限自己 / 不能 / —」之一。"""
 import json, re, sys, urllib.request
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M, TOK = cfg['base'], cfg['token']
 ok = fail = 0
@@ -20,6 +20,20 @@ def check(n, c, x=''):
 SETTLED = """(sel) => { const e = document.querySelector(sel); if (!e) return false; const r = e.getBoundingClientRect();
   const host = e.closest('.ant-popover, .ant-dropdown'); if (!host || r.width === 0 || r.height === 0) return false;
   return ![...host.classList].some(c => /-(appear|enter|leave)(-|$)/.test(c)) && !host.classList.contains('ant-popover-hidden') && !host.classList.contains('ant-dropdown-hidden'); }"""
+def soft(fn):
+    """等条件成立；等不到不在这里抛错，照常往下，由后面原来的断言报（带着当时的值）"""
+    try: fn()
+    except PWTimeout: pass
+def until(pg, pred, timeout=10000):
+    """等测试这边记下的状态（请求日志）满足 pred：每 20 毫秒看一次，期间照常处理截下的请求；到点就停，不抛错"""
+    for _ in range(timeout // 20):
+        if pred(): return
+        pg.wait_for_timeout(20)
+def painted(pg):
+    """等页面再画两帧"""
+    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+# 用户卡、口令框都收起来了：页面上没有还看得见的弹出层
+NO_POPOVER = """() => ![...document.querySelectorAll('.ant-popover')].some(e => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0 && !e.classList.contains('ant-popover-hidden'); })"""
 def settled(pg, sel, timeout=10000): pg.wait_for_function(SETTLED, arg=sel, timeout=timeout)
 def set_token(pg):
     pg.locator('[data-testid=wm-me]').click()
@@ -29,7 +43,8 @@ def set_token(pg):
     pg.locator('.ant-popover input[type=password]').last.fill(TOK)
     pg.locator('.ant-popover button', has_text='保').last.click()
     pg.wait_for_selector('[data-testid=nav-admin]', timeout=10000)
-    pg.keyboard.press('Escape'); pg.mouse.click(800, 26); pg.wait_for_timeout(300)
+    pg.keyboard.press('Escape'); pg.mouse.click(800, 26)
+    soft(lambda: pg.wait_for_function(NO_POPOVER, timeout=10000))
 
 NOW = 1_800_000_000_000
 PRINCIPALS = {'principals': [
@@ -87,7 +102,9 @@ with sync_playwright() as p:
     pg.goto(M + '/access'); pg.wait_for_selector('[data-testid=acc-mine]'); pg.wait_for_load_state('networkidle')
     check('普通员工打开此页：网络里没有主体、角色、矩阵三个请求，控制台没有 403；授予照常问（只拿到自己能放行的）', asked == [] and len(grants_seen) == 1 and not any('403' in e for e in errors), (asked, grants_seen, errors))
     check('没有能放行的：只有「你的权限」，没有待核准卡片', pg.locator('[data-testid=acc-pending]').count() == 0)
-    pg.locator('[data-testid=acc-tab-roles]').click(); pg.wait_for_timeout(400)
+    pg.locator('[data-testid=acc-tab-roles]').click()
+    # 证明「不发请求」：主体、角色、矩阵问不问在打开页面时就定了（limited）。等「只有管理员能看」那句画出来、再等两帧（切页签以后要发的话这时已经发出），再看
+    soft(lambda: pg.locator('.ant-alert', has_text='只有管理员能看').first.wait_for(timeout=10000)); painted(pg)
     check('普通员工切到角色预设：照旧说只有管理员能看，也不发请求', asked == [] and pg.locator('.ant-alert', has_text='只有管理员能看').count() == 1, (asked, pg.locator('.ant-alert').all_inner_texts()))
     # 管理层那样的人：有一条轮到他放行的（带业务写的第二档），卡片在「你的权限」上面；角色读不到也写名字、不露标识
     MY_GRANTS = {'grants': [dict(grant(8, 'user:jia', 'management', '*', 'pending', by='odoo:bing', reason='合成'), can_approve=True, approve_denied=None, approve_denied_text=None)]}
@@ -158,18 +175,22 @@ with sync_playwright() as p:
     # 核准按钮照服务端的 can_approve：3 号说不能 → 置灰、写短说法；4 号没这个字段 → 照旧可点
     n_before = len(posted)
     check('服务端说放行不了（3 号）：核准置灰，旁边写服务端的说法；不给照旧能点', cards.nth(1).locator('[data-testid=acc-approve]').is_disabled() and cards.nth(1).locator('[data-testid=acc-approve-denied]').inner_text().strip() == '起草的人不能自己放行，要另一位放行' and cards.nth(1).locator('[data-testid=acc-decline]').is_enabled(), cards.nth(1).inner_text())
-    cards.nth(1).locator('[data-testid=acc-approve]').click(force=True); pg.wait_for_timeout(300)
+    # 证明「不发请求」：核准的请求是在点击的处理函数里同步发的，点下去以后再等两帧，要发的话已经截下了
+    cards.nth(1).locator('[data-testid=acc-approve]').click(force=True); painted(pg)
     check('置灰的核准硬点也不发请求', len(posted) == n_before, posted)
     check('服务端没给 can_approve（4 号）：核准照旧可点、不写说法', cards.nth(0).locator('[data-testid=acc-approve]').is_enabled() and cards.nth(0).locator('[data-testid=acc-approve-denied]').count() == 0)
     # 核准：管理员级的被拒，说服务端的说法
-    cards.nth(0).locator('[data-testid=acc-approve]').click(); pg.wait_for_timeout(500)
+    n = len(posted); cards.nth(0).locator('[data-testid=acc-approve]').click()
+    until(pg, lambda: len(posted) > n)  # 等截下核准；再等卡片上写出服务端的说法
+    soft(lambda: cards.nth(0).filter(has_text='只有属主能放行').wait_for(timeout=10000))
     check('核准被拒（管理员级只有属主能放行）：卡片上说服务端的说法', '只有属主能放行' in cards.nth(0).inner_text() and posted and posted[-1][0] == 'approve', posted)
     # 不给：理由空着不能确认；写了才发、带理由
     cards.nth(1).locator('[data-testid=acc-decline]').click()
     confirm = cards.nth(1).locator('[data-testid=acc-decline-confirm]')
     check('不给：理由空着，确认按钮不能点', confirm.is_disabled())
     cards.nth(1).locator('[data-testid=acc-decline-reason]').fill('  还没定岗  ')
-    confirm.click(); pg.wait_for_timeout(500)
+    n = len(posted); confirm.click()
+    until(pg, lambda: len(posted) > n)  # 等截下撤销
     last = posted[-1] if posted else None
     check('不给：发的是撤销这条授予，带着去掉空白的理由', last and last[0] == 'revoke' and last[1].startswith('3/') and json.loads(last[2] or '{}').get('reason') == '还没定岗', last)
 
@@ -223,7 +244,10 @@ with sync_playwright() as p:
     check('核准被拒（撞名）：发的是 /zoe/approve，页面照服务端的句子说', acct_posts[-1:] == [('POST', '/zoe/approve')] and '请拒绝后让对方换一个用户名' in pg.locator('[data-testid=acct-err]').inner_text(), acct_posts)
     card.locator('[data-testid=acct-reject]').click()
     n = len(acct_posts)
-    pg.locator('.ant-popconfirm .ant-btn-dangerous', has_text='拒绝').click(); pg.wait_for_timeout(500)
+    pg.locator('.ant-popconfirm .ant-btn-dangerous', has_text='拒绝').click()
+    # 证明「只发一次」：拒绝在一次处理（act）里发完才收起按钮的加载状态。等截下拒绝、再等按钮不在加载（或者卡片已经没了），再数
+    until(pg, lambda: len(acct_posts) > n)
+    soft(lambda: pg.wait_for_function("() => !document.querySelector('[data-testid=acct-reject].ant-btn-loading')", timeout=10000)); painted(pg)
     check('拒绝：先确认，然后发 /zoe/reject', len(acct_posts) == n + 1 and acct_posts[-1] == ('POST', '/zoe/reject'), acct_posts)
     pg.unroute('**/api/local-accounts**')
 
@@ -239,7 +263,8 @@ with sync_playwright() as p:
     check('每个角色一张卡', pg.locator('[data-testid=acc-role]').count() == len(mx['roles']), (pg.locator('[data-testid=acc-role]').count(), len(mx['roles'])))
     rows = pg.locator('[data-testid=acc-matrix] tbody tr')
     check('矩阵：服务端给几块就几行（含经验库）、四类一列一类', rows.count() == len(mx['blocks']) >= 8 and any(b.get('key') == 'knowledge' for b in mx['blocks']) and pg.locator('[data-testid=acc-matrix] thead th').count() == 1 + len(mx['kinds']), (rows.count(), [b.get('key') for b in mx['blocks']]))
-    pg.locator('[data-testid=acc-role][data-id=dept-lead]').click(); pg.wait_for_timeout(200)
+    pg.locator('[data-testid=acc-role][data-id=dept-lead]').click()
+    soft(lambda: pg.locator('[data-testid=acc-matrix] tbody .wm-acc-cell', has_text='范围内').first.wait_for(timeout=10000))  # 等矩阵换成部门负责人的格子
     tds = [''.join(t.split()) for t in pg.locator('[data-testid=acc-matrix] tbody td:not(:first-child)').all_inner_texts()]
     scoped_titles = pg.locator('[data-testid=acc-matrix] tbody .wm-acc-cell', has_text='范围内').evaluate_all('els => els.map(e => e.title)')
     check('「范围内」的格子不再一律标尚未生效（起不起作用看授予选的范围）；悬停说明领域、部门、台各自怎样', any(tds) and not any('尚未生效' in t for t in tds)
@@ -285,7 +310,16 @@ with sync_playwright() as p:
     me2 = up.evaluate("fetch('/api/auth/me', { cache: 'no-store' }).then((r) => r.json())")
     check('新密码登得进', me2.get('principal') == 'user:synth-pw' and me2.get('local_account') is True, me2)
     # 不是站内账号的（口令管理员）：用户卡里没有「改密码」
-    pg.goto(M + '/'); set_token(pg); pg.locator('[data-testid=wm-me]').click(); pg.wait_for_timeout(400)
+    # 证明「没有改密码」：「改密码」看 /api/auth/me 是不是站内账号（用户卡里自己去取，共享缓存只留 2 秒，可能另发一次）。
+    # 请求和应答都记下来：用户卡开好、应答数追上请求数、页面画完，再判一次追上（防住缓存过期后补发的那一次），再看
+    me_req, me_resp = [], []
+    is_me = lambda u: u.split('?')[0].endswith('/api/auth/me')
+    pg.on('request', lambda r: me_req.append(r.url) if is_me(r.url) else None)
+    pg.on('response', lambda r: me_resp.append(r.url) if is_me(r.url) else None)
+    pg.goto(M + '/'); set_token(pg); pg.locator('[data-testid=wm-me]').click()
+    soft(lambda: settled(pg, '.wm-me-pop'))
+    until(pg, lambda: me_req and len(me_resp) >= len(me_req)); painted(pg)
+    until(pg, lambda: len(me_resp) >= len(me_req)); painted(pg)
     check('没有站内账号的（口令管理员）：用户卡里没有「改密码」', pg.locator('[data-testid=pw-open]').count() == 0)
     ctx.close()
     b.close()
