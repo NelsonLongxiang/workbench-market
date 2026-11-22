@@ -108,15 +108,18 @@ with sync_playwright() as p:
     state['can'] = False
     ctx = b.new_context(viewport={'width': 1440, 'height': 900}); setup(ctx)
     pg = ctx.new_page(); pg.set_default_timeout(10000)
-    # 证明「没有」：卡片上的「记成经验」和「我处理过的」都按 /api/auth/me 的 can 画（页面只取一次）。
-    # 先等这次应答回来、页面画完；要是还去取了「我处理过的」（回归），也等它的应答回来，再看两样都没有
-    me, recent_req, recent_resp = [], [], []
+    # 证明「没有」：卡片上的「记成经验」和「我处理过的」都按 /api/auth/me 的 can 画。同一页上 LoginChip 也会另外取一次，
+    # 共享缓存只留 2 秒，所以请求可能不止一次：请求和应答都记下来，等卡片画出来（它们取 can 的请求在挂上时就发了）、应答数追上请求数、页面画完；
+    # 要是还去取了「我处理过的」（回归），也等它的应答回来，再看两样都没有
+    me_req, me_resp, recent_req, recent_resp = [], [], [], []
+    is_me = lambda u: u.split('?')[0].endswith('/api/auth/me')
     is_recent = lambda u: u.split('?')[0].endswith('/api/knowledge/remember/recent')
-    pg.on('response', lambda r: me.append(r.url) if r.url.split('?')[0].endswith('/api/auth/me') else None)
+    pg.on('request', lambda r: me_req.append(r.url) if is_me(r.url) else None)
+    pg.on('response', lambda r: me_resp.append(r.url) if is_me(r.url) else None)
     pg.on('request', lambda r: recent_req.append(r.url) if is_recent(r.url) else None)
     pg.on('response', lambda r: recent_resp.append(r.url) if is_recent(r.url) else None)
     pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=decision-card]')
-    until(pg, lambda: me); painted(pg)
+    until(pg, lambda: me_req and len(me_resp) >= len(me_req)); painted(pg)
     if recent_req: until(pg, lambda: len(recent_resp) >= len(recent_req)); painted(pg)
     check('不能记的人：卡片上没有「记成经验」，也没有「我处理过的」', pg.locator('[data-testid=decision-remember]').count() == 0 and pg.locator('[data-testid=recent-answers]').count() == 0)
     ctx.close()
