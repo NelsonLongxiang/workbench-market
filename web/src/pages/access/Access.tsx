@@ -66,7 +66,7 @@ function PendingCard({ g, who, kind, role, by, scope, approval, onDone }: { g: G
         </div>
       ) : (
         <div className="wm-acc-ask-ops">
-          <Button size="small" type="primary" loading={busy} disabled={!can.enabled} title={can.note ?? undefined} data-testid="acc-approve" onClick={() => act(() => approveAccessGrant(g.id))}>核准</Button>
+          <Button size="small" type="primary" loading={busy} disabled={false /* 变异（勿合）：服务端说放行不了也能点 */} title={can.note ?? undefined} data-testid="acc-approve" onClick={() => act(() => approveAccessGrant(g.id))}>核准</Button>
           <Button size="small" disabled={busy} data-testid="acc-decline" onClick={() => setDeclining(true)}>不给</Button>
           {can.note && <span className="wm-acc-ask-denied" data-testid="acc-approve-denied">{can.note}</span>}
         </div>
@@ -115,7 +115,8 @@ export default function Access() {
   const blocks = useMemo(() => new Map((matrix?.blocks ?? []).map((b) => [b.key, b.name])), [matrix]);
   const byLabel = (raw: unknown) => actorLabel(grantActorRaw(raw, people), '');
   const scopeText = (s: string, name?: unknown) => scopeLabel(s, blocks, name);
-  const pick = (t: AccessTab) => setParams(t === 'people' ? {} : { tab: t }, { replace: true });
+  const pick = (t: AccessTab) => (t === 'roles' ? void getAccessRoles() : undefined, setParams( // 变异（勿合）：切到角色预设就去问角色
+t === 'people' ? {} : { tab: t }, { replace: true }));
 
   const columns: ColumnsType<Grant> = [
     { title: '状态', dataIndex: 'status', width: 120, render: (_v, g) => {

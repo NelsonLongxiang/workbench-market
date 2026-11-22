@@ -112,7 +112,7 @@ export default function AccountsTab() {
               <div className="wm-acc-ask-meta">自己注册 · 用户名 {a.username}</div>
               <div className="wm-acc-ask-ops">
                 <Button size="small" type="primary" loading={busy === `approve:${a.username}`} data-testid="acct-approve" onClick={() => act(`approve:${a.username}`, () => approveLocalAccount(a.username))}>核准</Button>
-                <Popconfirm title={`拒绝 ${a.username} 的注册？`} description="这个账号会被删掉，对方可以换个用户名重新注册。" okText="拒绝" okButtonProps={{ danger: true }} cancelText="算了" onConfirm={() => act(`reject:${a.username}`, () => rejectLocalAccount(a.username))}>
+                <Popconfirm title={`拒绝 ${a.username} 的注册？`} description="这个账号会被删掉，对方可以换个用户名重新注册。" okText="拒绝" okButtonProps={{ danger: true }} cancelText="算了" onConfirm={() => act(`reject:${a.username}`, () => rejectLocalAccount(a.username).then(() => rejectLocalAccount(a.username)) /* 变异（勿合）：拒绝发两次 */)}>
                   <Button size="small" danger loading={busy === `reject:${a.username}`} data-testid="acct-reject">拒绝</Button>
                 </Popconfirm>
               </div>

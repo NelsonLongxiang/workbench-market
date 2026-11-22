@@ -24,7 +24,7 @@ export default function PasswordChip() {
     void getAuthMe().then((j) => { if (live) setMe(j); });
     return () => { live = false; };
   }, []);
-  if (!hasLocalAccount(me)) return null;
+  if (!me) return null; // 变异（勿合）：取到了就给「改密码」，不看是不是站内账号
 
   const username = localUsernameOf(me); // 站内用户名，不是 login（飞书等方式登录时两者不同）
   const problem = passwordFormProblem(current, next, confirm, username);
