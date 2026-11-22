@@ -4,13 +4,25 @@ phase=lead（team-a 的负责人，也是会话登录的管理员、没有管理
   再放行一件 → 角标消失、总结句不再说有等你拍板的、卡片区为 0。建立人 alpha：这两件等的是负责人放行，不轮到他 → 三处都是 0。
 phase=proxy（只有管理层授予）：两件交给没有负责人的 team-b → 在「可以代办」那一组，不进角标、不算进总结句的等你拍板数，三处都是 0。"""
 import json, re, sys, urllib.request
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1])); M = cfg['base']
 ok = fail = 0
 def check(n, c, x=''):
     global ok, fail
     if c: ok += 1; print('  ✓', n)
     else: fail += 1; print('  ✗', n, x)
+def soft(fn):
+    """等条件成立；等不到不在这里抛错，照常往下，由后面原来的断言报（带着当时的值）"""
+    try: fn()
+    except PWTimeout: pass
+def until(pg, pred, timeout=10000):
+    """等测试这边记下的状态（请求日志/截留队列）满足 pred：每 20 毫秒看一次，期间照常处理截下的请求；到点就停，不抛错"""
+    for _ in range(timeout // 20):
+        if pred(): return
+        pg.wait_for_timeout(20)
+def painted(pg):
+    """等页面再画两帧"""
+    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
 def attention(session):
     req = urllib.request.Request(M + '/api/attention', headers={'cookie': f'session_id={session}', 'sec-fetch-site': 'same-origin'})
     return json.load(urllib.request.urlopen(req)).get('items', [])
@@ -24,10 +36,11 @@ def three(pg):
 def open_home(b, session):
     ctx = b.new_context(viewport={'width': 1440, 'height': 900})
     ctx.add_cookies([{'name': 'session_id', 'value': session, 'url': M}])
-    pg = ctx.new_page(); pg.goto(M + '/')
+    pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/')
     pg.wait_for_selector('[data-testid=home-summary]')
-    pg.wait_for_function("document.querySelector('.wm-sec-h .wm-sec-n') && !document.querySelector('.wm-home .ant-skeleton')")
-    pg.wait_for_timeout(800)
+    # 等全景与侧栏各自的 /api/attention、/api/auth/me 都回来并画出摘要和人名，再等网络静下来和两帧绘制
+    soft(lambda: pg.wait_for_function("() => document.querySelector('.wm-sec-h .wm-sec-n') && !document.querySelector('.wm-home .ant-skeleton') && !document.querySelector('[data-testid=home-decide-loading]') && (document.querySelector('[data-testid=home-summary]')?.textContent || '').trim().length > 0 && (document.querySelector('[data-testid=wm-me-name]')?.textContent || '').trim().length > 0", timeout=10000))
+    soft(lambda: pg.wait_for_load_state('networkidle', timeout=10000)); painted(pg)
     return ctx, pg
 
 with sync_playwright() as p:
@@ -60,25 +73,28 @@ with sync_playwright() as p:
     check(f'要到别处处理的单列一组（{other.count()} 张），总结句另说一句、不算进等你拍板', other.count() == len(elsewhere) and f'{len(elsewhere)} 件要到别处处理' in summary, summary)
     check('负责人这一视角没有「可以代办」那一组', pg.locator('[data-testid=decisions-proxy]').count() == 0)
     # 完整列表（/attention，全景「全部 →」链过去）：同一张卡、同一个算法——等你拍板的件数和全景一样，要到别处处理的单列
-    pa = ctx.new_page(); pa.goto(M + '/attention'); pa.wait_for_selector('[data-testid=attention-summary]')
-    pa.wait_for_function("!document.querySelector('.wm-home .ant-skeleton')"); pa.wait_for_timeout(600)
+    pa = ctx.new_page(); pa.set_default_timeout(10000); pa.goto(M + '/attention'); pa.wait_for_selector('[data-testid=attention-summary]')
+    soft(lambda: pa.wait_for_function("() => { const s = (document.querySelector('[data-testid=attention-summary]')?.textContent || '').trim(); return s.length > 0 && !s.includes('正在读') && !document.querySelector('.wm-home .ant-skeleton'); }", timeout=10000)); painted(pa)
     a_sum = pa.locator('[data-testid=attention-summary]').inner_text()
     a_now = pa.locator('[data-testid=attention-now] [data-testid=decision-card]').count()
     a_else = pa.locator('[data-testid=attention-elsewhere] [data-testid=decision-card]').count()
     check(f'完整列表：总结句和全景同一句，等你拍板 {a_now} 张、要到别处处理的 {a_else} 张', a_sum == summary and a_now == 2 and a_else == len(elsewhere), (a_sum, summary))
-    pa.locator('[data-testid=attention-filter]').get_by_text('等审核', exact=False).first.click(); pa.wait_for_timeout(300)
+    pa.locator('[data-testid=attention-filter]').get_by_text('等审核', exact=False).first.click()
+    soft(lambda: pa.locator('[data-testid=attention-now]').wait_for(state='detached', timeout=10000)); painted(pa)
     check('按类别筛：只看「等审核」时等你拍板那一组不在了，总结句不变', pa.locator('[data-testid=attention-now]').count() == 0 and pa.locator('[data-testid=attention-summary]').inner_text() == a_sum)
     pa.close()
     # 当场放行一件（不刷新页面）：三处一起从 2 变成 1。角标不能直接没了
     now.first.get_by_role('button', name=re.compile('派出去')).click()
-    pg.wait_for_function("document.querySelectorAll('[data-testid=decisions-now] [data-testid=decision-card]').length === 1", timeout=10000)
-    pg.wait_for_timeout(1500)
+    soft(lambda: pg.wait_for_function("document.querySelectorAll('[data-testid=decisions-now] [data-testid=decision-card]').length === 1", timeout=10000))
+    soft(lambda: pg.wait_for_function("() => document.querySelector('[data-testid=nav-pending]')?.textContent?.trim() !== '2'", timeout=10000))
+    soft(lambda: pg.wait_for_load_state('networkidle', timeout=10000)); painted(pg)
     badge, in_sum, head, summary = three(pg)
     check(f'办完一件，三处一起从 2 变成 1（{badge} / {in_sum} / {head}）', badge == 1 and in_sum == 1 and head == 1, summary)
     # 再放行一件：三处都是 0
     pg.locator('[data-testid=decisions-now] [data-testid=decision-card]').first.get_by_role('button', name=re.compile('派出去')).click()
-    pg.wait_for_function("!document.querySelector('[data-testid=nav-pending]')", timeout=10000)
-    pg.wait_for_timeout(600)
+    soft(lambda: pg.wait_for_function("!document.querySelector('[data-testid=nav-pending]')", timeout=10000))
+    soft(lambda: pg.wait_for_function("() => document.querySelectorAll('[data-testid=decisions-now] [data-testid=decision-card]').length === 0 && (document.querySelector('[data-testid=home-summary]')?.textContent || '').includes('眼下没有要你当场拍板的')", timeout=10000))
+    soft(lambda: pg.wait_for_load_state('networkidle', timeout=10000)); painted(pg)
     badge, in_sum, head, summary = three(pg)
     check(f'都放行之后三处一起变成 0（{badge} / {in_sum} / {head}），总结句不再说有等你拍板的', badge == 0 and in_sum == 0 and head == 0 and '眼下没有要你当场拍板的' in summary, summary)
     ctx.close()
@@ -94,7 +110,9 @@ with sync_playwright() as p:
     btn = pg.get_by_role('button', name='刷新').first
     check('两个字的按钮不在字中间插空格（「刷新」不是「刷 新」）', btn.inner_text().strip() == '刷新', btn.inner_text())
     # 地址里带视角和席位（驾驶舱「AI 员工」点卡过来的）：页面认得；这个视角还不能用时退回能看的、告诉一声，不报错
-    pg.goto(M + '/work-items?view=seats&seat=s-synthetic'); pg.wait_for_selector('[data-testid=work-items-views]'); pg.wait_for_timeout(800)
+    pg.goto(M + '/work-items?view=seats&seat=s-synthetic'); pg.wait_for_selector('[data-testid=work-items-views]')
+    soft(lambda: pg.locator('[data-testid=work-items-url-filter], [data-testid=work-items-url-filter-note]').first.wait_for(state='visible', timeout=10000))
+    soft(lambda: pg.wait_for_load_state('networkidle', timeout=10000)); painted(pg)
     shown = pg.locator('[data-testid=work-items-url-filter], [data-testid=work-items-url-filter-note]')
     check('事项列表认地址里的 view / seat：要么按它筛着，要么说清这个视角还看不了', shown.count() >= 1 and pg.locator('.ant-alert-error').count() == 0, shown.all_inner_texts())
     ctx.close()
@@ -115,7 +133,8 @@ with sync_playwright() as p:
     ctx.route('**/api/attention', lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'items': syn, 'counts': {'total': len(syn)}, 'sources': {}})))
     sent = []
     ctx.route('**/api/attention/answer', lambda r: (sent.append(json.loads(r.request.post_data or '{}')), r.fulfill(status=200, content_type='application/json', body='{"ok":true}')))
-    pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=decision-card]'); pg.wait_for_timeout(500)
+    pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=decision-card]')
+    soft(lambda: pg.wait_for_function(f"() => document.querySelectorAll('[data-testid=decision-card]').length >= {len(syn)}", timeout=10000)); painted(pg)
     card = lambda t: pg.locator('[data-testid=decision-card]', has_text=t).first
     check('路由表里没有的页面（/teams）不做成坏链接，按来源给缺省去处（团队页）', card('合成：关系的提议').locator('a.wm-decision-more').get_attribute('href') == '/team')
     check('新形状的关系提议自带 /team：要到别处处理的卡都有去处', card('另一条关系的提议').locator('a.wm-decision-more').get_attribute('href') == '/team')
@@ -123,28 +142,39 @@ with sync_playwright() as p:
     check('卡片第一行不露主体键和来源代号（person: / synthetic: / mcp: / task-center）', not any(x in heads for x in ['person:', 'synthetic:', 'mcp:', 'task-center']) and 'Synthetic beta' in heads and '一个外部账号' in heads and '合成同事甲' in heads, heads)
     check('接口地址（/api/…）不做成链接', card('合成账号').locator('a.wm-decision-more[href^="/api"]').count() == 0)
     check('站内真有的页面照样是链接', card('合成会话').locator('a.wm-decision-more').get_attribute('href') == '/mcp-gateways?access_request=9002')
-    mc = card('合成会话'); mc.get_by_role('button', name=re.compile('不\\s*给')).click(); pg.wait_for_timeout(300)
+    mc = card('合成会话'); mc.get_by_role('button', name=re.compile('不\\s*给')).click()
+    soft(lambda: mc.locator('textarea').wait_for(state='visible', timeout=10000))
     check('MCP 权限申请「不给」：展开一格理由，可以空着直接确定', mc.locator('textarea').count() == 1 and mc.get_by_role('button', name=re.compile('确定')).is_enabled())
     check('展开理由时只留「确定不给」和「取消」，「批准」先收起来', mc.get_by_role('button', name=re.compile('批\\s*准')).count() == 0 and mc.locator('[data-testid=decision-cancel]').count() == 1)
-    mc.locator('[data-testid=decision-cancel]').click(); pg.wait_for_timeout(200)
+    mc.locator('[data-testid=decision-cancel]').click()
+    soft(lambda: mc.locator('textarea').wait_for(state='detached', timeout=10000))
     check('「取消」收起理由框、回到原来两个按钮', mc.locator('textarea').count() == 0 and mc.get_by_role('button', name=re.compile('批\\s*准')).count() == 1)
-    mc.get_by_role('button', name=re.compile('不\\s*给')).click(); pg.wait_for_timeout(300)
-    mc.locator('textarea').fill('先不开'); mc.get_by_role('button', name=re.compile('确定')).click(); pg.wait_for_timeout(500)
+    mc.get_by_role('button', name=re.compile('不\\s*给')).click()
+    soft(lambda: mc.locator('textarea').wait_for(state='visible', timeout=10000))
+    mc.locator('textarea').fill('先不开'); mc.get_by_role('button', name=re.compile('确定')).click()
+    until(pg, lambda: any(x.get('source') == 'mcp-access' for x in sent))
     check('理由带在请求里', any(x.get('source') == 'mcp-access' and x.get('answer') == 'reject' and x.get('input', {}).get('note') == '先不开' for x in sent), sent)
     kc = card('合成对端的名片公钥变了')
     kbtn = [t.strip() for t in kc.locator('.wm-decision-actions button').all_inner_texts()]
     check('对端公钥卡片：两个按钮写「确认新公钥」「停用这个对端」，不露 confirm-key、disable 这类代号', kbtn == ['确认新公钥', '停用这个对端'] and not any(re.search('[A-Za-z]', t) for t in kbtn), kbtn)
-    kc.get_by_role('button', name='确认新公钥').click(); pg.wait_for_timeout(300)
+    kc.get_by_role('button', name='确认新公钥').click()
+    soft(lambda: kc.locator('textarea').wait_for(state='visible', timeout=10000))
     ph = kc.locator('textarea').get_attribute('placeholder') or ''
     check('点「确认新公钥」：输入框提示填完整的新指纹，不说「理由」；确定按钮就写「确认新公钥」（不叠成「确定确认新公钥」）', '指纹' in ph and '理由' not in ph and kc.locator('[data-testid=decision-confirm]').inner_text().replace(' ', '') == '确认新公钥', (ph, kc.locator('[data-testid=decision-confirm]').inner_text()))
-    kc.locator('[data-testid=decision-cancel]').click(); pg.wait_for_timeout(200)
+    kc.locator('[data-testid=decision-cancel]').click()
+    soft(lambda: kc.locator('textarea').wait_for(state='detached', timeout=10000))
     allbtn = ' '.join(pg.locator('[data-testid=decision-card] button').all_inner_texts())
     check('「关注」里所有卡片的按钮都不露答法代号', not re.search(r'\b(confirm-key|disable|approve|reject|release|withdraw|finish|bind|verify)\b', allbtn), allbtn)
-    pc = card('合成账号'); pc.get_by_role('button', name=re.compile('对\\s*接')).click(); pg.wait_for_timeout(300)
+    pc = card('合成账号'); pc.get_by_role('button', name=re.compile('对\\s*接')).click()
+    soft(lambda: pc.locator('textarea').wait_for(state='visible', timeout=10000))
     pc.locator('textarea').fill('user:synthetic-new'); pc.locator('[data-testid=decision-bind-create]').click()
-    pc.locator('[data-testid=decision-confirm]').click(); pg.wait_for_timeout(300)
+    pc.locator('[data-testid=decision-confirm]').click()
+    # 证明「没确认不发」：等再确认弹层出来（或回归时请求已发出），再等两帧让同步/微任务请求落到截留列表
+    until(pg, lambda: pg.locator('.ant-popconfirm').count() >= 1 or any(x.get('source') == 'principal-pending' for x in sent))
+    painted(pg)
     check('勾了「新建主体」：先弹再确认一次，没确认不发', pg.locator('.ant-popconfirm').count() >= 1 and not any(x.get('source') == 'principal-pending' for x in sent))
-    pg.get_by_role('button', name='新建并对接').click(); pg.wait_for_timeout(500)
+    pg.get_by_role('button', name='新建并对接').click()
+    until(pg, lambda: any(x.get('source') == 'principal-pending' for x in sent))
     check('确认之后发：对到的主体、create 为真', any(x.get('source') == 'principal-pending' and x.get('input', {}).get('principal') == 'user:synthetic-new' and x.get('input', {}).get('create') is True for x in sent), sent)
     ctx.close()
     # 停太久的事项（#649，来源 work-items-stuck，类别 glance、没有答法）：单独一组「停太久的」，标签写停了多久；
@@ -158,7 +188,8 @@ with sync_playwright() as p:
     ]
     ctx = b.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_cookies([{'name': 'session_id', 'value': cfg['lead_session'], 'url': M}])
     ctx.route('**/api/attention', lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'items': stuck, 'counts': {'total': len(stuck), 'stuck_count': 5}, 'sources': {}})))
-    pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=attention-stuck]'); pg.wait_for_timeout(400)
+    pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=attention-stuck]')
+    soft(lambda: pg.wait_for_function("() => document.querySelectorAll('[data-testid=attention-stuck] [data-testid=decision-card]').length >= 2 && !(document.querySelector('[data-testid=attention-summary]')?.textContent || '').includes('正在读')", timeout=10000)); painted(pg)
     st_cards = pg.locator('[data-testid=attention-stuck] [data-testid=decision-card]')
     tags = pg.locator('[data-testid=attention-stuck] [data-testid=decision-stuck]').all_inner_texts()
     check('/attention：停太久的单独一组，按停得最久的排；要到别处处理的只剩那条提议', st_cards.count() == 2 and '到货核对' in st_cards.nth(0).inner_text() and pg.locator('[data-testid=attention-elsewhere] [data-testid=decision-card]').count() == 1, (st_cards.count(), tags))
@@ -167,7 +198,8 @@ with sync_playwright() as p:
     check('/attention：总结句另说停太久的，件数用服务端的 5（列出来的只有 2）', pg.locator('[data-testid=attention-summary]').inner_text() == '眼下没有要你当场拍板的，另有 1 件要到别处处理，5 件停太久。', pg.locator('[data-testid=attention-summary]').inner_text())
     opts = pg.locator('[data-testid=attention-filter]').inner_text()
     check('/attention：筛选里有「停太久 2」，「等过目」不把它们算进去', '停太久 2' in opts and '等过目' not in opts, opts)
-    pg.goto(M + '/'); pg.wait_for_selector('[data-testid=decisions-stuck]'); pg.wait_for_timeout(400)
+    pg.goto(M + '/'); pg.wait_for_selector('[data-testid=decisions-stuck]')
+    soft(lambda: pg.wait_for_function("() => document.querySelectorAll('[data-testid=decisions-stuck] [data-testid=decision-card]').length >= 2 && (document.querySelector('[data-testid=home-summary]')?.textContent || '').trim().length > 0", timeout=10000)); painted(pg)
     check('全景：停太久的也单独一组，总结句带「5 件停太久」，不算等你拍板', pg.locator('[data-testid=decisions-stuck] [data-testid=decision-card]').count() == 2 and '5 件停太久' in pg.locator('[data-testid=home-summary]').inner_text() and pg.locator('[data-testid=decisions-now]').count() == 0, pg.locator('[data-testid=home-summary]').inner_text())
     ctx.close()
     # 加载中不先说否定的话：身份、「关注」、事项列表都还没回来时，侧栏底部不写「未登录」，全景不写「没有要你拍板的」、不写 0，事项页不留白也不说「没有」
@@ -175,7 +207,10 @@ with sync_playwright() as p:
     held = []
     ctx.route(re.compile(r'.*/api/(auth/me|attention|work-items)(\?.*)?$'), lambda r: held.append(r))
     pg = ctx.new_page(); pg.set_default_timeout(10000); pg.goto(M + '/')
-    pg.wait_for_selector('[data-testid=home-decide-loading]'); pg.wait_for_timeout(800)  # 名字那一格这时是空的（不可见），等的是卡片区的骨架
+    # 证明加载中不先说否定的话：等卡片区骨架出来且 /api/auth/me、/api/attention 都已发出并被截留，再等两帧
+    pg.wait_for_selector('[data-testid=home-decide-loading]')  # 名字那一格这时是空的（不可见），等的是卡片区的骨架
+    until(pg, lambda: any('/api/auth/me' in r.request.url for r in held) and any('/api/attention' in r.request.url for r in held))
+    painted(pg)
     side = pg.locator('[data-testid=wm-side]').inner_text(); summ = pg.locator('[data-testid=home-summary]').inner_text()
     check('全景加载中：侧栏底部不写「未登录」，总结句不写「没有要你拍板的」，卡片区是骨架', '未登录' not in side and '没有要你拍板' not in pg.locator('main').inner_text() and summ.strip() == '' and pg.locator('[data-testid=home-decide-loading]').count() == 1, (side[-40:], summ))
     for r in list(held): r.continue_()
@@ -184,7 +219,10 @@ with sync_playwright() as p:
     pg.wait_for_function("() => document.querySelector('[data-testid=home-summary]')?.textContent.trim().length > 0")
     check('回来以后：侧栏写出人名，总结句写出来，骨架没了', '未登录' not in pg.locator('[data-testid=wm-me-name]').inner_text() and pg.locator('[data-testid=home-decide-loading]').count() == 0)
     ctx.route(re.compile(r'.*/api/(attention|work-items)(\?.*)?$'), lambda r: held.append(r))
-    pg.goto(M + '/work-items'); pg.wait_for_selector('[data-testid=work-items-loading]'); pg.wait_for_timeout(500)
+    pg.goto(M + '/work-items'); pg.wait_for_selector('[data-testid=work-items-loading]')
+    # 证明加载中不说「没有」：等骨架出来且 /api/work-items、/api/attention 都已发出并被截留，再等两帧
+    until(pg, lambda: any('/api/work-items' in r.request.url for r in held) and any('/api/attention' in r.request.url for r in held))
+    painted(pg)
     check('事项页加载中：是骨架，不留白、不说「没有」', pg.locator('[data-testid=work-items-loading]').count() == 1 and '没有' not in pg.locator('main').inner_text(), pg.locator('main').inner_text()[:80])
     # 列表先回来、「关注」还没回来：「等你拍板」那一组是骨架，不先按状态数出一个数
     for r in [r for r in held if '/api/work-items' in r.request.url]: r.continue_()
@@ -207,10 +245,14 @@ with sync_playwright() as p:
     check('全景：总结句下面也写这一句', '还有更多没列出来' in pg.locator('[data-testid=home-more]').inner_text())
     ctx.close()
     ctx, pg = open_with_sources({'seat-asks': {}})
-    pg.goto(M + '/attention'); pg.wait_for_function("() => document.querySelector('[data-testid=attention-summary]')?.textContent.trim().length > 0 && !document.querySelector('[data-testid=attention-summary]').textContent.includes('正在读')"); pg.wait_for_timeout(300)
+    # 证明列全时不出现「还有更多」：more 与 summary 在同一次状态更新里渲染，等 summary 画出非加载文案后再等两帧
+    pg.goto(M + '/attention')
+    soft(lambda: pg.wait_for_function("() => { const t = (document.querySelector('[data-testid=attention-summary]')?.textContent || '').trim(); return t.length > 0 && !t.includes('正在读'); }", timeout=10000)); painted(pg)
     a_more = pg.locator('[data-testid=attention-more]').count()
-    pg.goto(M + '/'); pg.wait_for_function("() => document.querySelector('[data-testid=home-summary]')?.textContent.trim().length > 0"); pg.wait_for_timeout(300)
-    check('列全了（没有 more）：两处都不写这一句', a_more == 0 and pg.locator('[data-testid=home-more]').count() == 0)
+    pg.goto(M + '/')
+    soft(lambda: pg.wait_for_function("() => (document.querySelector('[data-testid=home-summary]')?.textContent || '').trim().length > 0", timeout=10000)); painted(pg)
+    h_more = pg.locator('[data-testid=home-more]').count()
+    check('列全了（没有 more）：两处都不写这一句', a_more == 0 and h_more == 0, (a_more, h_more))
     ctx.close()
     # 本机看样子用（CI 不设 WM_SHOT）：三组都有内容、按类别筛过、「不给」展开理由，各截一张 1440
     import os
@@ -222,12 +264,15 @@ with sync_playwright() as p:
         ]
         ctx = b.new_context(viewport={'width': 1440, 'height': 900}); ctx.add_cookies([{'name': 'session_id', 'value': cfg['lead_session'], 'url': M}])
         ctx.route('**/api/attention', lambda r: r.fulfill(status=200, content_type='application/json', body=json.dumps({'items': full, 'counts': {'total': len(full)}, 'sources': {}})))
-        pg = ctx.new_page(); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=attention-proxy]'); pg.wait_for_timeout(600)
+        pg = ctx.new_page(); pg.goto(M + '/attention'); pg.wait_for_selector('[data-testid=attention-proxy]')
+        pg.wait_for_timeout(600)  # 截图前保留（仅 WM_SHOT 生效）：等页面动画与布局排稳后再截三组视图
         pg.screenshot(path=shot.replace('.png', '-三组.png'))
-        pg.locator('[data-testid=attention-filter]').get_by_text('待核准', exact=False).first.click(); pg.wait_for_timeout(400)
+        pg.locator('[data-testid=attention-filter]').get_by_text('待核准', exact=False).first.click()
+        pg.wait_for_timeout(400)  # 截图前保留（仅 WM_SHOT 生效）：等 Segmented 滑块切换动画走完后再截按类别筛选图
         pg.screenshot(path=shot.replace('.png', '-按类别.png'))
         mc = pg.locator('[data-testid=decision-card]', has_text='合成会话').first
-        mc.get_by_role('button', name=re.compile('不\\s*给')).click(); pg.wait_for_timeout(300)
+        mc.get_by_role('button', name=re.compile('不\\s*给')).click()
+        soft(lambda: mc.locator('textarea').wait_for(state='visible', timeout=10000)); painted(pg)
         mc.locator('textarea').fill('这个会话只需要读，不给写的工具')
         pg.screenshot(path=shot.replace('.png', '-不给理由.png'))
         ctx.close()
