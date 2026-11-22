@@ -2306,6 +2306,10 @@ export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   'work_item_requests_no_update', 'work_item_requests_no_delete', 'work_item_requests_no_replace',
   // 可以改的主表上的守护：授予不删、不能用同一个 id 覆盖（统筹定，#979 验收提出）
   'grants_no_delete', 'grants_no_replace',
+  // 同一类、第一批之前就有的：事项、领域、报告维度不删、不能用同一个 id 覆盖（#980 验收核对时发现漏在名单外）
+  'work_items_no_delete', 'work_items_no_replace',
+  'areas_no_delete', 'areas_no_replace',
+  'report_dimensions_no_delete', 'report_dimensions_no_replace',
 ];
 /**
  * 启动自检用（market.db.append-only-guarded）。理由只给代号，不带库里的内容。判断都按 SQLite 的错误码（errcode），不看报错的文字。
