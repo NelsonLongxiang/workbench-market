@@ -6,11 +6,21 @@
   四、详情：markdown 正文、依据的原文（出处只认 http/https 链接）；404 一律「没有这一条」；503 不当成空。"""
 import json, os, re, sys
 from urllib.parse import urlparse, unquote
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M = cfg['base']
 SHOT = os.environ.get('WM_SHOT_KNOWLEDGE')
 ok = fail = 0
+def soft(fn):
+    """等条件成立；等不到不在这里抛错，照常往下，由后面原来的断言报（带着当时的值）"""
+    try: fn()
+    except PWTimeout: pass
+def painted(pg):
+    """等页面再画两帧（应答到了以后 React 把它画出来）"""
+    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
+# 只有一个下拉开着、动画走完了（上一个收起来的动画也结束了）
+ONE_OPEN = """() => { const open = [...document.querySelectorAll('.ant-select-dropdown')].filter(e => !e.classList.contains('ant-select-dropdown-hidden') && e.getBoundingClientRect().height > 0);
+  return open.length === 1 && ![...open[0].classList].some(c => /-(appear|enter|leave)(-|$)/.test(c)); }"""
 def check(n, c, x=''):
     global ok, fail
     if c: ok += 1; print('  ✓', n)
@@ -155,7 +165,11 @@ with sync_playwright() as p:
     check('页面只问了经验库的接口', all(a == '/api/knowledge' or a.startswith('/api/knowledge/') for a in asked) and '/api/knowledge' in asked, sorted(set(asked))[:5])
 
     print('五、项目对应的部门（只给管理层、属主）')
-    who['role'] = 'member'; pg.goto(M + '/knowledge'); pg.wait_for_selector('[data-testid=kn-list]'); pg.wait_for_timeout(600)
+    who['role'] = 'member'
+    # 证明「没有」：入口照项目部门表那次 GET 的结果画（403 就不画）。先等这次应答回来、页面画完，再看入口没有
+    def open_kn():
+        with pg.expect_response(lambda r: r.request.method == 'GET' and r.url.split('?')[0].endswith('/api/knowledge/project-depts'), timeout=10000): pg.goto(M + '/knowledge')
+    soft(open_kn); pg.wait_for_selector('[data-testid=kn-list]'); painted(pg)
     check('普通员工：经验库页上没有「项目对应的部门」的入口（那张表回 403）', pg.locator('[data-testid=kn-projects-link]').count() == 0)
     pg.goto(M + '/knowledge/projects'); pg.wait_for_selector('[data-testid=kp-problem]')
     check('普通员工直接打开 /knowledge/projects：说只有管理层和属主能看，不出表', '只有管理层和属主' in pg.locator('[data-testid=kp-problem]').inner_text() and pg.locator('[data-testid=kp-table]').count() == 0)
@@ -172,8 +186,8 @@ with sync_playwright() as p:
     check('页面的字上没有部门标识（dept-…）', 'dept-' not in text)
     if SHOT: pg.wait_for_timeout(400); pg.screenshot(path=SHOT.replace('.png', '-项目部门.png'))
     def pick(label):
-        # 上一个下拉收起来有动画：等它关掉，只在开着的那个下拉里点
-        pg.wait_for_timeout(400)
+        # 上一个下拉收起来有动画：等到只剩这一个开着、动画走完，只在开着的那个下拉里点
+        soft(lambda: pg.wait_for_function(ONE_OPEN, timeout=10000))
         pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden):visible .ant-select-item-option', has_text=label).last.click()
     rows.nth(2).locator('[data-testid=kp-select]').click()
     pick('品控部')
