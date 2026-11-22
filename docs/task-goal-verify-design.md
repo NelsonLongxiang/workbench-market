@@ -122,10 +122,19 @@
 |---|---|
 | 挂 spec | 派到的团队（席位或团队负责人） |
 | 确认 spec | 缺省是属主，名单可由 Config 改；以后经认证插件区分（属主 2026-11-21 定、11-22 确认） |
-| 改优先级 | 建事项的本人、管理层 |
+| 改优先级 | 建事项的本人、管理层（已随 #969 落地） |
 | 触发复跑 | 能验收这个事项的人（`itemDecisionVerdict` 那几种） |
 | 看判定结果和报告链接 | 能看这个事项的人 |
 
+- 表里的「管理层」（2026-11-22 补，#969 验收提的）：持有能看全部事项的授予的人（`work-items.view-all`，按统一判定认，`work-item-access.ts` 的 `holdsManagementGrant`）。
+  - 按权限认，不按角色名，所以从管理层复制出来、带着这个动作的自定义角色也算；
+  - 只过了管理门的（管理口令、只有系统管理员授予）不算；
+  - 范围只在某个领域或台上的管理层授予也不算。
+  - 必须是启用的人（2026-11-22 补，#978 评审提的）：
+    - 停用的主体，判定直接拒绝（`judgment.ts` 第 1 步 `principal-inactive`）；
+    - `work-items.view-all` 是决定类动作，做的不是人时转为提议（`judgment.ts` 第 3 步 `decide-non-person`），所以席位、应用即使有授予也不算。
+  - 统一判定有扩展点 `judgment/judge`，部署方的扩展可以改变上面这个结论；这里说的是内置判定。
+  - 和替人做决定（代验、代办）是同一个口径。
 - 报告正文可能含业务数据：市场只给 run id 和判据结论；正文要到 ygl 那边按 ygl 的权限看，市场不转发。
 - 动作名照惯例新增：`work-items.verify-spec-attach`、`work-items.verify-spec-confirm`、`work-items.verify-rerun`、`work-items.priority-set`。确认、改优先级按身份与权限类走独立验收。
 
