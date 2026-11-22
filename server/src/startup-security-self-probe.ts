@@ -8,7 +8,7 @@ export const isStartupProbeRequest = (req: IncomingMessage): boolean => internal
 type Row = { id: string; surface: 'market' | 'control'; method: string; path: string; verdict: 'pass' | 'fail' | 'warn' | 'skip'; status: number | null; reason: string | null };
 type State = { passed: boolean; failed: string[]; at: string | null; rows: Row[] };
 type Target = { port: number; surface: 'market' | 'control' };
-type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; portalForward?: () => { ok: boolean; reason: string | null }; portalSessionStrip?: () => { ok: boolean; reason: string | null }; outbound?: () => Promise<{ ok: boolean; reason: string | null }> ; sessionSeal?: () => { ok: boolean; reason: string | null }; sessionRenewal?: () => { ok: boolean; reason: string | null }; sessionLegacyTtl?: boolean; appendOnly?: () => { ok: boolean; reason: string | null } };
+type Options = { market: Server; control?: Server; gatewayOn: boolean; nodeEnv?: string; loginGate?: 'enforce' | 'off'; appDataRead?: 'enforce' | 'warn'; sopRunWrite?: 'enforce' | 'warn'; benchViews?: boolean; portalForward?: () => { ok: boolean; reason: string | null }; portalSessionStrip?: () => { ok: boolean; reason: string | null }; outbound?: () => Promise<{ ok: boolean; reason: string | null }> ; sessionSeal?: () => { ok: boolean; reason: string | null }; sessionRenewal?: () => { ok: boolean; reason: string | null }; sessionLegacyTtl?: boolean; appendOnly?: () => { ok: boolean; reason: string | null; warn?: boolean } };
 /** Login-gate rows impersonate a remote anonymous browser behind a same-host proxy, so the local-CLI exemption cannot apply. */
 const REMOTE_ANON = { 'x-forwarded-for': '192.0.2.1', accept: 'text/html' };
 
@@ -259,9 +259,10 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
     }
     // 只增表（留痕）在库这一层改不了：防改、防删、防覆盖的触发器都在，事件日志用同一个 id 覆盖被拒（回滚掉的保存点里核，不留痕）。不过就拒绝启动
     if (appendOnly) {
-      let g: { ok: boolean; reason: string | null };
+      let g: { ok: boolean; reason: string | null; warn?: boolean };
       try { g = appendOnly(); } catch { g = { ok: false, reason: 'error' }; }
-      const row: Row = { id: 'market.db.append-only-guarded', surface: 'market', method: 'LOCAL', path: 'db.append-only-triggers', verdict: g.ok ? 'pass' : 'fail', status: null, reason: g.ok ? null : g.reason };
+      // 名单缺了、覆盖被接受了：不通过（拒绝启动）。试写那一步因为库忙、只读、盘满没做成：warn，照常启动（见 db.ts 的 appendOnlySelfCheck）
+      const row: Row = { id: 'market.db.append-only-guarded', surface: 'market', method: 'LOCAL', path: 'db.append-only-triggers', verdict: !g.ok ? 'fail' : g.warn ? 'warn' : 'pass', status: null, reason: g.ok && !g.warn ? null : g.reason };
       state.rows.push(row);
       log({ source: 'self-probe', ...row });
     }

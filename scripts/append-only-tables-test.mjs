@@ -112,10 +112,25 @@ try {
   // 同名但不拦的（名字在、防线没了）：要靠真试一次覆盖才抓得到
   db.exec("CREATE TRIGGER wbe_log_no_replace BEFORE INSERT ON workbench_event_log WHEN 0 BEGIN SELECT RAISE(ABORT, 'x'); END");
   const hollow = dbm.appendOnlySelfCheck();
+  // 同名、也拦，但报的不是那句话：没测出结论（warn，照常启动）
+  db.exec('DROP TRIGGER wbe_log_no_replace');
+  db.exec("CREATE TRIGGER wbe_log_no_replace BEFORE INSERT ON workbench_event_log WHEN EXISTS (SELECT 1 FROM workbench_event_log WHERE id = NEW.id) BEGIN SELECT RAISE(ABORT, 'synthetic other'); END");
+  const odd = dbm.appendOnlySelfCheck();
   db.exec('DROP TRIGGER wbe_log_no_replace'); db.exec(rsql);
   const back = dbm.appendOnlySelfCheck();
-  check(gone.ok === false && gone.reason === 'missing:wbe_log_no_replace' && hollow.ok === false && hollow.reason === 'replace-accepted' && back.ok === true && logRows() === n0,
+  check(gone.ok === false && gone.reason === 'missing:wbe_log_no_replace' && hollow.ok === false && hollow.reason === 'replace-accepted' && back.ok === true && !back.warn && logRows() === n0,
     '缺一条：不通过、点名缺的那条；同名但不拦的：不通过（覆盖被接受）；装回去照常通过；都不留痕', { gone, hollow, back });
+  check(odd.ok === true && odd.warn === true && odd.reason === 'write-test-inconclusive:error' && logRows() === n0,
+    '覆盖被别的原因拒了（不是触发器那句话）：没测出结论，记 warn（不拦启动），不留痕', odd);
+  // 别的进程锁着写、超过等锁上限：试写那一步做不了——记 warn，照常启动；不留痕。用第二个连接占住写锁冒充
+  const { DatabaseSync } = await import('node:sqlite');
+  const other = new DatabaseSync(join(OUT, 'data', 'workbench-market.db'));
+  other.exec('BEGIN IMMEDIATE');
+  const t0 = Date.now(); const busy = dbm.appendOnlySelfCheck(); const waited = Date.now() - t0;
+  other.exec('ROLLBACK'); other.close();
+  const after = dbm.appendOnlySelfCheck();
+  check(busy.ok === true && busy.warn === true && busy.reason === 'write-test-skipped:busy' && waited < 15000 && after.ok === true && !after.warn && logRows() === n0,
+    `别的连接锁着写：等满上限（这次 ${waited} 毫秒）以后记 warn「write-test-skipped:busy」，不拦启动；锁放开以后照常通过；不留痕`, { busy, waited, after });
 } catch (e) {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {
