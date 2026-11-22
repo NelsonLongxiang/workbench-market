@@ -7,7 +7,7 @@
   · 在右栏办完一条：它从左栏消失，右栏回到没选的样子；
   · 没选的时候右栏说怎么选。数据全是合成的。"""
 import json, re, sys
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M = cfg['base']
 ok = fail = 0
@@ -15,6 +15,16 @@ def check(n, c, x=''):
     global ok, fail
     if c: ok += 1; print('  ✓', n)
     else: fail += 1; print('  ✗', n, x)
+
+def soft(fn):
+    """等条件成立；等不到不在这里抛错，照常往下，由后面原来的断言报（带着当时的值）"""
+    try: fn()
+    except PWTimeout: pass
+def until(pg, pred, timeout=10000):
+    """等测试这边记下的状态（请求日志）满足 pred：每 20 毫秒看一次，期间照常处理截下的请求；到点就停，不抛错"""
+    for _ in range(timeout // 20):
+        if pred(): return
+        pg.wait_for_timeout(20)
 
 def acc(i, mine=True, hours=1):
     return {'source': 'work-items', 'source_id': f'wi-syn-{i}', 'category': 'accept', 'title': f'合成事项 {i}：核对一批到货数量', 'waiting_for': 'person:syn-c', 'waiting_for_name': '合成建立人',
@@ -66,15 +76,20 @@ with sync_playwright() as p:
     check('右栏上面是「看详情 →」去这件事项，再下面是它的答法（验收通过 / 打回重做），最下面是时间线', proc.locator('[data-testid=ck-process-more]').get_attribute('href') == '/work-items/wi-syn-3'
           and proc.locator('[data-testid=ck-process-answer] [data-testid=decision-card]').count() == 1 and proc.get_by_role('button', name=re.compile('验收\\s*通过')).count() == 1
           and proc.locator('[data-testid=ck-process-timeline]').count() == 1 and proc.get_by_text('看详情').count() == 1, proc.inner_text()[:300])
-    pg.locator('[data-testid=ck-row][data-key="relation-proposals:9001"]').click(); pg.wait_for_timeout(500)
+    pg.locator('[data-testid=ck-row][data-key="relation-proposals:9001"]').click()
+    # 证明「没有时间线」：时间线和「看详情」的去处是同一次渲染画的（挂不挂事项看的是同一条）。等去处换成 /team，再看时间线没有
+    soft(lambda: pg.wait_for_function("() => document.querySelector('[data-testid=ck-process-more]')?.getAttribute('href') === '/team'", timeout=10000))
     check('挂的不是事项（授权）：只有答法和去处，没有时间线', proc.locator('[data-testid=ck-process-timeline]').count() == 0 and proc.locator('[data-testid=decision-card]').count() == 1 and proc.locator('[data-testid=ck-process-more]').get_attribute('href') == '/team')
     # 在右栏办完一条：从左栏消失，右栏回到没选的样子
     target.click(); pg.wait_for_selector('[data-testid=ck-process-timeline]')
-    proc.get_by_role('button', name=re.compile('验收\\s*通过')).click(); pg.wait_for_timeout(300)
-    confirm = pg.locator('.ant-popconfirm .ant-btn-primary, [data-testid=decision-confirm]')
+    proc.get_by_role('button', name=re.compile('验收\\s*通过')).click()
+    # 有确认框就等它弹出来，没有的就等决定已经发出
+    confirm = pg.locator('.ant-popconfirm:not(.ant-popover-hidden) .ant-btn-primary, [data-testid=decision-confirm]')
+    until(pg, lambda: confirm.count() > 0 or decided)
     if confirm.count(): confirm.first.click()
     pg.wait_for_function("() => !document.querySelector('[data-testid=ck-row][data-key=\"work-items:wi-syn-3\"]')", timeout=10000)
-    pg.wait_for_timeout(400)
+    # 行没了以后，角标跟着变，右栏的选中在下一次渲染里清掉：等角标是 9、右栏回到「点一条」
+    soft(lambda: pg.wait_for_function("() => document.querySelector('[data-testid=nav-pending]')?.textContent.trim() === '9' && !document.querySelector('[data-testid=ck-process]') && document.querySelector('.wm-ck')?.innerText.includes('点一条')", timeout=10000))
     check('在右栏验收：发到这件事项的决定入口；它从左栏消失，件数和角标一起少一', decided and decided[0][0] == '3' and rows.count() == 9 and nav.inner_text().strip() == '9', (decided, rows.count(), nav.all_inner_texts()))
     check('选中的那条办完了：右栏回到没选的样子', pg.locator('[data-testid=ck-process]').count() == 0 and '点一条' in pg.locator('.wm-ck').inner_text())
     b.close()
