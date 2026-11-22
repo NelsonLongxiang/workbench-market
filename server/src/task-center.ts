@@ -8,7 +8,7 @@ import { assignableTeams, initWorkbenchEvents, recordTaskCenterEvent } from './w
 import { svc } from './context.ts';
 import type { TaskCenterService } from './services/task-center.ts';
 import type { SettingService } from './services/setting.ts';
-import { COCKPIT_ID_MAX, itemIdForEvent, type WorkItemService } from './services/work-item.ts';
+import { COCKPIT_ID_MAX, itemIdForEvent, PRIORITIES, priorityOf, type WorkItemService } from './services/work-item.ts';
 import type { CockpitService } from './services/cockpit.ts';
 import { directedSeatsDeclared } from './a2a.ts';
 import { peerRootOf, type A2aPeerService } from './services/a2a-peers.ts';
@@ -145,6 +145,10 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
   }
   const due = str('due');
   if (due === null || (due !== '' && !DUE.test(due))) return bad('due_invalid');
+  // 优先级（#941 第 1a 步）：P0～P3，不给（undefined、null、空串）就是缺省 P2。给了才算进幂等的请求体哈希，旧的哈希不变
+  const priorityRaw = b.priority === undefined || b.priority === null || b.priority === '' ? null : b.priority;
+  const priority = priorityRaw === null ? null : priorityOf(priorityRaw);
+  if (priorityRaw !== null && priority === null) return bad('priority_invalid', { allowed: PRIORITIES });
   if (b.review !== undefined && typeof b.review !== 'boolean') return bad('review_invalid');
   const review = b.review !== false;
   const key = typeof b.idempotency_key === 'string' ? b.idempotency_key : '';
@@ -164,7 +168,7 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
   const rawAtt = b.attachments === undefined || b.attachments === null ? [] : b.attachments;
   if (!Array.isArray(rawAtt) || rawAtt.length > ATTACHMENTS_PER_ITEM || !rawAtt.every((x) => Number.isSafeInteger(x) && (x as number) > 0) || new Set(rawAtt).size !== rawAtt.length) return bad('attachments_invalid', { max: ATTACHMENTS_PER_ITEM });
   const attIds = (rawAtt as number[]).slice().sort((x, y) => x - y);
-  const payload = JSON.stringify({ title: v.title, intent: v.intent, deliverable: v.deliverable, team, object: v.object, phase: v.phase, due, review, ...(cockpitId ? { cockpit_id: cockpitId } : {}), ...(seatId ? { seat_id: seatId } : {}), ...(attIds.length ? { attachments: attIds } : {}), ...(area ? { area: area.area } : {}) });
+  const payload = JSON.stringify({ title: v.title, intent: v.intent, deliverable: v.deliverable, team, object: v.object, phase: v.phase, due, review, ...(cockpitId ? { cockpit_id: cockpitId } : {}), ...(priority ? { priority } : {}), ...(seatId ? { seat_id: seatId } : {}), ...(attIds.length ? { attachments: attIds } : {}), ...(area ? { area: area.area } : {}) });
   const sha = createHash('sha256').update(payload, 'utf8').digest('hex');
   const tasks = svc<TaskCenterService>('taskCenter');
   const items = svc<WorkItemService>('workItems');
@@ -208,7 +212,7 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
     const eventId = recordTaskCenterEvent({
       id: taskId, data: fields, stepValue: (k) => fields[k], publishedBy: requester, requesterPrincipal: requester, publisherPrincipal: requester,
       templateVersion: null, materialSha256: sha, agentDispatch: direct, centerOn,
-      arranged: { team, submitter: requester, ...(v.object ? { object: v.object } : {}), ...(v.phase ? { phase: v.phase } : {}), ...(cockpitId ? { cockpitId } : {}),
+      arranged: { team, submitter: requester, ...(v.object ? { object: v.object } : {}), ...(v.phase ? { phase: v.phase } : {}), ...(cockpitId ? { cockpitId } : {}), ...(priority ? { priority } : {}),
         ...(attRows.length ? { attachments: attRows.map((a) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, sha256: a.sha256 })) } : {}),
         ...(pinned ? { handoff: pinned.handoff, reviewBy: pinned.handoff === 'own-seat' && reviewNow ? 'requester' as const : '' as const, directedSeatId: seatId } : {}),
         ...(directed?.fallback ? { directedFallback: { seat_id: seatId, reason: 'peer_not_declared' } } : {}) },

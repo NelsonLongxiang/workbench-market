@@ -10,6 +10,7 @@
  *   幂等：放过的再来一次 200、duplicate=true，不再放、不再记；没放过、已经不在等过目的 409
  *   「关注」：过目条目只给能放的人；带 answer_via 指向这个入口；不是管理员的只有 release 这一种答法
  *   跨站来的拒；坏 id 400
+ *   优先级（#941 第 1a 步）：负责人看得到、能放行，但改不了优先级（403）
  *   等谁放行（release_by，详情和列表）：团队和负责人的名字（看不到这个团队的人负责人是 null）；没有负责人是管理层；自审是建立人；不在等过目是 null
  *
  *   node scripts/work-item-lead-release-test.mjs              测本仓库
@@ -181,6 +182,12 @@ try {
     check(r.建立人.status === 403 && r.建立人.body?.error === 'work_item_release_not_yours' && r.管理层.status === 403 && r.口令管理员.status === 403 && r.无关的人.status === 404 && r.无关的人.body?.error === 'work_item_not_found',
       '放行入口：建立人、管理层、口令管理员 403（不归他放），看不到的人 404（不说有没有这件）', show(Object.fromEntries(Object.entries(r).map(([k, v]) => [k, [v.status, v.body?.error]]))));
     check(released(I.lead.event).length === 0 && q('SELECT state FROM work_items WHERE id = ?', I.lead.item)[0]?.state === 'held', '被拒的都没放：没有 released 那一行，事项还在 held');
+    // 优先级（#941 第 1a 步）：负责人看得到这件、能放行，但优先级只归建立人本人、管理层改（以后决定机器判定能不能直接当验收结论）：403，详情 can.priority 为假
+    const before = q('SELECT priority FROM work_items WHERE id = ?', I.lead.item)[0]?.priority;
+    const pLead = await call('POST', `/api/work-items/${I.lead.item}/priority`, WHO.负责人, { priority: 'P3' });
+    const pCan = (await call('GET', `/api/work-items/${I.lead.item}`, WHO.负责人)).body?.can?.priority;
+    check(pLead.status === 403 && pLead.body?.error === 'work_item_priority_not_yours' && pCan === false && q('SELECT priority FROM work_items WHERE id = ?', I.lead.item)[0]?.priority === before,
+      '优先级：负责人看得到、能放行，但改不了优先级（403），详情 can.priority 为假，优先级不变', show({ pLead, pCan, before }));
     const cross = await release(I.lead.item, { ...WHO.负责人, 'sec-fetch-site': 'cross-site' }), bad = await release('wi_bad%2Fx', WHO.负责人), badAdmin = await release('wi_bad%2Fx', ADMIN);
     check(cross.status === 403 && cross.body?.error === 'work_items_cross_origin_denied' && bad.status === 403 && badAdmin.status === 400 && badAdmin.body?.error === 'work_item_id_invalid',
       '跨站来的负责人请求拒（403）；坏 id：写请求总门只放 wi_ 形状的这一条子路径，非管理员 403，管理员到路由里 400', show({ cross, bad: bad.status, badAdmin }));

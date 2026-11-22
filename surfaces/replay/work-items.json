@@ -11,14 +11,16 @@
     "POST /api/work-items/:id/messages/:mid/reply",
     "POST /api/work-items/:id/asks/:qid/answer",
     "POST /api/work-items/:id/release",
-    "POST /api/work-items/:id/due"
+    "POST /api/work-items/:id/due",
+    "POST /api/work-items/:id/priority"
   ],
   "exempt": [
     { "route": "POST /api/work-items/:id/decision", "class": "normal", "why": "正常应答要一件「等验收」的事项：今天没有 HTTP 入口能把事项推到等验收，seed 只能插草稿。正常的验收、退回由 scripts/work-item-creator-test.mjs 起实例、经事项服务造 ready 来测", "shown_by": "creator/decide-not-ready" },
     { "route": "POST /api/work-items/:id/messages/:mid/reply", "class": "normal", "why": "正常回复要一件从工作台事件来的事项和一条签过名的席位跟进：seed 造不出验过签名的跟进。正常回复、发回、看过之后再回复由 scripts/a2a-answers-test.mjs 起实例、经入站造跟进来测", "shown_by": "creator/reply-no-message" },
     { "route": "GET /api/work-items/teams", "class": "invalid", "why": "这个接口不收任何参数，没有参数非法的情形", "shown_by": "arrange/teams-alpha" },
     { "route": "POST /api/work-items/:id/asks/:qid/answer", "class": "normal", "why": "正常回答要一件从工作台事件来、席位在问、建立人是登录者的事项：seed 造不出签名回执带来的提问。正常回答、两人同时答、改绑后答不了由 scripts/work-item-creator-test.mjs 起实例、经事项服务回填造事项来测", "shown_by": "creator/ask-no-ask" },
-    { "route": "POST /api/work-items/:id/release", "class": "normal", "why": "正常放行要一件从工作台事件来、还在等过目（held）的事项，以及名册、团队、负责人：seed 造不出经事件建的事项。负责人放行、管理层代办、建立人自己过目、幂等由 scripts/work-item-lead-release-test.mjs 起实例来测", "shown_by": "admin/release-not-held" }
+    { "route": "POST /api/work-items/:id/release", "class": "normal", "why": "正常放行要一件从工作台事件来、还在等过目（held）的事项，以及名册、团队、负责人：seed 造不出经事件建的事项。负责人放行、管理层代办、建立人自己过目、幂等由 scripts/work-item-lead-release-test.mjs 起实例来测", "shown_by": "admin/release-not-held" },
+    { "route": "POST /api/work-items/:id/priority", "class": "normal", "why": "正常改优先级要一件从工作台事件来的事项（改了要在事件日志留痕）：seed 只能插没有事件的草稿。建立人改、管理层改、别人改不了、终态不改、重建后不退回由 scripts/work-item-priority-test.mjs 起实例、经「安排一件事」建事项来测", "shown_by": "creator/priority-no-event" }
   ],
   "scenarios": [
     {
@@ -285,11 +287,12 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1163", "etag": "W/\"48b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1212", "etag": "W/\"4bc-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
-              "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss", "creator_principal": "user:alpha", "handoff": "team", "review_by": "", "directed_seat_id": "", "seat_id": "", "seat_at": "", "cockpit_id": null, "due_at": "" },
+              "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss", "creator_principal": "user:alpha", "handoff": "team", "review_by": "", "directed_seat_id": "", "seat_id": "", "seat_at": "", "cockpit_id": null, "due_at": "", "priority": "P2" },
               "due": null,
               "overdue": false,
+              "priority": "P2",
               "attachments": [],
               "log": [
                 { "seq": 1, "item_id": "wi_replay_alpha", "fact": "create", "fact_source": "market", "fact_id": "wi_replay_alpha", "from_state": "draft", "to_state": "draft", "actor": "user:alpha", "detail": "{}", "at": "YYYY-MM-DD hh:mm:ss", "rejected": "" }
@@ -299,7 +302,7 @@
               "progress": null,
               "subitems": [],
               "asks": [],
-              "can": { "release": false, "answer": false, "verify": false, "return": false, "reply": false, "due": false },
+              "can": { "release": false, "answer": false, "verify": false, "return": false, "reply": false, "due": false, "priority": false },
               "turn": { "release": false, "answer": false, "verify": false },
               "creator": { "principal": "user:alpha", "display_name": null },
               "release_by": null
@@ -405,11 +408,12 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1175", "etag": "W/\"497-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1224", "etag": "W/\"4c8-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
-              "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss", "creator_principal": "user:alpha", "handoff": "team", "review_by": "", "directed_seat_id": "", "seat_id": "", "seat_at": "", "cockpit_id": null, "due_at": "" },
+              "item": { "id": "wi_replay_alpha", "title": "回放用事项", "created_at": "YYYY-MM-DD hh:mm:ss", "created_by": "user:alpha", "source_kind": "agent", "source_ref": "", "context": "{}", "event_id": null, "task_ids": "[]", "target_team": "", "seat": "", "eval": "", "eval_reason": "", "state": "draft", "progress_summary": "", "progress_at": "", "open_asks": "[]", "receipt_outcome": "", "receipt_at": "", "outputs": "{}", "evidence": "[]", "object": "", "phase": "", "updated_at": "YYYY-MM-DD hh:mm:ss", "creator_principal": "user:alpha", "handoff": "team", "review_by": "", "directed_seat_id": "", "seat_id": "", "seat_at": "", "cockpit_id": null, "due_at": "", "priority": "P2" },
               "due": null,
               "overdue": false,
+              "priority": "P2",
               "attachments": [],
               "log": [
                 { "seq": 1, "item_id": "wi_replay_alpha", "fact": "create", "fact_source": "market", "fact_id": "wi_replay_alpha", "from_state": "draft", "to_state": "draft", "actor": "user:alpha", "detail": "{}", "at": "YYYY-MM-DD hh:mm:ss", "rejected": "" }
@@ -419,7 +423,7 @@
               "progress": null,
               "subitems": [],
               "asks": [],
-              "can": { "release": false, "answer": false, "verify": false, "return": false, "reply": false, "due": true },
+              "can": { "release": false, "answer": false, "verify": false, "return": false, "reply": false, "due": true, "priority": false },
               "turn": { "release": false, "answer": false, "verify": false },
               "creator": { "principal": "user:alpha", "display_name": "Synthetic alpha" },
               "release_by": null
@@ -750,6 +754,58 @@
             "headers": { "cache-control": "private, no-store", "content-length": "101", "etag": "W/\"65-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "item_id": "wi_replay_alpha", "due": "2099-01-02", "overdue": false, "notified": 0, "pending_release": false }
           }
+        },
+        {
+          "id": "priority-anonymous",
+          "route": "POST /api/work-items/:id/priority",
+          "class": "unauthorized",
+          "what": "远程匿名改优先级：401",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/priority", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "priority": "P1" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "36", "etag": "W/\"24-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_items_auth_required" }
+          }
+        },
+        {
+          "id": "priority-bad",
+          "route": "POST /api/work-items/:id/priority",
+          "class": "invalid",
+          "what": "不认识的优先级 P9：400，并列出能填的",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/priority", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "priority": "P9" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "60", "etag": "W/\"3c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "priority_invalid", "allowed": ["P0", "P1", "P2", "P3"] }
+          }
+        },
+        {
+          "id": "priority-other",
+          "route": "POST /api/work-items/:id/priority",
+          "class": "invalid",
+          "what": "别人 beta：看不到这件，404",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/priority", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" }, "json": { "priority": "P1" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "31", "etag": "W/\"1f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_not_found" }
+          }
+        },
+        {
+          "id": "priority-no-event",
+          "route": "POST /api/work-items/:id/priority",
+          "class": "invalid",
+          "what": "建立人 alpha：这件是直接插的草稿、没有事件日志，改了没处留痕：409",
+          "request": { "method": "POST", "path": "/api/work-items/wi_replay_alpha/priority", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "priority": "P1" } },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "work_item_no_event_log" }
+          }
         }
       ]
     },
@@ -814,7 +870,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1880", "etag": "W/\"758-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1960", "etag": "W/\"7a8-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "all",
               "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5, "decide": 0 } },
@@ -831,6 +887,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 },
                 {
@@ -845,6 +902,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 },
                 {
@@ -859,6 +917,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 },
                 {
@@ -873,6 +932,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 },
                 {
@@ -887,6 +947,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 }
               ],
@@ -905,7 +966,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1019", "etag": "W/\"3fb-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1051", "etag": "W/\"41b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "all",
               "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5, "decide": 0 } },
@@ -922,6 +983,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 },
                 {
@@ -936,6 +998,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 }
               ],
@@ -954,7 +1017,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "995", "etag": "W/\"3e3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1027", "etag": "W/\"403-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "all",
               "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5, "decide": 0 } },
@@ -971,6 +1034,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 },
                 {
@@ -985,6 +1049,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 }
               ],
@@ -1003,7 +1068,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1295", "etag": "W/\"50f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1343", "etag": "W/\"53f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "mine",
               "views": { "mine": { "available": true, "count": 3, "decide": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
@@ -1020,6 +1085,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 },
                 {
@@ -1034,6 +1100,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 },
                 {
@@ -1048,6 +1115,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 }
               ],
@@ -1086,7 +1154,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "659", "etag": "W/\"293-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "675", "etag": "W/\"2a3-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "mine",
               "views": { "mine": { "available": true, "count": 1, "decide": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
@@ -1103,6 +1171,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 }
               ],
@@ -1238,7 +1307,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1295", "etag": "W/\"50f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1343", "etag": "W/\"53f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "mine",
               "views": { "mine": { "available": true, "count": 3, "decide": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
@@ -1255,6 +1324,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 },
                 {
@@ -1269,6 +1339,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 },
                 {
@@ -1283,6 +1354,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 }
               ],
@@ -1301,7 +1373,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1880", "etag": "W/\"758-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1960", "etag": "W/\"7a8-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "all",
               "views": { "mine": { "available": false, "count": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": true, "count": 5, "decide": 0 } },
@@ -1318,6 +1390,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 },
                 {
@@ -1332,6 +1405,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 },
                 {
@@ -1346,6 +1420,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 },
                 {
@@ -1360,6 +1435,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 },
                 {
@@ -1374,6 +1450,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": null
                 }
               ],
@@ -1682,7 +1759,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "731", "etag": "W/\"2db-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "747", "etag": "W/\"2eb-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "view": "mine",
               "views": { "mine": { "available": true, "count": 2, "decide": 0 }, "seats": { "available": false, "count": 0 }, "team": { "available": false, "count": 0 }, "all": { "available": false, "count": 0 } },
@@ -1699,6 +1776,7 @@
                   "updated_at": "YYYY-MM-DD hh:mm:ss",
                   "due": null,
                   "overdue": false,
+                  "priority": "P2",
                   "release_by": { "kind": "management", "text": "管理层" },
                   "area": "sales"
                 }

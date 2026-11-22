@@ -20,7 +20,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1530", "etag": "W/\"5fa-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1592", "etag": "W/\"638-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -42,6 +42,7 @@
                 "/^\\/api\\/local-accounts\\/_self\\/password$/",
                 "/^\\/api\\/work-items\\/attachments\\/[^/]{1,8192}$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/due$/",
+                "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/priority$/",
                 "/^\\/api\\/teams\\/(assign|unassign|reassign)$/",
                 "/^\\/api\\/grants\\/[1-9]\\d{0,15}\\/approve$/",
                 "/^\\/api\\/cockpits(\\/[^/]+)?$/",
@@ -67,7 +68,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1530", "etag": "W/\"5fa-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1592", "etag": "W/\"638-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -89,6 +90,7 @@
                 "/^\\/api\\/local-accounts\\/_self\\/password$/",
                 "/^\\/api\\/work-items\\/attachments\\/[^/]{1,8192}$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/due$/",
+                "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/priority$/",
                 "/^\\/api\\/teams\\/(assign|unassign|reassign)$/",
                 "/^\\/api\\/grants\\/[1-9]\\d{0,15}\\/approve$/",
                 "/^\\/api\\/cockpits(\\/[^/]+)?$/",
@@ -182,7 +184,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1530", "etag": "W/\"5fa-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1592", "etag": "W/\"638-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -204,6 +206,7 @@
                 "/^\\/api\\/local-accounts\\/_self\\/password$/",
                 "/^\\/api\\/work-items\\/attachments\\/[^/]{1,8192}$/",
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/due$/",
+                "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/priority$/",
                 "/^\\/api\\/teams\\/(assign|unassign|reassign)$/",
                 "/^\\/api\\/grants\\/[1-9]\\d{0,15}\\/approve$/",
                 "/^\\/api\\/cockpits(\\/[^/]+)?$/",

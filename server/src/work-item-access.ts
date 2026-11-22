@@ -8,6 +8,7 @@
  * can 还要看事情此刻在不在等：release 要事项在 held、事件和任务让放；verify、return 要在 ready；
  * reply 要不在终态、有可回复的席位消息；answer 要不在终态、有在等答复的提问。
  * due 不是替人做决定：只认建立人本人（dueWriterOk，和 POST /api/work-items/:id/due 同一处；管理员、管理层都不代改），事项不在终态。
+ * priority（#941 第 1a 步）：建立人本人或持有管理层授予的人（priorityWriter，和 POST /api/work-items/:id/priority 同一处），事项不在终态。
  *
  * turn（是不是轮到这个人）只有两句：answer、verify 轮到的是建立人；release 轮到的是负责人（或勾了先过目的建立人），管理层代办不算轮到。
  * can 为真而 turn 为假，就是「能代办」。
@@ -219,13 +220,26 @@ export function writerVerdict(viewer: WorkItemViewer, itemId: string, allowAdmin
   return verdict;
 }
 
-export type Can = { release: boolean; answer: boolean; verify: boolean; return: boolean; reply: boolean; due: boolean };
+export type Can = { release: boolean; answer: boolean; verify: boolean; return: boolean; reply: boolean; due: boolean; priority: boolean };
 
 /**
  * 改截止日期认谁（只有这一处，详情的 can.due 和 POST /api/work-items/:id/due 都用）：建立人本人，管理员不代改——截止是建立人对这件事的要求。
  * 只认 ok：未验证来源的事项（creatorCheck 是 not_eligible）只能由管理员处理，改截止会往节点发通知，也是写，同样挡
  */
 export const dueWriterOk = (verdict: WriterVerdict): boolean => verdict === 'ok';
+/**
+ * 改优先级认谁（只有这一处，详情的 can.priority 和 POST /api/work-items/:id/priority 都用；docs/task-goal-verify-design.md 第 4、7 条）：
+ *   creator     建立人本人（启用的人，事项可由建立人处理：creatorCheck 为 ok）；
+ *   management  持有管理层授予的人（和替人做决定同一个口径：只过了管理门、没有管理层授予的不算）。
+ * 优先级决定以后机器判定能不能直接当验收结论，所以不给团队、负责人改；看不到这件事项的一律 null。不看事项在不在终态，那是调用方的事
+ */
+export function priorityWriter(item: WorkItemRow, viewer: WorkItemViewer): 'creator' | 'management' | null {
+  const p = viewer.principal;
+  if (!p || !canSee(item, viewer)) return null;
+  if (viewer.person && isCreator(item, p) && svc<WorkItemService>('workItems').creatorCheck(item.id, p) === 'ok') return 'creator';
+  if (holdsManagementGrant(p)) return 'management';
+  return null;
+}
 export type Turn = { release: boolean; answer: boolean; verify: boolean };
 
 const pendingAsks = (item: WorkItemRow): number => { const ev = eventOfItem(item); return ev ? pendingAsksOfEvent(ev).length : 0; };
@@ -338,6 +352,8 @@ export function canOf(item: WorkItemRow, viewer: WorkItemViewer): Can {
     return: ready && decides(item, viewer, 'return'),
     reply: live && replyableMessages(item).length > 0 && decides(item, viewer, 'reply'),
     due: live && dueWriterOk(writerVerdict(viewer, item.id, false)),
+    // 改优先级要在事件日志留痕：没有事件的事项（只有测试里直接建的）改不了，按钮也不出（和 POST …/priority 的 409 一致）
+    priority: live && /^wbe-[0-9a-f]{16}$/.test(item.source_ref) && priorityWriter(item, viewer) !== null,
   };
 }
 

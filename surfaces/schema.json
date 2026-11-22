@@ -1086,6 +1086,7 @@
       "seat_at TEXT NOT NULL DEFAULT ''",
       "cockpit_id INTEGER",
       "due_at TEXT NOT NULL DEFAULT ''",
+      "priority TEXT NOT NULL DEFAULT 'P2'",
       "area_id TEXT",
       "area_source TEXT",
       "area_reason TEXT NOT NULL DEFAULT ''"

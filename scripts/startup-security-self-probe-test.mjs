@@ -11,7 +11,7 @@ const { createStartupSecurityProbe, isStartupProbeRequest }=await import('../ser
 let checks=0;const check=(name,condition)=>{assert.ok(condition,name);checks++;console.log('PASS '+name);};
 const noAuth='DO_NOT_LOG_SYNTHETIC_CREDENTIAL';
 const GATED=[['GET',/^\/api\/apps$/],['POST',/^\/api\/workbenches$/,'browser'],['GET',/^\/api\/principals$/],['GET',/^\/api\/local-accounts$/],['POST',/^\/api\/local-accounts\/[^/]+\/approve$/],['POST',/^\/api\/attention\/answer$/],['GET',/^\/api\/export$/],['POST',/^\/api\/areas$/],['GET',/^\/api\/apps\/[^/]+\/data$/],['GET',/^\/api\/workbenches\/[^/]+\/vars$/],['PUT',/^\/api\/sop\/runs\/[^/]+$/]];
-async function fixture({reportDimCreateBroken=false,reportDimTemplateBroken=false,reportDimReadBroken=false,tasksBroken=false,deptWriteBroken=false,decisionCardBroken=false,ticketUploadBroken=false,resultRefOpen=false,seatTokenBroken=false,accessBroken=false,mcpBroken=false,writeBroken=false,principalsBroken=false,localAccountsBroken=false,approveBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,uploadBroken=false,dueBroken=false,seatReplyBroken=false,seatAskBroken=false,leadReleaseBroken=false,grantsBroken=false,grantApproveBroken=false,knowledgeBroken=false,areaCreateBroken=false,areaSpecBroken=false,areaReadBroken=false,knowledgeMapBroken=false,rememberBroken=false,teamReassignBroken=false,attentionBroken=false,appDataBroken=false,varsMissingBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test',cockpitBroken=false,gate=false}={}){
+async function fixture({reportDimCreateBroken=false,reportDimTemplateBroken=false,reportDimReadBroken=false,tasksBroken=false,deptWriteBroken=false,decisionCardBroken=false,ticketUploadBroken=false,resultRefOpen=false,seatTokenBroken=false,accessBroken=false,mcpBroken=false,writeBroken=false,principalsBroken=false,localAccountsBroken=false,approveBroken=false,callbackBroken=false,eventBroken=false,exportBroken=false,creatorBroken=false,listBroken=false,arrangeBroken=false,uploadBroken=false,dueBroken=false,priorityBroken=false,seatReplyBroken=false,seatAskBroken=false,leadReleaseBroken=false,grantsBroken=false,grantApproveBroken=false,knowledgeBroken=false,areaCreateBroken=false,areaSpecBroken=false,areaReadBroken=false,knowledgeMapBroken=false,rememberBroken=false,teamReassignBroken=false,attentionBroken=false,appDataBroken=false,varsMissingBroken=false,runWriteBroken=false,hang=false,off=false,control=false,hold=false,noChallenge=false,successWrite=false,nodeEnv='test',cockpitBroken=false,gate=false}={}){
  const app=express(),logs=[],db=new DatabaseSync(':memory:');db.exec('CREATE TABLE workbenches(id INTEGER PRIMARY KEY,name TEXT)');let ordinaryHits=0;const requests=[];
  const probe=createStartupSecurityProbe({timeoutMs:hang?50:500,log:row=>logs.push(row)});app.use(probe.middleware);app.use(express.json());let release;const barrier=hold?new Promise(r=>release=r):Promise.resolve();
  const server=createServer(app);await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;
@@ -28,6 +28,7 @@ async function fixture({reportDimCreateBroken=false,reportDimTemplateBroken=fals
  app.put('/api/cockpits/:id',(_req,res)=>cockpitBroken?res.status(404).json({error:'cockpit not found'}):res.status(401).json({error:'cockpit_auth_required'}));
  app.put('/api/work-items/attachments/:name',(_req,res)=>uploadBroken?res.status(201).json({id:1}):res.status(401).json({error:'work_items_auth_required'}));
  app.post('/api/work-items/:id/due',(_req,res)=>dueBroken?res.status(200).json({ok:true}):res.status(401).json({error:'work_items_auth_required'}));
+ app.post('/api/work-items/:id/priority',(_req,res)=>priorityBroken?res.status(200).json({ok:true}):res.status(401).json({error:'work_items_auth_required'}));
  app.post('/api/work-items/:id/decision',(_req,res)=>creatorBroken?res.status(200).json({ok:true}):res.status(401).json({error:'work_items_auth_required'}));
  app.post('/api/work-items/:id/release',(_req,res)=>leadReleaseBroken?res.status(200).json({ok:true}):res.status(401).json({error:'work_items_auth_required'}));
  app.post('/api/work-items/:id/messages/:mid/reply',(_req,res)=>seatReplyBroken?res.status(200).json({ok:true}):res.status(401).json({error:'work_items_auth_required'}));
@@ -79,6 +80,9 @@ async function fixture({reportDimCreateBroken=false,reportDimTemplateBroken=fals
  const rr=await fixture({resultRefOpen:true});try{const r=await rr.start();check('result-ref route that serves an anonymous request fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.mcp-rest.result-ref-anonymous');}finally{await rr.close();}
  const tu=await fixture({ticketUploadBroken:true});try{const r=await tu.start();check('upload-ticket route that accepts a forged ticket fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.mcp-rest.ticket-upload-forged');check('forged-ticket answer is never copied into audit and the gate stays closed',!JSON.stringify(tu.logs).includes(noAuth)&&(await fetch('http://127.0.0.1:'+tu.port+'/business')).status===503);}finally{await tu.close();}
  const f=await fixture({seatTokenBroken:true});try{const r=await f.start();check('seat-token endpoint that issues a token for a forged signature fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.a2a-seat-token.forged');}finally{await f.close();}
+}
+{
+ const fp=await fixture({priorityBroken:true});try{const r=await fp.start();check('priority change that lets a remote anonymous browser edit work fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.work-items.priority-set-anonymous');}finally{await fp.close();}
 }
 {
  const f=await fixture({eventBroken:true});try{const r=await f.start();check('login event endpoint that accepts an unsigned event fails its named row',!r.passed&&r.failed.length===1&&r.failed[0]==='market.login-flow.unsigned-event');}finally{await f.close();}
@@ -183,6 +187,7 @@ for(const nodeEnv of ['development','test']){
  app.put('/api/cockpits/:id',(_req,res)=>res.status(401).end());
  app.put('/api/work-items/attachments/:name',(_req,res)=>res.status(401).end());
  app.post('/api/work-items/:id/due',(_req,res)=>res.status(401).end());
+ app.post('/api/work-items/:id/priority',(_req,res)=>res.status(401).end());
  app.post('/api/work-items/:id/decision',(_req,res)=>res.status(401).end());
  app.post('/api/work-items/:id/messages/:mid/reply',(_req,res)=>res.status(401).end());
  app.post('/api/work-items/:id/release',(_req,res)=>res.status(401).end());
