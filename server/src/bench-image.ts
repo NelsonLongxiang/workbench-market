@@ -6,7 +6,8 @@
  *   · 唯一保留的一条防护：解析出的地址只要有一个不是公网就不取（只有图库前缀下的除外）——保护的是市场自己和内网服务；
  *     解析一次就把连接钉到这个地址上，取的时候不再解析（防解析结果被换）；
  *   · 只发 GET、不带读者的任何请求头、不跟随跳转、限大小限时限并发；对外断开（WM_OUTBOUND=off）时不发；
- *   · 只转出 png、jpeg、webp、gif 四种；进程内短时缓存。
+ *   · 只转出 png、jpeg、webp 三种（Q4），宽高从文件头纯解析、像素 ≤ 4000 万（Q2）；进程内短时缓存。
+ *   · 判权在路由里按引用判（Q9）：来源视图属于这个台、读者能读、视图里确实有这条链接，见 viewRefersImage。
  */
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
@@ -16,8 +17,9 @@ import { outboundOff } from './outbound-gate.ts';
 import { IMAGE_REF_CHARS, galleryPathOk, imageRefOk } from './bench-query.ts';
 import { classifyV4, classifyV6, parseV4, parseV6 } from './url-admission.ts';
 
-export const IMAGE_LIMITS = { refChars: IMAGE_REF_CHARS, bytes: 5 * 1024 * 1024, timeoutMs: 10_000, concurrent: 8, cacheMs: 5 * 60_000, cacheBytes: 64 * 1024 * 1024 };
-const TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+export const IMAGE_LIMITS = { refChars: IMAGE_REF_CHARS, bytes: 5 * 1024 * 1024, pixels: 40_000_000, timeoutMs: 10_000, concurrent: 8, cacheMs: 5 * 60_000, cacheBytes: 64 * 1024 * 1024 };
+// 属主 2026-11-23 定 Q4：只收 PNG、JPEG、WebP；GIF、SVG 不收
+const TYPES = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 export class ImageError extends Error {
   readonly http: number;
@@ -37,6 +39,53 @@ export function blockedAddress(ip: string): boolean {
 /** 完整链接在不在配置的图库前缀下（唯一的例外：图库按属主决定只绑本机回环） */
 export function underGallery(u: URL, galleryBase: string | null): boolean {
   return !!galleryBase && u.href.startsWith(galleryBase);
+}
+
+/** 宽高：只从文件头纯解析（不解码），和声明的类型对不上就是 null。PNG 读 IHDR；JPEG 找 SOF 段；WebP 认 VP8、VP8L、VP8X */
+export function imageSize(b: Buffer, type: string): { w: number; h: number } | null {
+  if (type === 'image/png') {
+    if (b.length < 24 || b.readUInt32BE(0) !== 0x89504e47 || b.readUInt32BE(4) !== 0x0d0a1a0a || b.toString('latin1', 12, 16) !== 'IHDR') return null;
+    return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+  }
+  if (type === 'image/jpeg') {
+    if (b.length < 4 || b[0] !== 0xff || b[1] !== 0xd8) return null;
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) return null;
+      const m = b[i + 1];
+      if (m === 0xff) { i++; continue; }
+      if (m === 0x01 || (m >= 0xd0 && m <= 0xd8)) { i += 2; continue; }
+      if (m === 0xd9 || m === 0xda) return null; // 到了图像数据还没见到 SOF
+      if ((m >= 0xc0 && m <= 0xcf) && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { w: b.readUInt16BE(i + 7), h: b.readUInt16BE(i + 5) };
+      i += 2 + b.readUInt16BE(i + 2);
+    }
+    return null;
+  }
+  if (type === 'image/webp') {
+    if (b.length < 30 || b.toString('latin1', 0, 4) !== 'RIFF' || b.toString('latin1', 8, 12) !== 'WEBP') return null;
+    const chunk = b.toString('latin1', 12, 16);
+    if (chunk === 'VP8 ' && b[23] === 0x9d && b[24] === 0x01 && b[25] === 0x2a) return { w: b.readUInt16LE(26) & 0x3fff, h: b.readUInt16LE(28) & 0x3fff };
+    if (chunk === 'VP8L' && b[20] === 0x2f) return { w: 1 + (((b[22] & 0x3f) << 8) | b[21]), h: 1 + (((b[24] & 0x0f) << 10) | (b[23] << 2) | ((b[22] & 0xc0) >> 6)) };
+    if (chunk === 'VP8X') return { w: 1 + b.readUIntLE(24, 3), h: 1 + b.readUIntLE(27, 3) };
+    return null;
+  }
+  return null;
+}
+
+/** Q9 按引用判的「确实引用」：读者照这组视图、版本、筛选参数渲染出来的结果里，某个 image 类型的列有这条链接 */
+export function viewRefersImage(rendered: { blocks?: unknown[] } | null | undefined, ref: string): boolean {
+  for (const blk of rendered?.blocks ?? []) {
+    const data = (blk as { data?: { columns?: { name: string; type: string }[]; rows?: Record<string, unknown>[] } } | null)?.data;
+    const cols = (data?.columns ?? []).filter((c) => c?.type === 'image').map((c) => c.name);
+    if (cols.length && (data?.rows ?? []).some((row) => cols.some((n) => row?.[n] === ref))) return true;
+  }
+  return false;
+}
+
+/** 钉址用的 lookup：连接只用判过的地址，不再解析（防 DNS 重绑定）；连接层要整组地址（all）时也只给这一个 */
+export function pinnedLookup(pin: { address: string; family: number }) {
+  return (_h: string, o: { all?: boolean } | number | undefined, cb: (e: Error | null, a: unknown, f?: number) => void): void =>
+    (typeof o === 'object' && o?.all ? cb(null, [{ address: pin.address, family: pin.family }]) : cb(null, pin.address, pin.family));
 }
 
 /** 格子里的值 → 要取的地址。相对路径要有图库前缀 */
@@ -88,18 +137,22 @@ function get(u: URL, pin: { address: string; family: number }): Promise<Got> {
     const req = (u.protocol === 'https:' ? httpsRequest : httpRequest)(u, {
       method: 'GET',
       headers: { accept: 'image/png, image/jpeg, image/webp, image/gif', 'user-agent': 'workbench-market-image' },
-      // 钉址：连接只用判过的地址，不再解析（防 DNS 重绑定）；连接层要整组地址时也只给这一个
-      lookup: (_h: string, o: { all?: boolean } | number | undefined, cb: (e: Error | null, a: unknown, f?: number) => void) =>
-        (typeof o === 'object' && o?.all ? cb(null, [{ address: pin.address, family: pin.family }]) : cb(null, pin.address, pin.family)),
+      lookup: pinnedLookup(pin),
       timeout: IMAGE_LIMITS.timeoutMs,
     } as never, (res: IncomingMessage) => {
       const status = res.statusCode ?? 0;
       if (status !== 200) { res.resume(); return reject(new ImageError(502, 'image_fetch_failed', status >= 300 && status < 400 ? '图片地址要跳转，不跟' : `图片地址回了 ${status}`)); }
       const type = String(res.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
-      if (!TYPES.has(type)) { res.resume(); return reject(new ImageError(415, 'image_type_unsupported', '只认 PNG、JPEG、WebP、GIF')); }
+      if (!TYPES.has(type)) { res.resume(); return reject(new ImageError(415, 'image_type_unsupported', '只认 PNG、JPEG、WebP')); }
       const chunks: Buffer[] = []; let n = 0;
       res.on('data', (c: Buffer) => { n += c.length; if (n > IMAGE_LIMITS.bytes) { req.destroy(); reject(new ImageError(502, 'image_too_large', '图片超过 5 MB')); } else chunks.push(c); });
-      res.on('end', () => resolve({ type, body: Buffer.concat(chunks) }));
+      res.on('end', () => {
+        const body = Buffer.concat(chunks);
+        const size = imageSize(body, type);
+        if (!size || !size.w || !size.h) return reject(new ImageError(415, 'image_unreadable', '内容不是声明的图片格式'));
+        if (size.w * size.h > IMAGE_LIMITS.pixels) return reject(new ImageError(502, 'image_too_many_pixels', '图片超过 4000 万像素'));
+        resolve({ type, body });
+      });
       res.on('error', () => reject(new ImageError(502, 'image_fetch_failed', '图片取到一半断了')));
     });
     const deadline = setTimeout(() => { req.destroy(); reject(new ImageError(504, 'image_timeout', '取图超时')); }, IMAGE_LIMITS.timeoutMs);

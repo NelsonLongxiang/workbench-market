@@ -35,7 +35,7 @@ import { checkBenchRequest, decideBenchRequest, listBenchMcp, setBenchGrants } f
 import { viaBegin, viaSettle } from '../attention-via.ts';
 import { assertBenchBinding, renderBenchView } from '../services/bench-render.ts';
 import { bindReport, generateReport, listReports, readReport, respondReport, SUBJECT_RE } from '../services/bench-report.ts';
-import { fetchImage, ImageError } from '../bench-image.ts';
+import { fetchImage, ImageError, viewRefersImage } from '../bench-image.ts';
 
 export type BenchViewsConfig = { on: boolean; imageGalleryBase: string | null };
 /** 启动时读一次：WM_BENCH_VIEWS（on / off，缺省 on；不需要时显式 off 关掉）；WM_IMAGE_GALLERY_BASE（图库前缀，可不设）。不合法拒绝启动 */
@@ -411,15 +411,25 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
       res.json({ ...out, blocks: (out.blocks ?? []).map((b) => (b?.type === 'form' ? { ...b, can_submit: canSubmit } : b)) });
     } catch (e) { fail(res, e); }
   }));
-  // 图片代取（docs/image-step1.md 第四节）：浏览器不访问图库，由市场取了再给。能看这个台（render）或能读这个台的报告（report-read）就放行。
-  // 先判权，再去取：没权限的请求不发起任何外部请求。台没登记的，判权只剩第一档，判过了才回 404（没权限的人看不出台存不存在）
+  // 图片代取（docs/image-step1.md 第四节）：浏览器不访问图库，由市场取了再给。
+  // 属主 2026-11-23 定 Q9 按引用判：来源是这个台的一份视图（view、version、p.* 照渲染时的写法），读者能读它（render），
+  // 照这组参数渲染出来确实有这条链接（image 列）——三条都满足才放行；任何一条不满足同一个 403，不发外部请求，缓存命中也照判。
+  // 台没登记的，判过第一档权才回 404（没权限的人看不出台存不存在）。报告作来源在报告的 image 节点（PR C）时再加。
   app.get('/api/bench-views/:bench/image', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
     const bench = getBench(req.params.bench);
     const actor = await who(req, res);
     if (!actor) return;
-    if (!may(actor, 'bench-store.render', bench) && !may(actor, 'bench-store.report-read', bench)) return forbid(res);
+    if (!may(actor, 'bench-store.render', bench)) return forbid(res);
     if (!bench) return res.status(404).json({ error: 'bench_not_found' });
     const ref = typeof req.query.u === 'string' ? req.query.u : '';
+    const params: Record<string, string> = {};
+    for (const [k, v] of Object.entries(req.query)) if (k.startsWith('p.') && typeof v === 'string') params[k.slice(2)] = v;
+    let referenced = false;
+    try {
+      const out = await renderBenchView(bench, await benchStore(bench.slug), { view: str(req.query.view), params, version: qint(req.query.version, 'version') });
+      referenced = viewRefersImage(out, ref);
+    } catch { referenced = false; } // 视图不存在、版本不对、参数不合：都当没引用
+    if (!referenced) return forbid(res);
     try {
       const got = await fetchImage(ref, deps.imageGalleryBase ?? null);
       res.set({ 'Content-Type': got.type, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'private, max-age=300', 'Referrer-Policy': 'no-referrer' });

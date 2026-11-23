@@ -6,13 +6,14 @@
  *
  *   I1 写图片列：完整 http(s) 链接、图库相对路径能写；ftp:、javascript:、..、以 / 开头、带账号口令、超长报 400
  *   I2 查询：图片列只能判空、计数；按值筛选、分组、min/max、排序报 400
- *   I3 代取判权：匿名 401、管理口令 403、跨站 403、台上没授予 403——这几种图库都没收到请求；只有 render、只有 report-read 的人都取得到
- *   I4 代取结果：PNG 原样转出并带 nosniff、sandbox；text/html 415；302 502；超过 5 MB 502；超时 504
+ *   I3 代取判权：匿名 401、管理口令 403、跨站 403、台上没授予 403、只有 report-read 或 report-respond（读不了视图）403——这几种图库都没收到请求；只有 render 的人取得到
+ *   I10 Q9 按引用判：来源视图不在路径里的台、视图里没这条链接、视图不存在、视图不显示图片列，都 403 且不外发；缓存命中也照判
+ *   I4 代取结果：PNG 原样转出并带 nosniff、sandbox；JPEG、WebP（VP8X、VP8L）照转；GIF、SVG、text/html、头写 PNG 内容不是 PNG 都 415；超过 4000 万像素 502；302 502；超过 5 MB 502；超时 504
  *   I5 唯一保留的防护：完整链接指向回环（不在图库前缀下）、链路本地、私网、文档网段 400；在图库前缀下照取；地址分类照 url-admission.ts，只认公网
  *   I6 不转发读者的请求头：图库收到的请求里没有 Cookie、Authorization、Referer、X-Forwarded-For
  *   I7 缓存：同一张图第二次不再请求图库；缓存命中时没权限的人仍是 403
  *   I8 对外断开（WM_OUTBOUND=off）：503
- *   I9 钉址与混合解析（本进程直接调 fetchImage，桩 DNS，连接层只放行回环）：DNS 重绑定不访问回环服务；公网与回环混合解析 400
+ *   I9 钉址与混合解析（本进程直接调 fetchImage，桩 DNS，连接层只放行回环）：DNS 重绑定不访问回环服务；公网与回环混合解析 400；慢解析 504；钉址 lookup 两种调用都只给判过的地址
  *
  *   node scripts/bench-image-test.mjs
  */
@@ -42,9 +43,22 @@ async function freePort() { const p = createNetServer(); await new Promise((r) =
 // —— 假图库：记下每个请求的路径和请求头 ——
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da63f8cfc0f01f0005000201d3c3b4a90000000049454e44ae426082', 'hex');
 const hits = [];
+// 只解析文件头就能读出宽高的几种合成图（不解码，字节固定）
+const webpX = (w, h) => { const b = Buffer.alloc(30); b.write('RIFF', 0, 'latin1'); b.writeUInt32LE(22, 4); b.write('WEBPVP8X', 8, 'latin1'); b.writeUInt32LE(10, 16); b.writeUIntLE(w - 1, 24, 3); b.writeUIntLE(h - 1, 27, 3); return b; };
+const webpL = Buffer.concat([Buffer.from('RIFF', 'latin1'), Buffer.from([22, 0, 0, 0]), Buffer.from('WEBPVP8L', 'latin1'), Buffer.from([10, 0, 0, 0, 0x2f, 0x02, 0x00, 0x01, 0x00]), Buffer.alloc(5)]); // 3×5
+const hugePng = Buffer.from(PNG); hugePng.writeUInt32BE(8000, 16); hugePng.writeUInt32BE(8000, 20); // 6400 万像素
+const JPG = Buffer.from('ffd8ffe000104a46494600010100000100010000ffc0001108000300040301220002110103110001ffd9', 'hex'); // 4×3
+const GALLERY = {
+  '/photos/b.png': ['image/png', PNG], '/photos/d.png': ['image/png', PNG], '/photos/only2.png': ['image/png', PNG],
+  '/photos/a.jpg': ['image/jpeg', JPG], '/photos/a.webp': ['image/webp', webpX(2, 3)], '/photos/vp8l.webp': ['image/webp', webpL],
+  '/photos/huge.png': ['image/png', hugePng], '/photos/huge.webp': ['image/webp', webpX(10000, 5000)],
+  '/photos/anim.gif': ['image/gif', Buffer.from('474946383961010001000000002c00000000010001000002003b', 'hex')],
+  '/photos/fake.png': ['image/png', Buffer.from('<html><script>alert(1)</script></html>')],
+};
 const gallery = createHttpServer((req, res) => {
   hits.push({ path: req.url, headers: req.headers });
   const u = req.url;
+  if (GALLERY[u]) { const [type, body] = GALLERY[u]; res.writeHead(200, { 'content-type': type, 'content-length': body.length }); return void res.end(body); }
   if (u === '/photos/a.png' || u === '/photos/c.png') { res.writeHead(200, { 'content-type': 'image/png', 'content-length': PNG.length }); return void res.end(PNG); }
   if (u === '/photos/page.html') { res.writeHead(200, { 'content-type': 'text/html' }); return void res.end('<script>alert(1)</script>'); }
   if (u === '/photos/redirect.png') { res.writeHead(302, { location: 'http://169.254.169.254/' }); return void res.end(); }
@@ -111,7 +125,8 @@ try {
   const activate = async (body) => { const d = await srv.call('POST', '/api/grants', { body: { reason: '合成：图片', ...body } }); const id = d.json?.grant?.id; await srv.call('POST', `/api/grants/${id}/submit`); const a = await srv.call('POST', `/api/grants/${id}/approve`); return a.status === 200; };
   const revokeAll = async (role) => { for (const g of db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = ? AND status = 'active'").all(role)) await cli('POST', `/api/grants/${g.id}/revoke`, { reason: '合成：用完收回' }); };
   const bv = (opts, method, path, body) => srv.call(method, `/api/bench-views${path}`, { ...opts, ...(body === undefined ? {} : { body }) });
-  const img = (opts, u, slug = 'synth-img') => srv.call('GET', `/api/bench-views/${slug}/image?u=${encodeURIComponent(u)}`, opts);
+  // Q9 按引用判：每次都带来源视图（缺省 pics，显示图片列）
+  const img = (opts, u, slug = 'synth-img', view = 'pics') => srv.call('GET', `/api/bench-views/${slug}/image?u=${encodeURIComponent(u)}&view=${view}`, opts);
 
   const g1 = await activate({ principal: 'user:alpha', role: 'management', scope: '*' });
   const mk = await bv(boss, 'POST', '', { slug: 'synth-img', title: '合成图片台' });
@@ -145,12 +160,26 @@ try {
     check(r.notnull === 200 && r.cd === 200 && r.select === 200, 'I2 图片列判空、count_distinct、选出来：200', r);
   }
 
+  // Q9 按引用判：图片要出现在来源视图里才取得到。把测试用到的链接都写进图片列；视图 pics 显示整张表，noimg 不显示图片列
+  {
+    const REFS = ['photos/b.png', 'photos/c.png', 'photos/d.png', 'photos/page.html', 'photos/redirect.png', 'photos/big.png', 'photos/none.png', 'photos/vec.svg', 'photos/drip.png', 'photos/slow.png',
+      'photos/anim.gif', 'photos/fake.png', 'photos/huge.png', 'photos/a.jpg', 'photos/a.webp', 'photos/vp8l.webp', 'photos/huge.webp', 'photos/only2.png',
+      'http://127.0.0.1:1/a.png', 'http://169.254.169.254/latest/meta-data', 'http://10.0.0.1/a.png', 'http://[::1]:1/a.png', 'http://192.0.2.1/a.png',
+      `${GBASE}photos/a.png`, `${GBASE}..%2fsecret`, `${GBASE}photos/..%2F..%2Fsecret`];
+    // only2.png 只给第二个台用：本台不写它
+    const up = await srv.call('POST', '/api/bench-views/synth-img/datasets/pics/rows?op=upsert', { ...boss, raw: JSON.stringify(REFS.filter((x) => x !== 'photos/only2.png').map((pic, i) => ({ id: 100 + i, pic, name: `图${i}` }))) });
+    const vw = await bv(boss, 'PUT', '/synth-img/view', { doc: { title: '合成图片台', views: [
+      { key: 'pics', title: '图片', blocks: [{ type: 'table', query: { dataset: 'pics', sort: [{ col: 'id' }] } }] },
+      { key: 'noimg', title: '不显示图片', blocks: [{ type: 'table', query: { dataset: 'pics', select: ['id', 'name'], sort: [{ col: 'id' }] } }] }] }, base: 0, note: '合成' });
+    check(up.status === 200 && vw.status === 200, '（准备）用到的链接写进图片列；视图 pics 显示图片列、noimg 不显示', { up: [up.status, up.text.slice(0, 160)], vw: [vw.status, vw.text.slice(0, 200)] });
+  }
+
   console.log('I3 代取判权');
   {
     const before = hitsOf('/photos/a.png');
-    const anon = await srv.call('GET', '/api/bench-views/synth-img/image?u=photos%2Fa.png', { headers: REMOTE });
-    const tok = await srv.call('GET', '/api/bench-views/synth-img/image?u=photos%2Fa.png', { headers: { ...REMOTE, 'x-admin-token': ADMIN } });
-    const cross = await srv.call('GET', '/api/bench-views/synth-img/image?u=photos%2Fa.png', { headers: { ...REMOTE, 'sec-fetch-site': 'cross-site' }, session: P.boss });
+    const anon = await srv.call('GET', '/api/bench-views/synth-img/image?u=photos%2Fa.png&view=pics', { headers: REMOTE });
+    const tok = await srv.call('GET', '/api/bench-views/synth-img/image?u=photos%2Fa.png&view=pics', { headers: { ...REMOTE, 'x-admin-token': ADMIN } });
+    const cross = await srv.call('GET', '/api/bench-views/synth-img/image?u=photos%2Fa.png&view=pics', { headers: { ...REMOTE, 'sec-fetch-site': 'cross-site' }, session: P.boss });
     const mem = await img(member, 'photos/a.png');
     const after = hitsOf('/photos/a.png');
     check(anon.status === 401 && tok.status === 403 && cross.status === 403 && mem.status === 403 && after === before,
@@ -166,7 +195,9 @@ try {
     const viaRender = await img(member, 'photos/a.png');
     await revokeAll('img-render-only');
     const gb = await activate({ principal: 'user:beta', role: 'img-report-only', scope: '*' });
-    const viaReport = await img(member, 'photos/a.png');
+    const hd = hitsOf('/photos/d.png');
+    const viaReport = await img(member, 'photos/d.png');
+    const reportHits = hitsOf('/photos/d.png') - hd;
     const renderNow = await bv(member, 'GET', '/synth-img/render');
     await revokeAll('img-report-only');
     const gone = await img(member, 'photos/a.png');
@@ -178,8 +209,8 @@ try {
     const viaRespond = await img(member, 'photos/b.png');
     await revokeAll('img-respond-only');
     check(gc && viaRespond.status === 403 && hitsOf('/photos/b.png') === h0, 'I3 只有 report-respond 的人：403，图库收到的请求数为 0', { gc, viaRespond: viaRespond.status, hits: [h0, hitsOf('/photos/b.png')] });
-    check(ga && gb && viaRender.status === 200 && viaReport.status === 200 && renderNow.status === 403 && gone.status === 403,
-      'I3 只有 render 的人、只有 report-read 的人（看不了台）都取得到图；收回后 403', { ga, gb, viaRender: viaRender.status, viaReport: viaReport.status, renderNow: renderNow.status, gone: gone.status });
+    check(ga && gb && viaRender.status === 200 && viaReport.status === 403 && reportHits === 0 && renderNow.status === 403 && gone.status === 403,
+      'I3 只有 render 的人取得到图；只有 report-read 的人读不了来源视图：403，图库没收到（报告作来源随 PR C）；收回后 403', { reportHits, ga, gb, viaRender: viaRender.status, viaReport: viaReport.status, renderNow: renderNow.status, gone: gone.status });
   }
 
   console.log('I4 代取结果');
@@ -194,6 +225,16 @@ try {
     const missing = await img(boss, 'photos/none.png');
     check(html.status === 415 && !html.text.includes('<script>') && redirect.status === 502 && big.status === 502 && missing.status === 502,
       'I4 text/html 415 且不转出内容；302 不跟 502；超过 5 MB 502；图库 404 502', { html: html.status, redirect: redirect.status, big: big.status, missing: missing.status });
+    const fmt = { jpg: await img(boss, 'photos/a.jpg'), webp: await img(boss, 'photos/a.webp'), vp8l: await img(boss, 'photos/vp8l.webp') };
+    check(fmt.jpg.status === 200 && fmt.jpg.buf.equals(JPG) && fmt.webp.status === 200 && fmt.vp8l.status === 200, 'I4 JPEG、WebP（VP8X、VP8L）：200', { jpg: fmt.jpg.status, webp: fmt.webp.status, vp8l: fmt.vp8l.status });
+    const gif = await img(boss, 'photos/anim.gif');
+    const fake = await img(boss, 'photos/fake.png');
+    check(gif.status === 415 && gif.json?.error === 'image_type_unsupported' && fake.status === 415 && fake.json?.error === 'image_unreadable' && !fake.text.includes('<script>'),
+      'I4 GIF 415（Q4 不收）；头写 image/png、内容不是 PNG：415 image_unreadable，不转出内容', { gif: [gif.status, gif.json?.error], fake: [fake.status, fake.json?.error] });
+    const hugeP = await img(boss, 'photos/huge.png');
+    const hugeW = await img(boss, 'photos/huge.webp');
+    check(hugeP.status === 502 && hugeP.json?.error === 'image_too_many_pixels' && hugeW.status === 502 && hugeW.json?.error === 'image_too_many_pixels',
+      'I4 超过 4000 万像素（PNG 8000×8000、WebP 10000×5000）：502 image_too_many_pixels（Q2）', { hugeP: [hugeP.status, hugeP.json?.error], hugeW: [hugeW.status, hugeW.json?.error] });
     const svg = await img(boss, 'photos/vec.svg');
     check(svg.status === 415 && !svg.text.includes('<svg'), 'I4 image/svg+xml：415，不转出内容', { svg: svg.status });
     const d0 = Date.now();
@@ -233,7 +274,7 @@ try {
   console.log('I6 不转发读者的请求头');
   {
     const n = hits.length;
-    await srv.call('GET', '/api/bench-views/synth-img/image?u=photos%2Fc.png', { headers: { ...REMOTE, ...same, authorization: 'Bearer synthetic', referer: 'http://example.test/x' }, session: P.boss });
+    await srv.call('GET', '/api/bench-views/synth-img/image?u=photos%2Fc.png&view=pics', { headers: { ...REMOTE, ...same, authorization: 'Bearer synthetic', referer: 'http://example.test/x' }, session: P.boss });
     const h = hits.slice(n).find((x) => x.path === '/photos/c.png')?.headers ?? {};
     check(hits.length === n + 1 && !h.cookie && !h.authorization && !h.referer && !h['x-forwarded-for'], 'I6 图库收到的请求里没有 Cookie、Authorization、Referer、X-Forwarded-For', { got: Object.keys(h) });
   }
@@ -246,6 +287,37 @@ try {
     check(again.status === 200 && hitsOf('/photos/c.png') === before && mem.status === 403, 'I7 第二次取同一张图不再请求图库；缓存命中时没权限的人仍 403', { again: again.status, hits: [before, hitsOf('/photos/c.png')], mem: mem.status });
   }
 
+  console.log('I10 Q9 按引用判');
+  {
+    const mk2 = await bv(boss, 'POST', '', { slug: 'synth-img2', title: '合成图片台二' });
+    const ds2 = await bv(boss, 'PUT', '/synth-img2/datasets/pics2', { key: ['id'], columns: [{ name: 'id', type: 'integer', label: '编号' }, { name: 'pic', type: 'image', label: '图片' }] });
+    const rw2 = await srv.call('POST', '/api/bench-views/synth-img2/datasets/pics2/rows?op=replace', { ...boss, raw: JSON.stringify([{ id: 1, pic: 'photos/only2.png' }]) });
+    const vw2 = await bv(boss, 'PUT', '/synth-img2/view', { doc: { title: '合成图片台二', views: [{ key: 'other', title: '二', blocks: [{ type: 'table', query: { dataset: 'pics2', sort: [{ col: 'id' }] } }] }] }, base: 0, note: '合成' });
+    const h0 = hitsOf('/photos/only2.png'), z0 = hitsOf('/photos/zzz.png');
+    const r = {
+      otherBenchLink: (await img(boss, 'photos/only2.png')).status, // 链接只在别的台的视图里
+      otherBenchView: (await img(boss, 'photos/only2.png', 'synth-img', 'other')).status, // 视图名只在别的台
+      notReferenced: (await img(boss, 'photos/zzz.png')).status,
+      noView: (await img(boss, 'photos/c.png', 'synth-img', 'nope')).status,
+      hiddenCol: (await img(boss, 'photos/c.png', 'synth-img', 'noimg')).status,
+      badVersion: (await srv.call('GET', '/api/bench-views/synth-img/image?u=photos%2Fc.png&view=pics&version=99', boss)).status,
+    };
+    const h1 = hitsOf('/photos/only2.png');
+    check(Object.values(r).every((x) => x === 403) && h1 === h0 && hitsOf('/photos/zzz.png') === z0,
+      'I10 来源不属于路径里的台、视图里没有这条链接、视图不存在、视图不显示图片列、版本不存在：都 403，图库收到的请求数为 0', { ...r, hits: [h0, h1] });
+    const pos = await img(boss, 'photos/only2.png', 'synth-img2', 'other');
+    check(mk2.status === 201 && ds2.status === 200 && rw2.status === 200 && vw2.status === 200 && pos.status === 200, 'I10 对照：同一条链接从它真正所在的台和视图取：200', { mk2: mk2.status, ds2: ds2.status, rw2: rw2.status, vw2: [vw2.status, vw2.text.slice(0, 120)], pos: pos.status });
+    // 缓存命中照判：photos/c.png 已在缓存里
+    const hc = hitsOf('/photos/c.png');
+    const cached = { hidden: (await img(boss, 'photos/c.png', 'synth-img', 'noimg')).status };
+    const gb = await activate({ principal: 'user:beta', role: 'img-report-only', scope: '*' });
+    cached.reportOnly = (await img(member, 'photos/c.png')).status;
+    await revokeAll('img-report-only');
+    cached.ok = (await img(boss, 'photos/c.png')).status;
+    check(gb && cached.hidden === 403 && cached.reportOnly === 403 && cached.ok === 200 && hitsOf('/photos/c.png') === hc,
+      'I10 缓存命中时照判：视图不显示 403、读不了视图 403；有权且引用的照取（命中缓存，图库没收到新请求）', cached);
+  }
+
   await srv.stop();
   console.log('I8 对外断开');
   {
@@ -256,16 +328,20 @@ try {
     await off.call('POST', `/api/grants/${d.json?.grant?.id}/submit`); await off.call('POST', `/api/grants/${d.json?.grant?.id}/approve`);
     const ob = { headers: { ...REMOTE, origin: `http://${off.host}`, 'sec-fetch-site': 'same-origin' }, session: P.boss };
     await off.call('POST', '/api/bench-views', { ...ob, body: { slug: 'synth-off', title: '合成断开台' } });
+    // 按引用判过了才轮到对外断开：台上要有引用这条链接的视图
+    await off.call('PUT', '/api/bench-views/synth-off/datasets/pics', { ...ob, body: { key: ['id'], columns: [{ name: 'id', type: 'integer', label: '编号' }, { name: 'pic', type: 'image', label: '图片' }] } });
+    await off.call('POST', '/api/bench-views/synth-off/datasets/pics/rows?op=replace', { ...ob, raw: JSON.stringify([{ id: 1, pic: 'photos/a.png' }]) });
+    const ov = await off.call('PUT', '/api/bench-views/synth-off/view', { ...ob, body: { doc: { title: '合成断开台', views: [{ key: 'pics', title: '图片', blocks: [{ type: 'table', query: { dataset: 'pics', sort: [{ col: 'id' }] } }] }] }, base: 0, note: '合成' } });
     const before = hits.length;
-    const r = await off.call('GET', '/api/bench-views/synth-off/image?u=photos%2Fa.png', ob);
-    check(r.status === 503 && hits.length === before, 'I8 WM_OUTBOUND=off：503，图库没收到请求', { r: [r.status, r.text.slice(0, 120)], hits: [before, hits.length] });
+    const r = await off.call('GET', '/api/bench-views/synth-off/image?u=photos%2Fa.png&view=pics', ob);
+    check(ov.status === 200 && r.status === 503 && hits.length === before, 'I8 WM_OUTBOUND=off：503，图库没收到请求', { ov: ov.status, r: [r.status, r.text.slice(0, 120)], hits: [before, hits.length] });
     odb.close();
   }
 
   console.log('I9 钉址与混合解析');
   {
     // 本进程里直接调 fetchImage：判时的解析（dns/promises）和连接时的解析都换成桩；连接层只放行回环，别的地址一律在连之前拦下，不发出任何外网连接
-    const { fetchImage, clearImageCache } = await import(pathToFileURL(join(ROOT, 'server', 'src', 'bench-image.ts')).href);
+    const { fetchImage, clearImageCache, pinnedLookup } = await import(pathToFileURL(join(ROOT, 'server', 'src', 'bench-image.ts')).href);
     let inner = 0;
     const internal = createHttpServer((_req, res) => { inner++; res.writeHead(200, { 'content-type': 'image/png', 'content-length': PNG.length }); res.end(PNG); });
     await new Promise((r) => internal.listen(0, '127.0.0.1', r));
@@ -276,7 +352,11 @@ try {
     const answer = (addr, opt, cb) => (opt && typeof opt === 'object' && opt.all ? cb(null, [{ address: addr, family: net.isIP(addr) }]) : cb(null, addr, net.isIP(addr)));
     const realP = dns.promises.lookup, realConnect = net.Socket.prototype.connect;
     const outside = [];
-    dns.promises.lookup = async (h, o) => (judge.has(h) ? (o && o.all ? judge.get(h) : judge.get(h)[0]) : realP.call(dns.promises, h, o));
+    dns.promises.lookup = async (h, o) => {
+      // 慢解析：12 秒后才给一个公网地址（解析也算在 10 秒里）
+      if (h === 'slowdns.image-test') { await new Promise((r) => setTimeout(r, 12_000)); return o && o.all ? [{ address: PUB, family: 4 }] : { address: PUB, family: 4 }; }
+      return judge.has(h) ? (o && o.all ? judge.get(h) : judge.get(h)[0]) : realP.call(dns.promises, h, o);
+    };
     syncBuiltinESMExports();
     net.Socket.prototype.connect = function (...args) {
       const o = Array.isArray(args[0]) ? args[0][0] : (args[0] && typeof args[0] === 'object' ? args[0] : null);
@@ -301,6 +381,17 @@ try {
       check(rebind !== 200 && afterRebind === 0 && outside.some((x) => x.startsWith('rebind.image-test->' + PUB)),
         'I9 DNS 重绑定（判时公网、连时回环）：连的是判过的公网地址（被测试拦下），回环上的内网服务 0 次被访问', { rebind, inner: afterRebind, outside });
       check(mixed === 400 && mixed2 === 400 && inner === 0, 'I9 解析结果公网与回环混合（两种顺序）：400，内网服务 0 次被访问', { mixed, mixed2, inner });
+      const s0 = Date.now();
+      const slow = await run('slowdns.image-test');
+      const slowTook = Date.now() - s0;
+      check(slow === 504 && slowTook < 11_500, 'I9 解析 12 秒才回：504，不超过 10 秒多一点（解析算进 10 秒）', { slow, took: slowTook });
+      const pl = pinnedLookup({ address: PUB, family: 4 });
+      const got = {};
+      pl('x.image-test', { all: true }, (e, a) => { got.all = a; });
+      pl('x.image-test', {}, (e, a, f) => { got.one = [a, f]; });
+      pl('x.image-test', 4, (e, a, f) => { got.num = [a, f]; });
+      check(JSON.stringify(got.all) === JSON.stringify([{ address: PUB, family: 4 }]) && got.one?.[0] === PUB && got.one?.[1] === 4 && got.num?.[0] === PUB,
+        'I9 钉址的 lookup：要整组地址时只给判过的那一个；要单个时也是它', got);
     } finally {
       dns.promises.lookup = realP; syncBuiltinESMExports(); net.Socket.prototype.connect = realConnect; internal.close();
     }
