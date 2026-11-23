@@ -353,6 +353,8 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/explicit-script-targets-test.mjs
+      - name: 变异运行器自测（评审用的 scripts/mutation-run.mjs：锚点恰好命中、逐条还原并核工作树、进程组停止；夹具只在 tmp/）
+        run: node scripts/mutation-run-test.mjs
       - name: tsc (web)
         run: pnpm --filter web typecheck
       - name: server 语法核（esbuild）
