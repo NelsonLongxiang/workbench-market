@@ -2,7 +2,15 @@
 驾驶舱：旧布局（宽 5/7）读时吸附到 4 档、不丢面板、只读页不发布局写、接口数据不变。
 原来的总览（/overview）那一半随页面删了（属主 2026-11-11：旧版页面弃用）。"""
 import json, sys, urllib.request
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+
+# 固定等待改成等条件（#954 批 E）：等不到不在等待处抛错，照常往下，由后面原来的断言带着当时的值报
+def soft(fn):
+    try: fn()
+    except PWTimeout: pass
+def painted(pg3):
+    """等页面再画两帧"""
+    pg3.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
 cfg = json.load(open(sys.argv[1]))
 M = cfg['base']
 ok = fail = 0
@@ -24,10 +32,12 @@ with sync_playwright() as p:
     pg3 = ctx.new_page(); pg3.set_default_timeout(10000)
     pg3.on('request', lambda r: writes.append(f'{r.method} {r.url}') if r.method != 'GET' and '/api/cockpits' in r.url else None)
     pg3.goto(M + f'/cockpit/{cid}'); pg3.wait_for_selector('.wm-ck-benches .wm-panel')
-    pg3.wait_for_timeout(800)
-    n = pg3.locator('.wm-ck-benches .wm-panel').count()
     # 「统一待办」卡随 /tasks 退役：存着的那块面板页面不再画（数据不动），只数工作台面板
     want = len([p for p in before if p.get('kind') != 'tasks'])
+    # 等面板都画出来（数到该有的数）；「只读页挂载不发布局写请求」是证明「没有」：再等网络静下来、画两帧
+    soft(lambda: pg3.wait_for_function("(w) => document.querySelectorAll('.wm-ck-benches .wm-panel').length >= w", arg=want))
+    pg3.wait_for_load_state('networkidle'); painted(pg3)
+    n = pg3.locator('.wm-ck-benches .wm-panel').count()
     check(f'旧布局升级后不丢工作台面板（{n}/{want}）；统一待办卡不再画', n == want and want >= 1)
     # 内嵌的工作台按栏宽单列排：一个台占满栏宽，不能拖、不能拉伸
     ws = pg3.evaluate("""(()=>{const g=document.querySelector('.wm-ck-benches');const gw=g.getBoundingClientRect().width;
