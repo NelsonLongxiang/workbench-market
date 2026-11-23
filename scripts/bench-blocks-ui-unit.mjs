@@ -180,7 +180,7 @@ console.log('图片列（docs/image-step1.md 用例 9）');
   const fsm = await import('node:fs');
   const read = (p) => fsm.readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   const img = read('../web/src/bench-blocks/BenchImage.tsx');
-  ok('缩略图组件：地址只经 imageSrc 拼（不直接用链接当 src）、懒加载、取不到有占位、可点开看原图；没有内联样式和写死的颜色', /imageSrc\(value,/.test(img) && /src=\{src\}/.test(img) && !/src=\{value/.test(img) && /loading="lazy"/.test(img) && /onError=/.test(img) && /图片取不到/.test(img) && /preview=/.test(img) && !/style=\{\{/.test(img) && !/#[0-9A-Fa-f]{3,6}\b|rgba?\(/.test(img));
+  ok('缩略图组件：地址只经 imageSrc 拼（不直接用链接当 src）、懒加载、取不到有占位、可点开看原图；没有内联样式和写死的颜色', /imageSrc\(value,/.test(img) && /<Image\s+src=\{src\}/.test(img) && !/src=\{[^}]*value/.test(img) && /loading="lazy"/.test(img) && /onError=/.test(img) && /图片取不到/.test(img) && /preview=/.test(img) && !/style=\{\{/.test(img) && !/#[0-9A-Fa-f]{3,6}\b|rgba?\(/.test(img));
   const css = fsm.readFileSync(new URL('../web/src/index.css', import.meta.url), 'utf8');
   const imgCss = css.split('\n').filter((l) => /\.wm-img|\.wm-rec-image/.test(l)).join('\n');
   ok('缩略图尺寸：表格 48px 见方、记录卡 160px 高，object-fit: cover；颜色只用 token', /\.wm-img-cell \{ width: 48px; height: 48px; \}/.test(imgCss) && /\.wm-img-card \{[^}]*height: 160px/.test(imgCss) && /object-fit: cover/.test(imgCss) && !/#[0-9A-Fa-f]{3,6}\b|rgba?\(/.test(imgCss), imgCss);
