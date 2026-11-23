@@ -167,7 +167,8 @@ try {
       'http://127.0.0.1:1/a.png', 'http://169.254.169.254/latest/meta-data', 'http://10.0.0.1/a.png', 'http://[::1]:1/a.png', 'http://192.0.2.1/a.png',
       `${GBASE}photos/a.png`, `${GBASE}..%2fsecret`, `${GBASE}photos/..%2F..%2Fsecret`];
     // only2.png 只给第二个台用：本台不写它
-    const up = await srv.call('POST', '/api/bench-views/synth-img/datasets/pics/rows?op=upsert', { ...boss, raw: JSON.stringify(REFS.filter((x) => x !== 'photos/only2.png').map((pic, i) => ({ id: 100 + i, pic, name: `图${i}` }))) });
+    const up = await srv.call('POST', '/api/bench-views/synth-img/datasets/pics/rows?op=upsert', { ...boss, raw: JSON.stringify([...REFS.filter((x) => x !== 'photos/only2.png').map((pic, i) => ({ id: 100 + i, pic, name: `图${i}` })), { id: 300, pic: null, name: 'photos/textonly.png' }]) });
+    // 第 300 行：链接只出现在文本列（name）里，不在图片列——不算引用
     const vw = await bv(boss, 'PUT', '/synth-img/view', { doc: { title: '合成图片台', views: [
       { key: 'pics', title: '图片', blocks: [{ type: 'table', query: { dataset: 'pics', sort: [{ col: 'id' }] } }] },
       { key: 'noimg', title: '不显示图片', blocks: [{ type: 'table', query: { dataset: 'pics', select: ['id', 'name'], sort: [{ col: 'id' }] } }] }] }, base: 0, note: '合成' });
@@ -298,13 +299,14 @@ try {
       otherBenchLink: (await img(boss, 'photos/only2.png')).status, // 链接只在别的台的视图里
       otherBenchView: (await img(boss, 'photos/only2.png', 'synth-img', 'other')).status, // 视图名只在别的台
       notReferenced: (await img(boss, 'photos/zzz.png')).status,
+      textColumnOnly: (await img(boss, 'photos/textonly.png')).status, // 只在文本列里出现
       noView: (await img(boss, 'photos/c.png', 'synth-img', 'nope')).status,
       hiddenCol: (await img(boss, 'photos/c.png', 'synth-img', 'noimg')).status,
       badVersion: (await srv.call('GET', '/api/bench-views/synth-img/image?u=photos%2Fc.png&view=pics&version=99', boss)).status,
     };
     const h1 = hitsOf('/photos/only2.png');
-    check(Object.values(r).every((x) => x === 403) && h1 === h0 && hitsOf('/photos/zzz.png') === z0,
-      'I10 来源不属于路径里的台、视图里没有这条链接、视图不存在、视图不显示图片列、版本不存在：都 403，图库收到的请求数为 0', { ...r, hits: [h0, h1] });
+    check(Object.values(r).every((x) => x === 403) && h1 === h0 && hitsOf('/photos/zzz.png') === z0 && hitsOf('/photos/textonly.png') === 0,
+      'I10 来源不属于路径里的台、视图里没有这条链接、链接只在文本列、视图不存在、视图不显示图片列、版本不存在：都 403，图库收到的请求数为 0', { ...r, hits: [h0, h1] });
     const pos = await img(boss, 'photos/only2.png', 'synth-img2', 'other');
     check(mk2.status === 201 && ds2.status === 200 && rw2.status === 200 && vw2.status === 200 && pos.status === 200, 'I10 对照：同一条链接从它真正所在的台和视图取：200', { mk2: mk2.status, ds2: ds2.status, rw2: rw2.status, vw2: [vw2.status, vw2.text.slice(0, 120)], pos: pos.status });
     // 缓存命中照判：photos/c.png 已在缓存里
