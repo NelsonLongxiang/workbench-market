@@ -34,7 +34,7 @@
 | 报告冻结契约 | 报告第 1 步用例 9：「已冻结的报告逐字不变」 | docs/report-step1.md:189 |
 | 运行时依赖 | 没登记的运行时依赖是红线 | CONTRIBUTING.md:61、:74 |
 | 对外断开 | WM_OUTBOUND=off（预发副本用）时进程一个字节都不往外发，连 DNS 都不解析；定时往外发的要先问 outboundOff() | server/src/outbound-gate.ts:1-20、:44 |
-| 地址分类（已有） | 业务 URL 登记准入已有一套 IPv4/IPv6 地址分类：H4 硬拒含 0/8、100.64/10、169.254/16、文档与基准网段、224/4、240/4；P4 私网含 10/8、172.16/12、192.168/16、127/8；IPv6 只认 2000::/3（减 H6）为公网，其余全拒，::ffff:0:0/96 映射地址按内含的 IPv4 判。**它判的是登记时写的字面地址，不是取数时解析出的地址** | server/src/url-admission.ts:50-55、:93-103 |
+| 地址分类（已有） | 业务 URL 登记准入已有一套 IPv4/IPv6 地址分类：H4 硬拒含 0/8、100.64/10、169.254/16、文档与基准网段、224/4、240/4；P4 私网含 10/8、172.16/12、192.168/16、127/8；IPv6 只认 2000::/3（减 H6）为公网，其余全拒，::ffff:0:0/96 映射地址按内含的 IPv4 判。**它判的是登记时写的字面地址，不是取数时解析出的地址** | server/src/url-admission.ts:48-57、:93-104 |
 | 公网登记白名单（先例） | 公网 URL 登记只认部署配置 WM_REGISTER_URL_ALLOWLIST 的精确 key | server/src/url-admission.ts:4 |
 | 现有外发的跳转与解析 | 现有外发 fetch 都用 redirect: 'manual' 或 'error'（不跟随跳转）；**没有任何一处把连接钉到已核的解析地址**（没有自定义 lookup） | server/src/a2a/peer-card.ts:20、server/src/github-source.ts:48、server/src/health.ts:37 等；全仓检索无 lookup 钉址 |
 
