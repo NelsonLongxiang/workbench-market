@@ -32,6 +32,7 @@
     "POST /api/bench-views/:bench/reports",
     "GET /api/bench-views/:bench/reports",
     "GET /api/bench-views/:bench/reports/:id",
+    "GET /api/report-subjects/:subject",
     "POST /api/bench-views/:bench/reports/:id/responses",
     "PUT /api/bench-views/:bench/title"
   ],
@@ -4187,6 +4188,58 @@
                 { "id": 1, "dimension_id": "monthly", "template_version": 1, "binding_version": 1, "subject": "card:demo@replay", "content_sha256": "20e10360ab3d6d298467cbe0dc3ccef505ef7cbe5f7a1c53eca5222d59748ba4", "producer": "user:alpha", "producer_kind": "human", "supersedes": null, "superseded_by": null, "created_at": 1893456000000 }
               ],
               "names": { "dimensions": { "monthly": "回放月报" }, "actors": { "user:alpha": "Synthetic alpha" } }
+            }
+          }
+        },
+        {
+          "id": "subj-anon",
+          "route": "GET /api/report-subjects/:subject",
+          "class": "unauthorized",
+          "what": "跨台的同一事物（报告第 1 步 F）：没登录 401",
+          "request": { "method": "GET", "path": "/api/report-subjects/card%3Ademo%40replay", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "subj-bad",
+          "route": "GET /api/report-subjects/:subject",
+          "class": "invalid",
+          "what": "事物写法不对：400",
+          "request": { "method": "GET", "path": "/api/report-subjects/bad", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "86", "etag": "W/\"56-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "subject 要写成「种类:标识」，比如 item:123" }
+          }
+        },
+        {
+          "id": "subj",
+          "route": "GET /api/report-subjects/:subject",
+          "class": "normal",
+          "what": "管理层：同一件事物在各台上的报告",
+          "vary": { "benches.0.reports.0.created_at": 60000 },
+          "request": { "method": "GET", "path": "/api/report-subjects/card%3Ademo%40replay", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "504", "etag": "W/\"1f8-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "subject": "card:demo@replay",
+              "total": 1,
+              "benches": [
+                {
+                  "bench": { "slug": "demo", "title": "示例台" },
+                  "reports": [
+                    { "id": 1, "dimension_id": "monthly", "template_version": 1, "binding_version": 1, "subject": "card:demo@replay", "content_sha256": "20e10360ab3d6d298467cbe0dc3ccef505ef7cbe5f7a1c53eca5222d59748ba4", "producer": "user:alpha", "producer_kind": "human", "supersedes": null, "superseded_by": null, "created_at": 1893456000000 }
+                  ],
+                  "names": { "dimensions": { "monthly": "回放月报" }, "actors": { "user:alpha": "Synthetic alpha" } }
+                }
+              ]
             }
           }
         },

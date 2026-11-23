@@ -163,7 +163,7 @@
 | `report.dimension-set` | decide | `POST /api/report-dimensions`（建）、`POST …/:id/templates`（发一版）、`POST …/:id/templates/:version/review`（复核）、`POST …/:id/activate`（移生效指针）、`POST …/:id/retire` | **硬规则，不走角色覆盖**（和 `area.spec-set` 同一种机制）：领域维度认属主、本机命令行和持本领域 `area-report` 授予的人；跨领域维度只认属主和本机命令行 |
 | `bench-store.report-bind` | write | `PUT /api/bench-views/:bench/reports/:dimension/binding` | 和 `bench-store.view-put` 同一档：管理层；台所在领域有写授予的人 |
 | `bench-store.report-generate` | write | `POST /api/bench-views/:bench/reports` | 同上 |
-| `bench-store.report-read` | read | `GET /api/bench-views/:bench/reports`、`…/reports/:id`、`…/reports/:dimension/binding`；`GET /api/report-subjects/:subject`（同一事物下各维度，按读者能读的台裁剪）还没做 | 和 `bench-store.render` 同一档 |
+| `bench-store.report-read` | read | `GET /api/bench-views/:bench/reports`、`…/reports/:id`、`…/reports/:dimension/binding`；`GET /api/report-subjects/:subject`（同一事物在各台上的报告，按读者能读的台裁剪；第七节 F） | 和 `bench-store.render` 同一档 |
 | `bench-store.report-respond` | write | `POST /api/bench-views/:bench/reports/:id/responses` | 能读这份报告的人。评审定：是否把 `bench-store.report-respond` 加进已含 `bench-store.render` 的预设，还是单独授予 |
 
 ### 2. 角色
@@ -193,7 +193,7 @@
 13. 回应者改主意：只能接自己的链头；接别人的、接已被接过的：409。
 14. 没有读权限的人回应：和读不到一样（404），不泄露报告是否存在。实现：能回应、读不了这个台上报告的人，回应存在和不存在的报告应答一字不差；MCP 会话回应要在这个台上同时有 `report_respond` 和 `report_get` 的授予（#932 独立验收）。
 15. 「未处理的反驳」：只有 AI 的 `dispute` 不算；人的最新一条是 `agree` 不算；报告被更正之后旧报告上的不算。实现：一个人对一条论断（或整份报告）只有一条链，已经回应过的不带 `supersedes` 再发 409，所以「最新一条」就是链头；对整份报告的反驳也算一处（#932 独立验收）。
-16. 同一事物的列表按读者能读的台裁剪：读不到的台上的报告不出现，数目也不出现。（跨台的列表接口还没做，见第七节 F；D 的报告页只列一个台里的报告，靠这个台的读权限挡住。）
+16. 同一事物的列表按读者能读的台裁剪：读不到的台上的报告不出现，数目也不出现。（跨台的列表接口见第七节 F：`GET /api/report-subjects/:subject` 对每个台照单台清单同一个判法，读不了的台连台库都不打开；一个台都读不了回 200、空清单。D 的报告页只列一个台里的报告，靠这个台的读权限挡住。）
 17. 删卡片：台库里有报告时走删卡片那道门，409 的规模里有报告份数、没有正文。
 
 ## 六、待定
