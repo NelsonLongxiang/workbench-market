@@ -33,7 +33,7 @@
 
 ## 四、代取路由
 
-`GET /api/bench-views/:bench/image?u=…`，动作 `bench-store.image-get`（新动作，读档）。
+`GET /api/bench-views/:bench/image?u=…`。**不新增动作**：路由声明为 `bench-store.render`（读档），处理里照报告跨台列表的写法自己判（见第 1 条），这样动作清单、预设、角色矩阵都不用改。
 
 1. **判权**：照单台路由的 `allowActor` 认人（跨站 403、管理口令 403、匿名 401），然后 `may(actor, 'bench-store.render', 台) || may(actor, 'bench-store.report-read', 台)` 任一为真就放行，都不是回 403。**先判权，再去取图**：没权限的请求不发起任何外部请求。
 2. **还原地址**：`u` 是相对路径就拼 `WM_IMAGE_GALLERY_BASE`；是完整链接就照用；都不是回 400。
@@ -50,7 +50,6 @@
 | `server/src/bench-query.ts`（`COLUMN_TYPES`、`coerceValue`、`decodeValue`） | 加 `image`；按第三节核写法 |
 | `server/src/bench-views.ts`（视图契约） | `image` 列可以在 `table`、`records` 里显示；拿来筛选、排序、聚合报错 |
 | `server/src/routes/bench-views.ts` | 第四节的代取路由 |
-| `server/src/judgment-builtins.ts` | 新动作 `bench-store.image-get`（读档，跟 `bench-store.render` 同一组预设） |
 | `server/src/services/report-compile.ts` | 模板第 2 版收 `image` 节点：`{ type: 'image', src: Ref, alt: 文本 }`，`src` 引用参数、字段或数据行的 `image` 列；冻结时把解析出的链接写进报告正文 |
 | `web/src/bench-blocks/NativeTable.tsx`、`Records.tsx` | `image` 列显示缩略图（表格 48px 高，记录卡 160px 高，`object-fit: cover`，`loading="lazy"`），点开在弹层里看原图；取不到显示「图片取不到」占位；样式用 `--wm-*` token，不写内联样式 |
 | 报告页 | `image` 节点按冻结的链接走代取路由显示 |
