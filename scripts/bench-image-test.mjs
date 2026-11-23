@@ -12,10 +12,13 @@
  *   I6 不转发读者的请求头：图库收到的请求里没有 Cookie、Authorization、Referer、X-Forwarded-For
  *   I7 缓存：同一张图第二次不再请求图库；缓存命中时没权限的人仍是 403
  *   I8 对外断开（WM_OUTBOUND=off）：503
+ *   I9 钉址与混合解析（本进程直接调 fetchImage，桩 DNS，连接层只放行回环）：DNS 重绑定不访问回环服务；公网与回环混合解析 400
  *
  *   node scripts/bench-image-test.mjs
  */
-import { createServer as createNetServer } from 'node:net';
+import net, { createServer as createNetServer } from 'node:net';
+import dns from 'node:dns';
+import { syncBuiltinESMExports } from 'node:module';
 import { createServer as createHttpServer } from 'node:http';
 import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -46,6 +49,9 @@ const gallery = createHttpServer((req, res) => {
   if (u === '/photos/page.html') { res.writeHead(200, { 'content-type': 'text/html' }); return void res.end('<script>alert(1)</script>'); }
   if (u === '/photos/redirect.png') { res.writeHead(302, { location: 'http://169.254.169.254/' }); return void res.end(); }
   if (u === '/photos/big.png') { res.writeHead(200, { 'content-type': 'image/png' }); return void res.end(Buffer.alloc(6 * 1024 * 1024)); }
+  if (u === '/photos/vec.svg') { res.writeHead(200, { 'content-type': 'image/svg+xml' }); return void res.end('<svg xmlns="http://www.w3.org/2000/svg"/>'); }
+  // 每 0.5 秒滴 1 字节，共 15 秒：连接一直有动静，只有整体 10 秒截止挡得住
+  if (u === '/photos/drip.png') { res.writeHead(200, { 'content-type': 'image/png' }); let n = 0; const t = setInterval(() => { if (res.destroyed || n++ >= 30) { clearInterval(t); if (!res.destroyed) res.end(); return; } res.write(Buffer.from([0])); }, 500); res.on('close', () => clearInterval(t)); return; }
   if (u === '/photos/slow.png') { const t = setTimeout(() => { if (!res.destroyed) { res.writeHead(200, { 'content-type': 'image/png' }); res.end(PNG); } }, 12_000); res.on('close', () => clearTimeout(t)); return; }
   res.writeHead(404); res.end();
 });
@@ -164,6 +170,14 @@ try {
     const renderNow = await bv(member, 'GET', '/synth-img/render');
     await revokeAll('img-report-only');
     const gone = await img(member, 'photos/a.png');
+    await cli('POST', '/api/roles/guest/copy', { id: 'img-respond-only', name: '合成·只回应报告' });
+    await cli('PUT', '/api/roles/img-respond-only', { permissions: [{ actions: ['bench-store.report-respond'] }] });
+    await cli('POST', '/api/roles/img-respond-only/approve');
+    const gc = await activate({ principal: 'user:beta', role: 'img-respond-only', scope: '*' });
+    const h0 = hitsOf('/photos/b.png');
+    const viaRespond = await img(member, 'photos/b.png');
+    await revokeAll('img-respond-only');
+    check(gc && viaRespond.status === 403 && hitsOf('/photos/b.png') === h0, 'I3 只有 report-respond 的人：403，图库收到的请求数为 0', { gc, viaRespond: viaRespond.status, hits: [h0, hitsOf('/photos/b.png')] });
     check(ga && gb && viaRender.status === 200 && viaReport.status === 200 && renderNow.status === 403 && gone.status === 403,
       'I3 只有 render 的人、只有 report-read 的人（看不了台）都取得到图；收回后 403', { ga, gb, viaRender: viaRender.status, viaReport: viaReport.status, renderNow: renderNow.status, gone: gone.status });
   }
@@ -180,6 +194,12 @@ try {
     const missing = await img(boss, 'photos/none.png');
     check(html.status === 415 && !html.text.includes('<script>') && redirect.status === 502 && big.status === 502 && missing.status === 502,
       'I4 text/html 415 且不转出内容；302 不跟 502；超过 5 MB 502；图库 404 502', { html: html.status, redirect: redirect.status, big: big.status, missing: missing.status });
+    const svg = await img(boss, 'photos/vec.svg');
+    check(svg.status === 415 && !svg.text.includes('<svg'), 'I4 image/svg+xml：415，不转出内容', { svg: svg.status });
+    const d0 = Date.now();
+    const drip = await img(boss, 'photos/drip.png');
+    const dripTook = Date.now() - d0;
+    check(drip.status === 504 && dripTook < 12_000, 'I4 图库一直滴字节、总时长超 10 秒：504（整体截止，不只是空闲超时）', { drip: drip.status, took: dripTook });
     const t0 = Date.now();
     const slow = await img(boss, 'photos/slow.png');
     const took = Date.now() - t0;
@@ -205,6 +225,9 @@ try {
     check(unit.inPrefix && !unit.outPrefix && !unit.unset && !unit.pub4 && !unit.pub6 && unit.ula && unit.mapped && unit.bench && unit.multi,
       'I5 例外只认图库前缀（同主机前缀外不算）；公网 IPv4、IPv6 放行，ULA、映射私网、基准网段、组播都拒', unit);
     check(r.gallery === 200, 'I5 完整链接指向图库那台主机：照取', r);
+    // %2e%2e 这种写法 URL 解析时就规范化掉了（拐不出前缀就仍在前缀下，拐出了就不再算图库、按内网地址拒）；这里只核解析不掉的 %2f
+    const esc = { a: (await img(boss, `${GBASE}..%2fsecret`)).status, b: (await img(boss, `${GBASE}photos/..%2F..%2Fsecret`)).status };
+    check(esc.a === 400 && esc.b === 400 && hits.every((h) => !String(h.path).toLowerCase().includes('secret')), 'I5 图库前缀下的完整链接也不许 ..、%2f 拐出前缀：400，图库没收到', esc);
   }
 
   console.log('I6 不转发读者的请求头');
@@ -237,6 +260,50 @@ try {
     const r = await off.call('GET', '/api/bench-views/synth-off/image?u=photos%2Fa.png', ob);
     check(r.status === 503 && hits.length === before, 'I8 WM_OUTBOUND=off：503，图库没收到请求', { r: [r.status, r.text.slice(0, 120)], hits: [before, hits.length] });
     odb.close();
+  }
+
+  console.log('I9 钉址与混合解析');
+  {
+    // 本进程里直接调 fetchImage：判时的解析（dns/promises）和连接时的解析都换成桩；连接层只放行回环，别的地址一律在连之前拦下，不发出任何外网连接
+    const { fetchImage, clearImageCache } = await import(pathToFileURL(join(ROOT, 'server', 'src', 'bench-image.ts')).href);
+    let inner = 0;
+    const internal = createHttpServer((_req, res) => { inner++; res.writeHead(200, { 'content-type': 'image/png', 'content-length': PNG.length }); res.end(PNG); });
+    await new Promise((r) => internal.listen(0, '127.0.0.1', r));
+    const IPORT = internal.address().port;
+    const PUB = '93.184.216.34';
+    const judge = new Map([['rebind.image-test', [{ address: PUB, family: 4 }]], ['mixed.image-test', [{ address: PUB, family: 4 }, { address: '127.0.0.1', family: 4 }]], ['mixed2.image-test', [{ address: '127.0.0.1', family: 4 }, { address: PUB, family: 4 }]]]);
+    const atConnect = new Map([['rebind.image-test', '127.0.0.1'], ['mixed.image-test', '127.0.0.1'], ['mixed2.image-test', '127.0.0.1']]);
+    const answer = (addr, opt, cb) => (opt && typeof opt === 'object' && opt.all ? cb(null, [{ address: addr, family: net.isIP(addr) }]) : cb(null, addr, net.isIP(addr)));
+    const realP = dns.promises.lookup, realConnect = net.Socket.prototype.connect;
+    const outside = [];
+    dns.promises.lookup = async (h, o) => (judge.has(h) ? (o && o.all ? judge.get(h) : judge.get(h)[0]) : realP.call(dns.promises, h, o));
+    syncBuiltinESMExports();
+    net.Socket.prototype.connect = function (...args) {
+      const o = Array.isArray(args[0]) ? args[0][0] : (args[0] && typeof args[0] === 'object' ? args[0] : null);
+      if (o && typeof o.host === 'string' && !o.path && net.isIP(o.host) === 0) {
+        const base = o.lookup || ((h, opt, cb) => (atConnect.has(h) ? answer(atConnect.get(h), opt, cb) : dns.lookup(h, opt, cb)));
+        o.lookup = (h, opt, cb) => base(h, opt, (err, a, f) => {
+          if (err) return cb(err);
+          const list = Array.isArray(a) ? a.map((x) => x.address) : [a];
+          if (list.some((x) => x !== '127.0.0.1' && x !== '::1')) { outside.push(`${h}->${list.join(',')}`); return cb(Object.assign(new Error('测试：拦下非回环连接'), { code: 'ECONNREFUSED' })); }
+          cb(null, a, f);
+        });
+      }
+      return realConnect.apply(this, args);
+    };
+    const run = async (host) => { try { await fetchImage(`http://${host}:${IPORT}/x.png`, null); return 200; } catch (e) { return e?.http ?? String(e?.code ?? e); } };
+    try {
+      clearImageCache();
+      const rebind = await run('rebind.image-test');
+      const afterRebind = inner;
+      const mixed = await run('mixed.image-test');
+      const mixed2 = await run('mixed2.image-test');
+      check(rebind !== 200 && afterRebind === 0 && outside.some((x) => x.startsWith('rebind.image-test->' + PUB)),
+        'I9 DNS 重绑定（判时公网、连时回环）：连的是判过的公网地址（被测试拦下），回环上的内网服务 0 次被访问', { rebind, inner: afterRebind, outside });
+      check(mixed === 400 && mixed2 === 400 && inner === 0, 'I9 解析结果公网与回环混合（两种顺序）：400，内网服务 0 次被访问', { mixed, mixed2, inner });
+    } finally {
+      dns.promises.lookup = realP; syncBuiltinESMExports(); net.Socket.prototype.connect = realConnect; internal.close();
+    }
   }
 } catch (e) {
   fail++;

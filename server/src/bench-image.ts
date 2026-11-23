@@ -3,7 +3,7 @@
  *
  * 浏览器只请求 /api/bench-views/<台>/image?u=<格子里的原值>；判权在路由里做（先判权，再到这里取）。这里只管：
  *   · 把格子里的值还原成地址：图库内的相对路径拼上 WM_IMAGE_GALLERY_BASE，完整的 http(s) 链接照用；
- *   · 唯一保留的一条防护：完整链接解析出的地址是本机回环、私网、链路本地时不取（图库那台主机除外）——保护的是市场自己和内网服务；
+ *   · 唯一保留的一条防护：解析出的地址只要有一个不是公网就不取（只有图库前缀下的除外）——保护的是市场自己和内网服务；
  *     解析一次就把连接钉到这个地址上，取的时候不再解析（防解析结果被换）；
  *   · 只发 GET、不带读者的任何请求头、不跟随跳转、限大小限时限并发；对外断开（WM_OUTBOUND=off）时不发；
  *   · 只转出 png、jpeg、webp、gif 四种；进程内短时缓存。
@@ -13,7 +13,7 @@ import { isIP } from 'node:net';
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { outboundOff } from './outbound-gate.ts';
-import { IMAGE_REF_CHARS, imageRefOk } from './bench-query.ts';
+import { IMAGE_REF_CHARS, galleryPathOk, imageRefOk } from './bench-query.ts';
 import { classifyV4, classifyV6, parseV4, parseV6 } from './url-admission.ts';
 
 export const IMAGE_LIMITS = { refChars: IMAGE_REF_CHARS, bytes: 5 * 1024 * 1024, timeoutMs: 10_000, concurrent: 8, cacheMs: 5 * 60_000, cacheBytes: 64 * 1024 * 1024 };
@@ -42,7 +42,12 @@ export function underGallery(u: URL, galleryBase: string | null): boolean {
 /** 格子里的值 → 要取的地址。相对路径要有图库前缀 */
 export function resolveImageRef(ref: string, galleryBase: string | null): URL {
   if (!imageRefOk(ref)) throw new ImageError(400, 'image_ref_invalid', '图片须为 http(s) 链接或图库内的相对路径');
-  if (/^https?:\/\//i.test(ref)) return new URL(ref);
+  if (/^https?:\/\//i.test(ref)) {
+    const full = new URL(ref);
+    // 图库前缀下的完整链接，前缀之后的部分照相对路径的规矩核（..、%2f 不许拐出前缀）
+    if (galleryBase && underGallery(full, galleryBase) && !galleryPathOk(full.href.slice(galleryBase.length))) throw new ImageError(400, 'image_ref_invalid', '图片路径出了图库范围');
+    return full;
+  }
   if (!galleryBase) throw new ImageError(400, 'image_gallery_unset', '没有配图库地址（WM_IMAGE_GALLERY_BASE），相对路径的图片取不了');
   const u = new URL(ref, galleryBase);
   if (!u.href.startsWith(galleryBase)) throw new ImageError(400, 'image_ref_invalid', '图片路径出了图库范围');
@@ -83,7 +88,9 @@ function get(u: URL, pin: { address: string; family: number }): Promise<Got> {
     const req = (u.protocol === 'https:' ? httpsRequest : httpRequest)(u, {
       method: 'GET',
       headers: { accept: 'image/png, image/jpeg, image/webp, image/gif', 'user-agent': 'workbench-market-image' },
-      lookup: (_h: string, _o: unknown, cb: (e: Error | null, a: string, f: number) => void) => cb(null, pin.address, pin.family),
+      // 钉址：连接只用判过的地址，不再解析（防 DNS 重绑定）；连接层要整组地址时也只给这一个
+      lookup: (_h: string, o: { all?: boolean } | number | undefined, cb: (e: Error | null, a: unknown, f?: number) => void) =>
+        (typeof o === 'object' && o?.all ? cb(null, [{ address: pin.address, family: pin.family }]) : cb(null, pin.address, pin.family)),
       timeout: IMAGE_LIMITS.timeoutMs,
     } as never, (res: IncomingMessage) => {
       const status = res.statusCode ?? 0;
@@ -113,7 +120,10 @@ export async function fetchImage(ref: string, galleryBase: string | null, now = 
   if (running >= IMAGE_LIMITS.concurrent) throw new ImageError(503, 'image_busy', '取图的人太多，稍后再试');
   running++;
   try {
-    const got = await get(u, await pinAddress(u, galleryBase));
+    // 解析也算在 10 秒里：慢解析器不能一直占着并发名额
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const pin = await Promise.race([pinAddress(u, galleryBase), new Promise<never>((_r, reject) => { timer = setTimeout(() => reject(new ImageError(504, 'image_timeout', '解析图片地址超时')), IMAGE_LIMITS.timeoutMs); })]).finally(() => clearTimeout(timer));
+    const got = await get(u, pin);
     toCache(key, got, now);
     return got;
   } finally { running--; }

@@ -41,8 +41,11 @@ export function imageRefOk(v: string): boolean {
     try { const u = new URL(v); return (u.protocol === 'http:' || u.protocol === 'https:') && !!u.hostname && !u.username && !u.password; } catch { return false; }
   }
   if (v.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(v)) return false;
-  // 路径的每一段（解码后）都不能是 . 或 ..，也不能解码出 / 或 \（%2f、%5c 拐出前缀）
-  return v.split(/[?#]/)[0].split('/').every((seg) => {
+  return galleryPathOk(v);
+}
+/** 图库内的路径（相对路径，或完整链接去掉图库前缀后的部分）：每一段解码后都不能是 . 或 ..，也不能解码出 / 或 \（%2f、%5c 拐出前缀） */
+export function galleryPathOk(p: string): boolean {
+  return p.split(/[?#]/)[0].split('/').every((seg) => {
     let d: string;
     try { d = decodeURIComponent(seg); } catch { return false; }
     return d !== '.' && d !== '..' && !/[/\\]/.test(d);
