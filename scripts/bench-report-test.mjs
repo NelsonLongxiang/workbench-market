@@ -26,6 +26,7 @@
  *   G11（#930 独立验收）只能看台的人读报告、生成、绑定 403；冻结后补论断、论断挂到不存在的报告都拒；三张冻结的表在库里 UPDATE、DELETE、INSERT OR REPLACE 都拒
  *   F（A～D 验收建议的补测）F1 预设 member 读不了报告；F2 领域授予读得了、回应得了；F2b 只有 read 档的领域授予读不了；F3 老部门的授予记进位置；F4 旧报告带它那一版模板
  *   S （报告第 1 步 F，用例 16）跨台的同一事物 GET /api/report-subjects/:subject：按读者能读的台裁剪；读不到的台上的报告、台名、份数都不出现；没开过台库的台不建库
+ *   S4 （#996 验收探针）只有 render、只有 respond 的授予：单台清单 403，跨台清单也读不了（钉住判法是 report-read）
  *   G10 产出方由服务端填：登录的那个人，记 human（数据视图的台只认人，本机命令行、管理口令进不来是既有规矩）
  *
  *   node scripts/bench-report-test.mjs
@@ -766,6 +767,26 @@ try {
         && bad.status === 400 && badLimit.status === 400 && miss.status === 200 && miss.json?.total === 0,
       'S3 预设 member 读不了报告：空清单；没登录 401、管理口令 403、跨站 403，都不带清单；事物写错、limit 写错 400；没有报告的事物 200、合计 0',
       { asMember: [asMember.status, asMember.json?.total], rvm: rvm.status, anon: anon.status, tok: tok.status, cross: cross.status, bad: bad.status, badLimit: badLimit.status, miss: [miss.status, miss.json?.total] });
+  }
+
+  console.log('S4 （#996 验收探针）判法和单台清单一致：只有 render、只有 respond 的授予，单台清单 403，跨台清单也读不了');
+  {
+    const SUBJ4 = 'card:synth-orders@2026-11';
+    const bossAll = await srv.call('GET', `/api/report-subjects/${encodeURIComponent(SUBJ4)}`, boss);
+    for (const role of ['probe-render-only', 'respond-only']) {
+      if (role === 'probe-render-only') {
+        await cli('POST', '/api/roles/guest/copy', { id: role, name: '探针只看台' });
+        await cli('PUT', `/api/roles/${role}`, { permissions: [{ actions: ['bench-store.render', 'bench-store.view-get'] }] });
+        await cli('POST', `/api/roles/${role}/approve`);
+      }
+      const ga = await activate({ principal: 'user:beta', role, scope: '*' });
+      const single = await bv(member, 'GET', '/synth-orders/reports');
+      const cross = await srv.call('GET', `/api/report-subjects/${encodeURIComponent(SUBJ4)}`, member);
+      const gid = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = ? AND status = 'active'").get(role)?.id;
+      const rv = await cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：S4 用完收回' });
+      check(ga && single.status === 403 && cross.status === 200 && cross.json?.total === 0 && (cross.json?.benches ?? []).length === 0 && rv.status === 200 && (bossAll.json?.total ?? 0) > 0,
+        `S4 ${role}：单台清单 403，跨台清单空（管理层同一事物有报告，所以不是没数据）`, { ga, single: single.status, cross: [cross.status, cross.json?.total], boss: [bossAll.status, bossAll.json?.total], rv: rv.status });
+    }
   }
 
   console.log('N 名字取不到时给 null，不退回内部串（#965 y3）');
