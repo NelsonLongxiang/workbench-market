@@ -185,6 +185,7 @@ console.log('图片列（docs/image-step1.md 用例 9）');
   const imgCss = css.split('\n').filter((l) => /\.wm-img|\.wm-rec-image/.test(l)).join('\n');
   ok('缩略图尺寸：表格 48px 见方、记录卡 160px 高，object-fit: cover；颜色只用 token', /\.wm-img-cell \{ width: 48px; height: 48px; \}/.test(imgCss) && /\.wm-img-card \{[^}]*height: 160px/.test(imgCss) && /object-fit: cover/.test(imgCss) && !/#[0-9A-Fa-f]{3,6}\b|rgba?\(/.test(imgCss), imgCss);
   const bv = read('../web/src/bench-blocks/BenchView.tsx'), tb = read('../web/src/bench-blocks/Table.tsx'), rc = read('../web/src/bench-blocks/Records.tsx');
+  ok('加载失败切到占位：onError 把状态置为失败，失败时画「图片取不到」而不是破图（#1008 评审 M8）', /onError=\{\(\) => setBroken\(true\)\}/.test(img) && /if \(broken\) return <ImageMissing/.test(img) && /key=\{src\}/.test(img));
   ok('来源视图取这次取数的台、视图、版本、筛选值；表格和记录卡都用缩略图组件', /view: result\.view\.key, version: result\.version, params: result\.params/.test(bv) && /ImageSourceContext\.Provider/.test(bv) && /kind === 'image'\) return <BenchImage/.test(tb) && /<BenchImage value=\{f\.image\} size="card"/.test(rc));
   const page = read('../web/src/pages/BenchPage.tsx'), panel = read('../web/src/components/cockpit/BenchViewPanel.tsx');
   ok('台页面和驾驶舱面板都给了图片的台', /imageBench=\{cardId\}/.test(page) && /imageBench=\{refItem\.bench\}/.test(panel));
