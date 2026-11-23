@@ -8,7 +8,7 @@
  *   I2 查询：图片列只能判空、计数；按值筛选、分组、min/max、排序报 400
  *   I3 代取判权：匿名 401、管理口令 403、跨站 403、台上没授予 403——这几种图库都没收到请求；只有 render、只有 report-read 的人都取得到
  *   I4 代取结果：PNG 原样转出并带 nosniff、sandbox；text/html 415；302 502；超过 5 MB 502；超时 504
- *   I5 唯一保留的防护：完整链接指向回环（不是图库那台）、链路本地、私网 400；指向图库那台主机照取
+ *   I5 唯一保留的防护：完整链接指向回环（不在图库前缀下）、链路本地、私网、文档网段 400；在图库前缀下照取；地址分类照 url-admission.ts，只认公网
  *   I6 不转发读者的请求头：图库收到的请求里没有 Cookie、Authorization、Referer、X-Forwarded-For
  *   I7 缓存：同一张图第二次不再请求图库；缓存命中时没权限的人仍是 403
  *   I8 对外断开（WM_OUTBOUND=off）：503
@@ -193,9 +193,17 @@ try {
       meta: (await img(boss, 'http://169.254.169.254/latest/meta-data')).status,
       priv: (await img(boss, 'http://10.0.0.1/a.png')).status,
       v6: (await img(boss, 'http://[::1]:1/a.png')).status,
+      doc: (await img(boss, 'http://192.0.2.1/a.png')).status,
       gallery: (await img(boss, `${GBASE}photos/a.png`)).status,
     };
-    check(r.loop === 400 && r.meta === 400 && r.priv === 400 && r.v6 === 400, 'I5 完整链接指向回环（不是图库那台）、链路本地、私网、IPv6 回环：400', r);
+    check(r.loop === 400 && r.meta === 400 && r.priv === 400 && r.v6 === 400 && r.doc === 400, 'I5 完整链接指向回环（不在图库前缀下）、链路本地、私网、IPv6 回环、文档网段：400', r);
+    // 例外只认图库前缀，不认图库那台主机：前缀带子路径时，同主机前缀外的路径照样拒
+    const { blockedAddress, underGallery } = await import(pathToFileURL(join(ROOT, 'server', 'src', 'bench-image.ts')).href);
+    const sub = 'http://127.0.0.1:8090/gallery/';
+    const unit = { inPrefix: underGallery(new URL('http://127.0.0.1:8090/gallery/a.png'), sub), outPrefix: underGallery(new URL('http://127.0.0.1:8090/admin/x'), sub), unset: underGallery(new URL('http://127.0.0.1:8090/gallery/a.png'), null),
+      pub4: blockedAddress('93.184.216.34'), pub6: blockedAddress('2606:4700::1'), ula: blockedAddress('fd00::1'), mapped: blockedAddress('::ffff:10.0.0.1'), bench: blockedAddress('198.18.0.1'), multi: blockedAddress('224.0.0.1') };
+    check(unit.inPrefix && !unit.outPrefix && !unit.unset && !unit.pub4 && !unit.pub6 && unit.ula && unit.mapped && unit.bench && unit.multi,
+      'I5 例外只认图库前缀（同主机前缀外不算）；公网 IPv4、IPv6 放行，ULA、映射私网、基准网段、组播都拒', unit);
     check(r.gallery === 200, 'I5 完整链接指向图库那台主机：照取', r);
   }
 

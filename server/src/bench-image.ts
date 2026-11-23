@@ -14,6 +14,7 @@ import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { outboundOff } from './outbound-gate.ts';
 import { IMAGE_REF_CHARS, imageRefOk } from './bench-query.ts';
+import { classifyV4, classifyV6, parseV4, parseV6 } from './url-admission.ts';
 
 export const IMAGE_LIMITS = { refChars: IMAGE_REF_CHARS, bytes: 5 * 1024 * 1024, timeoutMs: 10_000, concurrent: 8, cacheMs: 5 * 60_000, cacheBytes: 64 * 1024 * 1024 };
 const TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
@@ -24,21 +25,18 @@ export class ImageError extends Error {
   constructor(http: number, code: string, message: string) { super(message); this.http = http; this.code = code; }
 }
 
-/** 地址是不是本机回环、私网、链路本地（含云元数据 169.254.169.254）、CGNAT、组播、未指定 */
+/** 地址是不是公网：照登记准入那一套分类（server/src/url-admission.ts 的 classifyV4、classifyV6），只认 public 一档。
+ *  回环、私网、链路本地（含云元数据 169.254.169.254）、CGNAT、文档与基准网段、组播、IPv6 的 2000::/3 以外、映射到这些的 ::ffff: 地址都不取 */
 export function blockedAddress(ip: string): boolean {
-  const v = isIP(ip);
-  if (v === 4) {
-    const [a, b] = ip.split('.').map(Number);
-    return a === 0 || a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || a >= 224;
-  }
-  if (v === 6) {
-    const s = ip.toLowerCase();
-    if (s === '::' || s === '::1') return true;
-    const m = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(s);
-    if (m) return blockedAddress(m[1]);
-    return /^f[cd]/.test(s) || /^fe[89ab]/.test(s) || /^ff/.test(s);
-  }
+  const v4 = parseV4(ip);
+  if (v4 !== null) return classifyV4(v4) !== 'public';
+  const v6 = parseV6(ip);
+  if (v6 !== null) return classifyV6(v6).cls !== 'public';
   return true;
+}
+/** 完整链接在不在配置的图库前缀下（唯一的例外：图库按属主决定只绑本机回环） */
+export function underGallery(u: URL, galleryBase: string | null): boolean {
+  return !!galleryBase && u.href.startsWith(galleryBase);
 }
 
 /** 格子里的值 → 要取的地址。相对路径要有图库前缀 */
@@ -70,11 +68,10 @@ function toCache(key: string, got: Got, now: number): void {
 /** 测试用：清缓存 */
 export function clearImageCache(): void { cache.clear(); cacheBytes = 0; }
 
-/** 解析主机名；完整链接解析出被挡的地址就拒（图库那台主机除外）。返回要钉住的地址 */
+/** 解析主机名；解析出的地址只要有一个不是公网就拒（图库前缀下的除外）。返回要钉住的地址：取的时候直接连它，不再解析 */
 async function pinAddress(u: URL, galleryBase: string | null): Promise<{ address: string; family: number }> {
   const host = u.hostname.replace(/^\[|\]$/g, '');
-  const gallery = galleryBase ? new URL(galleryBase) : null;
-  const isGallery = !!gallery && gallery.protocol === u.protocol && gallery.host === u.host;
+  const isGallery = underGallery(u, galleryBase);
   const all = isIP(host) ? [{ address: host, family: isIP(host) }] : await lookup(host, { all: true, verbatim: true });
   if (!all.length) throw new ImageError(502, 'image_fetch_failed', '图片地址解析不出来');
   if (!isGallery && all.some((a) => blockedAddress(a.address))) throw new ImageError(400, 'image_address_blocked', '图片地址指向本机或内网，不取');
