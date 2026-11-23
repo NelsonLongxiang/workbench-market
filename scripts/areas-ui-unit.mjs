@@ -36,6 +36,17 @@ const cands = leadCandidates(principals, leads);
 ok('可选的人：只列在用的人（不列停用的、席位）；已经是生效或待放行负责人的不再列；人停用了的负责人可以再列（他本人也停用了就不列）', cands.map((c) => c.id).join() === 'user:syn-c', J(cands));
 ok('可选的人：不列自己（不能给自己授予）', leadCandidates(principals, [], 'user:syn-a').map((c) => c.id).sort().join() === 'user:syn-b,user:syn-c');
 ok('可选的人：主体清单读不到就是空', leadCandidates(null, []).length === 0);
+{
+  // #999：两个账号显示名相同（同一个人的两个账号、或两位同名同事），下拉框里要分得清
+  const dup = { principals: [
+    { id: 'user:wu-a', kind: 'person', status: 'active', display_name: '合成吴' },
+    { id: 'user:wu-b', kind: 'person', status: 'active', display_name: '合成吴' },
+    { id: 'user:solo', kind: 'person', status: 'active', display_name: '合成独' },
+  ] };
+  const names = leadCandidates(dup, []).map((c) => c.name);
+  ok('可选的人（#999）：同名的两个账号名字后面各带登录名，文字不重复；不同名的照旧只写名字',
+    names.includes('合成吴（wu-a）') && names.includes('合成吴（wu-b）') && names.includes('合成独') && new Set(names).size === names.length, names.join('、'));
+}
 
 ok('建领域：名字必填、1～64 个字、不带控制字符', /领域名字/.test(areaFormProblem('fin2', ' ', v.areas)) && /1～64/.test(areaFormProblem('fin2', '长'.repeat(65), v.areas)) && /控制字符/.test(areaFormProblem('fin2', 'a\nb', v.areas)));
 ok('建领域：标识照服务端那条规则（小写字母开头，字母、数字、连字符，最多 48 个字）', /标识/.test(areaFormProblem('', '新', v.areas)) && ['Fin', '2fin', 'fin_x', 'a'.repeat(49)].every((i) => /小写字母开头/.test(areaFormProblem(i, '新', v.areas))) && AREA_ID_RE.test('a' + 'b'.repeat(47)));
