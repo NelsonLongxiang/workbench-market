@@ -28,13 +28,13 @@ import { ASKED, scopedKind } from '../judgment-builtins.ts';
 import type { Kind } from '../roles.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
 import { tableTarget, tableCsv } from '../bench-table.ts';
-import { benchStore, type BenchStore } from '../services/bench-store.ts';
+import { benchStore, benchStoreExists, type BenchStore } from '../services/bench-store.ts';
 import { bindBench, linkWorkbench, renameBench, cardTitle, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
 import { relationOf } from '../team-relation.ts';
 import { checkBenchRequest, decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 import { viaBegin, viaSettle } from '../attention-via.ts';
 import { assertBenchBinding, renderBenchView } from '../services/bench-render.ts';
-import { bindReport, generateReport, listReports, readReport, respondReport } from '../services/bench-report.ts';
+import { bindReport, generateReport, listReports, readReport, respondReport, SUBJECT_RE } from '../services/bench-report.ts';
 
 export type BenchViewsConfig = { on: boolean };
 /** 启动时读一次：WM_BENCH_VIEWS（on / off，缺省 on；不需要时显式 off 关掉）。不合法拒绝启动 */
@@ -324,6 +324,27 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   app.get('/api/bench-views/:bench/reports/:id', { action: 'bench-store.report-read', kind: 'read', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-read', (req, _res, s, actor) => {
     const id = qint(req.params.id, '报告编号');
     return readReport(s, id, actor);
+  }));
+  // 跨台的同一事物（报告第 1 步 F，规格用例 16）：同一件事物在各台上的报告，按读者能读的台裁剪。
+  // 每个台照单台清单同一个判法（bench-store.report-read，may）：读不了的台连台库都不打开，所以它上面的报告、份数、台名都进不了应答。
+  // 一个台都读不了也回 200、空清单（不拿 403 暗示「别处有」）；没开过台库的台没有报告，跳过，不为了读顺手建库。
+  app.get('/api/report-subjects/:subject', { action: 'bench-store.report-read', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const actor = await who(req, res);
+    if (!actor) return;
+    try {
+      const subject = req.params.subject;
+      if (typeof subject !== 'string' || !SUBJECT_RE.test(subject)) throw new BenchError('invalid', 'subject 要写成「种类:标识」，比如 item:123');
+      const limit = qint((req.query as Record<string, unknown>).limit, 'limit');
+      const benches: Array<{ bench: { slug: string; title: string } } & Awaited<ReturnType<typeof listReports>>> = [];
+      for (const b of listBenches()) {
+        if (!may(actor, 'bench-store.report-read', b) || !benchStoreExists(b.slug)) continue;
+        let got: Awaited<ReturnType<typeof listReports>>;
+        try { got = await listReports(await benchStore(b.slug), { subject, limit }); }
+        catch (e) { if (e instanceof BenchError && e.code === 'conflict') continue; throw e; } // 这个台正在删：当它不在
+        if (got.reports.length) benches.push({ bench: { slug: b.slug, title: b.title }, ...got });
+      }
+      res.json({ subject, total: benches.reduce((n, x) => n + x.reports.length, 0), benches });
+    } catch (e) { fail(res, e); }
   }));
   // 回应（PR C）：能读这份报告的人表态（规格第六节评审定的推荐：随含取数的预设一起给，这里和读同一档）。
   // 能回应、却读不了这个台上的报告的人：和报告不存在一样回 404（规格第五节第 14 条：不泄露报告在不在；#932 独立验收）

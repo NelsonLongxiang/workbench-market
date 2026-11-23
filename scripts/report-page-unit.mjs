@@ -77,10 +77,24 @@ function internalReadsInText(src) {
   const hits = [];
   const inNamesIndex = (n) => { for (let p = n; p; p = p.parent) { if (ts.isElementAccessExpression(p) && p.expression.getText(sf).startsWith('names.') && n.pos >= p.argumentExpression.pos && n.end <= p.argumentExpression.end) return true; if (ts.isJsxExpression(p)) return false; } return false; };
   const isJsx = (m) => ts.isJsxElement(m) || ts.isJsxFragment(m) || ts.isJsxSelfClosingElement(m);
+  // 先解构再用（#965 统筹）：const { producer } = r、({ responder: who }) => …——记下解构出来的本地名，画成文字时读到它也算
+  const bound = new Set();
+  const collect = (n) => {
+    if (ts.isBindingElement(n) && ts.isObjectBindingPattern(n.parent) && ts.isIdentifier(n.name)) {
+      const key = n.propertyName ?? n.name;
+      if ((ts.isIdentifier(key) || ts.isStringLiteral(key)) && INTERNAL.has(key.text)) bound.add(n.name.text);
+    }
+    ts.forEachChild(n, collect);
+  };
+  collect(sf);
+  const hit = (n) => hits.push(`${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}: ${n.getText(sf)}`);
   // scan：一段画成文字的表达式；里面嵌着的 JSX 交回 visit（它的属性值不算、子节点再按文字查）
   const scan = (n) => {
     if (isJsx(n)) return visit(n);
-    if (ts.isPropertyAccessExpression(n) && INTERNAL.has(n.name.text) && !inNamesIndex(n)) hits.push(`${sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1}: ${n.getText(sf)}`);
+    if (ts.isPropertyAccessExpression(n) && INTERNAL.has(n.name.text) && !inNamesIndex(n)) hit(n);
+    // 下标写法 d['dimension_id']（#965 统筹）
+    else if (ts.isElementAccessExpression(n) && ts.isStringLiteralLike(n.argumentExpression) && INTERNAL.has(n.argumentExpression.text) && !inNamesIndex(n)) hit(n);
+    else if (ts.isIdentifier(n) && bound.has(n.text) && !(ts.isPropertyAccessExpression(n.parent) && n.parent.name === n) && !inNamesIndex(n)) hit(n);
     ts.forEachChild(n, scan);
   };
   // 属性值不显示：只找其中嵌着的 JSX（如 message={<>…</>}），交回 visit
@@ -102,6 +116,12 @@ ok('源码检查自证：直接写 {d.dimension_id}、经别的前缀或拼进�
   && internalReadsInText('const A = () => <p>{nameOr(names.dimensions[d.dimension_id])}{x.y.slot ?? 1}</p>;').length === 1
   && internalReadsInText('const A = () => <Alert message={<>来自 {r.responder}</>} />;').length === 1
   && internalReadsInText('const A = () => <p key={c.claim_key}>{nameOr(names.actors[r.responder])}</p>;').length === 0);
+ok('源码检查自证（#965 统筹补）：下标写法 d[\'dimension_id\']、先解构再用（含改名）都抓得到；解构出来的名字放进 names[…] 下标、或只用在属性值里不算',
+  internalReadsInText("const A = () => <p>{d['dimension_id']}</p>;").length === 1
+  && internalReadsInText('const A = ({ producer }) => <p>{producer} 写的</p>;').length === 1
+  && internalReadsInText('const { responder: who } = r; const A = () => <p>{`来自 ${who}`}</p>;').length === 1
+  && internalReadsInText('const { producer } = r; const A = () => <p data-p={producer}>{nameOr(names.actors[producer])}</p>;').length === 0
+  && internalReadsInText("const A = () => <p>{nameOr(names.dimensions[d['dimension_id']])}</p>;").length === 0);
 
 console.log(`\nreport-page-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

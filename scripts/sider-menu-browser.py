@@ -3,7 +3,15 @@
 我的驾驶舱列出驾驶舱并可跳转 · 「设置 / 管理」只对管理员出现、点开五项可跳转 · 用户卡点开是弹出层（口令在里面）·
 / 是全景 · 没有「旧版页面」菜单 · 控制面没口令也看不到管理入口。"""
 import json, sys, urllib.request
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+
+# 固定等待改成等条件（#954 批 E）：等不到不在等待处抛错，照常往下，由后面原来的断言带着当时的值报
+def soft(fn):
+    try: fn()
+    except PWTimeout: pass
+def painted(pg):
+    """等页面再画两帧"""
+    pg.evaluate("() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
 cfg = json.load(open(sys.argv[1]))
 M = cfg['base']; C = cfg['control']; TOK = cfg['token']
 ok = fail = 0
@@ -79,11 +87,13 @@ with sync_playwright() as p:
     pg.locator('.ant-popover input[type=password]').last.fill(TOK)
     pg.locator('.ant-popover button', has_text='保').last.click()
     pg.wait_for_selector('[data-testid=nav-admin]', timeout=10000)
-    pg.keyboard.press('Escape'); pg.mouse.click(900, 450); pg.wait_for_timeout(300)  # 关掉用户卡弹出层
+    pg.keyboard.press('Escape'); pg.mouse.click(900, 450)  # 关掉用户卡弹出层：等它真收起来
+    soft(lambda: pg.wait_for_function("() => ![...document.querySelectorAll('.ant-popover')].some((e) => !e.classList.contains('ant-popover-hidden') && e.getBoundingClientRect().width > 0)"))
     check('有口令：侧栏底部出现「设置 / 管理」', pg.locator('[data-testid=nav-admin]').count() == 1)
     # 角标 = 轮到这个身份、能当场办的条数；合成实例里的 25 条统一待办没有当场的答法，不该算进去
     want, total = attention_count(TOK)
-    pg.wait_for_timeout(1500)  # 换了身份，角标要重读一次
+    # 换了身份，角标要重读一次：等角标的数变成该有的数（等不到由下面的断言带着当时的值报）
+    soft(lambda: pg.wait_for_function("(w) => { const e = document.querySelector('[data-testid=nav-pending]'); return (e ? parseInt(e.innerText, 10) || 0 : 0) === w; }", arg=want))
     got = pg.locator('[data-testid=nav-pending]')
     got_n = int(got.inner_text()) if got.count() else 0
     check(f'「全景」角标 = 轮到你且能当场办的条数（{got_n} / {want}；关注共 {total} 条，别处处理的不算）', total > 0 and got_n == want and want < total, (got_n, want, total))
