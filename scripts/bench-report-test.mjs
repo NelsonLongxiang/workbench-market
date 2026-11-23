@@ -27,6 +27,7 @@
  *   F（A～D 验收建议的补测）F1 预设 member 读不了报告；F2 领域授予读得了、回应得了；F2b 只有 read 档的领域授予读不了；F3 老部门的授予记进位置；F4 旧报告带它那一版模板
  *   S （报告第 1 步 F，用例 16）跨台的同一事物 GET /api/report-subjects/:subject：按读者能读的台裁剪；读不到的台上的报告、台名、份数都不出现；没开过台库的台不建库
  *   S4 （#996 验收探针）只有 render、只有 respond 的授予：单台清单 403，跨台清单也读不了（钉住判法是 report-read）
+ *   S5 （#996 验收建议①～④）合计是份数不是台数；?limit=1 每台只回 1 份；names 只带本台报告的维度和产出方；没有这件事物报告的台不列
  *   G10 产出方由服务端填：登录的那个人，记 human（数据视图的台只认人，本机命令行、管理口令进不来是既有规矩）
  *
  *   node scripts/bench-report-test.mjs
@@ -787,6 +788,43 @@ try {
       check(ga && single.status === 403 && cross.status === 200 && cross.json?.total === 0 && (cross.json?.benches ?? []).length === 0 && rv.status === 200 && (bossAll.json?.total ?? 0) > 0,
         `S4 ${role}：单台清单 403，跨台清单空（管理层同一事物有报告，所以不是没数据）`, { ga, single: single.status, cross: [cross.status, cross.json?.total], boss: [bossAll.status, bossAll.json?.total], rv: rv.status });
     }
+  }
+
+  console.log('S5 （#996 验收建议①～④）合计是份数、limit 按台、names 不带出别台、没有这件事物报告的台不列');
+  {
+    const SUBJ5 = 'card:synth-s5@2026-11';
+    const subj5 = (opts, s = encodeURIComponent(SUBJ5), q = '') => srv.call('GET', `/api/report-subjects/${s}${q}`, opts);
+    // 第二个维度（跨领域，alpha 发模板、sys 复核后生效），绑到 synth-other；synth-other 上的报告由 sys 生成：维度和产出方都和 synth-orders 不同
+    const d2 = await cli('POST', '/api/report-dimensions', { id: 'mdim2', title: '合成第二维度S5' });
+    const t2 = await pub('mdim2', { body: tpl() });
+    const r2 = await srv.call('POST', '/api/report-dimensions/mdim2/templates/1/review', { ...sys, body: {} });
+    const a2 = await cli('POST', '/api/report-dimensions/mdim2/activate', { version: 1 });
+    const b2 = await bv(boss, 'PUT', '/synth-other/reports/mdim2/binding', { base: 0, slots: BINDING });
+    // synth-orders 上同一件事物两份（boss 生成），synth-other 上一份（sys 生成）：台数 2、份数 3，分得开
+    const o1 = await gen(boss, G({ subject: SUBJ5 }));
+    const o2 = await gen(boss, G({ subject: SUBJ5 }));
+    const x1 = await bv(sys, 'POST', '/synth-other/reports', { dimension: 'mdim2', subject: SUBJ5, inputs: INPUTS, claims: [{ kind: 'conclusion', text: 'S5 第二维度的结论', basis: [{ slot: 'orders', key: [7] }] }] });
+    const by = (r) => Object.fromEntries((r.json?.benches ?? []).map((x) => [x.bench?.slug, x]));
+    const all = await subj5(boss);
+    const one = await subj5(boss, encodeURIComponent(SUBJ5), '?limit=1');
+    const A = by(all), L = by(one);
+    check(d2.status === 201 && t2.status === 201 && r2.status === 200 && a2.status === 200 && b2.status === 200 && o1.status === 201 && o2.status === 201 && x1.status === 201
+        && all.status === 200 && A['synth-orders']?.reports.length === 2 && A['synth-other']?.reports.length === 1 && (all.json?.benches ?? []).length === 2 && all.json?.total === 3,
+      'S5① 一个台上同一件事物两份、另一个台一份：合计 3（份数），不是 2（台数）',
+      { d2: d2.status, t2: t2.status, r2: r2.text?.slice(0, 120), a2: a2.status, b2: [b2.status, b2.text?.slice(0, 120)], o: [o1.status, o2.status], x1: [x1.status, x1.text?.slice(0, 160)], all: [all.status, all.json?.total, Object.keys(A)] });
+    check(one.status === 200 && L['synth-orders']?.reports.length === 1 && L['synth-other']?.reports.length === 1 && one.json?.total === 2,
+      'S5② ?limit=1：每个台只回 1 份，合计 2', { one: [one.status, one.json?.total, Object.entries(L).map(([k, v]) => [k, v.reports.length])] });
+    const keysOf = (o) => Object.keys(o ?? {}).sort().join(',');
+    const own = (x) => x && keysOf(x.names?.dimensions) === [...new Set(x.reports.map((r) => r.dimension_id))].sort().join(',')
+      && keysOf(x.names?.actors) === [...new Set(x.reports.map((r) => r.producer))].sort().join(',');
+    const ord = A['synth-orders'], oth = A['synth-other'];
+    check(own(ord) && own(oth) && keysOf(ord?.names?.dimensions) === 'monthly' && keysOf(oth?.names?.dimensions) === 'mdim2'
+        && keysOf(ord?.names?.actors) !== keysOf(oth?.names?.actors) && !JSON.stringify(ord ?? {}).includes('合成第二维度S5'),
+      'S5③ 两个台维度、产出方都不同：每个台的 names 只有它自己报告里的维度和产出方，不带出别台的', { ord: ord?.names, oth: oth?.names });
+    // ④ 口径（#996 验收建议④，按现行为定）：读得了、台库也在，但没有这件事物报告的台不列出；没有任何报告的事物回 200、空清单
+    const none = await subj5(boss, encodeURIComponent('card:synth-s5-none'));
+    check(none.status === 200 && none.json?.total === 0 && (none.json?.benches ?? []).length === 0,
+      'S5④ 两个台都读得了、台库都在，但都没有这件事物的报告：benches 为空，不列「reports: []」的台', { none: [none.status, none.text?.slice(0, 160)] });
   }
 
   console.log('N 名字取不到时给 null，不退回内部串（#965 y3）');
