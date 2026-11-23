@@ -7,6 +7,7 @@
 import { useId, useState } from 'react';
 import { Pagination, Tag } from 'antd';
 import { BlockFrame, type BlockFrameProps } from './Frame';
+import { BenchImage } from './BenchImage';
 import { isLongText, recordCards, type RecordCard, type RecordField, type RecordsSpec } from './blocks-view';
 
 const TONE: Record<string, string> = { success: 'success', warning: 'warning', danger: 'error', default: 'default' };
@@ -24,7 +25,9 @@ function FieldRow({ f, open }: { f: RecordField; open: boolean }) {
   return (
     <div className="wm-rec-field">
       <dt>{f.label}</dt>
-      <dd className={`${f.empty ? 'wm-rec-empty' : ''}${clamp ? ' wm-rec-clamp' : ''}`}>{f.text}</dd>
+      {f.image !== undefined
+        ? <dd className="wm-rec-image"><BenchImage value={f.image} size="card" /></dd>
+        : <dd className={`${f.empty ? 'wm-rec-empty' : ''}${clamp ? ' wm-rec-clamp' : ''}`}>{f.text}</dd>}
     </div>
   );
 }
