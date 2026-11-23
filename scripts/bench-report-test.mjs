@@ -25,6 +25,7 @@
  *   G12（#930 统筹验收）产出方只有 person 记 human；带报告动作的自定义角色两人放行：提议没放行、授予没放行都不生效
  *   G11（#930 独立验收）只能看台的人读报告、生成、绑定 403；冻结后补论断、论断挂到不存在的报告都拒；三张冻结的表在库里 UPDATE、DELETE、INSERT OR REPLACE 都拒
  *   F（A～D 验收建议的补测）F1 预设 member 读不了报告；F2 领域授予读得了、回应得了；F2b 只有 read 档的领域授予读不了；F3 老部门的授予记进位置；F4 旧报告带它那一版模板
+ *   S （报告第 1 步 F，用例 16）跨台的同一事物 GET /api/report-subjects/:subject：按读者能读的台裁剪；读不到的台上的报告、台名、份数都不出现；没开过台库的台不建库
  *   G10 产出方由服务端填：登录的那个人，记 human（数据视图的台只认人，本机命令行、管理口令进不来是既有规矩）
  *
  *   node scripts/bench-report-test.mjs
@@ -704,6 +705,67 @@ try {
     const kinds = (old?.template?.claims ?? []).map((c) => c.kind);
     check(old?.report?.template_version === 1 && JSON.stringify(kinds) === JSON.stringify(['conclusion', 'risk']),
       'F4 读第 1 版模板生成的旧报告：带回的模板是第 1 版的（结论、风险两类），不是现在生效的第 2 版', { tv: old?.report?.template_version, kinds });
+  }
+
+  console.log('S 跨台的同一事物（报告第 1 步 F，用例 16）：GET /api/report-subjects/:subject 按读者能读的台裁剪');
+  {
+    const SUBJ = 'card:synth-shared@2026-11';
+    const subj = (opts, s = encodeURIComponent(SUBJ), q = '') => srv.call('GET', `/api/report-subjects/${s}${q}`, opts);
+    const storeFile = (slug) => join(srv.data, 'bench-stores', `${slug}.sqlite`);
+    // synth-other（R6e 建的，绑在 eta 领域）补数据集、视图、绑定，好在两个台上都生成同一件事物的报告
+    await bv(boss, 'PUT', '/synth-other/datasets/orders', { key: ['id'], columns: [{ name: 'id', type: 'integer', label: '单号' }, { name: 'day', type: 'date', label: '日期' }, { name: 'amount', type: 'decimal', label: '金额' }] });
+    await srv.call('POST', '/api/bench-views/synth-other/datasets/orders/rows?op=replace', { ...boss, raw: JSON.stringify([{ id: 7, day: '2026-11-05', amount: 70 }]) });
+    const ov = await bv(boss, 'PUT', '/synth-other/view', { doc: VIEW, base: 0, note: '合成' });
+    const ob = await bv(boss, 'PUT', '/synth-other/reports/monthly/binding', { base: 0, slots: BINDING });
+    const rA = await gen(boss, G({ subject: SUBJ }));
+    const rB = await bv(boss, 'POST', '/synth-other/reports', G({ subject: SUBJ, claims: [{ kind: 'conclusion', text: '别的台的结论', basis: [{ slot: 'orders', key: [7] }] }] }));
+    // 第三个台登记了、从没开过台库：跨台读不能为了它顺手建库
+    const mkE = await bv(boss, 'POST', '', { slug: 'synth-empty', title: '合成空台' });
+    const emptyBefore = existsSync(storeFile('synth-empty'));
+    const all = await subj(boss);
+    const emptyAfter = existsSync(storeFile('synth-empty'));
+    const slugs = (r) => (r.json?.benches ?? []).map((x) => x.bench?.slug).sort();
+    check(ov.status === 200 && ob.status === 200 && rA.status === 201 && rB.status === 201 && mkE.status === 201
+        && all.status === 200 && JSON.stringify(slugs(all)) === JSON.stringify(['synth-orders', 'synth-other']) && all.json?.total === 2
+        && (all.json?.benches ?? []).every((x) => x.reports.length === 1 && x.reports[0].subject === SUBJ)
+        && emptyBefore === false && emptyAfter === false,
+      'S1 管理层：两个台上同一件事物的报告都列出（各一份，合计 2），带台名；登记了但没开过台库的台不列、也不被顺手建库',
+      { ov: ov.status, ob: [ob.status, ob.text?.slice(0, 120)], rA: rA.status, rB: [rB.status, rB.text?.slice(0, 120)], mkE: mkE.status, all: [all.status, slugs(all), all.json?.total], emptyBefore, emptyAfter });
+
+    // 反例（用例 16）：持 zeta 领域授予的人，只读得了绑到 zeta 的 synth-orders；synth-other（绑在 eta）上的报告不出现，份数也不出现
+    const ga = await activate({ principal: 'user:beta', role: 'area-member', scope: 'area:zeta' });
+    const bz = await bv(boss, 'PUT', '/synth-orders/binding', { department: 'zeta' });
+    const part = await subj(member);
+    const otherOnly = await subj(member, encodeURIComponent(SUBJ), '?limit=50');
+    const ub = await bv(boss, 'PUT', '/synth-orders/binding', { department: '' });
+    // 台解绑以后，这个人一个台都读不了：200、空清单、合计 0（不回 403，不暗示别处有）
+    const none = await subj(member);
+    const gid = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = 'area-member' AND status = 'active'").get()?.id;
+    const rv = await cli('POST', `/api/grants/${gid}/revoke`, { reason: '合成：S 用完收回' });
+    const leak = (r) => /synth-other|合成别的台|别的台的结论/.test(r.text ?? '');
+    check(ga && bz.status === 200 && part.status === 200 && JSON.stringify(slugs(part)) === JSON.stringify(['synth-orders']) && part.json?.total === 1
+        && !leak(part) && otherOnly.status === 200 && otherOnly.json?.total === 1 && !leak(otherOnly)
+        && ub.status === 200 && none.status === 200 && (none.json?.benches ?? []).length === 0 && none.json?.total === 0 && !leak(none) && rv.status === 200,
+      'S2 反例（用例 16）：持 zeta 领域授予的人只看到绑在 zeta 的台上那一份，合计 1；绑在别的领域的台上的报告、台名、份数都不出现。台解绑后一个台都读不了：200、空清单、合计 0',
+      { ga, bz: bz.status, part: [part.status, slugs(part), part.json?.total, leak(part)], otherOnly: [otherOnly.status, otherOnly.json?.total], ub: ub.status, none: [none.status, none.text?.slice(0, 120)], rv: rv.status });
+
+    // 预设 member（全公司范围，有取数、没有读报告）：也一个台都读不了
+    const gm = await activate({ principal: 'user:beta', role: 'member', scope: '*' });
+    const asMember = await subj(member);
+    const gmid = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = 'member' AND status = 'active'").get()?.id;
+    const rvm = await cli('POST', `/api/grants/${gmid}/revoke`, { reason: '合成：S 用完收回' });
+    // 认人：没登录 401、管理口令 403（台里是业务数据，管理口令看不了）、跨站 403；写错的事物 400；没有报告的事物 200 空
+    const anon = await srv.call('GET', `/api/report-subjects/${encodeURIComponent(SUBJ)}`, { headers: REMOTE });
+    const tok = await srv.call('GET', `/api/report-subjects/${encodeURIComponent(SUBJ)}`, { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } });
+    const cross = await srv.call('GET', `/api/report-subjects/${encodeURIComponent(SUBJ)}`, { headers: { ...REMOTE, 'sec-fetch-site': 'cross-site' }, session: P.boss });
+    const bad = await subj(boss, 'nope');
+    const badLimit = await subj(boss, encodeURIComponent(SUBJ), '?limit=x');
+    const miss = await subj(boss, encodeURIComponent('card:synth-nothing'));
+    check(gm && asMember.status === 200 && asMember.json?.total === 0 && !leak(asMember) && rvm.status === 200
+        && anon.status === 401 && !('benches' in (anon.json ?? {})) && tok.status === 403 && !('benches' in (tok.json ?? {})) && cross.status === 403
+        && bad.status === 400 && badLimit.status === 400 && miss.status === 200 && miss.json?.total === 0,
+      'S3 预设 member 读不了报告：空清单；没登录 401、管理口令 403、跨站 403，都不带清单；事物写错、limit 写错 400；没有报告的事物 200、合计 0',
+      { asMember: [asMember.status, asMember.json?.total], rvm: rvm.status, anon: anon.status, tok: tok.status, cross: cross.status, bad: bad.status, badLimit: badLimit.status, miss: [miss.status, miss.json?.total] });
   }
 
   console.log('N 名字取不到时给 null，不退回内部串（#965 y3）');
