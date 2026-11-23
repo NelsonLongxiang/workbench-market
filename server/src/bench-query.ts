@@ -30,7 +30,24 @@ export const BENCH_LIMITS = {
 } as const;
 
 export const NAME_RE = /^[a-z][a-z0-9_]{0,47}$/;
-export const COLUMN_TYPES: readonly BenchColumnType[] = ['text', 'integer', 'decimal', 'date', 'datetime', 'boolean'];
+export const COLUMN_TYPES: readonly BenchColumnType[] = ['text', 'integer', 'decimal', 'date', 'datetime', 'boolean', 'image'];
+
+/** 图片列（docs/image-step1.md）：格子里存图片链接，最长这么多个字符 */
+export const IMAGE_REF_CHARS = 2048;
+/** 格子里的值写法对不对（写入时核）：http(s) 完整链接，或图库内的相对路径（不以 / 开头、不含 .. 段、没有协议、没有反斜杠和空白） */
+export function imageRefOk(v: string): boolean {
+  if (!v || v.length > IMAGE_REF_CHARS || /[\s\u0000-\u001f\u007f\\]/.test(v)) return false;
+  if (/^https?:\/\//i.test(v)) {
+    try { const u = new URL(v); return (u.protocol === 'http:' || u.protocol === 'https:') && !!u.hostname && !u.username && !u.password; } catch { return false; }
+  }
+  if (v.startsWith('/') || /^[a-z][a-z0-9+.-]*:/i.test(v)) return false;
+  // 路径的每一段（解码后）都不能是 . 或 ..，也不能解码出 / 或 \（%2f、%5c 拐出前缀）
+  return v.split(/[?#]/)[0].split('/').every((seg) => {
+    let d: string;
+    try { d = decodeURIComponent(seg); } catch { return false; }
+    return d !== '.' && d !== '..' && !/[/\\]/.test(d);
+  });
+}
 
 /**
  * 列定义。values：这一列各个取值是什么意思（业务口径，比如 { ok: '正常', bad: '异常' }），由定义数据集的人写，dataset_list 原样给出；
@@ -105,6 +122,10 @@ export function coerceValue(type: BenchColumnType, v: unknown, lenient = false):
   if (type === 'text') {
     if (typeof v !== 'string') return { error: '须为文本' };
     if (v.length > BENCH_LIMITS.textChars) return { error: `文本超过 ${BENCH_LIMITS.textChars} 个字符` };
+    return { value: v };
+  }
+  if (type === 'image') {
+    if (typeof v !== 'string' || !imageRefOk(v)) return { error: '图片须为 http(s) 链接或图库内的相对路径（不以 / 开头、不含 ..），最长 ' + IMAGE_REF_CHARS + ' 个字符' };
     return { value: v };
   }
   if (type === 'integer') {
@@ -198,6 +219,7 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
     const op = typeof fo.op === 'string' ? OPS.get(fo.op) : undefined;
     if (!op) return invalid(`${at}：不认识的比较符 ${String(fo.op).slice(0, 40)}`);
     if (op === 'is_null' || op === 'not_null') { where.push(`${col} IS ${op === 'is_null' ? '' : 'NOT '}NULL`); return; }
+    if (c.type === 'image') invalid(`${at}：图片列只能判空（is_null、not_null），不能按值筛选`);
     // 取值：字面值，或 $名字 引用筛选栏
     let raw: unknown = op === 'in' && fo.values !== undefined ? fo.values : fo.value, fromParam = false;
     if (typeof raw === 'string' && raw.startsWith('$')) {
@@ -235,6 +257,7 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
   // 输出列：有分组或聚合就是聚合查询，否则是明细
   const group = strList(q.group, 'group', BENCH_LIMITS.columns).map((g) => colOf(g, 'group'));
   if (new Set(group.map((g) => g.name)).size !== group.length) invalid('group 里有重复的列');
+  for (const g of group) if (g.type === 'image') invalid(`group：图片列 ${g.name} 不能拿来分组`);
   const measuresRaw = q.measures === undefined ? [] : q.measures;
   if (!Array.isArray(measuresRaw) || measuresRaw.length > BENCH_LIMITS.measures) invalid(`measures 须为数组（最多 ${BENCH_LIMITS.measures} 项）`);
   const measures = measuresRaw as unknown[];
@@ -257,6 +280,7 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
       const c = colOf(mo.col, at), col = physCol(c.name);
       if ((fn === 'sum' || fn === 'avg') && c.type !== 'integer' && c.type !== 'decimal') invalid(`${at}：${fn} 只用于整数列和小数列`);
       if ((fn === 'min' || fn === 'max') && c.type === 'boolean') invalid(`${at}：${fn} 不用于布尔列`);
+      if (c.type === 'image' && fn !== 'count' && fn !== 'count_distinct') invalid(`${at}：图片列只能计数（count、count_distinct）`);
       const expr = fn === 'count' ? `COUNT(${col})` : fn === 'count_distinct' ? `COUNT(DISTINCT ${col})` : `${fn.toUpperCase()}(${col})`;
       const type: BenchColumnType = fn === 'count' || fn === 'count_distinct' ? 'integer' : fn === 'avg' ? 'decimal' : c.type;
       selects.push(`${expr} AS ${quoted(mo.as as string)}`);
@@ -286,7 +310,11 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
     if (aggregate) {
       if (!columns.some((c) => c.name === so.col)) invalid(`${at}：聚合查询只能按输出列排序，没有 ${String(so.col)}`);
       order.push(`${quoted(so.col as string)} ${dir} NULLS LAST`);
-    } else order.push(`${physCol(colOf(so.col, at).name)} ${dir} NULLS LAST`);
+    } else {
+      const c = colOf(so.col, at);
+      if (c.type === 'image') invalid(`${at}：图片列 ${c.name} 不能拿来排序`);
+      order.push(`${physCol(c.name)} ${dir} NULLS LAST`);
+    }
   });
   if (aggregate) for (const g of group) order.push(`${quoted(g.name)} ASC NULLS LAST`);
   else order.push('rid ASC');

@@ -69,6 +69,8 @@ const FIXTURES = {
   'knowledge-fake': { preload: join(HERE, 'knowledge-fake-preload.mjs'), env: {} },
   // 前端构建目录（web/dist）换成占位，内容每次都一样，不看本机有没有真的构建（scripts/web-dist-stub-preload.mjs）
   'web-dist-stub': { preload: join(HERE, 'web-dist-stub-preload.mjs'), env: { WM_REPLAY_ROOT: ROOT } },
+  // 本机回环上的假图库，只给固定字节；WM_IMAGE_GALLERY_BASE 指过去（scripts/image-fake-preload.mjs，docs/image-step1.md）
+  'image-fake': { preload: join(HERE, 'image-fake-preload.mjs'), env: {} },
 };
 /** seed_files 的路径：数据目录下的相对路径，每一段小写字母、数字、点、下划线、连字符，不以点开头（所以没有 .. 也没有隐藏文件） */
 const SEED_FILE_PATH = /^[a-z0-9_-][a-z0-9._-]*(?:\/[a-z0-9_-][a-z0-9._-]*)*$/;

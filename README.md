@@ -45,6 +45,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `MARKET_PUBLIC_URL`（对外基址·A2A 卡片与 MCP `skill_download` 下载链接用；生产建议设成 https 地址——没设时下载链接取请求主机，主机名不规范就不签发）
 - `A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）
 - `WM_BENCH_VIEWS`（数据视图的入口·缺省 `on`（未设即开；不需要时设 `off`，`/api/bench-views` 下的每条路由都直接回 404）：开着时开放给有管理层授予（范围「全部」）的登录账号，和在台所绑的部门上有已放行授予的人；只有普通员工授予的人读也不行，管理口令看不了台里的数据；其它值拒绝启动；见 [docs/data-views.md](docs/data-views.md)）
+- `WM_IMAGE_GALLERY_BASE`（图片的图库前缀·可不设；形如 `http://127.0.0.1:8090/`，要是 http(s)、以 `/` 结尾、不带账号口令和查询串，不合法拒绝启动。数据集的图片列里可以写图库内的相对路径，代取时拼在这个前缀后面；不设时只认完整的 http(s) 链接。浏览器不访问图库：图片一律经 `/api/bench-views/<台>/image` 由市场代取，判权同取数（能看这个台或能读它的报告）；不跟随跳转，单张 5 MB、10 秒、同时 8 个；只转出 PNG、JPEG、WebP、GIF；完整链接指向本机或内网地址时不取，图库那台主机除外。图库不要凭据，按属主决定只绑本机回环；见 [docs/image-support-design.md](docs/image-support-design.md)）
 - `WM_MCP_RESULT_LIMITS`（只给测试用：大结果给引用的阈值和期限，写成 `inline=<字节>,ttl=<毫秒>`；只在 `NODE_ENV=test` 时认，别的环境设了就拒绝启动。生产上固定是 64 KB、15 分钟）
 - `WM_TEST_SCHEMA_PAUSE_MS`（只给测试用：主库启动装视图时，在「核对定义」「删」「建」之间各停这么多毫秒；缺列补列（`addColumnIfMissing`）、只做一次的迁移（`migrateOnce`）在「事务里再核一次」和「补」之间也停这么久，0～5000，用来把多进程同时启动的竞态窗口撑大，见 `scripts/db-startup-race-test.mjs`；只在 `NODE_ENV=test` 时认，别的环境设了就拒绝启动。生产上不设，恒为 0）
 - `WM_TEST_SCHEMA_BARRIER`（只给测试用：写成 `<名字>@<进程数>@<绝对路径的目录>`，主库启动迁移走到标着这个名字的地方（现在只有 `teams`，那四张表的补列加回填）时，在目录里留一个以进程号为名的空文件，等目录里凑够这么多个再一起往下，最多等 10 秒；目录要写绝对路径、不能带 `..`、要已经存在，按软链展开以后的真实路径要是 `DATA_DIR` 下面的子目录（不能是 `DATA_DIR` 本身；不认系统临时目录；`DATA_DIR` 自己是 `/` 或只有一层的根也不收），不满足的读配置时就拒绝启动；多个进程同时启动时用来让它们一起进同一段迁移，见 `scripts/db-startup-race-test.mjs`；只在 `NODE_ENV=test` 时认，别的环境设了就拒绝启动。生产上不设）
@@ -381,6 +382,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   bench-query.ts（数据视图的查询描述：台的作者和 agent 不写 SQL，只给筛选、分组、聚合、排序、行数上限；这里核对并翻成参数化语句·名字只认白名单且必须已定义·值全走参数·见 docs/data-views.md）
   bench-views.ts（数据视图的视图描述：保存前核对组件类型、键、引用的数据集和列、查询、筛选栏参数；两个版本之间的差异·第一批八种组件）
   bench-table.ts（原生表格上下文校验与 CSV 编码：完整匹配导出、版本修订和公式形文本转义）
+  bench-image.ts（图片代取：格子里的链接还原成地址〔图库相对路径拼 WM_IMAGE_GALLERY_BASE〕·完整链接指向本机、内网时不取〔图库主机除外〕，解析一次就钉住地址·只发 GET、不带读者的请求头、不跟随跳转、5 MB、10 秒、同时 8 个·只转出四种位图·进程内缓存 5 分钟；判权在路由里先做）
   bench-bindings.ts（视图显式引用本台常量变量的纯校验与数值解析；不执行表达式、不读库、不枚举空间）
   config.ts（配置的落点：模块自己的 Config，defineConfig 声明认哪些环境变量、怎么解析，启动时取一次；服务类插件写成 static Config，由 Cordis 装插件时校验）
   admin-token-env.ts（启动环境给的管理口令 ADMIN_TOKEN：启动时取一次、全进程只认这一份；对外只给有没有、常量时间比对、登录门指纹三样，口令本身不出模块。index.ts 的口令校验、a2a.ts、管理口令路由都经它）
