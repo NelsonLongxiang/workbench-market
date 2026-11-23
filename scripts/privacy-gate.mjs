@@ -22,9 +22,10 @@ function scanText(name, text, hits) {
 }
 
 export function selftest() {
+  // 阳性只用网段内的 .0 / .1，不写具体主机，避免把真实机器地址提交进公开仓。
   const positives = [
-    ['lan', 'http://192.168.3.156:9800/x'],
-    ['lan29', 'bridge at 192.168.29.136'],
+    ['lan', 'http://192.168.3.1:9800/x'],
+    ['lan29', 'bridge at 192.168.29.0'],
     ['redis', 'redis://:secret123@127.0.0.1:6379'],
     ['pem', '-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----'],
   ];
