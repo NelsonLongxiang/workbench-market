@@ -2,6 +2,7 @@
 import { randomBytes } from 'node:crypto';
 import { request, type IncomingMessage, type Server } from 'node:http';
 import type { RequestHandler } from 'express';
+import { marketPublicOrigin } from './surfaces.ts';
 
 const internalRequests = new WeakSet<IncomingMessage>();
 export const isStartupProbeRequest = (req: IncomingMessage): boolean => internalRequests.has(req);
@@ -86,6 +87,9 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
   async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, portalForward, portalSessionStrip, outbound, sessionSeal, sessionRenewal, sessionLegacyTtl = false, appendOnly }: Options): Promise<State> {
     const [m, c] = await Promise.all([listener(market), listener(control)]);
     if (c) c.surface = 'control';
+    const publicOrigin = marketPublicOrigin();
+    const benchDecision = { target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/mcp-requests/0', body: '{}' };
+    const publicHeaders = publicOrigin ? { ...REMOTE_ANON, host: new URL(publicOrigin).host, 'sec-fetch-site': 'same-origin' } : null;
     const table = [
       { id: 'market.mcp.initialize', target: m, surface: 'market', method: 'POST', path: '/mcp', body: '{"jsonrpc":"2.0","id":1,"method":"initialize"}', status: 401, bearer: true, mcp: true },
       { id: 'market.mcp.tools-list', target: m, surface: 'market', method: 'POST', path: '/mcp', body: '{"jsonrpc":"2.0","id":2,"method":"tools/list"}', status: 401, mcp: true },
@@ -142,6 +146,10 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       { id: 'market.departments.write-closed', target: m, surface: 'market', method: 'DELETE', path: '/api/departments/wm-self-probe', status: 410 },
       // 数据视图的入口（WM_BENCH_VIEWS=on 才有这三行；关着时整组路由回 404，由 scripts/bench-views-entry-test.mjs 看）：
       // 远程匿名读不到台的清单、也登记不了台（登录门开不开都是 401：登录门先拦，或者路由自己认不出人）
+      ...(benchViews && publicHeaders && publicOrigin ? [
+        { ...benchDecision, id: 'market.bench-mcp.public-origin-anonymous', headers: { ...publicHeaders, origin: publicOrigin }, status: 401 },
+        { ...benchDecision, id: 'market.bench-mcp.other-origin-anonymous', headers: { ...publicHeaders, origin: 'null' }, status: loginGate === 'enforce' ? 401 : 403 },
+      ] : []),
       ...(benchViews ? [
         { id: 'market.bench-views.anonymous-read', target: m, surface: 'market' as const, method: 'GET', path: '/api/bench-views', headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.var-render-anonymous', target: m, surface: 'market' as const, method: 'GET', path: '/api/bench-views/wm-self-probe/render?var=wm-self-probe', headers: REMOTE_ANON, status: 401 },

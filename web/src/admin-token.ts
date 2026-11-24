@@ -1,7 +1,7 @@
 /**
  * 全局管理员口令（监督席 direct-92be192a 用户报障二连环）：
  * 一处输入（任意页顶栏钥匙图标）· sessionStorage 会话级 · 全页面写请求自动携带。
- * 401/403 统一引导弹窗输入，不再裸报错。
+ * 管理认证失败引导输入；具名的来源拒绝或台授权错误保留各自的提示。
  */
 let cached: string | null = null;
 
@@ -88,7 +88,14 @@ export function redirectToLogin(): void {
   window.location.assign(here === '/' ? '/login' : `/login?next=${encodeURIComponent(here)}`);
 }
 
-/** 统一 API 包装：写请求自动附 X-Admin-Token；登录门 401 去登录页；其余 401/403 抛引导性错误（前端可捕获弹输入框）。 */
+export function crossOriginError(body: unknown): string | null {
+  const code = (body as { error?: unknown } | null)?.error;
+  return typeof code === 'string' && /^[a-z_]+_cross_origin_denied$/.test(code)
+    ? '请求来源校验未通过。请从市场的正式地址打开页面后重试。'
+    : null;
+}
+
+/** 统一 API 包装：写请求自动附 X-Admin-Token；登录门 401 去登录页。 */
 export async function apiFetch(url: string, init: RequestInit = {}): Promise<Response> {
   const token = getAdminToken();
   const headers = new Headers(init.headers ?? {});
@@ -100,6 +107,15 @@ export async function apiFetch(url: string, init: RequestInit = {}): Promise<Res
     throw new Error('需要登录：正在前往登录页');
   }
   if ((r.status === 401 || r.status === 403) && url.startsWith('/api/')) {
+    if (r.status === 403) {
+      const body = await r.json().catch(() => null);
+      const originError = crossOriginError(body);
+      if (originError) throw new Error(originError);
+      if (/^\/api\/bench-views\/[^/]+\/mcp-requests\/\d+$/.test(url)) {
+        if (body?.error === 'bench_views_forbidden') throw new Error('你没有权限办理这个台的 MCP 授权。');
+        if (body?.error === 'bench_views_admin_token_denied') throw new Error('台的 MCP 授权需要个人账号。请清除顶栏管理口令后重试。');
+      }
+    }
     const err = new Error('需要管理员：请在顶栏输入管理员口令，或用有管理员授予的站内账号登录') as Error & { needAdminToken?: boolean };
     err.needAdminToken = true;
     throw err;

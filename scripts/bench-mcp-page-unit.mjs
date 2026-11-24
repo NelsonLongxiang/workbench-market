@@ -17,6 +17,7 @@ ok('驳回必须写理由（空白不算）；批准可以不写；最多 500 �
 ok('没成的说法：400、404、409 照服务端说，它没说给一句默认的；401、403、断网各一句；500 不透露原文',
   mcpError(409, { message: '申请 #3 已经批准过了' }) === '申请 #3 已经批准过了' && mcpError(409, null).includes('刷新') && mcpError(404, { message: '这个台上没有申请 #9' }).includes('#9') && mcpError(404, {}).includes('没有')
   && mcpError(400, { message: '不批要写理由' }) === '不批要写理由' && mcpError(401, null) === '请先登录' && mcpError(403, { message: 'x' }).includes('拍板') && mcpError(0, null).includes('连不上') && mcpError(500, { message: 'SQLITE raw' }) === '这次没成，稍后再试');
+ok('台的授权页区分来源被拒和拍板权限不足', mcpError(403, { error: 'bench_views_cross_origin_denied' }).includes('请求来源') && mcpError(403, { error: 'bench_views_forbidden' }).includes('拍板'));
 const page = { bench: { slug: 'synth', title: '合成台', workbench_id: 3 }, grants: [], requests: [], log: [], can: { decide: true } };
 ok('管理页应答：像样的照收（旧应答没有 unmatched 当空的）；can.decide 只认 true', asMcpPage(page)?.unmatched.length === 0 && asMcpPage(page)?.can.decide === true && asMcpPage({ ...page, can: { decide: 'yes' } })?.can.decide === false && asMcpPage({ ...page, can: undefined })?.can.decide === false);
 ok('管理页应答不像样（缺台、缺清单、不是对象）：当读取出错，不显示成「没有申请」', asMcpPage(null) === null && asMcpPage({ ...page, bench: undefined }) === null && asMcpPage({ ...page, requests: undefined }) === null && asMcpPage({ ...page, log: 'x' }) === null && asMcpPage('x') === null);
