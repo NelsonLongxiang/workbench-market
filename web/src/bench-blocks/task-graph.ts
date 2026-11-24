@@ -598,3 +598,10 @@ export function applyGanttOption(chart: GanttChart, option: GanttChartOption): v
   const next = w && option.dataZoom.length ? { ...option, dataZoom: option.dataZoom.map((d, i) => (i === 0 ? { ...d, startValue: w.start, endValue: w.end } : d)) } : option;
   chart.setOption(next, true);
 }
+
+/** 流程图、依赖图里一个节点画成什么：起点、终点、支线终点圆角；形状列写 decision 的画成菱形（判断）；其余矩形（步骤）。形状列不认识的值按步骤画 */
+export function nodeSymbol(n: Pick<GNode, 'role' | 'row'>, shapeCol?: string): 'roundRect' | 'diamond' | 'rect' {
+  if (n.role === 'start' || n.role === 'end' || n.role === 'branch_end') return 'roundRect';
+  if (shapeCol && strOf(n.row?.[shapeCol]).trim() === 'decision') return 'diamond';
+  return 'rect';
+}

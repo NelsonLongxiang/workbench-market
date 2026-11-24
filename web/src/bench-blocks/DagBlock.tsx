@@ -8,10 +8,12 @@ import { Alert, Button, Descriptions, Drawer, Segmented, Table } from 'antd';
 import { DESIGN_TOKENS as T } from '../design-tokens';
 import { BlockFrame, type BlockFrameProps } from './Frame';
 import { valueLabel } from './blocks-view';
-import { buildGraph, changedNodes, graphEdgeKey, graphHighlight, graphTableRows, layoutGraph, type Diagnostic, type GraphModel, type GraphSpec, type GNode } from './task-graph';
+import { buildGraph, nodeSymbol, changedNodes, graphEdgeKey, graphHighlight, graphTableRows, layoutGraph, type Diagnostic, type GraphModel, type GraphSpec, type GNode } from './task-graph';
 
 export interface DagBlockProps extends BlockFrameProps {
-  spec: Omit<GraphSpec, 'kind'> & { detail_cols?: string[]; direction?: 'LR' | 'TB' };
+  spec: Omit<GraphSpec, 'kind'> & { detail_cols?: string[]; direction?: 'LR' | 'TB'; shape_col?: string };
+  /** 依赖图 dag（缺省，有环整块不画）或流程图 flow（允许循环，回边画弯线，判断画菱形） */
+  kind?: 'dag' | 'flow';
   graphMeta?: { filtered?: boolean } | null;
   valueLabels?: unknown;
 }
@@ -93,9 +95,9 @@ function GraphCanvas({ option, onPick, onHover, label }: { option: Record<string
 /** 刚刚变了的任务描边多久 */
 export const FLASH_MS = 3000;
 
-export function DagBlock({ spec, graphMeta, valueLabels, ...frame }: DagBlockProps) {
+export function DagBlock({ spec, graphMeta, valueLabels, kind = 'dag', ...frame }: DagBlockProps) {
   const rows = useMemo(() => (frame.data?.rows ?? []) as Record<string, unknown>[], [frame.data]);
-  const model = useMemo(() => buildGraph(rows, { ...spec, kind: 'dag' }, { filtered: !!graphMeta?.filtered, truncated: !!frame.data?.truncated }), [rows, spec, graphMeta, frame.data]);
+  const model = useMemo(() => buildGraph(rows, { ...spec, kind }, { filtered: !!graphMeta?.filtered, truncated: !!frame.data?.truncated }), [rows, spec, kind, graphMeta, frame.data]);
   const lay = useMemo(() => (model.blocked ? null : layoutGraph(model, spec.direction ?? 'LR')), [model, spec.direction]);
   const [mode, setMode] = useState<'graph' | 'table'>('graph');
   const [open, setOpen] = useState<string | null>(null);
@@ -128,8 +130,8 @@ export function DagBlock({ spec, graphMeta, valueLabels, ...frame }: DagBlockPro
     const node = (n: GNode) => {
       const p = lay.placed.get(n.id)!;
       const color = nodeColor(n, model, valueLabels, spec.status_col);
-      return { id: n.id, name: n.placeholder ? `${n.placeholder === 'missing' ? '缺失' : '范围外'}：${n.id}` : n.label, x: p.x, y: p.y, symbol: n.role === 'start' || n.role === 'end' || n.role === 'branch_end' ? 'roundRect' : 'rect',
-        symbolSize: [150, 40], itemStyle: { color: T.colors.surface, borderColor: model.red.has(n.id) ? T.colors.danger : color, borderWidth: flash.has(n.id) ? 4 : model.red.has(n.id) || n.role ? 3 : 2, shadowBlur: flash.has(n.id) ? 12 : 0, shadowColor: T.colors.primary, borderType: n.placeholder ? 'dashed' : 'solid', opacity: highlight && !highlight.nodes.has(n.id) ? 0.25 : 1 },
+      return { id: n.id, name: n.placeholder ? `${n.placeholder === 'missing' ? '缺失' : '范围外'}：${n.id}` : n.label, x: p.x, y: p.y, symbol: nodeSymbol(n, spec.shape_col),
+        symbolSize: nodeSymbol(n, spec.shape_col) === 'diamond' ? [170, 64] : [150, 40], itemStyle: { color: T.colors.surface, borderColor: model.red.has(n.id) ? T.colors.danger : color, borderWidth: flash.has(n.id) ? 4 : model.red.has(n.id) || n.role ? 3 : 2, shadowBlur: flash.has(n.id) ? 12 : 0, shadowColor: T.colors.primary, borderType: n.placeholder ? 'dashed' : 'solid', opacity: highlight && !highlight.nodes.has(n.id) ? 0.25 : 1 },
         label: { show: true, color: T.colors.text, fontSize: parseInt(T.typography.caption.fontSize, 10), formatter: n.progress === null ? '{b}' : `{b}\n${n.progress}%` } };
     };
     return {
@@ -141,7 +143,7 @@ export function DagBlock({ spec, graphMeta, valueLabels, ...frame }: DagBlockPro
           return { source: e.from, target: e.to,
             lineStyle: { color: selected ? T.colors.primary : T.colors['border-strong'], width: selected ? 2 : 1,
               opacity: highlight && !selected ? 0.2 : 1, type: e.kind === 'opt' ? 'dashed' : 'solid', curveness: e.back ? 0.3 : 0 },
-            ...(e.label ? { label: { show: true, formatter: e.label } } : {}) };
+            ...(e.label ? { label: { show: true, formatter: e.label, color: T.colors['text-secondary'], fontSize: parseInt(T.typography.caption.fontSize, 10) } } : {}) };
         }) }],
     };
   }, [lay, model, valueLabels, spec.status_col, highlight, flash]);
@@ -153,7 +155,7 @@ export function DagBlock({ spec, graphMeta, valueLabels, ...frame }: DagBlockPro
   const summary = [`共 ${s.total} 个`, s.done !== null ? `完成 ${s.done}` : null, s.ready !== null ? `可开始 ${s.ready}` : null, s.waiting !== null ? `等前置 ${s.waiting}` : null,
     s.errors ? `出错 ${s.errors}` : null, s.rate !== null ? `完成率 ${Math.round(s.rate * 100)}%` : null, s.remaining !== null ? `到主线终点还差 ${s.remaining} 个` : null, s.note ?? null].filter(Boolean).join(' · ');
   return (
-    <BlockFrame {...frame} kind="dag" empty={frame.empty ?? '还没有任务'}
+    <BlockFrame {...frame} kind={kind} empty={frame.empty ?? '还没有任务'}
       extra={<Segmented size="small" value={mode} onChange={(v) => { setHover(null); setMode(v as 'graph' | 'table'); }} options={[{ label: '图', value: 'graph' }, { label: '表格', value: 'table' }]} />}>
       <div className={`wm-dag-summary${s.errors ? ' wm-dag-summary-bad' : ''}`} role="status" data-testid="dag-summary">{summary}</div>
       {s.branches.length > 0 && <div className="wm-dag-branches">{s.branches.map((b) => <span key={b.id}>支线 {b.id}：{b.done}/{b.size}</span>)}</div>}
@@ -162,7 +164,7 @@ export function DagBlock({ spec, graphMeta, valueLabels, ...frame }: DagBlockPro
       {mode === 'graph' ? (model.blocked
         ? <Alert type="error" showIcon data-testid="dag-cycle" message={diagnosticText(model.diagnostics.find((d) => d.code === 'cycle')!)} description="有环的依赖图画不出先后，请改依赖；也可以切到表格看。" />
         : <>
-          <GraphCanvas option={option} onPick={pickNode} onHover={(id) => setHover(id === null ? null : { model, id })} label={`任务依赖图：${summary}`} />
+          <GraphCanvas option={option} onPick={pickNode} onHover={(id) => setHover(id === null ? null : { model, id })} label={`${kind === 'flow' ? '流程图' : '任务依赖图'}：${summary}`} />
           <nav className="wm-dag-keys" aria-label="任务（按 Tab 逐个聚焦，回车看详情）">
             {model.nodes.filter((n) => !n.placeholder).map((n) => <Button key={n.id} size="small" type="text" onClick={() => pickNode(n.id)}>{n.label}</Button>)}
           </nav>

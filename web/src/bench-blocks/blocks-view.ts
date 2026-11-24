@@ -261,7 +261,7 @@ export function nowrapWidth(kind: CellKind, title: string, values: string[]): nu
 export function snapSpan(span: unknown, type: string): 3 | 4 | 6 | 12 {
   if (typeof span === 'number') return span <= 3 ? 3 : span <= 4 ? 4 : span <= 6 ? 6 : 12;
   if (type === 'stat' || type === 'progress') return 3;
-  if (type === 'table' || type === 'records' || type === 'filter-bar' || type === 'dag' || type === 'gantt') return 12;
+  if (type === 'table' || type === 'records' || type === 'filter-bar' || type === 'dag' || type === 'gantt' || type === 'flow') return 12;
   return 6;
 }
 
