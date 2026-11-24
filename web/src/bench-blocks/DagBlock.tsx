@@ -8,7 +8,7 @@ import { Alert, Button, Descriptions, Drawer, Segmented, Table } from 'antd';
 import { DESIGN_TOKENS as T } from '../design-tokens';
 import { BlockFrame, type BlockFrameProps } from './Frame';
 import { valueLabel } from './blocks-view';
-import { buildGraph, graphEdgeKey, graphHighlight, graphTableRows, layoutGraph, type Diagnostic, type GraphModel, type GraphSpec, type GNode } from './task-graph';
+import { buildGraph, changedNodes, graphEdgeKey, graphHighlight, graphTableRows, layoutGraph, type Diagnostic, type GraphModel, type GraphSpec, type GNode } from './task-graph';
 
 export interface DagBlockProps extends BlockFrameProps {
   spec: Omit<GraphSpec, 'kind'> & { detail_cols?: string[]; direction?: 'LR' | 'TB' };
@@ -90,6 +90,9 @@ function GraphCanvas({ option, onPick, onHover, label }: { option: Record<string
   return <div ref={el} className="wm-dag-canvas" role="img" aria-label={label} />;
 }
 
+/** 刚刚变了的任务描边多久 */
+export const FLASH_MS = 3000;
+
 export function DagBlock({ spec, graphMeta, valueLabels, ...frame }: DagBlockProps) {
   const rows = useMemo(() => (frame.data?.rows ?? []) as Record<string, unknown>[], [frame.data]);
   const model = useMemo(() => buildGraph(rows, { ...spec, kind: 'dag' }, { filtered: !!graphMeta?.filtered, truncated: !!frame.data?.truncated }), [rows, spec, graphMeta, frame.data]);
@@ -108,6 +111,17 @@ export function DagBlock({ spec, graphMeta, valueLabels, ...frame }: DagBlockPro
   const hoveredId = mode === 'graph' && hover?.model === model ? hover.id : null;
   const terminalId = terminal?.model === model ? terminal.id : null;
   const highlight = useMemo(() => graphHighlight(model, hoveredId, terminalId), [model, hoveredId, terminalId]);
+  // 实时刷新后状态或进度变了的任务，短暂描边 3 秒，让人看出「刚刚动了」（第一次画不算）
+  const prints = useRef<Map<string, string> | null>(null);
+  const [flash, setFlash] = useState<Set<string>>(() => new Set());
+  useEffect(() => {
+    const { fingerprints, changed } = changedNodes(prints.current, model);
+    prints.current = fingerprints;
+    if (!changed.size) return;
+    setFlash(changed);
+    const t = setTimeout(() => setFlash(new Set()), FLASH_MS);
+    return () => clearTimeout(t);
+  }, [model]);
   const labelOf = (col: string) => frame.data?.columns.find((c) => c.name === col)?.label || col;
   const option = useMemo(() => {
     if (!lay) return {};
@@ -115,7 +129,7 @@ export function DagBlock({ spec, graphMeta, valueLabels, ...frame }: DagBlockPro
       const p = lay.placed.get(n.id)!;
       const color = nodeColor(n, model, valueLabels, spec.status_col);
       return { id: n.id, name: n.placeholder ? `${n.placeholder === 'missing' ? '缺失' : '范围外'}：${n.id}` : n.label, x: p.x, y: p.y, symbol: n.role === 'start' || n.role === 'end' || n.role === 'branch_end' ? 'roundRect' : 'rect',
-        symbolSize: [150, 40], itemStyle: { color: T.colors.surface, borderColor: model.red.has(n.id) ? T.colors.danger : color, borderWidth: model.red.has(n.id) || n.role ? 3 : 2, borderType: n.placeholder ? 'dashed' : 'solid', opacity: highlight && !highlight.nodes.has(n.id) ? 0.25 : 1 },
+        symbolSize: [150, 40], itemStyle: { color: T.colors.surface, borderColor: model.red.has(n.id) ? T.colors.danger : color, borderWidth: flash.has(n.id) ? 4 : model.red.has(n.id) || n.role ? 3 : 2, shadowBlur: flash.has(n.id) ? 12 : 0, shadowColor: T.colors.primary, borderType: n.placeholder ? 'dashed' : 'solid', opacity: highlight && !highlight.nodes.has(n.id) ? 0.25 : 1 },
         label: { show: true, color: T.colors.text, fontSize: parseInt(T.typography.caption.fontSize, 10), formatter: n.progress === null ? '{b}' : `{b}\n${n.progress}%` } };
     };
     return {
@@ -130,7 +144,7 @@ export function DagBlock({ spec, graphMeta, valueLabels, ...frame }: DagBlockPro
             ...(e.label ? { label: { show: true, formatter: e.label } } : {}) };
         }) }],
     };
-  }, [lay, model, valueLabels, spec.status_col, highlight]);
+  }, [lay, model, valueLabels, spec.status_col, highlight, flash]);
   const table = useMemo(() => graphTableRows(model), [model]);
   const s = model.summary;
   const partial = partialText(model);

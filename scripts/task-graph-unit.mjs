@@ -170,5 +170,20 @@ console.log('页面组件源码');
   ok('图表库只多注册关系图', /GraphChart/.test(lite));
 }
 
+console.log('实时刷新后刚刚动了的任务');
+{
+  const m1 = g.buildGraph(chain, spec(), FULL);
+  const first = g.changedNodes(null, m1);
+  ok('第一次画：不算变化', first.changed.size === 0 && first.fingerprints.size === 4);
+  const m2 = g.buildGraph([...chain.map((r) => (r.id === 'B' ? { ...r, st: 'done' } : r)), { id: 'N', name: '新任务', deps: 'E', role: 'branch_end' }], spec(), FULL);
+  const second = g.changedNodes(first.fingerprints, m2);
+  ok('状态变了的算；没变的、新出现的不算', [...second.changed].join() === 'B', [...second.changed]);
+  const m3 = g.buildGraph(chain.map((r) => (r.id === 'A' ? { ...r, pct: 40 } : r)), spec({ progress_col: 'pct' }), FULL);
+  ok('进度变了也算', [...g.changedNodes(g.changedNodes(null, g.buildGraph(chain, spec({ progress_col: 'pct' }), FULL)).fingerprints, m3).changed].join() === 'A');
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const dag = read('../web/src/bench-blocks/DagBlock.tsx');
+  ok('页面：变了的任务描边，定时收回；描边颜色只取 token', /changedNodes\(prints\.current, model\)/.test(dag) && /setTimeout\(\(\) => setFlash\(new Set\(\)\), FLASH_MS\)/.test(dag) && /shadowColor: T\.colors\.primary/.test(dag));
+}
+
 console.log(`\ntask-graph-unit: ${pass} passed / ${fail} failed`);
 process.exit(fail ? 1 : 0);

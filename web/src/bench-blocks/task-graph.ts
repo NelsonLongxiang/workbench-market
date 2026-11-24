@@ -425,3 +425,18 @@ export function graphTableRows(model: GraphModel): { id: string; label: string; 
   return model.nodes.filter((n) => !n.placeholder).map((n) => ({ id: n.id, label: n.label, status: n.status ?? '', derived: derivedText[model.derived.get(n.id) ?? ''] ?? '',
     progress: n.progress === null ? '' : `${n.progress}%`, preds: (p.get(n.id) ?? []).join('、'), succs: (s.get(n.id) ?? []).join('、'), role: roleText[n.role] }));
 }
+
+/**
+ * 实时刷新后「刚刚动了」的任务（设计稿第五节之六第 4 条）：和上一次画的相比，状态或进度变了的任务。
+ * prev 为 null（第一次画）时不算变化；新出现的任务不算（它本来就没画过）。返回这一次的指纹，留给下一次比。
+ */
+export function changedNodes(prev: Map<string, string> | null, model: Pick<GraphModel, 'nodes'>): { fingerprints: Map<string, string>; changed: Set<string> } {
+  const fingerprints = new Map<string, string>(), changed = new Set<string>();
+  for (const n of model.nodes) {
+    if (n.placeholder) continue;
+    const fp = JSON.stringify([n.status, n.progress]);
+    fingerprints.set(n.id, fp);
+    if (prev && prev.has(n.id) && prev.get(n.id) !== fp) changed.add(n.id);
+  }
+  return { fingerprints, changed };
+}
