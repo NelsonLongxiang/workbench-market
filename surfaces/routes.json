@@ -91,6 +91,7 @@
       "GET /api/bench-views/:bench/view/diff  <- <anonymous>",
       "POST /api/bench-views/:bench/view/rollback  <- <anonymous>",
       "GET /api/bench-views/:bench/render  <- <anonymous>",
+      "GET /api/bench-views/:bench/image  <- <anonymous>",
       "POST /api/bench-views/:bench/table/export  <- <anonymous>",
       "POST /api/bench-views/:bench/table/row  <- <anonymous>",
       "POST /api/bench-views/:bench/form  <- <anonymous>",

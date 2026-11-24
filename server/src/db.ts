@@ -2462,7 +2462,7 @@ CREATE TRIGGER IF NOT EXISTS attention_answers_done_kept BEFORE DELETE ON attent
  */
 export const BENCH_STORE_SCHEMA_VERSION = 1;
 export type BenchDialect = 'sqlite' | 'postgres';
-export type BenchColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean';
+export type BenchColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean' | 'image';
 
 const benchAutoId = (d: BenchDialect) => (d === 'sqlite' ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY');
 /** 数据集的列在库里用什么类型存：日期和时间存成规范化的文本（可排序、两种库一样），布尔存 0/1 */
@@ -2616,7 +2616,7 @@ export type BenchSqlKit = {
   scanGuard: string | null;
 };
 export function benchSqlKit(d: BenchDialect): BenchSqlKit {
-  const types: BenchColumnType[] = ['text', 'integer', 'decimal', 'date', 'datetime', 'boolean'];
+  const types: BenchColumnType[] = ['text', 'integer', 'decimal', 'date', 'datetime', 'boolean', 'image'];
   return {
     dialect: d,
     schemaVersion: BENCH_STORE_SCHEMA_VERSION,

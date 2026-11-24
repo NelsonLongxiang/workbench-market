@@ -2074,7 +2074,7 @@ function loginUrl(_req: express.Request, returnPath: string): string {
 
 // ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合；路由在域模块里 ----------
 registerTaskRoutes(http, { wrap, adminGuard, adminHeaderOk, devOriginOk, loginUrl });
-registerBenchViewRoutes(http, { on: BENCH_VIEWS.on, wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
+registerBenchViewRoutes(http, { on: BENCH_VIEWS.on, imageGalleryBase: BENCH_VIEWS.imageGalleryBase, wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
 // 经验库（/knowledge 的接口）：只读；条目按看的人的授予逐条判，管理口令拒（services/knowledge.ts、routes/knowledge.ts）
 registerKnowledgeRoutes(http, { wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
 
