@@ -735,6 +735,10 @@ try {
     };
     const leaderGrant = await draftLead(alpha, 'user:leo');
     await draftLead(beta, 'user:bob');
+    const anotherLead = await draftBy(null, 'user:leo', 'area-lead', 'area:' + beta);
+    await A.cli('POST', '/api/grants/' + anotherLead.id + '/submit');
+    const secondLead = await A.cli('POST', '/api/grants/' + anotherLead.id + '/approve');
+    if (secondLead.status !== 200) throw Error('合成第二条负责人授予未生效：' + JSON.stringify(secondLead));
     const session = async (name, creator) => {
       const r = creator
         ? await creator.go('POST', '/api/mcp/sessions', { json: { name } })
@@ -784,11 +788,38 @@ try {
     check(visible.status === 200 && visible.json?.requests?.some(r => r.id === id) && hidden.status === 403 && Array.isArray(oldQueue.json) && !oldQueue.json.some(r => r.area_id === alpha),
       'E5 申请只列给本领域审批人，与旧管理员审批队列隔开', { v: visible.status, h: hidden.status, q: oldQueue.status });
     const beforeLimit = await decided(leo, id);
+    const otherLimitPath = '/api/areas/' + beta + '/access-limits/' + anotherLead.id;
+    const wrongLimit = await olga.go('PUT', '/api/areas/' + alpha + '/access-limits/' + anotherLead.id, { json: { actions: ['demo.read'] } });
+    const otherLimit = await olga.go('PUT', otherLimitPath, { json: { actions: ['demo.read'] } });
+    const notCovered = await decided(leo, id);
+    check(wrongLimit.status === 404 && wrongLimit.json?.code === 'area_access_grant_missing' && otherLimit.status === 200 &&
+      notCovered.status === 403 && notCovered.json?.code === 'area_access_above_limit',
+      'E16 双领域负责人不能把另一领域的授予或上限用在本领域', { wrongLimit, otherLimit, notCovered });
     const unauthorizedLimit = await leo.go('PUT', limitPath, { json: { actions: ['demo.read'] } });
     const wild = await olga.go('PUT', limitPath, { json: { actions: ['demo.*'] } });
     const limit = await olga.go('PUT', limitPath, { json: { actions: ['demo.read'] } });
     check(beforeLimit.status === 403 && beforeLimit.json?.code === 'area_access_above_limit' && unauthorizedLimit.status === 403 && wild.status === 400 && limit.status === 200,
       'E6 没有属主上限默认拒绝，负责人不能自设上限，属主只能列明确动作', { beforeLimit, unauthorizedLimit, wild, limit });
+    const betaRequest = await ask(guest, ['demo.read'], beta);
+    const betaId = idOf(betaRequest);
+    const crossApprove = await decided(leo, betaId, 'approve', alpha);
+    const crossReject = await decided(leo, betaId, 'reject', alpha);
+    const betaPending = await callTool(guest.token, 'access_info', { ref: 'area-' + betaId });
+    check(betaRequest.status === 200 && crossApprove.status === 404 && crossApprove.json?.code === 'area_access_request_missing' &&
+      crossReject.status === 404 && crossReject.json?.code === 'area_access_request_missing' && request(betaPending)?.status === 'pending',
+      'E17 本域批准和驳回均不能处理另一领域的申请编号', { crossApprove, crossReject, betaPending });
+
+    const retired = await olga.go('POST', '/api/areas/' + beta + '/retire', { json: { reason: '合成退役' } });
+    const retiredQueue = await olga.go('GET', accessPath(beta));
+    const retiredApprove = await decided(olga, betaId, 'approve', beta);
+    const retiredLeadApprove = await decided(leo, betaId, 'approve', beta);
+    const retiredPending = await callTool(guest.token, 'access_info', { ref: 'area-' + betaId });
+    check(retired.status === 200 && retired.json?.area?.status === 'retired' && retiredQueue.status === 403 && retiredApprove.status === 403 &&
+      retiredApprove.json?.code === 'area_access_approver_required' && retiredLeadApprove.status === 403 && request(retiredPending)?.status === 'pending',
+      'E18 领域撤销后，属主和原负责人均不能审批，原申请未变', { retired, retiredQueue, retiredApprove, retiredLeadApprove, retiredPending });
+    const retiredAsk = await ask(guest, ['demo.write'], beta);
+    check(retired.json?.area?.status === 'retired' && retiredAsk.status === 403 && retiredAsk.json?.code === 'area_access_unavailable',
+      'E19 可信会话不能向已撤领域提交新申请', retiredAsk);
     const own = await ask(leadSession, ['demo.read']);
     const self = await decided(leo, idOf(own));
     check(self.status === 403 && self.json?.code === 'area_access_self_approval', 'E7 同一责任人自批被拒，即便已获动作上限', self);
@@ -817,6 +848,15 @@ try {
     const ownerApproved = await decided(olga, idOf(remaining));
     check(nowDenied.status === 403 && ownerApproved.status === 200 && request(ownerApproved)?.status === 'approved', 'E11 审批时按最新上限，属主可代批', { nowDenied, ownerApproved });
     const stale = await ask(guest, ['demo.write']);
+    const disabled = await A.cli('POST', '/api/principals/disable', { id: 'user:tom', reason: '合成停用责任人' });
+    const disabledAsk = await ask(guest, ['demo.disable-check']);
+    const disabledApprove = await decided(olga, idOf(stale));
+    const restored = await A.cli('POST', '/api/principals/restore', { id: 'user:tom', reason: '合成恢复责任人' });
+    const restoredView = await callTool(guest.token, 'access_info', { ref: 'area-' + idOf(stale) });
+    check(disabled.status === 200 && disabledAsk.status === 403 && disabledAsk.json?.code === 'area_access_unbound_session' &&
+      disabledApprove.status === 403 && disabledApprove.json?.code === 'area_access_unbound_session' && restored.status === 200 &&
+      request(restoredView)?.status === 'pending', 'E20 只停用责任人即可阻止申请和批准，会话恢复后原申请仍待批',
+      { disabled, disabledAsk, disabledApprove, restored, restoredView });
     const revoked = await A.remote('DELETE', '/api/mcp/sessions/' + guest.id, { token: ADMIN_TOKEN });
     const afterRevocation = await decided(olga, idOf(stale));
     const dismissed = await decided(olga, idOf(stale), 'reject');

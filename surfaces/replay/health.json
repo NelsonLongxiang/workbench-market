@@ -24,7 +24,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9368", "etag": "W/\"2498-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9553", "etag": "W/\"2551-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -61,6 +61,7 @@
                   { "id": "market.areas.anonymous-create", "surface": "market", "method": "POST", "path": "/api/areas", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.areas.anonymous-spec-set", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/specs", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.areas.anonymous-read", "surface": "market", "method": "GET", "path": "/api/areas", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.area-access.anonymous-approve", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/access-requests/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-create", "surface": "market", "method": "POST", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-template-add", "surface": "market", "method": "POST", "path": "/api/report-dimensions/wm-self-probe/templates", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-read", "surface": "market", "method": "GET", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
@@ -115,7 +116,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "8823", "etag": "W/\"2277-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9008", "etag": "W/\"2330-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -152,6 +153,7 @@
                   { "id": "market.areas.anonymous-create", "surface": "market", "method": "POST", "path": "/api/areas", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.areas.anonymous-spec-set", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/specs", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.areas.anonymous-read", "surface": "market", "method": "GET", "path": "/api/areas", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.area-access.anonymous-approve", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/access-requests/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-create", "surface": "market", "method": "POST", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-template-add", "surface": "market", "method": "POST", "path": "/api/report-dimensions/wm-self-probe/templates", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-read", "surface": "market", "method": "GET", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
@@ -197,7 +199,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9368", "etag": "W/\"2498-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9553", "etag": "W/\"2551-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -234,6 +236,7 @@
                   { "id": "market.areas.anonymous-create", "surface": "market", "method": "POST", "path": "/api/areas", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.areas.anonymous-spec-set", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/specs", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.areas.anonymous-read", "surface": "market", "method": "GET", "path": "/api/areas", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.area-access.anonymous-approve", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/access-requests/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-create", "surface": "market", "method": "POST", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-template-add", "surface": "market", "method": "POST", "path": "/api/report-dimensions/wm-self-probe/templates", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-read", "surface": "market", "method": "GET", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
@@ -288,7 +291,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9667", "etag": "W/\"25c3-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9852", "etag": "W/\"267c-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -326,6 +329,7 @@
                   { "id": "market.areas.anonymous-create", "surface": "market", "method": "POST", "path": "/api/areas", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.areas.anonymous-spec-set", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/specs", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.areas.anonymous-read", "surface": "market", "method": "GET", "path": "/api/areas", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.area-access.anonymous-approve", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/access-requests/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-create", "surface": "market", "method": "POST", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-template-add", "surface": "market", "method": "POST", "path": "/api/report-dimensions/wm-self-probe/templates", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-read", "surface": "market", "method": "GET", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
@@ -382,7 +386,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "8938", "etag": "W/\"22ea-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9123", "etag": "W/\"23a3-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -420,6 +424,7 @@
                   { "id": "market.areas.anonymous-create", "surface": "market", "method": "POST", "path": "/api/areas", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.areas.anonymous-spec-set", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/specs", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.areas.anonymous-read", "surface": "market", "method": "GET", "path": "/api/areas", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.area-access.anonymous-approve", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/access-requests/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-create", "surface": "market", "method": "POST", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-template-add", "surface": "market", "method": "POST", "path": "/api/report-dimensions/wm-self-probe/templates", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-read", "surface": "market", "method": "GET", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
@@ -473,7 +478,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9368", "etag": "W/\"2498-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9553", "etag": "W/\"2551-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -510,6 +515,7 @@
                   { "id": "market.areas.anonymous-create", "surface": "market", "method": "POST", "path": "/api/areas", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.areas.anonymous-spec-set", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/specs", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.areas.anonymous-read", "surface": "market", "method": "GET", "path": "/api/areas", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.area-access.anonymous-approve", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/access-requests/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-create", "surface": "market", "method": "POST", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-template-add", "surface": "market", "method": "POST", "path": "/api/report-dimensions/wm-self-probe/templates", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-read", "surface": "market", "method": "GET", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
@@ -562,7 +568,7 @@
           "response": {
             "status": 503,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "8846", "etag": "W/\"228e-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9031", "etag": "W/\"2347-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": false,
               "service": "workbench-market-server",
@@ -599,6 +605,7 @@
                   { "id": "market.areas.anonymous-create", "surface": "market", "method": "POST", "path": "/api/areas", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.areas.anonymous-spec-set", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/specs", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.areas.anonymous-read", "surface": "market", "method": "GET", "path": "/api/areas", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.area-access.anonymous-approve", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/access-requests/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-create", "surface": "market", "method": "POST", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-template-add", "surface": "market", "method": "POST", "path": "/api/report-dimensions/wm-self-probe/templates", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-read", "surface": "market", "method": "GET", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
@@ -645,7 +652,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9390", "etag": "W/\"24ae-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9575", "etag": "W/\"2567-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -682,6 +689,7 @@
                   { "id": "market.areas.anonymous-create", "surface": "market", "method": "POST", "path": "/api/areas", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.areas.anonymous-spec-set", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/specs", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.areas.anonymous-read", "surface": "market", "method": "GET", "path": "/api/areas", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.area-access.anonymous-approve", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/access-requests/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-create", "surface": "market", "method": "POST", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-template-add", "surface": "market", "method": "POST", "path": "/api/report-dimensions/wm-self-probe/templates", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-read", "surface": "market", "method": "GET", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
@@ -744,7 +752,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10047", "etag": "W/\"273f-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10232", "etag": "W/\"27f8-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -781,6 +789,7 @@
                   { "id": "market.areas.anonymous-create", "surface": "market", "method": "POST", "path": "/api/areas", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.areas.anonymous-spec-set", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/specs", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.areas.anonymous-read", "surface": "market", "method": "GET", "path": "/api/areas", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.area-access.anonymous-approve", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/access-requests/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-create", "surface": "market", "method": "POST", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-template-add", "surface": "market", "method": "POST", "path": "/api/report-dimensions/wm-self-probe/templates", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-read", "surface": "market", "method": "GET", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
@@ -840,7 +849,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9487", "etag": "W/\"250f-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9672", "etag": "W/\"25c8-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -877,6 +886,7 @@
                   { "id": "market.areas.anonymous-create", "surface": "market", "method": "POST", "path": "/api/areas", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.areas.anonymous-spec-set", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/specs", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.areas.anonymous-read", "surface": "market", "method": "GET", "path": "/api/areas", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.area-access.anonymous-approve", "surface": "market", "method": "POST", "path": "/api/areas/wm-self-probe/access-requests/1/approve", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-create", "surface": "market", "method": "POST", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-template-add", "surface": "market", "method": "POST", "path": "/api/report-dimensions/wm-self-probe/templates", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-dimensions.anonymous-read", "surface": "market", "method": "GET", "path": "/api/report-dimensions", "verdict": "pass", "status": 401, "reason": null },
