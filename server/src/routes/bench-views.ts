@@ -411,6 +411,20 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
       res.json({ ...out, blocks: (out.blocks ?? []).map((b) => (b?.type === 'form' ? { ...b, can_submit: canSubmit } : b)) });
     } catch (e) { fail(res, e); }
   }));
+  // 变更游标（docs/task-graph-step1.md 第五节之六）：页面可见时轮询它，变了才重新取数。几十字节，不带任何数据。
+  // 顺序照取数：先判 render 权（任何台库读取之前），台没登记判过权才 404，最后同步核绑定再回应。不收任何查询参数。
+  app.get('/api/bench-views/:bench/changes', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const bench = getBench(req.params.bench);
+    const actor = await allowActor(req, res, 'bench-store.render', bench);
+    if (!actor) return;
+    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
+    if (Object.keys(req.query).length) return res.status(400).json({ error: 'invalid', message: '变更游标不收查询参数' });
+    try {
+      const out = await (await benchStore(bench.slug)).changeCursor();
+      assertBenchBinding(bench); // Last synchronous gate: nothing may await between this and res.json.
+      res.json(out); // Cache-Control: private, no-store 由 who() 统一设
+    } catch (e) { fail(res, e); }
+  }));
   // 图片代取（docs/image-step1.md 第四节）：浏览器不访问图库，由市场取了再给。
   // 属主 2026-11-23 定 Q9 按引用判：来源是这个台的一份视图（view、version、p.* 照渲染时的写法），读者能读它（render），
   // 照这组参数渲染出来确实有这条链接（image 列）——三条都满足才放行；任何一条不满足同一个 403，不发外部请求，缓存命中也照判。

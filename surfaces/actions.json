@@ -77,6 +77,7 @@
       "GET /api/bench-views/:bench/view/diff  -> bench-store.view-diff  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "POST /api/bench-views/:bench/view/rollback  -> bench-store.view-rollback  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "GET /api/bench-views/:bench/render  -> bench-store.render  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "GET /api/bench-views/:bench/changes  -> bench-store.render  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "GET /api/bench-views/:bench/image  -> bench-store.render  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "POST /api/bench-views/:bench/table/export  -> bench-store.render  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "POST /api/bench-views/:bench/table/row  -> bench-store.render  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",

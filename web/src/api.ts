@@ -403,6 +403,15 @@ export async function getBenchView(ref: { bench: string; view: string }, params:
   } catch { return { status: 0, body: null }; }
 }
 
+/** 数据视图的变更游标（实时刷新轮询用）：状态码 + 游标；断网当状态码 0 */
+export async function getBenchChanges(bench: string): Promise<{ status: number; cursor: string | null; error?: string }> {
+  try {
+    const r = await fetch(`/api/bench-views/${encodeURIComponent(bench)}/changes`, { credentials: 'same-origin', headers: { Accept: 'application/json' }, cache: 'no-store' });
+    const body = await r.json().catch(() => null) as { cursor?: unknown; error?: string } | null;
+    return { status: r.status, cursor: r.ok && typeof body?.cursor === 'string' ? body.cursor : null, error: typeof body?.error === 'string' ? body.error : undefined };
+  } catch { return { status: 0, cursor: null }; }
+}
+
 /** 数据视图的两个只读入口（往驾驶舱里挂视图时选台、选视图用）：带登录的 cookie，不带管理口令。
  *  返回状态码和应答体（出错时应答体里有 error 代号），让页面给说法；断网当状态码 0 */
 async function benchViewsGet(path: string): Promise<{ status: number; body: unknown }> {
