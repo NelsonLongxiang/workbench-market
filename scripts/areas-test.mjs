@@ -989,16 +989,22 @@ try {
       const readCap = 'fixture-domain.read', proposeCap = 'fixture-domain.propose';
       await A.cli('POST', '/api/roles/guest/copy', { id: 'fixture-cap-caller', name: '合成能力调用人' });
       const role = await A.cli('PUT', '/api/roles/fixture-cap-caller', { permissions: [{ actions: [readCap, proposeCap] }] });
-      const personGrant = await draftBy(null, 'user:tom', 'fixture-cap-caller', 'area:' + alpha);
-      await A.cli('POST', '/api/grants/' + personGrant.id + '/submit');
-      const personApprove = await A.cli('POST', '/api/grants/' + personGrant.id + '/approve');
-      if (role.status !== 200 || personApprove.status !== 200) {
-        throw Error('能力测试角色或账户授予准备失败：' + JSON.stringify({ role, personGrant, personApprove }));
-      }
+      const grantCapabilities = async principal => {
+        const draft = await draftBy(null, principal, 'fixture-cap-caller', 'area:' + alpha);
+        const submitted = await A.cli('POST', '/api/grants/' + draft.id + '/submit');
+        const approved = await A.cli('POST', '/api/grants/' + draft.id + '/approve');
+        if (role.status !== 200 || submitted.status !== 200 || approved.status !== 200) {
+          throw Error('能力测试角色或账户授予准备失败：' + JSON.stringify({ role, draft, submitted, approved }));
+        }
+        return draft;
+      };
+      const personGrant = await grantCapabilities('user:tom');
+      await grantCapabilities('user:nina');
       const bearer = { authorization: 'Bearer ' + unbound.token };
-      const invoke = (target, args) => A.remote('POST', '/mcp', { headers: bearer, json: {
-        jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'invoke', arguments: { target, args } },
+      const rpcTool = (name, args, headers = bearer) => A.remote('POST', '/mcp', { headers, json: {
+        jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args },
       } });
+      const invoke = (target, args) => rpcTool('invoke', { target, args });
       const restCap = (target, json, headers = bearer) => A.remote('POST', '/api/mcp-rest/capabilities/' + target, { headers, json });
       const rpcResult = r => JSON.parse(r.json?.result?.content?.[0]?.text ?? '{}');
       const list = await A.remote('POST', '/mcp', { headers: bearer, json: { jsonrpc: '2.0', id: 1, method: 'tools/list' } });
@@ -1032,6 +1038,71 @@ try {
         rpcResult(pending).status === 'pending' && audit.some(x => x.tool === readCap && x.channel === 'mcp-invoke') &&
         audit.some(x => x.tool === readCap && x.channel === 'rest') && audit.every(x => x.tool !== 'invoke'),
         'G4 内部动作与注入字段拒绝，决定只回 pending，审计按真实目标记', { irrelevant, forged, noText, pending, audit });
+      const typed = { text: 'x'.repeat(4096), count: 7, enabled: false };
+      const validTyped = await restCap(readCap, typed);
+      const beforeInvalid = await restCap(readCap, { text: 'calls' });
+      const invalidCases = [
+        ['string object', { ...typed, text: {} }],
+        ['integer array', { ...typed, count: [] }],
+        ['boolean array', { ...typed, enabled: [] }],
+        ['fraction', { ...typed, count: 1.5 }],
+        ['overlong string', { ...typed, text: 'x'.repeat(4097) }],
+      ];
+      const badArgs = [];
+      for (const [label, args] of invalidCases) {
+        const rest = await restCap(readCap, args);
+        const mcp = await invoke(readCap, args);
+        const mcpError = mcp.json?.result;
+        badArgs.push({ label, rest: rest.status, code: rest.json?.code, mcpRejected: mcpError?.isError === true &&
+          mcpError.content?.[0]?.text.endsWith(JSON.stringify({ status: 400, code: 'capability_args_invalid' })) });
+      }
+      const afterInvalid = await restCap(readCap, { text: 'calls' });
+      check(validTyped.status === 200 && validTyped.json?.text?.length === 4096 && validTyped.json?.count === 7 && validTyped.json?.enabled === false &&
+        typeof beforeInvalid.json?.calls === 'number' && afterInvalid.json?.calls === beforeInvalid.json.calls &&
+        badArgs.every(x => x.rest === 400 && x.code === 'capability_args_invalid' && x.mcpRejected),
+        'G6 严格参数类型、整数和长度在两渠道校验，错误不调用处理器', { badArgs, before: beforeInvalid.json, after: afterInvalid.json });
+
+      const restDone = await restCap(proposeCap, { outcome: 'done' });
+      const mcpDone = await invoke(proposeCap, { outcome: 'done' });
+      check(restDone.status === 500 && mcpDone.json?.result?.isError === true,
+        'G7 决定类处理器回非 pending 时两渠道均拒绝', { restDone, mcpDone });
+      const restExtra = await restCap(proposeCap, { outcome: 'extra' });
+      const mcpExtra = await invoke(proposeCap, { outcome: 'extra' });
+      const pendingOnly = value => Object.keys(value ?? {}).sort().join() === 'id,status' && /^p-[1-9][0-9]*$/.test(value.id) && value.status === 'pending';
+      check(restExtra.status === 200 && pendingOnly(restExtra.json) && mcpExtra.json?.result?.isError !== true && pendingOnly(rpcResult(mcpExtra)),
+        'G8 待确认提案在两渠道只投影编号与状态，丢弃处理器额外字段', { restExtra, mcpExtra });
+
+      // 沿用上面以真实名册签发并改派过的令牌，给改派前后两人分别正式批准。
+      const authorizeSeat = async () => {
+        const applied = await ask(seatSession, [readCap]);
+        const approved = await decided(olga, idOf(applied));
+        if (applied.status !== 200 || approved.status !== 200) throw Error('席位引用隔离测试未取得接入批准');
+      };
+      const seatBearer = { authorization: 'Bearer ' + seatSession.token };
+      const readSeatRef = id => A.remote('GET', '/api/mcp-rest/results/' + id, { headers: seatBearer });
+      const readSeatSegment = id => rpcTool('result_read', { id }, seatBearer);
+      await authorizeSeat();
+      const previous = await restCap(readCap, { text: 'large' }, seatBearer);
+      const previousId = previous.json?.result_ref?.id;
+      if (!previousId) throw Error('预期旧责任人通过调用取得大结果引用');
+      const oldRest = await readSeatRef(previousId);
+      const oldMcp = await readSeatSegment(previousId);
+      assign('user:tom');
+      await authorizeSeat();
+      const current = await restCap(readCap, { text: 'large' }, seatBearer);
+      const currentId = current.json?.result_ref?.id;
+      if (!currentId) throw Error('预期新责任人通过调用取得自己的大结果引用');
+      const newRest = await readSeatRef(currentId);
+      const newMcp = await readSeatSegment(currentId);
+      const deniedPreviousRest = await readSeatRef(previousId);
+      const deniedPreviousMcp = await readSeatSegment(previousId);
+      check(oldRest.status === 200 && oldRest.json?.principal === 'user:nina' && rpcResult(oldMcp).id === previousId &&
+        newRest.status === 200 && newRest.json?.principal === 'user:tom' && rpcResult(newMcp).id === currentId &&
+        deniedPreviousRest.status === 403 && deniedPreviousMcp.json?.result?.isError === true,
+        'G9 已获批准的新责任人可读自己的新引用，但 REST 和 result_read 均拒绝其读取前任引用',
+        { old: oldRest.status, current: newRest.status, denied: deniedPreviousRest.status, deniedPreviousMcp });
+      assign('user:nina');
+
       const big = await restCap(readCap, { text: 'large' });
       const ref = big.json?.result_ref?.id;
       const fetchRef = () => A.remote('GET', '/api/mcp-rest/results/' + ref, { headers: bearer });
