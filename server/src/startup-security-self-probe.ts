@@ -136,6 +136,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 定规范经写请求总门放行、路由内认人（持 area-spec 的人多半不是管理员）：远程匿名来必须 401
       { id: 'market.areas.anonymous-spec-set', target: m, surface: 'market', method: 'POST', path: '/api/areas/wm-self-probe/specs', body: '{"body":"x"}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.areas.anonymous-read', target: m, surface: 'market', method: 'GET', path: '/api/areas', headers: REMOTE_ANON, status: 401 },
+      { id: 'market.area-access.anonymous-approve', target: m, surface: 'market', method: 'POST', path: '/api/areas/wm-self-probe/access-requests/1/approve', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
       // 报告维度（docs/report-step1.md 第四节）：定报告维度经写请求总门放行、路由内认人（持 area-report 的人多半不是管理员），远程匿名来必须 401；
       // 建维度、发模板两条都看（认人在查维度之前，门坏了会回 400 或 404，也不会建出东西）；读也要先登录
       { id: 'market.report-dimensions.anonymous-create', target: m, surface: 'market', method: 'POST', path: '/api/report-dimensions', body: '{"id":"wm-self-probe","title":"x"}', origin: true, headers: REMOTE_ANON, status: 401 },

@@ -475,6 +475,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   seat-tokens.ts（席位用节点签名换 1 小时的 MCP 令牌（设计和给节点侧的格式见 [docs/seat-token-exchange.md](docs/seat-token-exchange.md)）：按钉住的节点公钥验签（指纹 = 名册的 host）、核节点 active 和名册里的席位、签名只认一次；令牌只存 sha256、不续期，每次调用复核席位和节点；每个席位一个长期的授权主体（mcp_sessions 一行），grants 和按台批的授予挂在它上面，跨令牌轮换保留）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   area.ts（领域：Cordis 服务 `areas`·领域、领域规范的版本（建好不能改、不能删，改规范 = 新加一版、回退 = 移生效指针）、留痕·新建的是 pending-lead·撤领域时同一个写事务里一并撤销 area:<标识> 的没结束的授予（草稿、待核、生效）·撤了只读不删；docs/domains-step1.md·负责人：生效的负责人没有了（收回、到期、本人停用）就退回 pending-lead、有了就回 active，留痕 lead-active / lead-missing·收回最后一位负责人回 409（撤领域除外）·workGate：pending-lead 时不能触发、验收·migrateDepartments：每个部门一个写事务，建同标识领域（source=department），给有生效负责人授予的部门起草 area-lead（待核），旧表不删）
+  area-access.ts（第 16 篇第 2 步的领域接入服务：属主按负责人授予设置动作上限，审批事务核当前领域、归属及回避，领域审批单独留痕）
   bench-report.ts（台上的报告：绑定、生成并冻结、清单、读、回应，路由和 MCP 的 report_* 工具都走这一处；维度属于某个领域时只有绑在这个领域的台能用；产出方、回应者由调用方身份定，席位和 MCP 会话记 AI；回应者的位置按回应时生效的授予记；「未处理的反驳」只算人的回应链的链头，报告被更正之后不再算）
   report-compile.ts（报告的编排：模板第二版 + 台的绑定 + 台库按绑定取回的数 + 输入 + 论断 → 冻结的报告；纯函数，不碰库。由 P0 的技术试验（web/src/report-template/p0.ts）改写：来源（视图版本、视图描述的 sha256、行数）由台库填，不收调用方给的；取不完、列类型不合就拒，不出半份报告；论断的类别、条数照模板，依据指的行要在这份报告里；图片节点这一步不收（素材授权还没定））
   report-dimension.ts（报告的维度和模板：Cordis 服务 `reportDimensions`·维度属于一个领域或跨领域；模板版本建好不能改、不能删、不修剪，发版不自动生效；和上一版比出 layout / criteria，判据类（criteria，第一版也算）要作者以外的人复核过才能移成生效；撤了只读；每步一行留痕；定报告维度只认属主和持本领域 area-report 授予的人，跨领域的只有属主，见 [docs/report-step1.md](docs/report-step1.md)）
@@ -526,6 +527,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   cookies.ts（Cookie 池 /api/cookies）
   departments.ts（部门 /api/departments：登录的人读列表、单个部门的成员、某人属于哪些部门；管理员建改删部门和成员）
   areas.ts（领域 /api/areas：属主、管理层、管理口令、本机命令行看全部，别人看持有 area:<领域> 授予的那些、单条 404；建、撤只有属主；定规范只认属主和持本领域 area-spec 的人（这两条不经管理员门、路由内认人）；规范的版本清单和单版；列表带 can（建、迁、指定负责人，只有属主为真），单条带 leads；POST /api/areas/migrate 部门迁成领域：只有属主，幂等，给有生效负责人授予的部门起草 area-lead 待核）
+  area-access.ts（领域接入审批：登录的属主设置动作上限，本领域负责人或属主查看申请并批准或驳回，写入核同源）
   report-dimensions.ts（报告的维度和模板 /api/report-dimensions：登录的人都能读；建维度、发模板、复核、移生效指针、撤是「定报告维度」，只认属主（本机命令行算属主）和持本领域 area-report 授予的人，跨领域的维度只有属主，别的角色覆盖了也不算；不经管理员门，路由内认人、核同源、按对象判，见 [docs/report-step1.md](docs/report-step1.md)）
   teams.ts（团队与分配 /api/teams：团队页（部门 → 团队 → 成员，按看的人的可见范围在服务端裁好）、「我的 AI 员工」；管理员认领、退回、指定和移除负责人；负责人分配、收回、改派成员（改派一个事务里收回并分给另一个人；状态码不代表授权）；团队的变更记录、某人各段分配的历史（按关系裁：管理员、管理层看全部，负责人看自己的团队，本人看自己的；读不到的按不存在回））
   access.ts（角色预设 ②：以某人的身份看 /api/principals/:id/access（管理员看任何人、登录的人看自己，带 action 给判定结论）、红线清单 /api/access/red-lines、首次安装向导 /api/setup/wizard（管理员跑，属主放行））

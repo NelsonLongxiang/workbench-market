@@ -1,0 +1,262 @@
+{
+  "domain": "area-access",
+  "what": "领域接入审批：合成可信会话、站内自然人申请审批链、领域范围、版本化动作上限。response 由正式录制器生成。",
+  "routes": ["GET /api/areas/:id/access-requests", "PUT /api/areas/:id/access-limits/:grantId", "POST /api/areas/:id/access-requests/:requestId/approve", "POST /api/areas/:id/access-requests/:requestId/reject"],
+  "scenarios": [
+    {
+      "name": "scoped",
+      "what": "合成属主、负责人、申请会话与两条待批申请。",
+      "env": {},
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["identity-fake", "area-access-identity"],
+      "seed": [
+        { "table": "principals", "row": { "id": "user:alpha", "id_key": "user:alpha", "kind": "person" } },
+        { "table": "principals", "row": { "id": "user:beta", "id_key": "user:beta", "kind": "person" } },
+        { "table": "principals", "row": { "id": "user:tom", "id_key": "user:tom", "kind": "person" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "alpha", "external_key": "alpha", "principal_id": "user:alpha" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "beta", "external_key": "beta", "principal_id": "user:beta" } },
+        { "table": "areas", "row": { "id": "synthetic-access", "name": "合成领域", "created_at": 0, "created_by": "cli", "updated_at": 0, "updated_by": "cli" } },
+        { "table": "mcp_sessions", "row": { "id": 4096, "name": "fixture-area-guest", "token_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "grants": "[]" } },
+        { "table": "area_access_requests", "row": { "id": 101, "session_id": 4096, "area_id": "synthetic-access", "applicant": "user:tom", "actions": "[\"demo.read\"]", "reason": "合成申请", "created_at": 0 } },
+        { "table": "area_access_requests", "row": { "id": 102, "session_id": 4096, "area_id": "synthetic-access", "applicant": "user:tom", "actions": "[\"demo.write\"]", "reason": "合成申请", "created_at": 0 } }
+      ],
+      "steps": [
+        {
+          "id": "owner-draft",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:alpha", "role": "owner", "scope": "*", "reason": "合成" } },
+          "save": { "owner": "grant.id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "293", "etag": "W/\"125-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 2, "principal_id": "user:alpha", "role": "owner", "scope": "*", "expires_at": null, "reason": "合成", "status": "draft", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "owner-submit",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants/{{owner}}/submit" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "295", "etag": "W/\"127-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 2, "principal_id": "user:alpha", "role": "owner", "scope": "*", "expires_at": null, "reason": "合成", "status": "pending", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "owner-approve",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants/{{owner}}/approve" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "295", "etag": "W/\"127-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 2, "principal_id": "user:alpha", "role": "owner", "scope": "*", "expires_at": null, "reason": "合成", "status": "active", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "lead-draft",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:beta", "role": "area-lead", "scope": "area:synthetic-access", "reason": "合成" } },
+          "save": { "lead": "grant.id" },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "316", "etag": "W/\"13c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 3, "principal_id": "user:beta", "role": "area-lead", "scope": "area:synthetic-access", "expires_at": null, "reason": "合成", "status": "draft", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "lead-submit",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants/{{lead}}/submit" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "318", "etag": "W/\"13e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 3, "principal_id": "user:beta", "role": "area-lead", "scope": "area:synthetic-access", "expires_at": null, "reason": "合成", "status": "pending", "created_by": "cli", "created_by_principal": null, "approved_by": null, "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "lead-approve",
+          "vary": { "grant.created_at": 60000, "grant.updated_at": 60000 },
+          "request": { "method": "POST", "path": "/api/grants/{{lead}}/approve" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "318", "etag": "W/\"13e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "grant": { "id": 3, "principal_id": "user:beta", "role": "area-lead", "scope": "area:synthetic-access", "expires_at": null, "reason": "合成", "status": "active", "created_by": "cli", "created_by_principal": null, "approved_by": "cli", "approved_by_principal": null, "created_at": 1893456000000, "updated_at": 1893456000000, "source": "manual" }
+            }
+          }
+        },
+        {
+          "id": "list-anon",
+          "route": "GET /api/areas/:id/access-requests",
+          "class": "unauthorized",
+          "request": { "method": "GET", "path": "/api/areas/synthetic-access/access-requests" },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_access_person_required" }
+          }
+        },
+        {
+          "id": "list-bad-area",
+          "route": "GET /api/areas/:id/access-requests",
+          "class": "invalid",
+          "request": { "method": "GET", "path": "/api/areas/INVALID/access-requests", "headers": { "cookie": "session_id=fake-internal-beta-00001", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "领域标识不合法" }
+          }
+        },
+        {
+          "id": "list-lead",
+          "route": "GET /api/areas/:id/access-requests",
+          "class": "normal",
+          "request": { "method": "GET", "path": "/api/areas/synthetic-access/access-requests", "headers": { "cookie": "session_id=fake-internal-beta-00001", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "389", "etag": "W/\"185-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "requests": [
+                { "ref": "area-102", "area": "synthetic-access", "actions": ["demo.write"], "reason": "合成申请", "status": "pending", "note": "", "created_at": 0, "decided_at": null, "id": 102, "applicant": "user:tom" },
+                { "ref": "area-101", "area": "synthetic-access", "actions": ["demo.read"], "reason": "合成申请", "status": "pending", "note": "", "created_at": 0, "decided_at": null, "id": 101, "applicant": "user:tom" }
+              ]
+            }
+          }
+        },
+        {
+          "id": "limit-lead-denied",
+          "route": "PUT /api/areas/:id/access-limits/:grantId",
+          "class": "unauthorized",
+          "request": { "method": "PUT", "path": "/api/areas/synthetic-access/access-limits/{{lead}}", "headers": { "cookie": "session_id=fake-internal-beta-00001", "sec-fetch-site": "same-origin" }, "json": { "actions": ["demo.read"] } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "只有登录的属主可以设置接入动作上限", "code": "area_access_owner_required" }
+          }
+        },
+        {
+          "id": "limit-wildcard",
+          "route": "PUT /api/areas/:id/access-limits/:grantId",
+          "class": "invalid",
+          "request": { "method": "PUT", "path": "/api/areas/synthetic-access/access-limits/{{lead}}", "headers": { "cookie": "session_id=fake-internal-alpha-0001", "sec-fetch-site": "same-origin" }, "json": { "actions": ["demo.*"] } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "124", "etag": "W/\"7c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "actions 要是明确的「域.动词」名称数组，不能使用通配符", "code": "area_access_actions_invalid" }
+          }
+        },
+        {
+          "id": "limit-owner",
+          "route": "PUT /api/areas/:id/access-limits/:grantId",
+          "class": "normal",
+          "request": { "method": "PUT", "path": "/api/areas/synthetic-access/access-limits/{{lead}}", "headers": { "cookie": "session_id=fake-internal-alpha-0001", "sec-fetch-site": "same-origin" }, "json": { "actions": ["demo.read"] } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "limit": { "id": 1, "grant_id": 3, "actions": ["demo.read"] } }
+          }
+        },
+        {
+          "id": "approve-anon",
+          "route": "POST /api/areas/:id/access-requests/:requestId/approve",
+          "class": "unauthorized",
+          "request": { "method": "POST", "path": "/api/areas/synthetic-access/access-requests/101/approve", "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_access_person_required" }
+          }
+        },
+        {
+          "id": "approve-unknown",
+          "route": "POST /api/areas/:id/access-requests/:requestId/approve",
+          "class": "invalid",
+          "request": { "method": "POST", "path": "/api/areas/synthetic-access/access-requests/999/approve", "headers": { "cookie": "session_id=fake-internal-beta-00001", "sec-fetch-site": "same-origin" }, "json": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "76", "etag": "W/\"4c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "此领域没有这条申请", "code": "area_access_request_missing" }
+          }
+        },
+        {
+          "id": "approve-allowed",
+          "route": "POST /api/areas/:id/access-requests/:requestId/approve",
+          "class": "normal",
+          "vary": { "request.decided_at": 60000 },
+          "request": { "method": "POST", "path": "/api/areas/synthetic-access/access-requests/101/approve", "headers": { "cookie": "session_id=fake-internal-beta-00001", "sec-fetch-site": "same-origin" }, "json": { "note": "合成决定" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "188", "etag": "W/\"bc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "request": { "ref": "area-101", "area": "synthetic-access", "actions": ["demo.read"], "reason": "合成申请", "status": "approved", "note": "合成决定", "created_at": 0, "decided_at": 1893456000000 }
+            }
+          }
+        },
+        {
+          "id": "reject-anon",
+          "route": "POST /api/areas/:id/access-requests/:requestId/reject",
+          "class": "unauthorized",
+          "request": { "method": "POST", "path": "/api/areas/synthetic-access/access-requests/102/reject", "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "area_access_person_required" }
+          }
+        },
+        {
+          "id": "reject-unknown",
+          "route": "POST /api/areas/:id/access-requests/:requestId/reject",
+          "class": "invalid",
+          "request": { "method": "POST", "path": "/api/areas/synthetic-access/access-requests/999/reject", "headers": { "cookie": "session_id=fake-internal-beta-00001", "sec-fetch-site": "same-origin" }, "json": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "76", "etag": "W/\"4c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "此领域没有这条申请", "code": "area_access_request_missing" }
+          }
+        },
+        {
+          "id": "reject-allowed",
+          "route": "POST /api/areas/:id/access-requests/:requestId/reject",
+          "class": "normal",
+          "vary": { "request.decided_at": 60000 },
+          "request": { "method": "POST", "path": "/api/areas/synthetic-access/access-requests/102/reject", "headers": { "cookie": "session_id=fake-internal-beta-00001", "sec-fetch-site": "same-origin" }, "json": { "note": "合成决定" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "189", "etag": "W/\"bd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": {
+              "request": { "ref": "area-102", "area": "synthetic-access", "actions": ["demo.write"], "reason": "合成申请", "status": "rejected", "note": "合成决定", "created_at": 0, "decided_at": 1893456000000 }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -69,7 +69,7 @@ async function boot() {
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
   Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', REDIS_URL: '', MARKET_PUBLIC_URL: base, WM_TRUSTED_PROXIES: '127.0.0.1', ADMIN_TOKEN });
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', join(HERE, 'fixtures/area-access-identity-preload.mjs'), 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(child);
   child.stdout.on('data', (d) => { log += String(d); }); child.stderr.on('data', (d) => { log += String(d); });
   let ready = false;
@@ -720,6 +720,108 @@ try {
     const skip = (m.json?.skipped ?? []).find((x) => x.department === 'Bad_Dept')?.reason;
     const made = (() => { const d = A.db(); try { return Number(d.prepare("SELECT COUNT(*) AS n FROM areas WHERE id = 'Bad_Dept'").get().n); } finally { d.close(); } })();
     check(m.status === 200 && skip === 'id_invalid' && made === 0, 'D11 标识不合领域写法的部门（直接写库的）：迁移记 skipped id_invalid，不建领域', { s: m.status, skip, made });
+  }
+
+  // 第 16 篇第 2 步：合成归属只来自启动夹具，普通会话仍走正式的空归属。
+  {
+    const alpha = 'access-alpha', beta = 'access-beta';
+    const draftLead = async (area, principal) => {
+      await A.cli('POST', '/api/areas', { id: area, name: area });
+      const d = await draftBy(null, principal, 'area-lead', 'area:' + area);
+      await A.cli('POST', '/api/grants/' + d.id + '/submit');
+      const approval = await A.cli('POST', '/api/grants/' + d.id + '/approve');
+      if (approval.status !== 200) throw Error('合成负责人授予未生效：' + JSON.stringify(approval));
+      return d.id;
+    };
+    const leaderGrant = await draftLead(alpha, 'user:leo');
+    await draftLead(beta, 'user:bob');
+    const session = async (name, creator) => {
+      const r = creator
+        ? await creator.go('POST', '/api/mcp/sessions', { json: { name } })
+        : await A.remote('POST', '/api/mcp/sessions', { token: ADMIN_TOKEN, json: { name } });
+      if (!r.json?.token) throw Error('合成会话未创建：' + r.status);
+      return r.json;
+    };
+    const unbound = await session('fixture-area-unbound', olga);
+    const guest = await session('fixture-area-guest');
+    const leadSession = await session('fixture-area-lead');
+    const callTool = (token, tool, arguments_) => A.remote('POST', '/api/mcp-rest/tools/' + tool, {
+      headers: { authorization: 'Bearer ' + token }, json: arguments_,
+    });
+    const ask = (s, actions, area = alpha) => callTool(s.token, 'access_request', { area, actions, reason: '合成验收' });
+    const request = (r) => r.json?.request ?? r.json?.result?.request;
+    const idOf = (r) => Number(request(r)?.ref?.split('-').at(-1));
+    const accessPath = (area) => '/api/areas/' + area + '/access-requests';
+    const limitPath = '/api/areas/' + alpha + '/access-limits/' + leaderGrant;
+    const decided = (who, id, action = 'approve', area = alpha, headers) => who.go('POST', accessPath(area) + '/' + id + '/' + action, { json: { note: '合成决定' }, headers });
+    const rUnbound = await ask(unbound, ['demo.read']);
+    const probeOtherArea = await ask(unbound, ['demo.read'], 'does-not-exist');
+    check(rUnbound.status === 403 && rUnbound.json?.code === 'area_access_unbound_session' && probeOtherArea.json?.code === rUnbound.json.code,
+      'E1 无归属会话一律拒绝，已知与未知领域的错误一致', { a: rUnbound, b: probeOtherArea });
+    const spoof = await callTool(unbound.token, 'access_request', { area: alpha, actions: ['demo.read'], reason: '合成', principal: 'user:tom' });
+    check(spoof.status === 403 && spoof.json?.code === 'area_access_unbound_session', 'E2 请求体自报归属不取得身份', spoof);
+    const mcpDenied = await A.remote('POST', '/mcp', {
+      headers: { authorization: 'Bearer ' + unbound.token },
+      json: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'access_request', arguments: { area: alpha, actions: ['demo.read'], reason: '合成' } } },
+    });
+    check(mcpDenied.json?.result?.isError === true && mcpDenied.json.result.content[0].text.includes('area_access_unbound_session'),
+      'E12 MCP 与 REST 同样拒绝无归属领域申请', mcpDenied);
+    const malformed = await ask(guest, ['demoXread']);
+    check(malformed.status === 400 && malformed.json?.code === 'area_access_actions_invalid', 'E13 动作必须有实际的点分隔符', malformed);
+    const valid = await ask(guest, ['demo.read']);
+    const duplicate = await ask(guest, ['demo.read', 'demo.read']);
+    const id = idOf(valid);
+    check(valid.status === 200 && id > 0 && request(valid)?.status === 'pending' && id === idOf(duplicate), 'E3 可信会话申请入队，本会话同组去重', { valid, duplicate });
+    const anon = await A.remote('POST', accessPath(alpha) + '/' + id + '/approve', { json: {}, token: ADMIN_TOKEN });
+    const sys = await decided(sam, id);
+    const crossArea = await decided(bob, id);
+    const crossOrigin = await decided(leo, id, 'approve', alpha, { 'sec-fetch-site': 'cross-site', origin: 'https://other.invalid' });
+    check(anon.status === 401 && sys.status === 403 && crossArea.status === 403 && crossOrigin.status === 403,
+      'E4 管理口令、系统管理员、他领域负责人及跨站 cookie 均不能批准', { anon, sys, crossArea, crossOrigin });
+    const visible = await leo.go('GET', accessPath(alpha));
+    const hidden = await bob.go('GET', accessPath(alpha));
+    const oldQueue = await A.remote('GET', '/api/mcp/access-requests', { token: ADMIN_TOKEN });
+    check(visible.status === 200 && visible.json?.requests?.some(r => r.id === id) && hidden.status === 403 && Array.isArray(oldQueue.json) && !oldQueue.json.some(r => r.area_id === alpha),
+      'E5 申请只列给本领域审批人，与旧管理员审批队列隔开', { v: visible.status, h: hidden.status, q: oldQueue.status });
+    const beforeLimit = await decided(leo, id);
+    const unauthorizedLimit = await leo.go('PUT', limitPath, { json: { actions: ['demo.read'] } });
+    const wild = await olga.go('PUT', limitPath, { json: { actions: ['demo.*'] } });
+    const limit = await olga.go('PUT', limitPath, { json: { actions: ['demo.read'] } });
+    check(beforeLimit.status === 403 && beforeLimit.json?.code === 'area_access_above_limit' && unauthorizedLimit.status === 403 && wild.status === 400 && limit.status === 200,
+      'E6 没有属主上限默认拒绝，负责人不能自设上限，属主只能列明确动作', { beforeLimit, unauthorizedLimit, wild, limit });
+    const own = await ask(leadSession, ['demo.read']);
+    const self = await decided(leo, idOf(own));
+    check(self.status === 403 && self.json?.code === 'area_access_self_approval', 'E7 同一责任人自批被拒，即便已获动作上限', self);
+    const mixed = await ask(guest, ['demo.read', 'demo.write']);
+    const above = await decided(leo, idOf(mixed));
+    const rejected = await decided(leo, idOf(mixed), 'reject');
+    check(above.status === 403 && above.json?.code === 'area_access_above_limit' && rejected.status === 200 && request(rejected)?.status === 'rejected',
+      'E8 含超限动作整单不可批准，可驳回', { above, rejected });
+    const decisions = await Promise.all([decided(leo, id), decided(leo, id)]);
+    const [approved, retry] = decisions.sort((a, b) => a.status - b.status);
+    const ownView = await callTool(guest.token, 'access_info', { ref: 'area-' + id });
+    const otherView = await callTool(leadSession.token, 'access_info', { ref: 'area-' + id });
+    const d = A.db();
+    const stored = d.prepare('SELECT status, decided_by, decided_at, limit_id FROM area_access_requests WHERE id = ?').get(id);
+    const sessionGrants = d.prepare('SELECT grants FROM mcp_sessions WHERE id = ?').get(guest.id)?.grants;
+    const creator = d.prepare('SELECT created_by FROM mcp_sessions WHERE id = ?').get(unbound.id)?.created_by;
+    d.close();
+    check(creator === 'user:olga', 'E14 确认为真人创建的真实无归属会话也被拒绝', { creator });
+    check(approved.status === 200 && request(approved)?.status === 'approved' && retry.status === 409 && ownView.status === 200 && request(ownView)?.status === 'approved' && otherView.status === 404,
+      'E9 本域负责人批准，一次提交，回执只给申请会话', { approved, retry, ownView, otherView });
+    check(stored?.status === 'approved' && stored.decided_by === 'user:leo' && stored.decided_at > 0 && stored.limit_id === limit.json?.limit?.id && sessionGrants === '[]',
+      'E10 审批保留决定者及用过的上限版本，旧按工具授予不变', { stored, sessionGrants });
+    const remaining = await ask(guest, ['demo.read']);
+    await olga.go('PUT', limitPath, { json: { actions: [] } });
+    const nowDenied = await decided(leo, idOf(remaining));
+    const ownerApproved = await decided(olga, idOf(remaining));
+    check(nowDenied.status === 403 && ownerApproved.status === 200 && request(ownerApproved)?.status === 'approved', 'E11 审批时按最新上限，属主可代批', { nowDenied, ownerApproved });
+    const stale = await ask(guest, ['demo.write']);
+    const revoked = await A.remote('DELETE', '/api/mcp/sessions/' + guest.id, { token: ADMIN_TOKEN });
+    const afterRevocation = await decided(olga, idOf(stale));
+    const dismissed = await decided(olga, idOf(stale), 'reject');
+    check(revoked.status === 200 && afterRevocation.status === 403 && afterRevocation.json?.code === 'area_access_unbound_session' &&
+      dismissed.status === 200 && request(dismissed)?.status === 'rejected', 'E15 会话吊销后批准失败，待批记录仍可驳回', { revoked, afterRevocation, dismissed });
   }
 
 } catch (e) {
