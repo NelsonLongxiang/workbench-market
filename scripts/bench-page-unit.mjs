@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 视图台页面（/use/<卡片 id>）的纯函数单测（web/src/bench-page-view.ts）：入口应答怎么走、地址里的视图和筛选、表单没交上去时说什么。数据都是合成的。 */
-import { ENTRY_REFRESH_MIN_MS, ENTRY_TEXT, asEntry, entryOutcome, formError, pageTitle, paramsFromQuery, reloadOutcome, renameOutcome, shouldRefreshEntry, showFromCard, toQuery, viewFromQuery } from '../web/src/bench-page-view.ts';
+import { BACKOFF_MS, POLL_MS, nextDelay, pollAction, ENTRY_REFRESH_MIN_MS, ENTRY_TEXT, asEntry, entryOutcome, formError, pageTitle, paramsFromQuery, reloadOutcome, renameOutcome, shouldRefreshEntry, showFromCard, toQuery, viewFromQuery } from '../web/src/bench-page-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -47,6 +47,19 @@ const R = (card, extra = {}) => asEntry({ ...E, bench: { ...E.bench, card_title:
 ok('卡片名只在能改名时留着；不能改的入口里就算带了也去掉', R('合成卡片').bench.card_title === '合成卡片' && !('card_title' in asEntry({ ...E, bench: { ...E.bench, card_title: '合成卡片' } }).bench) && R(null).bench.card_title === null && !('card_title' in R(42).bench));
 ok('「跟卡片同名」：卡片名和台名不同才出；同名、没卡片（null）、卡片名空、没给卡片名都不出', showFromCard(R('合成卡片')) && !showFromCard(R('合成台')) && !showFromCard(R(null)) && !showFromCard(R('')) && !showFromCard(asEntry({ ...E, can: { rename: true } })));
 ok('「跟卡片同名」：不能改名的人永远不出（就算入口里带了卡片名，也不靠 asEntry 先去掉）', !showFromCard(asEntry({ ...E, bench: { ...E.bench, card_title: '合成卡片' }, can: { rename: false } })) && !showFromCard({ ...asEntry(E), bench: { ...E.bench, card_title: '合成卡片' }, can: { rename: false } }));
+
+// 实时刷新（docs/task-graph-step1.md 第五节之六）
+ok('轮询回答：200 照常；401、403、404、未开启停下；断网、5xx、其它重试', pollAction(200) === 'ok' && pollAction(401) === 'stop' && pollAction(403) === 'stop' && pollAction(404) === 'stop' && pollAction(503, 'bench_views_off') === 'stop' && pollAction(0) === 'retry' && pollAction(500) === 'retry' && pollAction(502) === 'retry' && pollAction(429) === 'retry');
+ok('间隔：平时 5 秒；连续失败按 5、10、20、40、60 秒退避，封顶 60 秒', POLL_MS === 5000 && nextDelay(0) === 5000 && J([1, 2, 3, 4, 5, 9].map(nextDelay)) === J([5000, 10000, 20000, 40000, 60000, 60000]) && BACKOFF_MS.length === 5);
+{
+  const { readFileSync } = await import('node:fs');
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const hook = read('../web/src/bench-change-poll.ts'), page = read('../web/src/pages/BenchPage.tsx'), panel = read('../web/src/components/cockpit/BenchViewPanel.tsx');
+  ok('轮询：页面不可见就停、回来立刻问；晚到的回答作废；游标变了才重新取数', /visibilityState !== 'visible'\) return/.test(hook) && /addEventListener\('visibilitychange'/.test(hook) && /if \(gone\) return;/.test(hook) && /r\.cursor !== cursor\) \{ gone = true; cb\.current\.onChanged\(\)/.test(hook) && /removeEventListener\('visibilitychange'/.test(hook));
+  ok('轮询：停下就不再排下一次；失败退避并标暂停', /act === 'stop'\) \{ gone = true; cb\.current\.onStop/.test(hook) && /act === 'retry'\) \{ failures\+\+; setPaused\(true\); schedule\(nextDelay\(failures\)\)/.test(hook));
+  ok('台页面：只在当前结果对应当前视图和筛选、没在取数时轮询；停下时作废在途取数并收起旧结果；暂停有提示', /active: s\.phase === 'ok' && s\.requestKey === key && !refreshing/.test(page) && /onStop: \(status, error\) => \{ seq\.current\+\+; setS\(/.test(page) && /data-testid="bench-page-poll-paused"/.test(page));
+  ok('驾驶舱面板同样接入', /useChangePoll\(\{/.test(panel) && /onStop: \(status, error\) => \{ seq\.current\+\+; setS\(/.test(panel) && /data-testid="ck-bench-view-poll-paused"/.test(panel));
+}
 
 console.log(`\nbench-page-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

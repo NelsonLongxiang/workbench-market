@@ -81,7 +81,7 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
       const res = await fetch(base + path, { method, headers: h, body: raw !== undefined ? raw : body === undefined ? undefined : JSON.stringify(body), redirect: 'manual', signal: AbortSignal.timeout(60000) });
       const text = await res.text();
       let json = null; try { json = JSON.parse(text); } catch { /* 不是 JSON */ }
-      return { status: res.status, text, json };
+      return { status: res.status, text, json, headers: Object.fromEntries(res.headers) };
     } catch (e) { return { status: 0, text: String(e?.name ?? e), json: null }; }
   };
   const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => openDb(join(data, 'workbench-market.db')) };
@@ -171,10 +171,10 @@ try {
   const g3 = await activate({ principal: 'user:beta', role: 'member' });
   const ALL_ROUTES = [['GET', ''], ['POST', ''], ['GET', '/demo/datasets'], ['PUT', '/demo/datasets/x'], ['POST', '/demo/datasets/x/rows?op=append'], ['POST', '/demo/query'],
     ['GET', '/demo/datasets/x/snapshots'], ['POST', '/demo/datasets/x/snapshots'], ['POST', '/demo/restore'], ['GET', '/demo/view'], ['PUT', '/demo/view'], ['GET', '/demo/view/versions'],
-    ['GET', '/demo/view/diff?a=1&b=2'], ['POST', '/demo/view/rollback'], ['GET', '/demo/render'], ['POST', '/demo/form'], ['GET', '/demo/log']];
+    ['GET', '/demo/view/diff?a=1&b=2'], ['GET', '/demo/changes'], ['POST', '/demo/view/rollback'], ['GET', '/demo/render'], ['POST', '/demo/form'], ['GET', '/demo/log']];
   const memberGot = [];
   for (const [m, path] of ALL_ROUTES) memberGot.push((await srv.call(m, `/api/bench-views${path}`, { ...nobody, ...(m === 'GET' ? {} : path.includes('/rows') ? { raw: '[]' } : { body: {} }) })).status);
-  check(g3.ok && ALL_ROUTES.length === 17 && memberGot.every((x) => x === 403), '只有普通员工授予（范围「全部」）的人：17 条路由读写全是 403', memberGot.join());
+  check(g3.ok && ALL_ROUTES.length === 18 && memberGot.every((x) => x === 403), '只有普通员工授予（范围「全部」）的人：18 条路由读写全是 403', memberGot.join());
 
   console.log('三之一、带业务写的授予：系统管理员一个人给不出去');
   // 管理口令（只有系统管理员身份）起草一条「部门成员、范围全部」给 strasse 并提交，自己放行不了；停在待放行时 strasse 哪条路由都进不来
@@ -188,7 +188,7 @@ try {
   const tryAll = async () => { const got = []; for (const [m, path] of ALL_ROUTES) got.push((await srv.call(m, `/api/bench-views${path}`, { ...pendingOne, ...(m === 'GET' ? {} : path.includes('/rows') ? { raw: '[]' } : { body: {} }) })).status); return got; };
   const before = await tryAll();
   check(gid !== undefined && submitted.status < 300 && selfApprove.status >= 400 && stateOf() !== 'active' && before.every((x) => x === 403),
-    '管理口令起草、提交了，自己放行不了；停在待放行时被授的人 17 条路由全是 403', { draft: draft.status, submit: submitted.status, approve: selfApprove.status, state: stateOf(), got: before.join() });
+    '管理口令起草、提交了，自己放行不了；停在待放行时被授的人 18 条路由全是 403', { draft: draft.status, submit: submitted.status, approve: selfApprove.status, state: stateOf(), got: before.join() });
   const released = await srv.call('POST', `/api/grants/${gid}/approve`);
   const after = await tryAll();
   check(released.status < 300 && stateOf() === 'active' && after.every((x) => x !== 403 && x !== 401), '属主（本机命令行）放行之后：这个人进得来了（不再是 403）', { approve: released.status, state: stateOf(), got: after.join() });
@@ -283,6 +283,43 @@ try {
   r = await srv.call('GET', '/api/bench-views', mgr);
   check(r.status === 200 && r.json?.benches?.map((x) => x.slug).join() === 'demo' && readdirSync(join(srv.data, 'bench-stores')).filter((f) => f.endsWith('.sqlite')).join() === 'demo.sqlite', '台的清单里只有登记过的那一个；数据目录里也只有它的库', readdirSync(join(srv.data, 'bench-stores')));
 
+  console.log('五之一、变更游标（docs/task-graph-step1.md 第五节之六）');
+  {
+    const cur = async (who = mgr) => srv.call('GET', `${B}/changes`, who);
+    let c = await cur();
+    const c0 = c.json?.cursor;
+    check(c.status === 200 && typeof c0 === 'string' && c0.length >= 16 && Object.keys(c.json).join() === 'cursor' && /no-store/.test(c.headers?.['cache-control'] ?? ''), '有权：回一个游标，只有游标、不缓存', { s: c.status, t: c.text.slice(0, 120) });
+    r = await srv.call('GET', `${B}/render?view=overview`, mgr);
+    check(r.status === 200 && r.json?.cursor === c0, '取数回应带同一个游标', { render: r.json?.cursor, changes: c0 });
+    c = await cur();
+    check(c.json?.cursor === c0, '没有改动：游标不变');
+    r = await srv.call('POST', `${B}/datasets/orders/rows?op=upsert`, { ...mgr, raw: JSON.stringify([{ id: 3, day: '2026-02-02', region: '东区', amount: 16 }]) });
+    c = await cur();
+    const c1 = c.json?.cursor;
+    check(r.status === 200 && r.json?.row_count === 5 && c1 !== c0, '同一视图版本、行数不变的 upsert：游标变（普通行写入推进 bs_writes）', { upsert: r.text.slice(0, 80), c0, c1 });
+    r = await srv.call('POST', `${B}/datasets/orders/snapshots`, { ...mgr, body: { note: '游标测试' } });
+    const sid = r.json?.snapshot_id ?? r.json?.id;
+    c = await cur(); const c2 = c.json?.cursor;
+    r = await srv.call('POST', `${B}/restore`, { ...mgr, body: { snapshot_id: sid, note: '游标测试' } });
+    c = await cur();
+    check(r.status === 200 && c.json?.cursor !== c2, '退回快照：游标变', { restore: r.text.slice(0, 80) });
+    const c3 = c.json?.cursor;
+    const v = await srv.call('GET', `${B}/view`, mgr);
+    r = await srv.call('PUT', `${B}/view`, { ...mgr, body: { doc: { ...doc, title: '订单台三版' }, base: v.json.view.active_version, note: '游标测试' } });
+    c = await cur();
+    check(r.status === 200 && c.json?.cursor !== c3, '保存视图（启用版本变）：游标变', r.text.slice(0, 80));
+    c = await srv.call('GET', `${B}/changes?view=overview`, mgr);
+    check(c.status === 400, '不收查询参数', c.status);
+    c = await cur(nobody);
+    check(c.status === 403 && !c.text.includes('cursor'), '台上没有授予：403，不给游标', c.status);
+    c = await srv.call('GET', `${B}/changes`, { headers: REMOTE });
+    check(c.status === 401, '没登录：401', c.status);
+    c = await srv.call('GET', '/api/bench-views/ghost/changes', mgr);
+    check(c.status === 404, '台没登记：判过权才 404', c.status);
+    c = await srv.call('GET', '/api/bench-views/ghost/changes', nobody);
+    check(c.status === 403, '没权限的人问不存在的台：403，不露台在不在', c.status);
+  }
+
   console.log('六、出错的样子');
   r = await srv.call('POST', `${B}/query`, { ...mgr, body: { query: { dataset: 'orders', filter: [{ col: 'id', op: 'constructor', value: 1 }] } } });
   check(r.status === 400 && Object.keys(r.json ?? {}).every((k) => ['error', 'message', 'details'].includes(k)) && !/SQLITE|ds_orders|c_id/.test(r.text), '写法不对：只有代号、说明、细目，不带库的报错原文', r.text.slice(0, 160));
@@ -317,7 +354,9 @@ try {
   check(r.status === 200 && bound[0]?.data?.rows?.[0]?.[bound[0].value] === 37 && bound[1]?.total === 100, '真实 render：指标、进度值与常量目标', r.text.slice(0, 180));
   check(bound[0]?.var_revisions?.completed === 1 && bound[1]?.var_revisions?.target === 1 && !r.text.includes('secret_unused') && !r.text.includes('984321'), '只返回显式选择的数值与 revision，不枚举空间', r.text.slice(0, 160));
   check(bound[2]?.error?.code === 'not_found' && !bound[2]?.data && bound[3]?.error?.code === 'invalid' && !bound[3]?.data && bound[4]?.tone_rules?.[0]?.value === 100, '缺键和坏类型是块错，其他块及阈值正常', r.text.slice(0, 160));
+  const beforeVar = (await srv.call('GET', B + '/changes', mgr)).json?.cursor;
   await putVar('completed', 38, { revision: 1 });
+  check(typeof beforeVar === 'string' && (await srv.call('GET', B + '/changes', mgr)).json?.cursor === beforeVar, '工作台变量变了：游标不变（第 1 步不随变量自动刷新，写明在设计稿）');
   r = await srv.call('GET', B + '/render', mgr);
   check(r.json?.blocks?.[0]?.data?.rows?.[0]?.[r.json.blocks[0].value] === 38 && r.json.blocks[0].var_revisions.completed === 2, '修改原变量后重新 render 读到新值和 revision');
   r = await srv.call('GET', '/api/workbenches/' + wid + '/vars/completed', mgr);
@@ -381,6 +420,8 @@ try {
   await srv.call('POST', '/api/principals/disable', { body: { id: 'user:alpha', reason: '合成' } });
   r = await srv.call('GET', '/api/bench-views', mgr);
   check(r.status === 401 || r.status === 403, '主体停用之后：进不来', r.status);
+  r = await srv.call('GET', B + '/changes', mgr);
+  check((r.status === 401 || r.status === 403) && !r.text.includes('cursor'), '主体停用之后：变更游标也拿不到', r.status);
 } catch (e) {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {

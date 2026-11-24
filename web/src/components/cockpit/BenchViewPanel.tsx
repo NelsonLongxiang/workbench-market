@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Empty, Skeleton, Typography } from 'antd';
 import { BenchView, type ViewResult } from '../../bench-blocks/BenchView';
 import { getBenchView } from '../../api';
+import { useChangePoll } from '../../bench-change-poll';
 import { BENCH_VIEWS_OFF, benchViewError, isBenchViewsOff, type BenchViewRef } from '../../cockpit-frame-view';
 import { panelHeading } from '../../cockpit-bench-view';
 
@@ -37,6 +38,12 @@ export default function BenchViewPanel({ refItem, params, heading, onLoaded }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refItem.bench, refItem.view, refItem.i, key, onLoaded]);
   useEffect(() => { setS((cur) => (cur.phase === 'ok' ? cur : { phase: 'loading' })); void load(); }, [load]);
+  // 实时刷新：台库或视图变了在后台重新取数；没权限、台没了、未开启就作废在途的取数、收起旧结果
+  const { paused } = useChangePoll({
+    bench: refItem.bench, cursor: s.phase === 'ok' ? s.result.cursor : null, active: s.phase === 'ok',
+    onChanged: () => { void load(); },
+    onStop: (status, error) => { seq.current++; setS(isBenchViewsOff(status, error) ? { phase: 'off' } : { phase: 'error', text: benchViewError(status, error) }); },
+  });
 
   const head = heading ? <div className="wm-ck-bv-head" data-testid="ck-bv-head">{panelHeading(s.phase === 'ok' ? s.result : null)}</div> : null;
   if (s.phase === 'loading') return <>{head}<div className="wm-ck-pad" data-testid="ck-bench-view-loading"><Skeleton active paragraph={{ rows: 3 }} /></div></>;
@@ -44,6 +51,7 @@ export default function BenchViewPanel({ refItem, params, heading, onLoaded }: {
   if (s.phase === 'off') return <>{head}<div className="wm-ck-pad" data-testid="ck-bench-view-off"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={BENCH_VIEWS_OFF} /></div></>;
   if (s.phase === 'error') return <>{head}<div className="wm-ck-pad" data-testid="ck-bench-view-error"><Typography.Text type="secondary">{s.text}</Typography.Text></div></>;
   return <>{head}<div className="wm-ck-pad" data-testid="ck-bench-view">
+    {paused && <div className="wm-bb-truncated" role="status" data-testid="ck-bench-view-poll-paused">自动刷新暂停，稍后会再试。</div>}
     <BenchView result={s.result} imageBench={refItem.bench} frame="none" dense hideFilters onParams={NO_FILTERS} onSubmit={() => Promise.reject(new Error('驾驶舱里不能提交'))} formDisabledReason="要填这张表，请到这个台自己的页面" />
   </div></>;
 }

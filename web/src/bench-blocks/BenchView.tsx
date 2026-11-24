@@ -18,7 +18,8 @@ import { asTableContext } from '../bench-table-view';
 import { filterBarValue, layoutSpans, snapSpan, valueLabel, withLabelColumns, type BlockData, type BlockError } from './blocks-view';
 
 type Block = { type: string; title?: string; span?: number; data?: BlockData; error?: BlockError; [k: string]: unknown };
-export type ViewResult = { title: string; version: number; view: { key: string; title: string }; params: Record<string, string>; blocks: Block[] };
+/** cursor：变更游标（实时刷新用，见 web/src/bench-change-poll.ts） */
+export type ViewResult = { title: string; version: number; view: { key: string; title: string }; params: Record<string, string>; blocks: Block[]; cursor?: string };
 
 export interface BenchViewProps {
   result: ViewResult | null;

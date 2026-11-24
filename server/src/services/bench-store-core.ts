@@ -36,6 +36,9 @@ import {
 } from '../bench-query.ts';
 import { DAG_LIMITS, dagGraphMeta, diffJson, safeLink, validateViewDoc, type JsonDiff } from '../bench-views.ts';
 import { tableTarget, tableDigest, type TableTarget } from '../bench-table.ts';
+
+/** 变更游标：取数修订加启用的视图版本，再摘一次，不露内部编号 */
+const cursorOf = (revision: string, active: number): string => tableDigest([revision, active]);
 import { DB_BUSY_TIMEOUT_MS } from '../db-busy.ts';
 
 export const BENCH_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -44,7 +47,7 @@ const IDEM_RE = /^[\x21-\x7e]{8,128}$/;
 /** 这一层对外开放的操作，和各自算读还是写（时限不同）。工作线程只认这张表里的名字 */
 export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
   ['datasets', 'read'], ['datasetVersions', 'read'], ['snapshots', 'read'], ['query', 'read'], ['getView', 'read'],
-  ['viewVersions', 'read'], ['diffViews', 'read'], ['changes', 'read'], ['writes', 'read'], ['renderView', 'read'], ['tableExport', 'read'], ['tableRow', 'read'],
+  ['viewVersions', 'read'], ['diffViews', 'read'], ['changes', 'read'], ['writes', 'read'], ['renderView', 'read'], ['changeCursor', 'read'], ['tableExport', 'read'], ['tableRow', 'read'],
   ['grantRows', 'read'],
   ['defineDataset', 'write'], ['replace', 'write'], ['append', 'write'], ['upsert', 'write'], ['deleteRows', 'write'],
   ['snapshot', 'write'], ['restore', 'write'], ['putView', 'write'], ['rollbackView', 'write'], ['backupTo', 'write'], ['submitForm', 'write'],
@@ -907,8 +910,16 @@ export class BenchStoreCore {
         const q = b.query as Record<string, unknown>;
         b.table_context = { view: view.key, block: index, version, params, revision: tableDigest([revision, version, view.key, index, params, q]) };
       }
-      return { title: doc.title, version, active_version: active, views: doc.views.map((x) => ({ key: x.key, title: x.title })), view: { key: view.key, title: view.title }, filters, params, blocks };
+      // 变更游标（docs/task-graph-step1.md 第五节之六）：和 changeCursor 同一算法、在同一个排队槽里算，页面拿它和 /changes 的回答比
+      return { title: doc.title, version, active_version: active, views: doc.views.map((x) => ({ key: x.key, title: x.title })), view: { key: view.key, title: view.title }, filters, params, blocks, cursor: cursorOf(revision, active) };
     });
+  }
+  /**
+   * 变更游标：台库与视图有任何变化（行写入、数据集定义、快照恢复、视图保存或回滚）就变，没变化就不变。
+   * 维度与取数修订相同（bs_writes、bs_changes 的最大编号与数据集定义），再加当前启用的视图版本。工作台变量不在里面（第 1 步不随变量刷新）。
+   */
+  changeCursor() {
+    return this.serial(async () => ({ cursor: cursorOf(await this.tableRevision(await this.load()), await this.activeVersion()) }));
   }
   /** A read identity changes on any data/schema/view mutation, including restore and same-timestamp writes. */
   private async tableRevision(defs: Map<string, DatasetDef>): Promise<string> {

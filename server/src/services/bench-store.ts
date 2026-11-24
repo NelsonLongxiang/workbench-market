@@ -309,6 +309,7 @@ export class BenchStore {
   writes(...a: Parameters<Core['writes']>): ReturnType<Core['writes']> { return this.rpc('writes', a); }
   backupTo(...a: Parameters<Core['backupTo']>): ReturnType<Core['backupTo']> { return this.rpc('backupTo', a); }
   renderView(...a: Parameters<Core['renderView']>): ReturnType<Core['renderView']> { return this.rpc('renderView', a); }
+  changeCursor(): ReturnType<Core['changeCursor']> { return this.rpc('changeCursor', []); }
   tableExport(...a: Parameters<Core['tableExport']>): ReturnType<Core['tableExport']> { return this.rpc('tableExport', a); }
   tableRow(...a: Parameters<Core['tableRow']>): ReturnType<Core['tableRow']> { return this.rpc('tableRow', a); }
   submitForm(...a: Parameters<Core['submitForm']>): ReturnType<Core['submitForm']> { return this.rpc('submitForm', a); }
