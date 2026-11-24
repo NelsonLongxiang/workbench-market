@@ -3,7 +3,7 @@
 > 依据：[19 · 报告：人机协同的协议](productization/19-report-protocol.md)，以及其中第八节属主 2026-11-21 定的五条（维度由领域负责人和属主定、单独授予；AI 能回应但标明；验收不强制报告、由维度的模板声明；报告是产出物；判据类模板版本必须有作者以外的复核人才能生效）。
 > 依据的代码事实见第 19 篇附录（main `903e840d`）。开工时重核。
 >
-> **状态：规格草案，只写文档，不写代码。** 标「评审定」的是推荐，实现前由评审定。
+> **状态：第 1 步已实施，已进入 `main` 和 `release/10`。** A [#926](https://github.com/NelsonLongxiang/workbench-market/pull/926)、B [#930](https://github.com/NelsonLongxiang/workbench-market/pull/930)、C [#932](https://github.com/NelsonLongxiang/workbench-market/pull/932)、D [#937](https://github.com/NelsonLongxiang/workbench-market/pull/937) 及验收跟进 [#944](https://github.com/NelsonLongxiang/workbench-market/pull/944) 已合入。E 随 B 完成，[三条拒收测试](https://github.com/NelsonLongxiang/workbench-market/blob/a85d21402325a86c13ce94f90d256d27b8638d4b/scripts/report-template-p0-test.mjs#L31-L33) 分别核对 `duplicate_row_key`、`repeat_limit`、`invalid_asset`。F [#996](https://github.com/NelsonLongxiang/workbench-market/pull/996) 先合入 `release/9`，连同测试补强 [#997](https://github.com/NelsonLongxiang/workbench-market/pull/997) 经 [#998](https://github.com/NelsonLongxiang/workbench-market/pull/998) 收敛入 `main`。
 
 ## 一、这一步做什么、不做什么
 
