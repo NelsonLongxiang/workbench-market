@@ -20,6 +20,7 @@ import { browserMarked, rawLoopback } from '../surfaces.ts';
 import { HttpError } from '../errors.ts';
 import { isSystemAdminOnly } from '../admin-tier.ts';
 import { MCP_TOOLS } from '../mcp-tools.ts';
+import { capabilityIndex } from '../capabilities.ts';
 import { identity, IDENTITY_UNAVAILABLE, sourceDown } from '../identity.ts';
 import { APPROVAL_TEXT, approvalOf, touchesBusiness, BLOCKS, buildRoles, checkShape, MATRIX_KINDS, matrixSummary, orgRolesFromConfig, PLATFORM_ROLES, roleMatrix, type ActionCatalog, type Kind, type Permission, type RoleDecl } from '../roles.ts';
 import type { CustomRoleService } from '../services/custom-role.ts';
@@ -73,6 +74,10 @@ function actionCatalog(http: HttpService): ActionCatalog {
   const catalog: ActionCatalog = new Map();
   for (const t of MCP_TOOLS) catalog.set(t.name, t.category as Kind);
   for (const a of http.actions()) catalog.set(a.action, a.kind);
+  for (const cap of capabilityIndex()) {
+    if (catalog.has(cap.name)) throw new Error('领域能力与现有动作重名：' + cap.name);
+    catalog.set(cap.name, cap.kind);
+  }
   return catalog;
 }
 

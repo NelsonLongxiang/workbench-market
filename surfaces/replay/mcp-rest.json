@@ -117,7 +117,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "32901", "etag": "W/\"8085-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "34003", "etag": "W/\"84d3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -418,6 +418,7 @@
                             "type": "object",
                             "properties": {
                               "tool": { "type": "string", "description": "只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）" },
+                              "capability": { "type": "string", "description": "只取指定领域能力的详情、参数和 REST 片段" },
                               "ref": { "type": "string", "description": "只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1" },
                               "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" },
                               "area": { "type": "string", "description": "只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）" }
@@ -426,6 +427,28 @@
                           }
                         }
                       }
+                    },
+                    "responses": {
+                      "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },
+                      "400": { "$ref": "#/components/responses/BadRequest" },
+                      "401": { "$ref": "#/components/responses/Unauthorized" },
+                      "403": { "$ref": "#/components/responses/Forbidden" },
+                      "404": { "$ref": "#/components/responses/NotFound" }
+                    }
+                  }
+                },
+                "/api/mcp-rest/tools/invoke": {
+                  "post": {
+                    "tags": ["tools"],
+                    "operationId": "invoke",
+                    "summary": "调用已声明的领域能力。先用 access_info 找目标与参数，决定类只会提交待人确认的提案。",
+                    "description": "调用已声明的领域能力。先用 access_info 找目标与参数，决定类只会提交待人确认的提案。",
+                    "x-category": "write",
+                    "x-granted": true,
+                    "x-exempt": true,
+                    "requestBody": {
+                      "required": false,
+                      "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["target", "args"], "properties": { "target": { "type": "string" }, "args": { "type": "object" } } } } }
                     },
                     "responses": {
                       "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },
@@ -759,7 +782,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "13258", "etag": "W/\"33ca-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "14360", "etag": "W/\"3818-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-none）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -783,6 +806,7 @@
                             "type": "object",
                             "properties": {
                               "tool": { "type": "string", "description": "只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）" },
+                              "capability": { "type": "string", "description": "只取指定领域能力的详情、参数和 REST 片段" },
                               "ref": { "type": "string", "description": "只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1" },
                               "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" },
                               "area": { "type": "string", "description": "只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）" }
@@ -791,6 +815,28 @@
                           }
                         }
                       }
+                    },
+                    "responses": {
+                      "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },
+                      "400": { "$ref": "#/components/responses/BadRequest" },
+                      "401": { "$ref": "#/components/responses/Unauthorized" },
+                      "403": { "$ref": "#/components/responses/Forbidden" },
+                      "404": { "$ref": "#/components/responses/NotFound" }
+                    }
+                  }
+                },
+                "/api/mcp-rest/tools/invoke": {
+                  "post": {
+                    "tags": ["tools"],
+                    "operationId": "invoke",
+                    "summary": "调用已声明的领域能力。先用 access_info 找目标与参数，决定类只会提交待人确认的提案。",
+                    "description": "调用已声明的领域能力。先用 access_info 找目标与参数，决定类只会提交待人确认的提案。",
+                    "x-category": "write",
+                    "x-granted": true,
+                    "x-exempt": true,
+                    "requestBody": {
+                      "required": false,
+                      "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["target", "args"], "properties": { "target": { "type": "string" }, "args": { "type": "object" } } } } }
                     },
                     "responses": {
                       "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },
@@ -991,7 +1037,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "32901", "etag": "W/\"8085-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "34003", "etag": "W/\"84d3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -1292,6 +1338,7 @@
                             "type": "object",
                             "properties": {
                               "tool": { "type": "string", "description": "只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）" },
+                              "capability": { "type": "string", "description": "只取指定领域能力的详情、参数和 REST 片段" },
                               "ref": { "type": "string", "description": "只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1" },
                               "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" },
                               "area": { "type": "string", "description": "只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）" }
@@ -1300,6 +1347,28 @@
                           }
                         }
                       }
+                    },
+                    "responses": {
+                      "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },
+                      "400": { "$ref": "#/components/responses/BadRequest" },
+                      "401": { "$ref": "#/components/responses/Unauthorized" },
+                      "403": { "$ref": "#/components/responses/Forbidden" },
+                      "404": { "$ref": "#/components/responses/NotFound" }
+                    }
+                  }
+                },
+                "/api/mcp-rest/tools/invoke": {
+                  "post": {
+                    "tags": ["tools"],
+                    "operationId": "invoke",
+                    "summary": "调用已声明的领域能力。先用 access_info 找目标与参数，决定类只会提交待人确认的提案。",
+                    "description": "调用已声明的领域能力。先用 access_info 找目标与参数，决定类只会提交待人确认的提案。",
+                    "x-category": "write",
+                    "x-granted": true,
+                    "x-exempt": true,
+                    "requestBody": {
+                      "required": false,
+                      "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["target", "args"], "properties": { "target": { "type": "string" }, "args": { "type": "object" } } } } }
                     },
                     "responses": {
                       "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },
@@ -1722,13 +1791,14 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "12803", "etag": "W/\"3203-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "12954", "etag": "W/\"329a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "gateway": "on",
               "session": "replay-none",
-              "granted_tools": ["access_info", "access_request", "result_read", "skills_list", "skill_read", "skill_search"],
+              "granted_tools": ["access_info", "invoke", "access_request", "result_read", "skills_list", "skill_read", "skill_search"],
               "catalog": [
                 { "name": "access_info", "description": "查本会话的权限：会话名、已授权工具、工具目录（本地 + 上游聚合；", "category": "read", "granted": true, "always_allowed": true },
+                { "name": "invoke", "description": "调用已声明的领域能力。", "category": "write", "granted": true, "always_allowed": true },
                 { "name": "access_request", "description": "申请把目录里的工具授权给本会话（管理员在「MCP 网关」页批准后立即生效，批准是并入现有授权，不会收走已有工具）。", "category": "write", "granted": true, "always_allowed": true },
                 { "name": "result_read", "description": "分段读一份大结果：工具结果太大时应答只给引用（result_ref），能执行代码的直接拿 url 用同一个会话令牌 GET；", "category": "read", "granted": true, "always_allowed": true },
                 { "name": "workbench_list", "description": "列出市场中的工作台（可按关键词/类型/状态过滤），返回 id/名称/类型/状态/延迟/地址/分类/启用——找台的入口。", "category": "read", "granted": false },
@@ -1791,6 +1861,7 @@
                 { "name": "report_generate", "description": "[数据视图·必须限定到台] 按这个台对维度的绑定生成并冻结一份报告：服务端取数、核模板、核论断；", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
                 { "name": "report_respond", "description": "[数据视图·必须限定到台] 对一份报告的一条论断表态：认可、反驳或补充，理由必填；", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] }
               ],
+              "capabilities": [],
               "how_to_detail": "要某个工具的参数表和完整说明：access_info {tool: \"工具名\"}（没批的也取得到）",
               "requests": [],
               "bench_requests": [],
@@ -2988,7 +3059,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "67367", "etag": "W/\"10727-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "68469", "etag": "W/\"10b75-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -3289,6 +3360,7 @@
                             "type": "object",
                             "properties": {
                               "tool": { "type": "string", "description": "只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）" },
+                              "capability": { "type": "string", "description": "只取指定领域能力的详情、参数和 REST 片段" },
                               "ref": { "type": "string", "description": "只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1" },
                               "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" },
                               "area": { "type": "string", "description": "只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）" }
@@ -3297,6 +3369,28 @@
                           }
                         }
                       }
+                    },
+                    "responses": {
+                      "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },
+                      "400": { "$ref": "#/components/responses/BadRequest" },
+                      "401": { "$ref": "#/components/responses/Unauthorized" },
+                      "403": { "$ref": "#/components/responses/Forbidden" },
+                      "404": { "$ref": "#/components/responses/NotFound" }
+                    }
+                  }
+                },
+                "/api/mcp-rest/tools/invoke": {
+                  "post": {
+                    "tags": ["tools"],
+                    "operationId": "invoke",
+                    "summary": "调用已声明的领域能力。先用 access_info 找目标与参数，决定类只会提交待人确认的提案。",
+                    "description": "调用已声明的领域能力。先用 access_info 找目标与参数，决定类只会提交待人确认的提案。",
+                    "x-category": "write",
+                    "x-granted": true,
+                    "x-exempt": true,
+                    "requestBody": {
+                      "required": false,
+                      "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["target", "args"], "properties": { "target": { "type": "string" }, "args": { "type": "object" } } } } }
                     },
                     "responses": {
                       "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },
@@ -4466,7 +4560,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "32901", "etag": "W/\"8085-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "34003", "etag": "W/\"84d3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -4767,6 +4861,7 @@
                             "type": "object",
                             "properties": {
                               "tool": { "type": "string", "description": "只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）" },
+                              "capability": { "type": "string", "description": "只取指定领域能力的详情、参数和 REST 片段" },
                               "ref": { "type": "string", "description": "只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1" },
                               "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" },
                               "area": { "type": "string", "description": "只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）" }
@@ -4775,6 +4870,28 @@
                           }
                         }
                       }
+                    },
+                    "responses": {
+                      "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },
+                      "400": { "$ref": "#/components/responses/BadRequest" },
+                      "401": { "$ref": "#/components/responses/Unauthorized" },
+                      "403": { "$ref": "#/components/responses/Forbidden" },
+                      "404": { "$ref": "#/components/responses/NotFound" }
+                    }
+                  }
+                },
+                "/api/mcp-rest/tools/invoke": {
+                  "post": {
+                    "tags": ["tools"],
+                    "operationId": "invoke",
+                    "summary": "调用已声明的领域能力。先用 access_info 找目标与参数，决定类只会提交待人确认的提案。",
+                    "description": "调用已声明的领域能力。先用 access_info 找目标与参数，决定类只会提交待人确认的提案。",
+                    "x-category": "write",
+                    "x-granted": true,
+                    "x-exempt": true,
+                    "requestBody": {
+                      "required": false,
+                      "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["target", "args"], "properties": { "target": { "type": "string" }, "args": { "type": "object" } } } } }
                     },
                     "responses": {
                       "200": { "description": "工具结果（本地工具为业务对象 JSON；上游工具为其 MCP 结果 {content}）", "content": { "application/json": { "schema": {} } } },

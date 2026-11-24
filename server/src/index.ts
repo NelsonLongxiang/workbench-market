@@ -104,6 +104,8 @@ import { registerAppDataRoutes, appDataReadMode, type AppDataReadMode } from './
 import { registerSopRunFileRoutes } from './routes/sop-run-files.ts';
 import { registerSopRunLifecycleRoutes, sopRunWriteMode, type SopRunWriteMode } from './routes/sop-run-lifecycle.ts';
 import { registerMcpRestRoutes } from './routes/mcp-rest.ts';
+import { registerCapabilityRoutes } from './routes/capabilities.ts';
+import { capability, capabilityIndex, capabilityBrief, capabilityDetail, capabilityDenied, executeCapability, type CapabilityChannel, type CapabilityDeclaration } from './capabilities.ts';
 import { registerAppsStaticRoutes } from './routes/apps-static.ts';
 import { managementGrantHolders } from './work-item-access.ts';
 import { registerHealthRoutes } from './routes/health.ts';
@@ -511,6 +513,7 @@ const REMOTE_ALLOW_PREFIX = [
   // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
   // 上传票的直传：票本身就是凭据（只能用一次、10 分钟过期），路由内核票、再核发票的会话和授权还在
   /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?|uploads\/[A-Za-z0-9_-]{43})$/,
+  /^\/api\/mcp-rest\/capabilities\/[a-z][a-z0-9-]{0,47}\.[a-z][a-z0-9-]{0,47}$/,
   // 数据视图的入口（开关关着时每条都回 404）：路由内自己判——先拒管理口令，再经身份服务认人、问判定，只有管理层和范围是「全部」的授予放行。
   // 这道门要的恰恰是管理口令，而这组路由不认管理口令，所以登记在这里
   /^\/api\/bench-views(\/[a-z0-9][a-z0-9-]{0,63}(\/[a-z0-9_/-]{1,160})?)?$/,
@@ -3460,6 +3463,12 @@ function mcpResultAccess(sess: McpSess | null, id: unknown): { kind: 'ok'; row: 
   if (!sess || typeof id !== 'string' || !MCP_RESULT_ID_RE.test(id)) return { kind: 'missing' };
   const row = svc<McpService>('mcp').resultGet(id, Date.now());
   if (!row || row.session_id !== sess.id) return { kind: 'missing' };
+  if (row.tool.startsWith('capability:')) {
+    const cap = capability(row.tool.slice('capability:'.length));
+    const caller = cap ? capabilityCaller(sess, cap) : null;
+    return caller && row.bench === JSON.stringify([caller.area, caller.principal])
+      ? { kind: 'ok', row } : { kind: 'denied', tool: row.tool.slice('capability:'.length) };
+  }
   if (MCP_EXEMPT_TOOLS.has(row.tool)) return { kind: 'ok', row };
   if (BENCH_TOOL_NAMES.has(row.tool)) {
     const granted = BENCH_VIEWS.on && hasBenchGrant(sess.id, row.bench, row.tool);
@@ -3470,8 +3479,8 @@ function mcpResultAccess(sess: McpSess | null, id: unknown): { kind: 'ok'; row: 
   return { kind: 'ok', row };
 }
 /** 工具调用成功之后：结果大就换成引用。网关关着（没有会话）、result_read 自己、上游报错的结果，照原样回 */
-function mcpByRef(sess: McpSess | null, toolName: string, args: any, out: unknown, origin: string): unknown {
-  if (!sess || toolName === 'result_read') return out;
+function mcpByRef(sess: McpSess | null, toolName: string, args: any, out: unknown, origin: string, capabilityScope?: { area: string; principal: string }): unknown {
+  if (!sess || toolName === 'result_read' || toolName === 'invoke') return out;
   if (out && typeof out === 'object' && (out as any).isError === true) return out;
   const body = JSON.stringify(out ?? null);
   const bytes = Buffer.byteLength(body, 'utf8');
@@ -3479,10 +3488,11 @@ function mcpByRef(sess: McpSess | null, toolName: string, args: any, out: unknow
   const now = Date.now();
   const id = randomBytes(16).toString('base64url');
   const sha256 = createHash('sha256').update(body, 'utf8').digest('hex');
-  const bench = BENCH_TOOL_NAMES.has(toolName) && typeof args?.bench === 'string' ? resolveBenchRef(args.bench) : '';
+  const bench = capabilityScope ? JSON.stringify([capabilityScope.area, capabilityScope.principal])
+    : BENCH_TOOL_NAMES.has(toolName) && typeof args?.bench === 'string' ? resolveBenchRef(args.bench) : '';
   const scope = mcpToolScope(sess, toolName);
   const target = scope !== null && scope !== 'all' ? mcpScopeTarget(toolName, args) : null;
-  svc<McpService>('mcp').resultPut({ id, sessionId: sess.id, tool: toolName, bench, target, sha256, bytes, body, createdAt: now, expiresAt: now + MCP_RESULT_LIMITS.ttl }, MCP_RESULT_KEEP);
+  svc<McpService>('mcp').resultPut({ id, sessionId: sess.id, tool: capabilityScope ? 'capability:' + toolName : toolName, bench, target, sha256, bytes, body, createdAt: now, expiresAt: now + MCP_RESULT_LIMITS.ttl }, MCP_RESULT_KEEP);
   const url = `${origin}${MCP_REST_BASE}/results/${id}`;
   return {
     result_ref: { id, url, sha256, bytes, expires_at: new Date(now + MCP_RESULT_LIMITS.ttl).toISOString() },
@@ -3578,7 +3588,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
     return svc<AreaAccessService>('areaAccess').submit(sess.id, args);
   }
   if (name === 'access_info') {
-    const given = (['ref', 'tool', 'full', 'area'] as const).filter((k) => args?.[k] !== undefined && !(k === 'full' && args.full === false));
+    const given = (['ref', 'tool', 'full', 'area', 'capability'] as const).filter((k) => args?.[k] !== undefined && !(k === 'full' && args.full === false));
     if (given.length > 1) bad(`access_info 的 ${given.join('、')} 一次只能给一个`);
     if (args?.full !== undefined && typeof args.full !== 'boolean') bad('full 写 true 或 false');
   }
@@ -3603,6 +3613,11 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
     if (!row) notFound();
     return { request: benchRequestForSession(row!) };
   }
+  if (name === 'access_info' && args?.capability !== undefined) {
+    const cap = capability(args.capability);
+    if (!cap) bad('领域能力未登记，请查看 access_info 目录');
+    return { capability: capabilityDetail(cap!, capabilityCaller(sess, cap!) !== null) };
+  }
   const catalog = await mcpAggregatedTools();
   if (name === 'access_info') {
     const granted = (t: McpToolDef) => mcpToolGranted(sess, t.name); // 网关关时全部可调
@@ -3623,6 +3638,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
       session: sess?.name ?? null,
       granted_tools: catalog.filter(granted).map((t) => t.name),
       catalog: catalog.map((t) => entry(t, full)),
+      capabilities: capabilityIndex().map(cap => capabilityBrief(cap, capabilityCaller(sess, cap) !== null)),
       ...(full ? {} : { how_to_detail: '要某个工具的参数表和完整说明：access_info {tool: "工具名"}（没批的也取得到）' }),
       requests: sess ? (svc<McpService>('mcp').accessRequestsBySession(sess.id) as AccessRequestRow[]).map(accessRequestForSession) : [],
       ...(BENCH_VIEWS.on ? { bench_requests: sess ? benchRequestsOf(sess.id).map(benchRequestForSession) : [], how_to_request_bench: 'access_request {tools: [工具名@bench:台的标识], reason: 用途}：数据视图的工具必须限定到台，读也一样；一次只申请一个台；由台的管理层批准，不经 MCP 网关页' } : {}),
@@ -3712,7 +3728,7 @@ function accessRequestId(req: express.Request): number {
 registerMcpRoutes(http, { adminGuard, bad, sha256Hex, MCP_UPSTREAM_PREFIX_RE, MCP_SESSION_NAME_RE, MCP_SCOPED_TOOLS, ACCESS_STATUSES, ACCESS_REASON_MAX, upstreamHealth, upstreamToolCache, mcpUpstreams, mcpAggregatedTools, mcpRegisteredNames, resolveGrants, pageLimit, parseToolList, adminActor, accessRequestId, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) });
 
 // ---------- /mcp 与 REST（/api/mcp-rest/*）共用：会话认定、审计、tools/call ----------
-type McpChannel = 'mcp' | 'rest';
+type McpChannel = 'mcp' | CapabilityChannel;
 /** 网关会话认定：只认 Authorization: Bearer <会话令牌>。网关开且令牌无效/缺失/吊销 → 已回 401，返回 undefined；
  *  网关关 → null（匿名可调全部工具，只用于本地开发）。 */
 function mcpGatewaySession(req: express.Request, res: express.Response): McpSess | null | undefined {
@@ -3760,8 +3776,47 @@ type McpInvokeResult =
   | { kind: 'not_granted' }
   | { kind: 'ok'; out: unknown; upstream: boolean }
   | { kind: 'error'; error: any; upstream: boolean };
+function capabilityCaller(sess: McpSess | null, cap: CapabilityDeclaration) {
+  if (!sess) return null;
+  const mcp = svc<McpService>('mcp');
+  const principal = mcp.areaAccessPrincipal(sess.id);
+  if (!principal) return null;
+  try {
+    const { effective_actions } = svc<AreaAccessService>('areaAccess').effectiveActions(sess.id, cap.area);
+    return effective_actions.includes(cap.name) ? { sessionId: sess.id, principal, area: cap.area } : null;
+  } catch (e) {
+    if (e instanceof HttpError && e.status === 403) return null;
+    throw e;
+  }
+}
+
+async function invokeCapability(sess: McpSess | null, target: unknown, args: unknown, channel: CapabilityChannel, origin: string) {
+  const cap = capability(target);
+  if (!cap) capabilityDenied();
+  const start = Date.now();
+  try {
+    const caller = capabilityCaller(sess, cap);
+    if (!caller) capabilityDenied();
+    const out = await executeCapability(cap, caller, args);
+    const result = mcpByRef(sess, cap.name, args, out, origin, caller);
+    mcpAudit(sess, channel, 'capability/call', cap.name, true, '', Date.now() - start, args);
+    return result;
+  } catch (e) {
+    mcpAudit(sess, channel, 'capability/call', cap.name, false, e instanceof HttpError ? String(e.status) : 'internal', Date.now() - start, args);
+    throw e;
+  }
+}
+
 /** tools/call 唯一执行链：授权检查 → 免授权工具 / 上游转发 / 本地工具 → 审计。两个渠道各自把结果映射成自己的应答形状。 */
 async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, channel: McpChannel, origin: string, t0 = Date.now()): Promise<McpInvokeResult> {
+  if (toolName === 'invoke') {
+    try {
+      if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length !== 2 || !Object.hasOwn(args, 'target') || !Object.hasOwn(args, 'args')) {
+        throw new HttpError(400, 'invoke 只收 target 和 args');
+      }
+      return { kind: 'ok', out: await invokeCapability(sess, args.target, args.args, channel === 'mcp' ? 'mcp-invoke' : 'rest', origin), upstream: false };
+    } catch (error) { return { kind: 'error', error, upstream: false }; }
+  }
   if (BENCH_TOOL_NAMES.has(toolName)) {
     // 数据视图的工具：授予按「会话 × 台 × 工具」核。入口关着、没有会话、没有授予、台没登记，都按未授权处理
     try {
@@ -3799,6 +3854,7 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
   }
 }
 
+registerCapabilityRoutes(http, { wrap, mcpGatewaySession, mcpPublicOrigin, invokeCapability });
 registerMcpProtocolRoutes(http, { mcpGatewaySession, mcpAudit, mcpRestInfo, mcpPublicOrigin, MCP_KNOWN_PROTOCOLS, MCP_PROTOCOL, mcpAggregatedTools, mcpToolGranted, mcpInvokeTool, mcpByRef });
 
 // ---------- MCP 工具的 OpenAPI REST 开放：不说 MCP 协议的客户端用同一个会话令牌按 REST 调同一批工具 ----------

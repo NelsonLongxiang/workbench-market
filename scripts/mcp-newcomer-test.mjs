@@ -69,7 +69,7 @@ try {
 
   // ---------- 一、读技能不用申请 ----------
   const names = await listNames(bare.token);
-  ok('零授权会话 tools/list 有两个权限自助工具、分段读大结果和三个读技能的工具，别的没有', J([...names].sort()) === J(['access_info', 'access_request', 'result_read', ...SKILL_READS].sort()), J(names));
+  ok('零授权会话 tools/list 有两个权限自助工具、通用调用、分段读大结果和三个读技能的工具，别的没有', J([...names].sort()) === J(['access_info', 'access_request', 'invoke', 'result_read', ...SKILL_READS].sort()), J(names));
   const info = await tool(bare.token, 'access_info');
   // 工具结果是紧凑 JSON（不缩进）：同一份内容，换行和缩进不占上下文
   ok('tools/call 的结果是紧凑 JSON：没有换行和缩进，解析得开', info.text.length > 100 && !info.text.includes('\n') && info.payload && JSON.stringify(info.payload) === info.text, info.text.slice(0, 80));
@@ -94,17 +94,40 @@ try {
   // 逐字节对照：scripts/fixtures/access-info-full-baseline.json 是加 result_read 之前（main 79f539a5，第 1 步和不缩进都已合入）
   // 同样配置下 access_info {full: true} 的原样应答（实例地址随端口变，两边都写成 {{origin}} 再比）。
   // 第 1 步那时的基准对的是第 1 步之前的 access_info {}，证明了 full 和老的整份目录逐字节相同；这一份接着那一份，往下传。
-  // 现在拿到的，除了多出 result_read 那一项（目录里一项、granted_tools 里一个名字，它是免授权的），应当和它一个字节都不差。
+  // 只把以后各步已经明确的工具和字段变化加进期望，其余维持逐字节相同。
   // 工具目录以后再变（加了、删了工具），这一条会红：那时照这里的做法重抓基准，把那一次加的、删的写进期望
   {
     const { readFileSync } = await import('node:fs');
     // 报告的四个工具（报告第 1 步 PR C）：有意新增，按目录里的位置放回基准再比
-    const ADDED = ['result_read', 'report_list', 'report_get', 'report_generate', 'report_respond'];
+    const ADDED = ['invoke', 'result_read', 'report_list', 'report_get', 'report_generate', 'report_respond'];
     // 有意改了参数表的工具：去掉这次加的那一处，应当和基准一字不差；放回基准时用现在的那一项
     // dataset_query：查询描述加了 current_only（公共区的数据集只取每条更正链最新那行）
-    // view_put：说明里列的组件类型多了 records（记录卡，#858）
-    const CHANGED = { dataset_query: (t) => { const c = JSON.parse(J(t)); delete c.input_schema.properties.query.properties.current_only; return c; },
-      view_put: (t) => JSON.parse(J(t).split(' / records / ').join(' / ')) };
+    // view_put：从历史基准到当下已新增 records、dag、gantt 和 flow（若流程图已合入）。
+    const CHANGED = {
+      access_info: (t) => {
+        const c = JSON.parse(J(t));
+        delete c.input_schema.properties.capability;
+        delete c.input_schema.properties.area;
+        c.input_schema.properties.ref.description = c.input_schema.properties.ref.description.replace(/、area-1$/, '');
+        return c;
+      },
+      access_request: (t) => {
+        const c = JSON.parse(J(t));
+        c.description = c.description.replace('领域接入改填 area 和 actions，须有可信责任人，由属主或本领域负责人审批。不会增加 tools/list 中的工具。', '');
+        delete c.input_schema.properties.area;
+        delete c.input_schema.properties.actions;
+        c.input_schema.required.unshift('tools');
+        delete c.input_schema.oneOf;
+        return c;
+      },
+      dataset_query: (t) => { const c = JSON.parse(J(t)); delete c.input_schema.properties.query.properties.current_only; return c; },
+      view_put: (t) => {
+        const c = JSON.parse(J(t));
+        c.input_schema.properties.doc.description = c.input_schema.properties.doc.description
+          .replace(' / records / ', ' / ').replace(' / dag / gantt / flow。', '。').replace(' / dag / gantt。', '。');
+        return c;
+      },
+    };
     const before = JSON.parse(readFileSync(new URL('./fixtures/access-info-full-baseline.json', import.meta.url), 'utf8'));
     const nowText = fullInfo.text.split(BASE).join('{{origin}}');
     const nowFull = JSON.parse(nowText);
@@ -117,8 +140,9 @@ try {
     const insertAt = (list, items, nameOf) => { const out = [...list]; for (const it of items) { const i = nowFull.catalog.findIndex((x) => x.name === nameOf(it)); out.splice(i, 0, it); } return out; };
     const newEntries = nowFull.catalog.filter((t) => ADDED.includes(t.name));
     const patched = { ...before, granted_tools: (() => { const out = [...before.granted_tools]; for (const name of ADDED) { const i = nowFull.granted_tools.indexOf(name); if (i >= 0) out.splice(i, 0, name); } return out; })(), catalog: insertAt(before.catalog.map((t) => changedNow.get(t.name) ?? t), newEntries, (t) => t.name) };
-    ok('带 full: true 的应答和基准逐字节相同（只多了 result_read 和报告的四个工具，dataset_query 只多了 current_only，view_put 的组件类型只多了 records）', J(added) === J(ADDED) && removed.length === 0 && J(changed) === J(Object.keys(CHANGED)) && declaredOk && JSON.stringify(patched) === nowText,
-      J({ added, removed, changed, declaredOk, bytes: [Buffer.byteLength(nowText), Buffer.byteLength(JSON.stringify(patched))] }));
+    const expected = Object.fromEntries(Object.entries(patched).flatMap(([key, value]) => key === 'catalog' ? [[key, value], ['capabilities', []]] : [[key, value]]));
+    ok('full: true 只含已列明的目录与字段变化，其余逐字节相同', J(added) === J(ADDED) && removed.length === 0 && J(changed) === J(Object.keys(CHANGED)) && declaredOk && JSON.stringify(expected) === nowText,
+      J({ added, removed, changed, declaredOk, bytes: [Buffer.byteLength(nowText), Buffer.byteLength(JSON.stringify(expected))] }));
   }
   const details = await Promise.all(listed.map((t) => tool(bare.token, 'access_info', { tool: t.name })));
   ok('按名字取参数表（access_info {tool}）：和 tools/list 里的 inputSchema 一样，说明是原文（新人不用先申请才知道参数名）',

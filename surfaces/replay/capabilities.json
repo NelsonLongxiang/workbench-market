@@ -1,0 +1,154 @@
+{
+  "domain": "capabilities",
+  "what": "声明的能力走 MCP 和 REST 同一授权链，使用隔离合成扩展和两个阶段的真实授权。",
+  "routes": ["POST /api/mcp-rest/capabilities/:target"],
+  "scenarios": [
+    {
+      "name": "auth",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin", "MCP_GATEWAY": "on", "MARKET_PUBLIC_URL": "https://market.example" },
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["capability-fixture"],
+      "seed": [
+        { "table": "principals", "row": { "id": "user:fixture", "id_key": "user:fixture", "kind": "person" } },
+        { "table": "principals", "row": { "id": "user:fixture-decider", "id_key": "user:fixture-decider", "kind": "person" } },
+        { "table": "areas", "row": { "id": "access-alpha", "name": "合成", "status": "active", "created_at": 1, "created_by": "test", "updated_at": 1, "updated_by": "test" } },
+        { "table": "mcp_sessions", "row": { "id": 1, "name": "fixture-domain-caller", "token_sha256": "ffe054fe7ae0cb6dc65c3af9b61d5209f439851db43d0ba5997337df154668eb", "responsible_principal": "user:fixture" } },
+        {
+          "table": "area_access_requests",
+          "row": { "session_id": 1, "area_id": "access-alpha", "applicant": "user:fixture", "actions": "[\"fixture-domain.read\"]", "reason": "合成", "status": "approved", "created_at": 1, "decided_by": "user:fixture-decider", "decided_at": 2 }
+        }
+      ],
+      "steps": [
+        {
+          "id": "anonymous",
+          "route": "POST /api/mcp-rest/capabilities/:target",
+          "class": "unauthorized",
+          "request": { "method": "POST", "path": "/api/mcp-rest/capabilities/fixture-domain.read", "json": { "text": "hello" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "125", "etag": "W/\"7d-<指纹>\"", "vary": "Origin", "www-authenticate": "Bearer realm=\"workbench-market mcp\"", "x-powered-by": "Express" },
+            "body": { "error": "unauthorized: valid session token required", "hint": "会话与令牌由管理员经 /api/mcp/sessions 创建分发" }
+          }
+        },
+        {
+          "id": "no-account-grant",
+          "route": "POST /api/mcp-rest/capabilities/:target",
+          "class": "unauthorized",
+          "request": { "method": "POST", "path": "/api/mcp-rest/capabilities/fixture-domain.read", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "json": { "text": "hello" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "78", "etag": "W/\"4e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "本会话不能调用此领域能力", "code": "capability_forbidden" }
+          }
+        },
+        {
+          "id": "copy",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/roles/guest/copy", "json": { "id": "fixture-replay-reader", "name": "合成回放读" } },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "edit",
+          "compare": "status",
+          "request": { "method": "PUT", "path": "/api/roles/fixture-replay-reader", "json": { "permissions": [{ "actions": ["fixture-domain.read"] }] } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "draft",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:fixture", "role": "fixture-replay-reader", "scope": "area:access-alpha", "reason": "合成" } },
+          "save": { "grant": "grant.id" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "submit",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{grant}}/submit", "json": {} },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "approve",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{grant}}/approve", "json": {} },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "invalid",
+          "route": "POST /api/mcp-rest/capabilities/:target",
+          "class": "invalid",
+          "request": {
+            "method": "POST",
+            "path": "/api/mcp-rest/capabilities/fixture-domain.read",
+            "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+            "json": { "text": "hello", "principal": "user:other" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "99", "etag": "W/\"63-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "领域能力参数含未声明的字段或类型不符", "code": "capability_args_invalid" }
+          }
+        },
+        {
+          "id": "invoke",
+          "route": "POST /api/mcp-rest/capabilities/:target",
+          "class": "normal",
+          "request": { "method": "POST", "path": "/api/mcp-rest/capabilities/fixture-domain.read", "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }, "json": { "text": "hello" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "43", "etag": "W/\"2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "text": "hello", "principal": "user:fixture" }
+          }
+        },
+        {
+          "id": "mcp",
+          "request": {
+            "method": "POST",
+            "path": "/mcp",
+            "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+            "json": { "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "invoke", "arguments": { "target": "fixture-domain.read", "args": { "text": "hello" } } } }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "124", "etag": "W/\"7c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": "{\"text\":\"hello\",\"principal\":\"user:fixture\"}" }] } }
+          }
+        }
+      ]
+    },
+    {
+      "name": "gateway-off",
+      "what": "关网关时通用调用仍要求有归属会话。",
+      "env": { "MCP_GATEWAY": "off" },
+      "fixtures": ["capability-fixture"],
+      "steps": [
+        {
+          "id": "rest",
+          "route": "POST /api/mcp-rest/capabilities/:target",
+          "class": "unauthorized",
+          "request": { "method": "POST", "path": "/api/mcp-rest/capabilities/fixture-domain.read", "json": { "text": "hello" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "78", "etag": "W/\"4e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "本会话不能调用此领域能力", "code": "capability_forbidden" }
+          }
+        },
+        {
+          "id": "mcp",
+          "request": { "method": "POST", "path": "/mcp", "json": { "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "invoke", "arguments": { "target": "fixture-domain.read", "args": { "text": "hello" } } } } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "191", "etag": "W/\"bf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "jsonrpc": "2.0", "id": 1, "result": { "content": [{ "type": "text", "text": "执行失败：本会话不能调用此领域能力\n{\"status\":403,\"code\":\"capability_forbidden\"}" }], "isError": true } }
+          }
+        }
+      ]
+    }
+  ]
+}
