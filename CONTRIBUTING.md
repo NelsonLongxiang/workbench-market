@@ -70,9 +70,9 @@
 node scripts/worktree-review-env.mjs .worktrees/<任务> -- pnpm check
 ```
 
-目标须是已登记的 linked worktree。脚本逐字节核对两边的依赖声明、项目锁和主仓实际虚拟仓锁。它只在目标工作树创建临时模块根，重建包链接、workspace 链接和命令 shim。包文件优先采用文件系统写时复制，缺少该能力时采用独立文件复制。会话状态、缓存和已有模块根不会被复用或覆盖。运行时设 verifyDepsBeforeRun=false，保留 pnpm 路径保护；检查退出或收到取消后回收本次创建的目录。
+目标须是已登记的 linked worktree。脚本逐字节核对两边的依赖声明、项目锁和主仓实际虚拟仓锁。它只在目标工作树创建临时模块根，重建包链接、workspace 链接和命令 shim。包文件优先采用文件系统写时复制，缺少该能力时采用独立文件复制。会话状态、缓存和已有模块根不会被复用或覆盖。检查使用工作树内的 pnpm 包装入口，显式传入 verifyDepsBeforeRun=false，并用 config get 核实有效值后才执行。嵌套 pnpm 脚本走同一入口，保留 pnpm 路径保护。准备、运行或清理阶段收到常规取消时，仍回收本次创建的目录。
 
-指定前台检查命令。此入口不安装依赖，命令本身也不应执行安装或指向共享可写路径。锁不一致、目录已存在、链接越界时会拒绝。正式行为测试运行 `node --test scripts/worktree-review-env-test.mjs`。
+指定可信的前台检查命令。使用已安装的 pnpm，直接写 pnpm 或指向已安装 pnpm 的路径。此入口不通过 npm、npx 或 Corepack 临时获取包管理器。检查命令不得绕过包装入口执行安装或指向共享可写路径。锁不一致、目录已存在、链接越界时会拒绝。正式行为测试运行 `node --test scripts/worktree-review-env-test.mjs`。
 
 ## 提交前
 

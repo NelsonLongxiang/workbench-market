@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpa
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { after, test } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const runner = fileURLToPath(new URL('./worktree-review-env.mjs', import.meta.url));
 const tmp = fileURLToPath(new URL('../tmp/', import.meta.url));
@@ -175,4 +176,107 @@ test('forwards cancellation to the running check before cleanup', async () => {
     assert.equal(status, 143, errors);
     clean(target);
   } finally { clearTimeout(timeout); }
+});
+
+async function waitFor(predicate, child) {
+  for (let attempt = 0; attempt < 1000; attempt++) {
+    if (predicate()) return;
+    assert.equal(child.exitCode, null, 'helper exited before the intended phase');
+    assert.equal(child.signalCode, null, 'helper was signalled before the intended phase');
+    await delay(5);
+  }
+  throw Error('helper did not reach the intended phase');
+}
+
+function startCheck(target, ...command) {
+  const child = spawn(node, [runner, target, '--', node, '-e', ...command], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '', errors = '';
+  child.stdout.on('data', data => { output += data; });
+  child.stderr.on('data', data => { errors += data; });
+  const done = new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('close', (code, signal) => resolve({ code, signal }));
+  });
+  return { child, done, output: () => output, errors: () => errors };
+}
+
+test('TERM during package preparation prevents the check and removes partial modules', async () => {
+  const { source, target, pkg } = fixture();
+  // A late package keeps preparation in progress once the first package is visible.
+  const tail = 'web/node_modules/zz-last';
+  for (let i = 0; i < 1000; i++) write(source, join(tail, String(i)), 'fixture');
+  const running = startCheck(target, 'console.log("check-started")');
+  try {
+    await waitFor(() => existsSync(join(target, pkg, 'index.js')), running.child);
+    assert.equal(existsSync(join(target, tail, '999')), false);
+    running.child.kill('SIGTERM');
+    assert.deepEqual(await running.done, { code: 143, signal: null }, running.errors());
+    assert.equal(running.output(), '');
+    clean(target);
+    assert.equal(readFileSync(join(source, pkg, 'index.js'), 'utf8'), 'module.exports = "installed";\n');
+  } finally {
+    running.child.kill('SIGTERM');
+    await running.done;
+  }
+});
+
+test('signals during cleanup preserve removal of every owned directory', async () => {
+  const { target } = fixture();
+  const running = startCheck(target, [
+    'const fs=require("node:fs");',
+    'for(let i=0;i<1000;i++)fs.writeFileSync("web/node_modules/file-"+i,"fixture");',
+    'console.log("check-finished");',
+  ].join(''));
+  try {
+    await waitFor(() => running.output().includes('check-finished') && fsProbe(target), running.child);
+    running.child.kill('SIGTERM');
+    running.child.kill('SIGHUP');
+    const result = await running.done;
+    assert.equal(result.signal, null, running.errors());
+    assert.ok([143, 129].includes(result.code), running.errors() || String(result.code));
+    clean(target);
+  } finally {
+    running.child.kill('SIGTERM');
+    await running.done;
+  }
+
+  function fsProbe(path) {
+    return existsSync(join(path, 'tmp')) && readdirSync(join(path, 'tmp')).length === 0 && existsSync(join(path, 'node_modules'));
+  }
+});
+
+function fakePnpm(invalid = false) {
+  const dir = join(root, 'path-' + seq);
+  write(dir, 'pnpm', '#!' + node + '\n' + [
+    'const {spawnSync}=require("node:child_process");',
+    'const args=process.argv.slice(2);',
+    'const guarded=args.includes("--config.verifyDepsBeforeRun=false");',
+    'const offline=args.includes("--config.offline=true");',
+    'const leaf=args.filter((arg)=>!arg.startsWith("--config."));',
+    'if(leaf.join(" ")==="config get verifyDepsBeforeRun"){console.log(guarded&&offline&&process.env.TEST_INVALID!=="1"?"false":"undefined");process.exit(0)}',
+    'if(!guarded||!offline) {require("node:fs").writeFileSync("unexpected-install","pre-script");process.exit(12)}',
+    'if(leaf.join(" ")==="check") {const r=spawnSync("pnpm",["--filter","web","typecheck"],{stdio:"inherit"});process.exit(r.status??1)}',
+    'if(leaf.join(" ")==="--filter web typecheck") {console.log("guarded nested check");process.exit(0)}',
+    'process.exit(13);',
+  ].join('\n') + '\n', { mode: 0o755 });
+  return { ...process.env, PATH: dir + ':' + process.env.PATH, TEST_INVALID: invalid ? '1' : '0' };
+}
+
+test('requires effective pnpm config and guards nested checks without an install', () => {
+  const { target } = fixture();
+  const r = run(target, ['pnpm', 'check'], fakePnpm());
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), 'guarded nested check');
+  assert.equal(existsSync(join(target, 'unexpected-install')), false);
+  clean(target);
+});
+
+test('refuses a pnpm that reports undefined before running its check', () => {
+  const { target } = fixture();
+  const r = run(target, ['pnpm', 'check'], fakePnpm(true));
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /did not adopt verifyDepsBeforeRun=false/);
+  assert.equal(r.stdout, '');
+  assert.equal(existsSync(join(target, 'unexpected-install')), false);
+  clean(target);
 });

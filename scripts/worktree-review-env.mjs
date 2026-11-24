@@ -2,11 +2,13 @@
 /** Use an existing same-lock pnpm install for a trusted, foreground check in a linked worktree. */
 import { execFileSync, spawn } from 'node:child_process';
 import {
-  constants, copyFileSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync,
-  readlinkSync, realpathSync, rmSync, rmdirSync, symlinkSync, writeFileSync,
+  accessSync, constants, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync,
+  readlinkSync, realpathSync, rmdirSync, symlinkSync, writeFileSync,
 } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { constants as osConstants } from 'node:os';
+import { copyFile, rm } from 'node:fs/promises';
+import { setImmediate as yieldToSignals } from 'node:timers/promises';
 
 // This repository's pnpm workspace layout. Reject changed workspace declarations instead of guessing.
 const projects = ['.', 'server', 'web'];
@@ -84,7 +86,7 @@ function plan(targetPath) {
   return { source, target, sourceModules, modules, tmp };
 }
 
-function materialize({ source, target, sourceModules, modules }) {
+async function materialize({ source, target, sourceModules, modules }, cancellation) {
   const links = [];
   const mapped = (path) => join(target, relative(source, path));
   const workspaceProjects = new Set(projects.slice(1).map(project => join(source, project)));
@@ -94,7 +96,7 @@ function materialize({ source, target, sourceModules, modules }) {
     for (const name of readdirSync(root)) {
       // Top-level hidden files are installation metadata or caches. Only bins and the virtual store are needed.
       if (name.startsWith('.') && name !== '.bin' && !(name === '.pnpm' && root === sourceModules[0])) continue;
-      copy(join(root, name));
+      await copy(join(root, name));
     }
   }
   for (const link of links) {
@@ -102,7 +104,9 @@ function materialize({ source, target, sourceModules, modules }) {
     if (!localProjects.has(actual) && !modules.some(root => inside(actual, root))) throw Error('Generated dependency link leaves the worktree: ' + link);
   }
 
-  function copy(src) {
+  async function copy(src) {
+    await yieldToSignals();
+    cancellation.check();
     const dst = mapped(src);
     const s = lstatSync(src);
     if (s.isSymbolicLink()) {
@@ -112,10 +116,10 @@ function materialize({ source, target, sourceModules, modules }) {
       links.push(dst);
     } else if (s.isDirectory()) {
       mkdirSync(dst);
-      for (const entry of readdirSync(src)) copy(join(src, entry));
+      for (const entry of readdirSync(src)) await copy(join(src, entry));
     } else if (s.isFile()) {
       if (basename(dirname(src)) === '.bin') copyShim(src, dst, s.mode);
-      else copyFileSync(src, dst, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
+      else await copyFile(src, dst, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
     } else {
       throw Error('Unsupported dependency entry: ' + src);
     }
@@ -154,30 +158,87 @@ function checkEnvironment(state) {
   return { ...env, ...overrides, COREPACK_ENABLE_NETWORK: '0' };
 }
 
-async function runCheck(command, cwd, state) {
-  const child = spawn(command[0], command.slice(1), { cwd, env: checkEnvironment(state), stdio: 'inherit', detached: true });
-  let interrupted, timer;
+function prepareCommand(command, cwd, state, env) {
+  const name = basename(command[0]);
+  if (name === 'npm' || name === 'npx' || name === 'corepack') {
+    throw Error('Use the installed pnpm executable directly, without a package-manager wrapper');
+  }
+  const directPnpm = name === 'pnpm';
+  const executable = directPnpm ? command[0] : 'pnpm';
+  const candidates = executable.includes(sep) ? [resolve(cwd, executable)] : (env.PATH ?? '').split(':').map(dir => resolve(cwd, dir, executable));
+  const pnpm = candidates.find(path => {
+    try { accessSync(path, constants.X_OK); return !stat(path)?.isDirectory(); }
+    catch (error) { if (!['ENOENT', 'EACCES', 'ENOTDIR'].includes(error.code)) throw error; return false; }
+  });
+  if (!pnpm && !directPnpm) return command;
+  if (!pnpm) throw Error('An already installed pnpm executable is required');
+  const quote = value => "'" + value.replaceAll("'", "'\"'\"'") + "'";
+  // pnpm 11 does not read verifyDepsBeforeRun from the npm_config environment.
+  // Apply and verify the same explicit settings for the outer call and nested pnpm scripts.
+  const cli = quote(pnpm) + ' --config.verifyDepsBeforeRun=false --config.managePackageManagerVersions=false --config.offline=true';
+  const bin = join(state, 'bin');
+  mkdirSync(bin);
+  const shim = join(bin, 'pnpm');
+  writeFileSync(shim, [
+    '#!/bin/sh',
+    'set -eu',
+    'for arg do',
+    '  case "$arg" in install|i|add|update|up|remove|uninstall|fetch|dlx|import|rebuild|--config.*)',
+    '    echo "worktree-review-env: pnpm install or configuration override is outside this check" >&2; exit 1;;',
+    '  esac',
+    'done',
+    'if [ "$('+cli+' config get verifyDepsBeforeRun)" != false ]; then',
+    '  echo "worktree-review-env: pnpm did not adopt verifyDepsBeforeRun=false" >&2; exit 1',
+    'fi',
+    'exec '+cli+' "$@"',
+    '',
+  ].join('\n'), { mode: 0o755, flag: 'wx' });
+  env.PATH = env.PATH ? bin + ':' + env.PATH : bin;
+  return directPnpm ? [shim, ...command.slice(1)] : command;
+}
+
+class Cancelled extends Error {}
+
+function watchCancellation() {
+  let interrupted, child, timer;
+  function signalGroup(signal) {
+    if (!child?.pid) return;
+    try { process.kill(-child.pid, signal); }
+    catch (error) { if (error.code !== 'ESRCH') console.error(error.message); }
+  }
   const handlers = new Map(['SIGINT', 'SIGTERM', 'SIGHUP'].map(signal => [signal, () => {
     if (interrupted) return;
     interrupted = signal;
-    try { process.kill(-child.pid, signal); } catch (error) { if (error.code !== 'ESRCH') console.error(error.message); }
-    timer = setTimeout(() => stopGroup(), 5000);
+    if (!child) return;
+    signalGroup(signal);
+    timer = setTimeout(() => signalGroup('SIGKILL'), 5000);
   }]));
-  function stopGroup() {
-    if (!child.pid) return;
-    try { process.kill(-child.pid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') console.error(error.message); }
-  }
   for (const [signal, handler] of handlers) process.on(signal, handler);
+  return {
+    check() { if (interrupted) throw new Cancelled(); },
+    get exitCode() { return interrupted ? 128 + osConstants.signals[interrupted] : null; },
+    setChild(value) { child = value; },
+    finishChild() {
+      if (interrupted) signalGroup('SIGKILL');
+      clearTimeout(timer);
+      child = undefined;
+    },
+    close() { for (const [signal, handler] of handlers) process.off(signal, handler); },
+  };
+}
+
+async function runCheck(command, cwd, env, cancellation) {
+  cancellation.check();
+  const child = spawn(command[0], command.slice(1), { cwd, env, stdio: 'inherit', detached: true });
+  cancellation.setChild(child);
   try {
     const { code, signal } = await new Promise((res, rej) => {
       child.once('error', rej);
       child.once('close', (code, signal) => res({ code, signal }));
     });
-    return interrupted || signal ? 128 + osConstants.signals[interrupted || signal] : code;
+    return signal ? 128 + osConstants.signals[signal] : code;
   } finally {
-    if (interrupted) stopGroup();
-    clearTimeout(timer);
-    for (const [signal, handler] of handlers) process.off(signal, handler);
+    cancellation.finishChild();
   }
 }
 
@@ -187,36 +248,51 @@ async function main(args) {
   const layout = plan(args[0]);
   const created = [];
   let madeTmp = false;
+  let status;
+  const cancellation = watchCancellation();
   try {
-    for (const root of layout.modules) {
-      mkdirSync(root);
-      created.push({ path: root, stat: lstatSync(root) });
+    try {
+      for (const root of layout.modules) {
+        await yieldToSignals();
+        cancellation.check();
+        mkdirSync(root);
+        created.push({ path: root, stat: lstatSync(root) });
+      }
+      if (!stat(layout.tmp)) {
+        mkdirSync(layout.tmp);
+        madeTmp = true;
+      }
+      const state = mkdtempSync(join(layout.tmp, 'worktree-review-env-'));
+      created.push({ path: state, stat: lstatSync(state) });
+      await materialize(layout, cancellation);
+      const env = checkEnvironment(state);
+      const command = prepareCommand(args.slice(2), layout.target, state, env);
+      await yieldToSignals();
+      status = await runCheck(command, layout.target, env, cancellation);
+    } catch (error) {
+      if (!(error instanceof Cancelled)) throw error;
+    } finally {
+      const failed = [];
+      for (const owned of created.reverse()) {
+        try {
+          directory(dirname(owned.path));
+          const current = stat(owned.path);
+          if (!current) continue;
+          if (current.dev !== owned.stat.dev || current.ino !== owned.stat.ino || !current.isDirectory()) {
+            throw Error('Directory was replaced during the check: ' + owned.path);
+          }
+          await rm(owned.path, { recursive: true });
+        } catch (error) { failed.push(error.message); }
+      }
+      if (madeTmp && !failed.length) {
+        try { rmdirSync(layout.tmp); } catch (error) { if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) failed.push(error.message); }
+      }
+      if (failed.length) throw Error('Cleanup incomplete: ' + failed.join(', '));
+      await yieldToSignals();
     }
-    if (!stat(layout.tmp)) {
-      mkdirSync(layout.tmp);
-      madeTmp = true;
-    }
-    const state = mkdtempSync(join(layout.tmp, 'worktree-review-env-'));
-    created.push({ path: state, stat: lstatSync(state) });
-    materialize(layout);
-    return await runCheck(args.slice(2), layout.target, state);
+    return cancellation.exitCode ?? status;
   } finally {
-    const failed = [];
-    for (const owned of created.reverse()) {
-      try {
-        directory(dirname(owned.path));
-        const current = stat(owned.path);
-        if (!current) continue;
-        if (current.dev !== owned.stat.dev || current.ino !== owned.stat.ino || !current.isDirectory()) {
-          throw Error('Directory was replaced during the check: ' + owned.path);
-        }
-        rmSync(owned.path, { recursive: true });
-      } catch (error) { failed.push(error.message); }
-    }
-    if (madeTmp && !failed.length) {
-      try { rmdirSync(layout.tmp); } catch (error) { if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) failed.push(error.message); }
-    }
-    if (failed.length) throw Error('Cleanup incomplete: ' + failed.join(', '));
+    cancellation.close();
   }
 }
 
