@@ -6,7 +6,7 @@
  *   node scripts/mutation-run-test.mjs
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { account, parseSpec, replaceOccurrence, UsageError } from './mutation-run.mjs';
@@ -117,6 +117,17 @@ try {
       '多条 narrow 命令：按写的参数逐条跑、日志记下每条参数，第一条红就不跑后面的', { code: r.code, kLog: kLog.slice(0, 200), fLog: fLog.slice(0, 200) });
   }
 
+  {
+    // 不经 shell：参数里的 shell 元字符原样传给测试命令，一个都不执行（评审 N7：改成 shell: true 时这条要红）
+    const repo = fixture({ 'argv.mjs': "import { mkdirSync, writeFileSync } from 'node:fs'\nmkdirSync('logs', { recursive: true })\nwriteFileSync('logs/argv.json', JSON.stringify(process.argv.slice(2)))\n" });
+    const weird = ['$(touch pwned1)', '; touch pwned2', '`touch pwned3`', '> pwned4', '| touch pwned5', 'a b', "it's", '"q"'];
+    const r = cli(repo, { ...base, narrow: [[node, 'argv.mjs', ...weird], t('tests/strong.t')], mutations: [K] });
+    const got = existsSync(join(repo, 'logs/argv.json')) ? JSON.parse(readFileSync(join(repo, 'logs/argv.json'), 'utf8')) : null;
+    const pwned = readdirSync(repo).filter((n) => n.startsWith('pwned') || n.startsWith('touch'));
+    check(r.code === 0 && JSON.stringify(got) === JSON.stringify(weird) && pwned.length === 0 && clean(repo) === '' && lib(repo) === LIB,
+      '不经 shell：参数里的 $()、;、反引号、>、|、空格与引号原样传给测试命令，什么都没被执行', { code: r.code, got, pwned, err: r.stderr.slice(0, 200) });
+  }
+
   console.log('拒绝时什么都不改');
   for (const [name, mutation, message] of [
     ['锚点没命中', { id: 'A', file: 'src/lib.js', find: 'LIMIT = 9', replace: 'x' }, '0 time'],
@@ -180,6 +191,19 @@ try {
     };
     check(r.json.includes('not JSON') && r.same.includes('nothing would change') && r.dup.includes('duplicate') && r.oldShape.includes('spec.command is not used') && r.strNarrow.includes('list of commands') && r.probes.includes('probes') && r.timeout.includes('timeoutMs') && r.none.includes('non-empty') && r.version.includes('version') && r.ok === 'accepted',
       '规格校验：坏 JSON、改了等于没改、重复 id、旧的 command 写法、narrow 写成字符串、probes、timeoutMs 0、没有变异、版本号', r);
+  }
+
+  {
+    // 评审 R1：--out 指向被忽略目录里的符号链接（最后一段、带尾斜杠、在中间），都拒绝，链接指向的仓库外目录一个文件都不写
+    const repo = fixture();
+    const outside = dir('out-link-target');
+    mkdirSync(join(repo, 'logs'), { recursive: true }); symlinkSync(outside, join(repo, 'logs', 'evil'));
+    const spec = { ...base, narrow: [t('tests/strong.t')], mutations: [K] };
+    const a = cli(repo, spec, { out: join(repo, 'logs', 'evil') });
+    const b = cli(repo, spec, { out: join(repo, 'logs', 'evil') + '/' });
+    const c = cli(repo, spec, { out: join(repo, 'logs', 'evil', 'run') });
+    check([a, b, c].every((x) => x.code === 2) && a.stderr.includes('symbolic link') && b.stderr.includes('symbolic link') && readdirSync(outside).length === 0 && lib(repo) === LIB && clean(repo) === '',
+      '--out 是被忽略目录里的符号链接（最后一段、带尾斜杠、在中间）：都退出 2，仓库外一个文件都不写', { a: [a.code, a.stderr.slice(0, 120)], b: [b.code, b.stderr.slice(0, 120)], c: [c.code, c.stderr.slice(0, 120)], outside: readdirSync(outside) });
   }
 
   console.log('第几处');

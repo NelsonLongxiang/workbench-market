@@ -15,6 +15,7 @@
  *   - 收尾核「跑了的条数 = 规格里的条数」且工作树干净。
  * 每次测试命令有自己的进程组；SIGINT、SIGTERM、SIGHUP 或 timeoutMs 到时先给整组 SIGTERM，5 秒后不论直接子进程在不在都给整组 SIGKILL。
  * 不读任何环境变量开关，不碰 git 索引，不提交、不推送。
+ * 规格里不写 timeoutMs 就不设超时：卡住的测试命令会一直等（起浏览器、数据库的测试建议写上）。
  * 退出码：0 每条结果都符合预期；1 有变异存活（或不符合 expect）；2 用法或预检错误，什么都没改；3 还原或计数失败，请看工作树；
  *        130 被 SIGINT/SIGTERM/SIGHUP 中断，已先还原。
  *
@@ -22,7 +23,7 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync, writeSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const EXIT = Object.freeze({ ok: 0, survived: 1, usage: 2, integrity: 3, interrupted: 130 });
@@ -115,6 +116,21 @@ export function checkOut(root, out) {
   const rel = relative(root, out);
   if (rel === '' || rel === '..' || rel.startsWith('../') || isAbsolute(rel)) throw new UsageError(`--out must be a folder inside the repository (it writes nothing outside the working tree): ${out}`);
   if (!gitOk(root, ['check-ignore', '-q', '--', rel])) throw new UsageError(`--out ${rel} is not ignored by git; its logs would dirty the tree (tmp/ is ignored)`);
+  // 词法上在仓库里还不够：路径上任何一段是符号链接（哪怕是最后一段、被 git 忽略），日志就可能写到链接指向的仓库外。
+  let cur = root;
+  for (const part of rel.split(sep).filter(Boolean)) {
+    cur = join(cur, part);
+    let st;
+    try { st = lstatSync(cur); } catch { break; } // 往下的还不存在，由 mkdirSync 新建，是普通目录
+    if (st.isSymbolicLink()) throw new UsageError(`--out ${rel}: ${relative(root, cur)} is a symbolic link; the runner writes only inside the working tree`);
+    if (!st.isDirectory()) throw new UsageError(`--out ${rel}: ${relative(root, cur)} is not a folder`);
+  }
+}
+
+/** 建好 --out 之后再按真实路径核一次：解析后仍须在仓库里 */
+function checkOutReal(root, out) {
+  const real = relative(realpathSync(root), realpathSync(out));
+  if (real === '' || real === '..' || real.startsWith('..' + sep) || isAbsolute(real)) throw new UsageError(`--out resolves outside the repository: ${out}`);
 }
 
 function preflight(root, spec, out) {
@@ -137,6 +153,7 @@ function preflight(root, spec, out) {
   }
   if (problems.length) throw new UsageError(`preflight failed; nothing was changed:\n${problems.join('\n')}`);
   mkdirSync(out, { recursive: true });
+  checkOutReal(root, out);
 }
 
 /** 停掉的测试命令的进程组：SIGTERM 之后等这么久再 SIGKILL */
