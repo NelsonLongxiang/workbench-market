@@ -422,8 +422,7 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     try {
       const out = await (await benchStore(bench.slug)).changeCursor();
       assertBenchBinding(bench); // Last synchronous gate: nothing may await between this and res.json.
-      res.set('Cache-Control', 'no-store');
-      res.json(out);
+      res.json(out); // Cache-Control: private, no-store 由 who() 统一设
     } catch (e) { fail(res, e); }
   }));
   // 图片代取（docs/image-step1.md 第四节）：浏览器不访问图库，由市场取了再给。

@@ -288,7 +288,7 @@ try {
     const cur = async (who = mgr) => srv.call('GET', `${B}/changes`, who);
     let c = await cur();
     const c0 = c.json?.cursor;
-    check(c.status === 200 && typeof c0 === 'string' && c0.length >= 16 && Object.keys(c.json).join() === 'cursor' && /no-store/.test(c.headers?.['cache-control'] ?? ''), '有权：回一个游标，只有游标、不缓存', { s: c.status, t: c.text.slice(0, 120) });
+    check(c.status === 200 && typeof c0 === 'string' && c0.length >= 16 && Object.keys(c.json).join() === 'cursor' && /private, no-store/.test(c.headers?.['cache-control'] ?? ''), '有权：回一个游标，只有游标、不缓存', { s: c.status, t: c.text.slice(0, 120) });
     r = await srv.call('GET', `${B}/render?view=overview`, mgr);
     check(r.status === 200 && r.json?.cursor === c0, '取数回应带同一个游标', { render: r.json?.cursor, changes: c0 });
     c = await cur();

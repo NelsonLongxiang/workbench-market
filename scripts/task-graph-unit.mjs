@@ -182,7 +182,7 @@ console.log('实时刷新后刚刚动了的任务');
   ok('进度变了也算', [...g.changedNodes(g.changedNodes(null, g.buildGraph(chain, spec({ progress_col: 'pct' }), FULL)).fingerprints, m3).changed].join() === 'A');
   const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   const dag = read('../web/src/bench-blocks/DagBlock.tsx');
-  ok('页面：变了的任务描边，定时收回；描边颜色只取 token', /changedNodes\(prints\.current, model\)/.test(dag) && /setTimeout\(\(\) => setFlash\(new Set\(\)\), FLASH_MS\)/.test(dag) && /shadowColor: T\.colors\.primary/.test(dag));
+  ok('页面：变了的任务描边，定时收回；描边颜色只取 token', /changedNodes\(prints\.current, model\)/.test(dag) && /if \(!changed\.size\) return;\n\s*setFlash\(changed\);/.test(dag) && /setTimeout\(\(\) => setFlash\(new Set\(\)\), FLASH_MS\)/.test(dag) && /shadowColor: T\.colors\.primary/.test(dag));
 }
 
 console.log(`\ntask-graph-unit: ${pass} passed / ${fail} failed`);
