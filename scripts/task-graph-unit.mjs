@@ -291,5 +291,27 @@ console.log('甘特图：图表配置与纵向可视范围');
   chart.dispose();
 }
 
+console.log('流程图');
+{
+  ok('形状：起点、终点、支线终点圆角；decision 菱形；step、空、不认识的值都按步骤画矩形', g.nodeSymbol({ role: 'start', row: { sh: 'decision' } }, 'sh') === 'roundRect' && g.nodeSymbol({ role: 'end', row: {} }, 'sh') === 'roundRect' && g.nodeSymbol({ role: 'branch_end', row: {} }, 'sh') === 'roundRect' && g.nodeSymbol({ role: '', row: { sh: ' decision ' } }, 'sh') === 'diamond' && g.nodeSymbol({ role: '', row: { sh: 'step' } }, 'sh') === 'rect' && g.nodeSymbol({ role: '', row: {} }, 'sh') === 'rect' && g.nodeSymbol({ role: '', row: { sh: 'oval' } }, 'sh') === 'rect' && g.nodeSymbol({ role: '', row: { sh: 'decision' } }) === 'rect');
+  const review = g.buildGraph([{ id: 'S', role: 'start' }, { id: 'D', deps: 'S,F' }, { id: 'J', deps: 'D' }, { id: 'F', deps: '?J=否' }, { id: 'E', deps: 'J=是', role: 'end' }], spec({ kind: 'flow' }), FULL);
+  const lab = (from, to) => review.edges.find((e) => e.from === from && e.to === to);
+  ok('边上的字：J=是 画在 J→E 上；?J=否 是带字的可选边 J→F', lab('J', 'E')?.label === '是' && lab('J', 'E')?.kind === 'req' && lab('J', 'F')?.label === '否' && lab('J', 'F')?.kind === 'opt', review.edges);
+  ok('审核不过退回修改的循环（D→J→F→D）照画：不挡图、不报环、终点诊断通过', !review.blocked && review.diagnostics.length === 0, review.diagnostics);
+  const ly = g.layoutGraph(review, 'LR');
+  ok('回边标 back（画成弯线）：F→D 是回边，S→D 不是', ly.edges.find((e) => e.from === 'F' && e.to === 'D')?.back === true && ly.edges.find((e) => e.from === 'S' && e.to === 'D')?.back === false);
+  // 访问次数超上限：逐层「任一」的格子图让候选组合成倍增长，收闭包必须在上限处停下，不出完成率并给说明
+  const lattice = [{ id: 'S', role: 'start', st: 'todo' }];
+  for (let k = 0; k < 24; k++) for (const s of ['a', 'b']) lattice.push({ id: s + k, deps: k ? 'a' + (k - 1) + '|b' + (k - 1) : 'S' });
+  lattice.push({ id: 'E', deps: 'a23|b23', role: 'end' });
+  const t0 = Date.now();
+  const heavy = g.buildGraph(lattice, spec({ kind: 'flow' }), FULL);
+  const took = Date.now() - t0;
+  ok('访问次数超上限：报「依赖太复杂」，不出完成率和还差几个，且一定终止（不卡住）', heavy.diagnostics.some((d) => d.code === 'too-complex') && heavy.summary.rate === null && heavy.summary.remaining === null && /太复杂/.test(heavy.summary.note ?? '') && took < 10000, { codes: heavy.diagnostics.map((d) => d.code), rate: heavy.summary.rate, took });
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const dagSrc = read('../web/src/bench-blocks/DagBlock.tsx'), bvSrc = read('../web/src/bench-blocks/BenchView.tsx');
+  ok('DagBlock 按 kind 建图（流程图不挡图），形状走 nodeSymbol；BenchView 认 flow 并传 shape_col', /buildGraph\(rows, \{ \.\.\.spec, kind \}/.test(dagSrc) && /kind = 'dag'/.test(dagSrc) && /symbol: nodeSymbol\(n, spec\.shape_col\)/.test(dagSrc) && /b\.type === 'flow'\) return <DagBlock key=\{i\} kind="flow"/.test(bvSrc) && /shape_col: str\(b\.shape_col\)/.test(bvSrc));
+}
+
 console.log(`\ntask-graph-unit: ${pass} passed / ${fail} failed`);
 process.exit(fail ? 1 : 0);

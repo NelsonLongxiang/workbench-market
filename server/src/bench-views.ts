@@ -10,7 +10,7 @@
 import { BenchError, NAME_RE, planQuery, type DatasetDef, type OutColumn } from './bench-query.ts';
 import { isVarRef } from './bench-bindings.ts';
 
-export const BLOCK_TYPES = ['filter-bar', 'stat', 'table', 'records', 'bar', 'line', 'pie', 'progress', 'form', 'dag', 'gantt'] as const;
+export const BLOCK_TYPES = ['filter-bar', 'stat', 'table', 'records', 'bar', 'line', 'pie', 'progress', 'form', 'dag', 'gantt', 'flow'] as const;
 /** 任务图 dag、甘特图 gantt（docs/task-graph-step1.md）：节点上限即取数上限，依赖、角色列的写法见那份文档第三节 */
 export const DAG_LIMITS = { nodes: 500, detailCols: 12, doneValues: 20 } as const;
 /** 任务图块的取数说明：有 filter 才算筛选（部分结果）；current_only 只排除被更正掉的旧行，不算筛选（docs/task-graph-step1.md 第五节之一） */
@@ -56,6 +56,8 @@ export const BLOCK_CONTRACT: Record<BlockType, { keys: readonly string[]; requir
     note: '任务依赖图，只读。一行一个任务：query 是明细查询（不能有 group、measures，不能写 limit、offset，最多画 500 个）；deps_col 是文本列，逗号分隔前置编号：a 必需、?a 可选、a|b 任一；role_col 是文本列，start 起点、end 主线终点、branch_end 支线终点，其余留空（起点终点各恰好一个，没有后继的任务都要标终点）；status_col 配 done_values（缺省 ["done"]）认完成；progress_col 是 0～100 的数值列；detail_cols 是点开任务时显示的 1～12 列；direction 为 LR 或 TB' },
   gantt: { keys: ['type', 'title', 'span', 'query', 'id_col', 'label_col', 'start_col', 'end_col', 'deps_col', 'role_col', 'status_col', 'done_values', 'progress_col', 'group_col', 'detail_cols', 'value_labels', 'column_labels'], required: ['type', 'query', 'id_col', 'label_col', 'start_col', 'end_col'],
     note: '甘特图，只读。一行一个任务，一条横条：query 是明细查询（不能有 group、measures，不能写 limit、offset，最多画 500 个）；start_col、end_col 是开始、截止，须为日期或日期时间列，且在数据集定义里是必填列（required: true）；progress_col 是 0～100 的数值列，画成条内填充；给了 deps_col（写法同任务图）就画前置截止到后继开始的箭头；给了 role_col 就在终点、支线终点的条尾画标记；截止已过、没完成的条用警示色；status_col 配 done_values（缺省 ["done"]）认完成' },
+  flow: { keys: ['type', 'title', 'span', 'query', 'id_col', 'label_col', 'deps_col', 'role_col', 'status_col', 'done_values', 'progress_col', 'source_col', 'group_col', 'detail_cols', 'direction', 'shape_col', 'value_labels', 'column_labels'], required: ['type', 'query', 'id_col', 'label_col', 'deps_col', 'role_col'],
+    note: '流程图，只读。键同任务图 dag，另可给 shape_col（文本列：step 步骤、decision 判断画成菱形；起点、终点由角色列定）。与 dag 的不同：允许循环（如「审核不过 → 退回修改」），回边画成弯线，不因有环挡图；没有出口的循环报「走不到终点」；依赖写成 a=说法 或 ?a=说法 时，说法画在边上' },
 };
 /** 视图描述整体的契约（view_put 的 doc 参数从这里生成；上限与校验同源） */
 export const VIEW_DOC_CONTRACT = {
@@ -315,11 +317,11 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
         out(cols, block.label, 'label');
         out(cols, block.value, 'value', true);
         flag('donut');
-      } else if (type === 'dag' || type === 'gantt') {
+      } else if (type === 'dag' || type === 'gantt' || type === 'flow') {
         keys(block, BLOCK_CONTRACT[type].keys, at);
         const q = block.query;
         if (isObj(q)) {
-          if (q.group !== undefined || q.measures !== undefined) errs.push(`${at}：${type === 'gantt' ? '甘特图' : '任务图'}的查询须为明细查询（不能有 group、measures）`);
+          if (q.group !== undefined || q.measures !== undefined) errs.push(`${at}：${type === 'gantt' ? '甘特图' : type === 'flow' ? '流程图' : '任务图'}的查询须为明细查询（不能有 group、measures）`);
           if (q.limit !== undefined || q.offset !== undefined) errs.push(`${at}：任务图的查询不能写 limit、offset（一次最多取 ${DAG_LIMITS.nodes} 个任务，不分页）`);
         }
         const typed = (prop: string, types: string[], what: string) => {
@@ -330,8 +332,9 @@ export function validateViewDoc(doc: unknown, datasets: Map<string, DatasetDef>)
         typed('id_col', ['text', 'integer'], '文本或整数列');
         out(cols, block.label_col, 'label_col');
         // 依赖、角色列：任务图必填，甘特图可选（给了就核）
-        if (type === 'dag' || block.deps_col !== undefined) typed('deps_col', ['text'], '文本列');
-        if (type === 'dag' || block.role_col !== undefined) typed('role_col', ['text'], '文本列');
+        if (type !== 'gantt' || block.deps_col !== undefined) typed('deps_col', ['text'], '文本列');
+        if (type !== 'gantt' || block.role_col !== undefined) typed('role_col', ['text'], '文本列');
+        if (type === 'flow' && block.shape_col !== undefined) typed('shape_col', ['text'], '文本列');
         // 甘特图的开始、截止：日期或日期时间列，且在数据集定义里必填——写入为空即被拒，图上不会有缺日期的条（docs/task-graph-step1.md 第四节之二）
         if (type === 'gantt') for (const p of ['start_col', 'end_col']) {
           typed(p, ['date', 'datetime'], '日期或日期时间列');

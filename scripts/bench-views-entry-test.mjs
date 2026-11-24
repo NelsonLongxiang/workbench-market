@@ -429,6 +429,33 @@ try {
     }
   }
 
+  console.log('六之三之二、流程图 flow：保存 → 取数');
+  {
+    r = await srv.call('PUT', `${B}/datasets/flowd`, { ...mgr, body: { title: '流程', key: ['id'], columns: [{ name: 'id', type: 'text', label: '编号' }, { name: 'name', type: 'text', label: '步骤' }, { name: 'deps', type: 'text', label: '前置' }, { name: 'role', type: 'text', label: '角色' }, { name: 'shape', type: 'text', label: '形状' }, { name: 'st', type: 'text', label: '状态' }] } });
+    check(r.status === 200, '流程数据集', r.text.slice(0, 120));
+    // 审核不过退回修改：D → J（判断）→ 否 → F → D 的循环，J → 是 → E 是出口
+    const steps = [{ id: 'S', name: '开始', role: 'start' }, { id: 'D', name: '起草', deps: 'S,F' }, { id: 'J', name: '审核', deps: 'D', shape: 'decision' }, { id: 'F', name: '修改', deps: '?J=否' }, { id: 'E', name: '发布', deps: 'J=是', role: 'end' }];
+    r = await srv.call('POST', `${B}/datasets/flowd/rows?op=replace`, { ...mgr, raw: JSON.stringify(steps) });
+    check(r.status === 200, '写 5 个步骤', r.text.slice(0, 120));
+    const cur = await srv.call('GET', B + '/view', mgr);
+    const f = { type: 'flow', id_col: 'id', label_col: 'name', deps_col: 'deps', role_col: 'role', shape_col: 'shape', status_col: 'st', query: { dataset: 'flowd' } };
+    const doc = { title: '流程', views: [{ key: 'flow', title: '流程', blocks: [f] }] };
+    r = await srv.call('PUT', B + '/view', { ...mgr, body: { doc: { ...doc, views: [{ ...doc.views[0], blocks: [{ ...f, role_col: undefined }] }] }, base: cur.json.view.active_version, note: '应被拒绝' } });
+    check(r.status === 400 && r.text.includes('role_col'), '流程图缺角色列：保存即拒', r.text.slice(0, 200));
+    r = await srv.call('PUT', B + '/view', { ...mgr, body: { doc, base: cur.json.view.active_version, note: '流程图' } });
+    check(r.status === 200, '保存流程图视图', r.text.slice(0, 160));
+    r = await srv.call('GET', B + '/render?view=flow', mgr);
+    const blk = r.json?.blocks?.[0];
+    check(r.status === 200 && blk?.type === 'flow' && blk.data?.rows?.length === 5 && blk.data.truncated === false && blk.graph_meta?.filtered === false && blk.data.columns.find((c) => c.name === 'shape')?.label === '形状', '取数：流程图块回 5 行（含循环）、不分页不截断、带取数说明、列带说明名', r.text.slice(0, 200));
+    const many = (n) => Array.from({ length: n }, (_, i) => ({ id: 'f' + i, name: '步骤' + i, deps: i ? 'f' + (i - 1) : null, role: i === 0 ? 'start' : i === n - 1 ? 'end' : null }));
+    for (const [n, cut] of [[500, false], [501, true], [502, true]]) {
+      await srv.call('POST', `${B}/datasets/flowd/rows?op=replace`, { ...mgr, raw: JSON.stringify(many(n)) });
+      r = await srv.call('GET', B + '/render?view=flow', mgr);
+      const b = r.json?.blocks?.[0];
+      check(b?.type === 'flow' && b.data?.rows?.length === 500 && b.data.truncated === cut && b.graph_meta?.filtered === false, `流程图 ${n} 个：只取 500 个，${cut ? '标截断' : '不算截断'}`, { n: b?.data?.rows?.length, t: b?.data?.truncated });
+    }
+  }
+
   console.log('六之二、最终 HTTP 发布屏障');
   const raceSrv = await boot('publication-race', { WM_BENCH_VIEWS: 'on' });
   await raceSrv.call('GET', '/api/auth/viewer', { session: SESSIONS.alpha });
