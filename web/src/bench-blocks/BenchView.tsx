@@ -11,6 +11,8 @@ import { ProgressBlock } from './Progress';
 import { StatBlock } from './Stat';
 import { TableBlock } from './Table';
 import { NativeTable } from './NativeTable';
+import { DagBlock, type DagBlockProps } from './DagBlock';
+import { BlockFrame } from './Frame';
 import { ImageSourceContext } from './BenchImage';
 import { asTableContext } from '../bench-table-view';
 import { filterBarValue, layoutSpans, snapSpan, valueLabel, withLabelColumns, type BlockData, type BlockError } from './blocks-view';
@@ -48,8 +50,8 @@ export function BenchView({ result, loading, onParams, onSubmit, formDisabledRea
   const imageSource = imageBench && result ? { bench: imageBench, view: result.view.key, version: result.version, params: result.params } : null;
   const blocks = result?.blocks ?? [];
   // 宽度按真正画出来的块排（隐藏的筛选栏不占位）：独占一行又没写 span 的块撑满这一行
-  const KNOWN = new Set(['filter-bar', 'form', 'stat', 'progress', 'table', 'records', 'bar', 'line', 'pie']);
-  const shown = blocks.map((b, i) => ({ b, i })).filter(({ b }) => KNOWN.has(b.type) && !(b.type === 'filter-bar' && hideFilters));
+  // 不认识的组件类型（比如服务端比页面新）也占位，画一块「要新版页面」的说明，不悄悄不画
+  const shown = blocks.map((b, i) => ({ b, i })).filter(({ b }) => !(b.type === 'filter-bar' && hideFilters));
   const laid = layoutSpans(shown.map(({ b }) => b));
   const spanOf = new Map(shown.map(({ i }, k) => [i, laid[k]]));
   return (
@@ -71,7 +73,11 @@ export function BenchView({ result, loading, onParams, onSubmit, formDisabledRea
         if (b.type === 'bar') return <BarBlock key={i} {...common} x={str(b.x)} y={(b.y as string | string[]) ?? []} series={str(b.series) || undefined} stacked={b.stacked === true} horizontal={b.horizontal === true} toneRules={b.tone_rules} />;
         if (b.type === 'line') return <LineBlock key={i} {...common} x={str(b.x)} y={(b.y as string | string[]) ?? []} series={str(b.series) || undefined} area={b.area === true} />;
         if (b.type === 'pie') return <PieBlock key={i} {...common} label={str(b.label)} value={str(b.value)} donut={b.donut === true} />;
-        return null; // 不认识的组件类型不画（保存视图描述时已经拦过）
+        if (b.type === 'dag') return <DagBlock key={i} {...common} spec={{ id_col: str(b.id_col), label_col: str(b.label_col), deps_col: str(b.deps_col), role_col: str(b.role_col), status_col: str(b.status_col) || undefined,
+          done_values: Array.isArray(b.done_values) ? b.done_values as string[] : undefined, progress_col: str(b.progress_col) || undefined, source_col: str(b.source_col) || undefined, group_col: str(b.group_col) || undefined,
+          detail_cols: Array.isArray(b.detail_cols) ? b.detail_cols as string[] : undefined, direction: b.direction === 'TB' ? 'TB' : 'LR' }} graphMeta={b.graph_meta as DagBlockProps['graphMeta']} valueLabels={b.value_labels} />;
+        // 不认识的组件类型：说一句，不画空白
+        return <BlockFrame key={i} frame={frame} title={b.title} span={common.span} kind="unknown" skipEmpty><div className="wm-bb-truncated" data-testid="block-unknown">这个组件（{String(b.type).slice(0, 32)}）要新版页面才能显示，刷新页面或稍后再试。</div></BlockFrame>;
       })}
     </DashGrid>
     </ImageSourceContext.Provider>
