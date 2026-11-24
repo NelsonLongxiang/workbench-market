@@ -68,7 +68,10 @@
 | 能力 | REST（能写脚本的 agent） | 通用「调用」（纯聊天客户端） |
 |---|---|---|
 | `report.governance-propose` | `POST /api/report-governance/proposals`，体 `{ op, args, idempotency_key }` | 目标 `report.governance-propose`，参数 `{ op, args, idempotency_key }` |
-| `report.governance-result` | `GET /api/report-governance/proposals/:id` | 目标 `report.governance-result`，参数只有 `{ id }`（提案或邀请编号） |
+| `report.governance-result` | `GET /api/report-governance/proposals/:id` | 目标 `report.governance-result`，参数只有 `{ id }` |
+
+- `idempotency_key` 只在顶层，对五个 `op`（含 `review-invite`）都适用，`args` 里不重复带。
+- 编号带种类前缀：提案 `p-<数字>`，邀请 `i-<数字>`。结果查询两种都收，形状见第四节第 1 小节第 6 步；REST 与通用「调用」回同一形状。
 
 两条路走第四节第 1 小节同一道门、同一次判定、同一张审计表，渠道分别标 `rest`、`mcp-invoke`。审计按**实际被调的能力**记：提出记 `report.governance-propose` 及其 `op`；查询记 `report.governance-result` 及被查编号，不记成 propose，也不记成原提案的 op；都不记成「调用」工具本身。
 
@@ -91,12 +94,14 @@
 2. **解析目标范围（只在内部用，不对外说）**：
    - 维度类 `op`：请求只给维度标识。服务端在主库按标识查它所属领域，得到范围「`area:<领域>` 的维度 `<id>`」；查不到也照常往下走，只是这个范围不会被任何授予覆盖。不查台库。
    - `dimension-create`：范围取请求里的 `area`。
-   - `bench-bind`：按台标识在内存登记表里查台（同取数路由的 `getBench`），得到台和台所在领域；查不到同样往下走、不被任何授予覆盖。**这一步和下一步都不打开台库。**
+   - `bench-bind`：按台标识在内存登记表里查台（同取数路由的 `getBench`），得到台和台所在领域；范围是「台 × 请求里的 `dimension`」这一对，维度标识原样带入、不做存在性解析。台查不到同样往下走、不被任何授予覆盖。**这一步和下一步都不打开台库。**
    - 结果查询：按编号取提案或邀请记录；取不到同样往下走。
-3. **判权（严格交集）**：会话的提案授予覆盖「`op` × 第 2 步的范围」，**并且**归属人此刻对该范围有目标动作的权限：维度类（含 `review-invite`）是对该维度的 `report.dimension-set`，台绑定是对该台的 `bench-store.report-bind`。结果查询额外要求：这条记录是本会话提的，**而且**会话授予此刻仍覆盖原记录的 `op` × 原精确范围，归属人仍是原归属人且此刻仍有原动作的权限。
+3. **判权（严格交集）**：会话的提案授予覆盖「`op` × 第 2 步的范围」，**并且**归属人此刻对该范围有目标动作的权限：维度类（含 `review-invite`）是对该维度的 `report.dimension-set`，台绑定是对该台的 `bench-store.report-bind`。台绑定的授予是「`bench-bind` × 单台 × 单维度」，**精确匹配台和维度两项**：同一张台上只授了维度 A，提或查维度 B 一律按第 4 步拒；授予不支持通配维度。结果查询额外要求：这条记录是本会话提的，**而且**会话授予此刻仍覆盖原记录的 `op` × 原精确范围，归属人仍是原归属人且此刻仍有原动作的权限。
 4. **统一拒绝**：第 1～3 步任一不过，都回同一个 403 `report_governance_forbidden`，消息相同、不带目标信息。范围查不到（维度或台不存在、编号不存在、编号属别的会话）和没有权限得到的是**同一个应答**，对外不区分存在与否。
 5. **判过权才核对象**：此时才打开台库、核维度状态、核版本与摘要；对象层面的问题（标识已被占用、版本已前移、模板不适用这张台……）回 409 或 400，带原因。这些原因只给通过了第 3 步的会话。
-6. **结果查询的投影**：只回状态（pending / confirmed / rejected / withdrawn / expired / conflict）、冲突原因码、确认后的结果编号（模板版本、绑定版本）。不回冻结值的全文、其他台元数据、业务行、确认人身份以外的人员信息。
+6. **结果查询的投影**（REST 与通用「调用」同一形状，不回冻结值全文、其他台元数据、业务行、被邀请人名单）：
+   - 提案：`{ id, kind: "proposal", op, status, reason?, result? }`。`status` 取 pending / confirmed / rejected / withdrawn / expired / conflict；`reason` 是冲突或拒绝的原因码；`result` 只在 confirmed 时有，是确认后的版本号（模板版本、绑定版本或维度标识）。
+   - 邀请：`{ id, kind: "invite", status, reason?, expires_at }`。`status` 只有 active / void 两种（邀请没有确认）；void 时 `reason` 取 expired / revoked（发起会话或归属人被撤）/ superseded（目标版本被判据不同的新版取代）/ ineligible（有被邀请人失去资格，不说是谁）。是否有人已复核，邀请结果不回，看维度本身。
 
 和现有人工 REST 的差别：人工 REST 的 `existingSetter` 先查维度、不存在回 404，再判领域权限（[routes/report-dimensions.ts](../server/src/routes/report-dimensions.ts#L102-L110)）。那个入口面向已登录的人，照旧不改；本篇的新入口面向 agent 会话，**一律先判权再说存在**。
 
@@ -108,8 +113,8 @@
 |---|---|---|---|
 | `dimension-create` | `area`（必填）、`id`、`title` | 规范化标题；领域当时的状态 | 领域已停用；标识已被用过或退休保留 |
 | `template-publish` | `dimension`、`body`、`body_sha256`、`criteria_sha256`、`expected_kind`（`criteria` 或 `layout`）、`expected_latest_version`、`note` | 按发版同一序列化口径（`addTemplate` 的 `JSON.stringify` 后 sha256，[report-dimension.ts](../server/src/services/report-dimension.ts#L223-L228)）重算的正文摘要和判据摘要；对照当时已复核判据算出的分类；当时的最新版本号 | 正文、判据摘要、分类任一与请求或冻结值不符；最新版本已前移 |
-| `dimension-activate` | `dimension`、`version`、`body_sha256`、`criteria_sha256`、`expected_active_version`、`review_id`（拟使用的那一条复核记录） | 当前生效版本及其正文和判据摘要；目标版本的正文和判据摘要；`review_id` 指向的复核记录（维度、版本、判据摘要、复核人） | 当前指针已动；目标摘要不符；该复核记录被替换、不属于同维度同判据、复核人落入作者集合（N3）或已无效 |
-| `bench-bind` | `bench`、`dimension`、`template_version`、`template_sha256`、`base`、`view_version`、`view_sha256`、`slots`（槽名 → 视图键与块下标） | 当前生效模板版本与摘要；当前绑定版本；视图版本与内容哈希；**逐槽**：该块查询的规范化摘要、所引数据集的身份与生命周期修订（与 #1015 对齐：名称不重用、生命周期状态）、结果列契约（列名、类型、角色） | 模板换版或摘要不符；绑定 `base` 已前移；视图版本或哈希变了；任一槽的块指向变了（含重排）、查询摘要变了、数据集身份或修订变了、列契约变了；数据集已进入退役 |
+| `dimension-activate` | `dimension`、`version`、`body_sha256`、`criteria_sha256`、`expected_active_version`、`review_version`（拟使用的复核所在的版本） | 当前生效版本及其正文和判据摘要；目标版本的正文和判据摘要；复核记录按现有主键 `(dimension_id, version)` = `(dimension, review_version)` 定位（[db.ts](../server/src/db.ts#L1744-L1752)，一版至多一条，不另造编号），冻结其复核人主体、复核时间、所在版本的判据摘要 | 当前指针已动；目标摘要不符；该复核记录缺失或与冻结值不符（复核人、时间不同即视为被替换）、所在版本判据与目标不同、复核人落入作者集合（N3） |
+| `bench-bind` | `bench`、`dimension`、`template_version`、`template_sha256`、`base`、`view_version`、`view_sha256`、`slots`：**和现有绑定同一形状**，每槽 `{ view, block, params, columns }`——`params` 是查询参数名 → `{ ref: { scope: "parameter" \| "field", name } }`，`columns` 是模板槽列名 → 块的输出列名（[checkBinding](../server/src/services/report-compile.ts#L121-L144)）。提案时就按 `checkBinding` 核一遍，不合即 400 | 当前生效模板版本与摘要；当前绑定版本；视图版本与内容哈希；请求的 `slots` 原样冻结（含 `params`、`columns` 映射）；**逐槽**：该块查询的规范化摘要、所引数据集的身份与生命周期修订（与 #1015 对齐：名称不重用、生命周期状态）、块的结果列契约（列名、类型、角色）及 `columns` 映射到的每一列在其中的类型 | 模板换版或摘要不符；绑定 `base` 已前移；视图版本或哈希变了；任一槽的块指向变了（含重排）、查询摘要变了、数据集身份或修订变了、列契约变了或映射到的列不在了；数据集已进入退役。确认时交给现有 `bindReport` 的就是冻结的这份 `slots`，不重新推导 |
 
 `review-invite` 不是提案，单独见第五节。
 
@@ -139,7 +144,7 @@
 
 | 事 | 规定 |
 |---|---|
-| 入参 | `dimension`、`version`、`body_sha256`、`criteria_sha256`、`invitees`（**必填**，1～5 个人的主体标识）、`idempotency_key` |
+| 入参 | `args`：`dimension`、`version`、`body_sha256`、`criteria_sha256`、`invitees`（**必填**，1～5 个人的主体标识）。幂等键用顶层的 `idempotency_key`，`args` 里不带 |
 | 判权 | 走第四节第 1 小节同一道门：会话授予覆盖「review-invite × 该维度」，**且归属人此刻对该维度有 `report.dimension-set`**。作者本人可以发起邀请（请别人复核） |
 | 登记 | 判权通过后，在主库写一条邀请记录：编号、维度、版本、两个摘要（与目标版本不符即 409）、发起会话、归属人、被邀请人、过期时间（默认 7 天）。和提案同一张审计表，记 `report.governance-propose` / `review-invite` |
 | 收件人 | 只发给 `invitees` 里**此刻**对该维度有 `report.dimension-set` 且不在作者集合的人。有人不符时整条邀请拒绝，回一句不点名的「被邀请人里有人不符合复核条件」，不说是谁、因为什么。**不做「不写就通知全部有权的人」的广播**：那是新增的外发行为，要做先请属主裁决 |
@@ -185,6 +190,10 @@
 | 起草会话的归属人想复核这份模板（经提案链或经现有人工 REST） | 拒 |
 | 管理口令、命令行、未登录本机页面、另一个会话去确认提案 | 拒 |
 | 会话有 review-invite 授予、但归属人对该维度没有 `report.dimension-set` | 邀请被拒（统一 403），不写记录、不通知 |
+| 同一张台只授了「bench-bind × 台 X × 维度 A」：提维度 B 的绑定、查维度 B 绑定的提案编号 | 都是统一 403，不打开台库；维度 A 照常 |
+| 台绑定正例：一个槽带参数绑定（`params` 引用模板参数 `month`）、列映射异名（模板列 `amount` → 块输出列 `total`） | 提案时过 `checkBinding`；确认后落库的绑定与冻结的 `slots` 逐字节相同，随后 `report_generate` 能按它取数；确认前把块输出列 `total` 改名则冲突 |
+| 激活引用的复核：`review_version` 指向版式稿复用的同判据旧版；确认前该版复核被另一条替换、或复核人被认出是共同作者 | 前者照常；后者冲突、指针不动 |
+| 结果查询：提案与邀请各取一次，REST 与通用「调用」各一次 | 四次形状符合第四节第 1 小节第 6 步，同一编号两条路回相同内容；邀请作废后回 void 与原因码，不点名被邀请人 |
 | 盲测：不存在的维度、不存在的台、别的领域的维度、别人的台、不存在的提案编号、别的会话的提案编号、撤权后再查自己的提案 | 全部是同一个 403 `report_governance_forbidden`，应答逐字节相同；全程不打开台库（以台库打开计数为 0 核） |
 | 提案后：撤会话授予、归属人停用、归属人失去维度或台权限 | 查询结果改为统一 403；确认被拒，提案作废 |
 | 确认前改动冻结值对应的事实：发版前判据或分类变了、激活前复核记录被替换或复核人被认出是共同作者、绑定前视图哈希或某槽的查询摘要、数据集修订、列契约变了 | 各自冲突，指针和绑定不动，提案作废 |
