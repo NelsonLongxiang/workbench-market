@@ -6,7 +6,7 @@
  *   node scripts/mutation-run-test.mjs
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { account, parseSpec, replaceOccurrence, UsageError } from './mutation-run.mjs';
@@ -204,6 +204,19 @@ try {
     const c = cli(repo, spec, { out: join(repo, 'logs', 'evil', 'run') });
     check([a, b, c].every((x) => x.code === 2) && a.stderr.includes('symbolic link') && b.stderr.includes('symbolic link') && readdirSync(outside).length === 0 && lib(repo) === LIB && clean(repo) === '',
       '--out 是被忽略目录里的符号链接（最后一段、带尾斜杠、在中间）：都退出 2，仓库外一个文件都不写', { a: [a.code, a.stderr.slice(0, 120)], b: [b.code, b.stderr.slice(0, 120)], c: [c.code, c.stderr.slice(0, 120)], outside: readdirSync(outside) });
+  }
+
+  {
+    // 复核 907b1ca4：--out 是已存在的目录，里面预先放了指向仓库外文件的符号链接或硬链接 baseline.log：都拒绝，仓库外文件不变
+    const repo = fixture();
+    const outside = dir('out-file-target'), target = join(outside, 'victim.txt'); writeFileSync(target, 'original\n');
+    const spec = { ...base, narrow: [t('tests/strong.t')], mutations: [K] };
+    const sym = join(repo, 'logs', 'pre-sym'), hard = join(repo, 'logs', 'pre-hard'), empty = join(repo, 'logs', 'pre-empty');
+    mkdirSync(sym, { recursive: true }); mkdirSync(hard, { recursive: true }); mkdirSync(empty, { recursive: true });
+    symlinkSync(target, join(sym, 'baseline.log')); linkSync(target, join(hard, 'baseline.log'));
+    const a = cli(repo, spec, { out: sym }), b = cli(repo, spec, { out: hard }), c = cli(repo, spec, { out: empty });
+    check(a.code === 2 && a.stderr.includes('not empty') && b.code === 2 && b.stderr.includes('not empty') && readFileSync(target, 'utf8') === 'original\n' && c.code === 0 && existsSync(join(empty, 'baseline.log')) && lib(repo) === LIB && clean(repo) === '',
+      '--out 里预先有指向仓库外的符号链接或硬链接日志：都退出 2，仓库外文件不变；已存在的空目录照常用', { a: [a.code, a.stderr.slice(0, 100)], b: [b.code, b.stderr.slice(0, 100)], c: c.code, target: readFileSync(target, 'utf8') });
   }
 
   console.log('第几处');

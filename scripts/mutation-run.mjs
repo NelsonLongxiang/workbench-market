@@ -22,7 +22,7 @@
  *   node scripts/mutation-run.mjs <spec.json> [--root DIR] [--out DIR] [--json]
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -152,6 +152,8 @@ function preflight(root, spec, out) {
     }
   }
   if (problems.length) throw new UsageError(`preflight failed; nothing was changed:\n${problems.join('\n')}`);
+  // --out 必须是新目录或空目录：里面预先放好的文件（可能是指向仓库外的符号链接或硬链接）不会被写
+  if (existsSync(out) && readdirSync(out).length > 0) throw new UsageError(`--out ${relative(root, out)} is not empty; give a new or empty folder (the runner never writes into existing files)`);
   mkdirSync(out, { recursive: true });
   checkOutReal(root, out);
 }
@@ -190,7 +192,7 @@ function runOne(state, root, spec, argv, fd) {
 
 /** 按顺序跑一组命令；第一条非 0 就停，整组算红 */
 async function runTests(state, root, spec, list, logPath) {
-  const fd = openSync(logPath, 'w');
+  const fd = openSync(logPath, 'wx'); // 只新建：已有的文件、符号链接、硬链接一律不写（不跟随、不穿透）
   try {
     let timedOut = false;
     for (const argv of list) {
@@ -226,7 +228,7 @@ async function runMutation(state, root, spec, m, out) {
   const full = inside(root, m.file), original = readFileSync(full), text = original.toString('utf8');
   const next = replaceOccurrence(text, m.find, m.replace, m.occurrence ?? 1);
   if (next === undefined || next === text) throw new IntegrityError(`${m.id}: the mutation did not change ${m.file}`);
-  writeFileSync(join(out, 'current.json'), JSON.stringify({ mutation: m.id, file: m.file }) + '\n');
+  writeFileSync(join(out, 'current.json'), JSON.stringify({ mutation: m.id, file: m.file }) + '\n', { flag: 'wx' });
   state.touched.set(m.file, original);
   writeFileSync(full, next);
   if (readFileSync(full, 'utf8') !== next) throw new IntegrityError(`${m.id}: ${m.file} does not read back as written`);
