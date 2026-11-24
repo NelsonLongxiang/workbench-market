@@ -97,10 +97,45 @@ console.log('派生状态与完成率');
   ok('访问超 50000 次：停下（不出完成率）', threw);
   const overlap = g.buildGraph([{ id: 'S', role: 'start', st: 'done' }, { id: 'A', deps: 'S' }, { id: 'B', deps: 'S' }, { id: 'E', deps: 'A,A|B,B|A', role: 'end' }], spec(), FULL);
   ok('组员同时是必需前置、多个组重叠：去重只算一次', overlap.summary.remaining === 2 && overlap.summary.rate === 1 / 3, overlap.summary);
+  const shared = [
+    { id: 'S', role: 'start', st: 'done' },
+    { id: 'P', deps: 'S' }, { id: 'Q', deps: 'S' }, { id: 'B', deps: 'P,Q' },
+    { id: 'R', deps: 'S' }, { id: 'C', deps: 'R' },
+  ];
+  const sharedGraphs = ['P,Q,B|C', 'B|C,P,Q'].map((deps) => g.buildGraph([...shared, { id: 'E', role: 'end', deps }], spec(), FULL));
+  ok('并列依赖换序：候选按自己的闭包计分，完成率都为 1/6、还差 5', sharedGraphs.every((m) => m.summary.rate === 1 / 6 && m.summary.remaining === 5 && !m.diagnostics.length), sharedGraphs.map((m) => m.summary));
+  ok('候选未完成数相同时保留组内书写顺序', ['P|Q', 'Q|P'].every((deps) => {
+    const byId = new Map(['E', 'P', 'Q'].map((id) => [id, true]));
+    const items = new Map([['E', g.parseDeps(deps, 'E').items]]);
+    const chosen = g.requiredClosure('E', items, byId, () => false);
+    return chosen.size === 2 && chosen.has(deps[0]);
+  }));
   const noStatus = g.buildGraph(chain, spec({ status_col: undefined }), FULL);
   ok('没配 status_col：不出派生状态、完成率、还差，只出结构与诊断', noStatus.summary.done === null && noStatus.summary.rate === null && noStatus.summary.remaining === null && [...noStatus.derived.values()].every((x) => x === null) && noStatus.summary.total === 4);
   const src = g.buildGraph(chain.map((r) => ({ ...r, src: r.id === 'S' ? 'ygl:node-1' : '' })), spec({ source_col: 'src' }), FULL);
   ok('已完成没留来源：计数提示（不算出错）', diag(src, 'done-without-source')?.ids.join() === 'A' && src.summary.errors === 0);
+}
+
+console.log('悬停与终点高亮');
+{
+  const graph = g.buildGraph([
+    { id: 'S', role: 'start', st: 'done' },
+    { id: 'A', deps: 'S', st: 'done' }, { id: 'B', deps: 'S' },
+    { id: 'C', deps: 'A|B' }, { id: 'D', deps: 'B' },
+    { id: 'E', role: 'end', deps: 'C,D,?B' },
+  ], spec(), FULL);
+  const focus = (hovered, terminal) => g.graphHighlight(graph, hovered, terminal);
+  const includesEdge = (h, from, to, kind) => h?.edges.has(g.graphEdgeKey({ from, to, kind }));
+  const hovered = focus('A', 'E');
+  ok('悬停分别高亮完整前置和后继，汇合点的其它支路不被点亮', [...hovered.nodes].sort().join() === 'A,C,E,S' && hovered.edges.size === 3
+    && includesEdge(hovered, 'S', 'A', 'req') && includesEdge(hovered, 'A', 'C', 'any') && includesEdge(hovered, 'C', 'E', 'req'));
+  const pinned = focus(null, 'E');
+  ok('离开节点恢复选定终点，只高亮必需闭包选中的边', [...pinned.nodes].sort().join() === 'A,B,C,D,E,S' && pinned.edges.size === 6
+    && includesEdge(pinned, 'A', 'C', 'any') && includesEdge(pinned, 'B', 'D', 'req')
+    && !includesEdge(pinned, 'B', 'C', 'any') && !includesEdge(pinned, 'B', 'E', 'opt'));
+  ok('无选定终点或目标已不在结果中时清除高亮', focus(null, null) === null && focus(null, 'A') === null && focus(null, 'gone') === null);
+  const branch = g.buildGraph([...chain, { id: 'X', role: 'branch_end', deps: 'A' }], spec(), FULL);
+  ok('支线终点可选定且只高亮自己的闭包', [...g.graphHighlight(branch, null, 'X').nodes].sort().join() === 'A,S,X');
 }
 
 console.log('布局与等价表格');
@@ -124,8 +159,14 @@ console.log('页面组件源码');
   const dag = read('../web/src/bench-blocks/DagBlock.tsx'), bv = read('../web/src/bench-blocks/BenchView.tsx'), lite = read('../web/src/bench-blocks/echarts-lite.ts');
   ok('DagBlock 不写内联样式、不写死颜色（颜色只取 DESIGN_TOKENS）', !/style=\{\{/.test(dag) && !/#[0-9A-Fa-f]{3,6}\b|rgba?\(/.test(dag) && /DESIGN_TOKENS/.test(dag));
   ok('图和等价表格两种模式；画不出（有环）时给说明；有部分结果说明和诊断', /'graph' \| 'table'/.test(dag) && /data-testid="dag-cycle"/.test(dag) && /data-testid="dag-partial"/.test(dag) && /data-testid="dag-table"/.test(dag));
-  ok('键盘：任务清单可 Tab 聚焦、回车看详情；表格行可聚焦、回车看详情', /<nav className="wm-dag-keys"/.test(dag) && /onKeyDown: \(e\) => \{ if \(e\.key === 'Enter'\)/.test(dag) && /tabIndex: 0/.test(dag));
+  ok('键盘：任务清单可 Tab 聚焦、回车看详情；表格行可聚焦、回车看详情', /<nav className="wm-dag-keys"/.test(dag) && /onKeyDown: \(e\) => \{ if \(e\.key === 'Enter'\) pickNode/.test(dag) && /tabIndex: 0/.test(dag));
   ok('BenchView 认 dag；不认识的组件画「要新版页面」，不再静默不画', /b\.type === 'dag'\) return <DagBlock/.test(bv) && /data-testid="block-unknown"/.test(bv) && !/return null; \/\/ 不认识/.test(bv));
+  ok('画布绑定悬停、离开和节点点击，并把边及节点高亮交给图表', [
+    "c.on('mouseover', (p) => callbacks.current.onHover(nodeId(p)))",
+    "c.on('mouseout', () => callbacks.current.onHover(null))",
+    "c.on('click', (p) => { const id = nodeId(p); if (id !== null) callbacks.current.onPick(id); })",
+    'onPick={pickNode} onHover=', 'highlight?.edges.has(graphEdgeKey(e))', 'highlight.nodes.has(n.id)',
+  ].every((part) => dag.includes(part)));
   ok('图表库只多注册关系图', /GraphChart/.test(lite));
 }
 

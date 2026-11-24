@@ -8,7 +8,7 @@ import { Alert, Button, Descriptions, Drawer, Segmented, Table } from 'antd';
 import { DESIGN_TOKENS as T } from '../design-tokens';
 import { BlockFrame, type BlockFrameProps } from './Frame';
 import { valueLabel } from './blocks-view';
-import { buildGraph, graphTableRows, layoutGraph, type Diagnostic, type GraphModel, type GraphSpec, type GNode } from './task-graph';
+import { buildGraph, graphEdgeKey, graphHighlight, graphTableRows, layoutGraph, type Diagnostic, type GraphModel, type GraphSpec, type GNode } from './task-graph';
 
 export interface DagBlockProps extends BlockFrameProps {
   spec: Omit<GraphSpec, 'kind'> & { detail_cols?: string[]; direction?: 'LR' | 'TB' };
@@ -58,10 +58,11 @@ function nodeColor(n: GNode, m: GraphModel, labels: unknown, statusCol?: string)
   return d ? derivedColor[d] : T.colors.primary;
 }
 
-function GraphCanvas({ option, onPick, label }: { option: Record<string, unknown>; onPick: (id: string) => void; label: string }) {
+function GraphCanvas({ option, onPick, onHover, label }: { option: Record<string, unknown>; onPick: (id: string) => void; onHover: (id: string | null) => void; label: string }) {
   const el = useRef<HTMLDivElement>(null);
   const chart = useRef<{ setOption: (o: unknown, n?: boolean) => void; resize: () => void; dispose: () => void } | null>(null);
-  const pick = useRef(onPick); pick.current = onPick;
+  const callbacks = useRef({ onPick, onHover, option });
+  callbacks.current = { onPick, onHover, option };
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let gone = false, ro: ResizeObserver | null = null;
@@ -69,14 +70,22 @@ function GraphCanvas({ option, onPick, label }: { option: Record<string, unknown
       if (gone || !el.current) return;
       const c = echarts.init(el.current);
       chart.current = c as never;
-      c.setOption(option, true);
-      c.on('click', (p) => { const d = (p as { dataType?: string; data?: { id?: string } }); if (d.dataType === 'node' && d.data?.id) pick.current(d.data.id); });
+      c.setOption(callbacks.current.option);
+      const nodeId = (p: unknown): string | null => {
+        const d = p as { dataType?: string; data?: { id?: string } };
+        return d.dataType === 'node' ? d.data?.id ?? null : null;
+      };
+      c.on('click', (p) => { const id = nodeId(p); if (id !== null) callbacks.current.onPick(id); });
+      c.on('mouseover', (p) => callbacks.current.onHover(nodeId(p)));
+      c.on('mouseout', () => callbacks.current.onHover(null));
+      c.on('globalout', () => callbacks.current.onHover(null));
       ro = new ResizeObserver(() => c.resize()); ro.observe(el.current);
     }).catch(() => { if (!gone) setFailed(true); });
     return () => { gone = true; ro?.disconnect(); chart.current?.dispose(); chart.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  useEffect(() => { chart.current?.setOption(option, true); }, [option]);
+  // 合并样式变化，保留用户已经缩放、平移的位置。
+  useEffect(() => { chart.current?.setOption(option); }, [option]);
   if (failed) return <div className="wm-bb-truncated">图没能加载出来，刷新页面再试，或切到表格看。</div>;
   return <div ref={el} className="wm-dag-canvas" role="img" aria-label={label} />;
 }
@@ -87,6 +96,18 @@ export function DagBlock({ spec, graphMeta, valueLabels, ...frame }: DagBlockPro
   const lay = useMemo(() => (model.blocked ? null : layoutGraph(model, spec.direction ?? 'LR')), [model, spec.direction]);
   const [mode, setMode] = useState<'graph' | 'table'>('graph');
   const [open, setOpen] = useState<string | null>(null);
+  const [hover, setHover] = useState<{ model: GraphModel; id: string } | null>(null);
+  const [terminal, setTerminal] = useState<{ model: GraphModel; id: string } | null>(null);
+  const pickNode = (id: string) => {
+    const node = model.nodes.find((n) => n.id === id && !n.placeholder);
+    if (!node) return;
+    setOpen(id);
+    setHover(null);
+    setTerminal(node.role === 'end' || node.role === 'branch_end' ? { model, id } : null);
+  };
+  const hoveredId = mode === 'graph' && hover?.model === model ? hover.id : null;
+  const terminalId = terminal?.model === model ? terminal.id : null;
+  const highlight = useMemo(() => graphHighlight(model, hoveredId, terminalId), [model, hoveredId, terminalId]);
   const labelOf = (col: string) => frame.data?.columns.find((c) => c.name === col)?.label || col;
   const option = useMemo(() => {
     if (!lay) return {};
@@ -94,16 +115,22 @@ export function DagBlock({ spec, graphMeta, valueLabels, ...frame }: DagBlockPro
       const p = lay.placed.get(n.id)!;
       const color = nodeColor(n, model, valueLabels, spec.status_col);
       return { id: n.id, name: n.placeholder ? `${n.placeholder === 'missing' ? '缺失' : '范围外'}：${n.id}` : n.label, x: p.x, y: p.y, symbol: n.role === 'start' || n.role === 'end' || n.role === 'branch_end' ? 'roundRect' : 'rect',
-        symbolSize: [150, 40], itemStyle: { color: T.colors.surface, borderColor: model.red.has(n.id) ? T.colors.danger : color, borderWidth: model.red.has(n.id) || n.role ? 3 : 2, borderType: n.placeholder ? 'dashed' : 'solid' },
+        symbolSize: [150, 40], itemStyle: { color: T.colors.surface, borderColor: model.red.has(n.id) ? T.colors.danger : color, borderWidth: model.red.has(n.id) || n.role ? 3 : 2, borderType: n.placeholder ? 'dashed' : 'solid', opacity: highlight && !highlight.nodes.has(n.id) ? 0.25 : 1 },
         label: { show: true, color: T.colors.text, fontSize: parseInt(T.typography.caption.fontSize, 10), formatter: n.progress === null ? '{b}' : `{b}\n${n.progress}%` } };
     };
     return {
       animation: false, tooltip: { show: false },
       series: [{ type: 'graph', layout: 'none', roam: true, edgeSymbol: ['none', 'arrow'], edgeSymbolSize: 8,
         data: model.nodes.map(node),
-        links: lay.edges.map((e) => ({ source: e.from, target: e.to, lineStyle: { color: T.colors['border-strong'], type: e.kind === 'opt' ? 'dashed' : 'solid', curveness: e.back ? 0.3 : 0 }, ...(e.label ? { label: { show: true, formatter: e.label } } : {}) })) }],
+        links: lay.edges.map((e) => {
+          const selected = highlight?.edges.has(graphEdgeKey(e));
+          return { source: e.from, target: e.to,
+            lineStyle: { color: selected ? T.colors.primary : T.colors['border-strong'], width: selected ? 2 : 1,
+              opacity: highlight && !selected ? 0.2 : 1, type: e.kind === 'opt' ? 'dashed' : 'solid', curveness: e.back ? 0.3 : 0 },
+            ...(e.label ? { label: { show: true, formatter: e.label } } : {}) };
+        }) }],
     };
-  }, [lay, model, valueLabels, spec.status_col]);
+  }, [lay, model, valueLabels, spec.status_col, highlight]);
   const table = useMemo(() => graphTableRows(model), [model]);
   const s = model.summary;
   const partial = partialText(model);
@@ -113,7 +140,7 @@ export function DagBlock({ spec, graphMeta, valueLabels, ...frame }: DagBlockPro
     s.errors ? `出错 ${s.errors}` : null, s.rate !== null ? `完成率 ${Math.round(s.rate * 100)}%` : null, s.remaining !== null ? `到主线终点还差 ${s.remaining} 个` : null, s.note ?? null].filter(Boolean).join(' · ');
   return (
     <BlockFrame {...frame} kind="dag" empty={frame.empty ?? '还没有任务'}
-      extra={<Segmented size="small" value={mode} onChange={(v) => setMode(v as 'graph' | 'table')} options={[{ label: '图', value: 'graph' }, { label: '表格', value: 'table' }]} />}>
+      extra={<Segmented size="small" value={mode} onChange={(v) => { setHover(null); setMode(v as 'graph' | 'table'); }} options={[{ label: '图', value: 'graph' }, { label: '表格', value: 'table' }]} />}>
       <div className={`wm-dag-summary${s.errors ? ' wm-dag-summary-bad' : ''}`} role="status" data-testid="dag-summary">{summary}</div>
       {s.branches.length > 0 && <div className="wm-dag-branches">{s.branches.map((b) => <span key={b.id}>支线 {b.id}：{b.done}/{b.size}</span>)}</div>}
       {partial && <div className="wm-bb-truncated" data-testid="dag-partial">{partial}</div>}
@@ -121,13 +148,13 @@ export function DagBlock({ spec, graphMeta, valueLabels, ...frame }: DagBlockPro
       {mode === 'graph' ? (model.blocked
         ? <Alert type="error" showIcon data-testid="dag-cycle" message={diagnosticText(model.diagnostics.find((d) => d.code === 'cycle')!)} description="有环的依赖图画不出先后，请改依赖；也可以切到表格看。" />
         : <>
-          <GraphCanvas option={option} onPick={setOpen} label={`任务依赖图：${summary}`} />
+          <GraphCanvas option={option} onPick={pickNode} onHover={(id) => setHover(id === null ? null : { model, id })} label={`任务依赖图：${summary}`} />
           <nav className="wm-dag-keys" aria-label="任务（按 Tab 逐个聚焦，回车看详情）">
-            {model.nodes.filter((n) => !n.placeholder).map((n) => <Button key={n.id} size="small" type="text" onClick={() => setOpen(n.id)}>{n.label}</Button>)}
+            {model.nodes.filter((n) => !n.placeholder).map((n) => <Button key={n.id} size="small" type="text" onClick={() => pickNode(n.id)}>{n.label}</Button>)}
           </nav>
         </>)
         : <Table size="small" rowKey="id" dataSource={table} pagination={{ pageSize: 50, hideOnSinglePage: true }} data-testid="dag-table"
-            onRow={(r) => ({ onClick: () => setOpen(r.id), onKeyDown: (e) => { if (e.key === 'Enter') setOpen(r.id); }, tabIndex: 0 })}
+            onRow={(r) => ({ onClick: () => pickNode(r.id), onKeyDown: (e) => { if (e.key === 'Enter') pickNode(r.id); }, tabIndex: 0 })}
             columns={[{ title: '名称', dataIndex: 'label' }, { title: '状态', dataIndex: 'status' }, { title: '派生状态', dataIndex: 'derived' }, { title: '进度', dataIndex: 'progress' },
               { title: '前置', dataIndex: 'preds' }, { title: '后继', dataIndex: 'succs' }, { title: '角色', dataIndex: 'role' }]} />}
       <Drawer title={current?.label ?? ''} open={!!current} width={480} onClose={() => setOpen(null)}>

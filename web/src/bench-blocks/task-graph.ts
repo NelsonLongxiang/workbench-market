@@ -55,6 +55,10 @@ export type GNode = {
   placeholder?: 'missing' | 'outside'; row?: Record<string, unknown>;
 };
 export type GEdge = { from: string; to: string; kind: DepKind; label?: string; back?: boolean };
+export type GraphHighlight = { nodes: Set<string>; edges: Set<string> };
+
+// 编号不允许包含竖线，因此三段可区分同一对节点之间不同种类的边。
+export const graphEdgeKey = ({ from, to, kind }: GEdge): string => `${from}|${to}|${kind}`;
 export type Derived = 'done' | 'ready' | 'waiting' | null;
 export type Diagnostic =
   | { code: 'cycle'; path: string[] } | { code: 'bad-id'; rows: number } | { code: 'bad-deps'; node: string; items: string[] }
@@ -75,6 +79,7 @@ export type GraphModel = {
   missingReq: Map<string, string[]>; missingOpt: Map<string, string[]>;
   /** 标红：支线没确认终点、走不到终点、从起点走不到 */
   red: Set<string>;
+  terminalPath: (id: string) => GraphHighlight | null;
   summary: { total: number; done: number | null; ready: number | null; waiting: number | null; errors: number;
     rate: number | null; remaining: number | null; branches: { id: string; done: number; size: number }[]; note?: string };
 };
@@ -212,7 +217,17 @@ export function buildGraph(rows: Record<string, unknown>[], spec: GraphSpec, met
       diagnostics.push({ code: 'too-complex' }); summary.note = '依赖太复杂，未算完成率'; summary.rate = null; summary.remaining = null; summary.branches = [];
     }
   }
-  return { nodes: all, edges: shownEdges, full, partialReasons, drawn: nodes.length, placeholderOverflow, blocked, diagnostics, derived, missingReq, missingOpt, red, summary };
+  const terminalPath = (id: string): GraphHighlight | null => {
+    const role = byId.get(id)?.role;
+    if (blocked || (role !== 'end' && role !== 'branch_end')) return null;
+    try {
+      return collectRequiredPath(id, depsOf, byId, isDone, { n: 0 });
+    } catch (e) {
+      if (!(e instanceof TooComplex)) throw e;
+      return null;
+    }
+  };
+  return { nodes: all, edges: shownEdges, full, partialReasons, drawn: nodes.length, placeholderOverflow, blocked, diagnostics, derived, missingReq, missingOpt, red, terminalPath, summary };
 }
 
 function reach(from: string[], next: Map<string, string[]>): Set<string> {
@@ -250,33 +265,90 @@ class TooComplex extends Error {}
  * 全部排除取书写在前的成员。可选前置不收；结果外的编号不收。访问超 50000 次抛 TooComplex。
  */
 export function requiredClosure(target: string, depsOf: Map<string, DepItem[]>, byId: Map<string, unknown>, isDone: (id: string) => boolean, budget = { n: 0 }): Set<string> {
-  const acc = new Set<string>();
-  collect(target, new Set(), acc);
-  return acc;
-  function collect(id: string, path: Set<string>, into: Set<string>): boolean {
+  return collectRequiredPath(target, depsOf, byId, isDone, budget).nodes;
+}
+
+function collectRequiredPath(target: string, depsOf: Map<string, DepItem[]>, byId: Map<string, unknown>, isDone: (id: string) => boolean, budget: { n: number }): GraphHighlight {
+  const result: GraphHighlight = { nodes: new Set(), edges: new Set() };
+  const path = new Set<string>();
+  collect(target, result);
+  return result;
+
+  function collect(id: string, into: GraphHighlight): boolean {
     if (path.has(id)) return true;
-    if (into.has(id) || !byId.has(id)) return false;
+    if (into.nodes.has(id) || !byId.has(id)) return false;
     if (++budget.n > TASK_GRAPH_LIMITS.visits) throw new TooComplex();
-    into.add(id); path.add(id);
+    into.nodes.add(id);
+    path.add(id);
     let hit = false;
     for (const it of depsOf.get(id) ?? []) {
       if (it.kind === 'opt') continue;
-      if (it.kind === 'req') { if (collect(it.ids[0], path, into)) hit = true; continue; }
       const members = it.ids.filter((m) => byId.has(m));
       if (!members.length) continue;
-      const doneOne = members.find(isDone);
-      if (doneOne) { if (collect(doneOne, path, into)) hit = true; continue; }
-      let best: { m: string; cost: number } | null = null;
-      for (const m of members) {
-        const trial = new Set(into);
-        if (collect(m, path, trial)) continue;
-        const cost = [...trial].filter((x) => !into.has(x) && !isDone(x)).length;
-        if (!best || cost < best.cost) best = { m, cost };
+      const chosen = it.kind === 'req' ? members[0] : members.find(isDone);
+      if (chosen !== undefined) {
+        into.edges.add(graphEdgeKey({ from: chosen, to: id, kind: it.kind }));
+        if (collect(chosen, into)) hit = true;
+        continue;
       }
-      if (collect(best ? best.m : members[0], path, into)) hit = true;
+
+      // 候选独立计分，仍共享当前路径与访问预算。选定后才并入并列依赖的结果。
+      let best: { member: string; trial: GraphHighlight; cost: number } | undefined;
+      let fallback: GraphHighlight | undefined;
+      for (const member of members) {
+        const trial: GraphHighlight = { nodes: new Set(), edges: new Set() };
+        const revisited = collect(member, trial);
+        fallback ??= trial;
+        if (revisited) continue;
+        const cost = [...trial.nodes].filter((x) => !isDone(x)).length;
+        if (!best || cost < best.cost) best = { member, trial, cost };
+      }
+      const selected = best?.trial ?? fallback!;
+      into.edges.add(graphEdgeKey({ from: best?.member ?? members[0], to: id, kind: it.kind }));
+      for (const node of selected.nodes) into.nodes.add(node);
+      for (const edge of selected.edges) into.edges.add(edge);
+      if (!best) hit = true;
     }
     path.delete(id);
     return hit;
+  }
+}
+
+/** 前置与后继分别遍历，汇合点的其它支路不会随悬停一起高亮。终点只高亮闭包选中的边。 */
+export function graphHighlight(model: GraphModel, hovered: string | null, terminal: string | null): GraphHighlight | null {
+  if (model.blocked) return null;
+  const root = hovered ?? terminal;
+  if (root === null || !model.nodes.some((n) => n.id === root)) return null;
+  const required = hovered === null ? model.terminalPath(root) : null;
+  if (hovered === null && !required) return null;
+  const highlight: GraphHighlight = { nodes: new Set([root]), edges: new Set() };
+  const predecessors = new Map<string, GEdge[]>(), successors = new Map<string, GEdge[]>();
+  for (const e of model.edges) {
+    if (required && !required.edges.has(graphEdgeKey(e))) continue;
+    const incoming = predecessors.get(e.to) ?? [];
+    incoming.push(e);
+    predecessors.set(e.to, incoming);
+    const outgoing = successors.get(e.from) ?? [];
+    outgoing.push(e);
+    successors.set(e.from, outgoing);
+  }
+  trace(predecessors, 'from');
+  if (hovered !== null) trace(successors, 'to');
+  return highlight;
+
+  function trace(next: Map<string, GEdge[]>, side: 'from' | 'to') {
+    const seen = new Set([root!]);
+    const pending = [root!];
+    while (pending.length) {
+      for (const e of next.get(pending.pop()!) ?? []) {
+        highlight.edges.add(graphEdgeKey(e));
+        const id = e[side];
+        if (seen.has(id)) continue;
+        seen.add(id);
+        highlight.nodes.add(id);
+        pending.push(id);
+      }
+    }
   }
 }
 
