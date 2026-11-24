@@ -1,6 +1,7 @@
 /** 台的 MCP 管理页（/bench-mcp/<台>，#904）和 MCP 网关页「台上的申请」的纯函数：状态、读写、授予从哪来、批之前的检查、没成的说法。
  *  不碰网络、不碰 DOM，单测见 scripts/bench-mcp-page-unit.mjs。 */
 import type { BenchMcpPage, BenchMcpRequest } from './api';
+import { crossOriginError } from './admin-token.ts';
 
 export const REQUEST_STATUS: Record<BenchMcpRequest['status'], { text: string; color: string }> = {
   pending: { text: '待批', color: 'warning' }, approved: { text: '已批准', color: 'success' }, rejected: { text: '已驳回', color: 'default' }, expired: { text: '已失效', color: 'default' },
@@ -28,7 +29,7 @@ export function mcpError(status: number, body: unknown): string {
   const msg = body && typeof body === 'object' && typeof (body as { message?: unknown }).message === 'string' ? (body as { message: string }).message : '';
   if (status === 400) return msg || '填的内容不对';
   if (status === 401) return '请先登录';
-  if (status === 403) return '你不能管这个台的 MCP 授权（要有这个台的拍板授予）';
+  if (status === 403) return crossOriginError(body) ?? '你不能管这个台的 MCP 授权（要有这个台的拍板授予）';
   if (status === 404) return msg || '没有这个台，或者没有这条申请';
   if (status === 409) return msg || '这条申请已经变了，刷新后再看';
   if (status === 0) return '连不上服务，稍后再试';
