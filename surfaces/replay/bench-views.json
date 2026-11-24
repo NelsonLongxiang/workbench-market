@@ -1691,8 +1691,12 @@
           "response": {
             "status": 400,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "342", "etag": "W/\"156-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "error": "invalid", "message": "视图描述有 1 处不合格，未保存。每种组件的键、必填、上限见技能 wm-data-views 的 references/view-doc-schema.json", "details": ["第 1 个视图第 1 个组件：不认识的组件类型 html（现有：filter-bar、stat、table、records、bar、line、pie、progress、form、dag）"] }
+            "headers": { "cache-control": "private, no-store", "content-length": "350", "etag": "W/\"15e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "error": "invalid",
+              "message": "视图描述有 1 处不合格，未保存。每种组件的键、必填、上限见技能 wm-data-views 的 references/view-doc-schema.json",
+              "details": ["第 1 个视图第 1 个组件：不认识的组件类型 html（现有：filter-bar、stat、table、records、bar、line、pie、progress、form、dag、gantt）"]
+            }
           }
         },
         {

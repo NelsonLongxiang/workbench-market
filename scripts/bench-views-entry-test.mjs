@@ -401,6 +401,26 @@ try {
     check(r.json?.blocks?.[0]?.data?.rows?.length === 500 && r.json.blocks[0].data.truncated === true, '502 个：同样只取 500 个、标截断');
   }
 
+  console.log('六之三之一、甘特图 gantt：保存 → 取数');
+  {
+    r = await srv.call('PUT', `${B}/datasets/plan`, { ...mgr, body: { title: '排期', key: ['id'], columns: [{ name: 'id', type: 'text', label: '编号' }, { name: 'name', type: 'text', label: '任务' }, { name: 'deps', type: 'text', label: '前置' }, { name: 'start', type: 'date', label: '开始', required: true }, { name: 'due', type: 'date', label: '截止', required: true }, { name: 'maybe', type: 'date', label: '大约' }, { name: 'pct', type: 'integer', label: '进度' }] } });
+    check(r.status === 200, '排期数据集', r.text.slice(0, 120));
+    r = await srv.call('POST', `${B}/datasets/plan/rows?op=replace`, { ...mgr, raw: JSON.stringify([{ id: 'a', name: '设计', start: '2026-01-01', due: '2026-01-05', pct: 100 }, { id: 'b', name: '实现', deps: 'a', start: '2026-01-06', due: '2026-01-20', pct: 30 }]) });
+    check(r.status === 200, '写 2 个任务', r.text.slice(0, 120));
+    r = await srv.call('POST', `${B}/datasets/plan/rows?op=append`, { ...mgr, raw: JSON.stringify([{ id: 'c', name: '没日期', start: '2026-01-01' }]) });
+    check(r.status === 400, '截止是必填列：缺了写入即拒（图上不会有缺日期的条）', r.status);
+    const cur = await srv.call('GET', B + '/view', mgr);
+    const g = { type: 'gantt', id_col: 'id', label_col: 'name', start_col: 'start', end_col: 'due', deps_col: 'deps', progress_col: 'pct', query: { dataset: 'plan' } };
+    const doc = { title: '排期', views: [{ key: 'plan', title: '排期', blocks: [g] }] };
+    r = await srv.call('PUT', B + '/view', { ...mgr, body: { doc: { ...doc, views: [{ ...doc.views[0], blocks: [{ ...g, start_col: 'maybe' }] }] }, base: cur.json.view.active_version, note: '应被拒绝' } });
+    check(r.status === 400 && r.text.includes('必填列'), '开始列不是必填列：保存即拒', r.text.slice(0, 200));
+    r = await srv.call('PUT', B + '/view', { ...mgr, body: { doc, base: cur.json.view.active_version, note: '甘特图' } });
+    check(r.status === 200, '保存甘特图视图', r.text.slice(0, 160));
+    r = await srv.call('GET', B + '/render?view=plan', mgr);
+    const blk = r.json?.blocks?.[0];
+    check(r.status === 200 && blk?.type === 'gantt' && blk.data?.rows?.length === 2 && blk.data.truncated === false && blk.graph_meta?.filtered === false && blk.data.columns.find((c) => c.name === 'start')?.label === '开始', '取数：甘特图块回 2 行、不分页不截断、带取数说明、列带说明名', r.text.slice(0, 200));
+  }
+
   console.log('六之二、最终 HTTP 发布屏障');
   const raceSrv = await boot('publication-race', { WM_BENCH_VIEWS: 'on' });
   await raceSrv.call('GET', '/api/auth/viewer', { session: SESSIONS.alpha });

@@ -185,5 +185,58 @@ console.log('实时刷新后刚刚动了的任务');
   ok('页面：变了的任务描边，定时收回；描边颜色只取 token', /changedNodes\(prints\.current, model\)/.test(dag) && /if \(!changed\.size\) return;\n\s*setFlash\(changed\);/.test(dag) && /setTimeout\(\(\) => setFlash\(new Set\(\)\), FLASH_MS\)/.test(dag) && /shadowColor: T\.colors\.primary/.test(dag));
 }
 
+console.log('甘特图');
+{
+  const D = g.DAY_MS, T0 = Date.parse('2026-01-01T00:00:00Z');
+  ok('日期：开始取当天 0 点，截止取当天结束；日期时间照原值；读不出来回 null', g.ganttTime('2026-01-01', 'start') === T0 && g.ganttTime('2026-01-01', 'end') === T0 + D && g.ganttTime('2026-01-01T06:00:00Z', 'end') === T0 + 6 * 3600e3 && g.ganttTime('', 'start') === null && g.ganttTime('nope', 'end') === null && g.ganttTime(null, 'start') === null);
+  const gs = (extra = {}) => ({ kind: 'gantt', id_col: 'id', label_col: 'name', start_col: 's', end_col: 'e', status_col: 'st', deps_col: 'deps', ...extra });
+  const rows = [
+    { id: 'b', name: '实现', s: '2026-01-06', e: '2026-01-20', deps: 'a', st: 'todo', grp: 'x' },
+    { id: 'a', name: '设计', s: '2026-01-01', e: '2026-01-05', st: 'done', grp: 'x' },
+    { id: 'c', name: '测试', s: '2026-01-03', e: '2026-01-04', st: 'todo', grp: 'y' },
+    { id: 'z', name: '坏日期', s: '2026-01-09', e: '2026-01-02', st: 'todo', grp: 'y' },
+    { id: 'w', name: '缺日期', s: '2026-01-09', st: 'todo', grp: 'y' },
+  ];
+  const now = T0 + 10 * D;
+  const m = g.buildGraph(rows, gs({ group_col: 'grp' }), FULL);
+  ok('甘特图不给角色列：不核起点终点（不报缺起点、没确认终点）', !m.diagnostics.some((d) => ['start-count', 'end-count', 'unconfirmed-leaf', 'cannot-reach-end'].includes(d.code)), m.diagnostics);
+  const lay = g.ganttLayout(m, { start_col: 's', end_col: 'e' }, now);
+  ok('排法：先按分组（出现顺序），组内按开始；坏日期、缺日期不画条、列出来', lay.items.map((i) => i.id).join() === 'a,b,c' && lay.badDates.sort().join() === 'w,z', { items: lay.items.map((i) => i.id), bad: lay.badDates });
+  const A = lay.items.find((i) => i.id === 'a'), Bi = lay.items.find((i) => i.id === 'b'), C = lay.items.find((i) => i.id === 'c');
+  ok('完成按派生状态；截止已过没完成算过期，完成的不算，截止没到的不算', A.done && !A.overdue && C.overdue && !Bi.overdue && !Bi.done);
+  ok('箭头只连两头都画了条的依赖，带边的键', lay.arrows.length === 1 && lay.arrows[0].from === 'a' && lay.arrows[0].to === 'b' && lay.arrows[0].fromIndex === 0 && lay.arrows[0].toIndex === 1 && lay.arrows[0].key === 'a|b|req');
+  ok('时间范围含所有条和今天', lay.min === T0 && lay.max === T0 + 20 * D);
+  const noStatus = g.ganttLayout(g.buildGraph([{ id: 'p', name: 'p', s: '2026-01-01', e: '2026-01-02', pct: 100 }, { id: 'q', name: 'q', s: '2026-01-01', e: '2026-01-02', pct: 40 }], gs({ status_col: undefined, progress_col: 'pct' }), FULL), { start_col: 's', end_col: 'e' }, now);
+  ok('没配状态列：进度 100 算完成（不算过期），其余过了截止算过期', noStatus.items[0].done && !noStatus.items[0].overdue && noStatus.items[1].overdue);
+  const cyc = g.buildGraph([{ id: 'a', s: '2026-01-01', e: '2026-01-02', deps: 'b' }, { id: 'b', s: '2026-01-01', e: '2026-01-02', deps: 'a' }], gs(), FULL);
+  ok('甘特图有环：报出来但照画（不像任务图那样整块挡住）', !cyc.blocked && cyc.diagnostics.some((d) => d.code === 'cycle'));
+  const api = { coord: ([x, y]) => [(x - T0) / D * 10, y * 20], size: () => [0, 20] };
+  const TOK = { bar: 'BAR', done: 'DONE', danger: 'DANGER', track: 'TRACK', line: 'LINE', marker: 'MARK' };
+  const item = (extra) => ({ id: 'i', label: 'i', index: 1, start: T0, end: T0 + 4 * D, progress: 25, done: false, overdue: false, role: '', group: '', ...extra });
+  const shape = (it, o = {}) => g.ganttBarShape(it, api, TOK, { dim: false, flash: false, red: false, ...o });
+  const kid = (sh, name) => sh.children.find((c) => c.name === name);
+  const s1 = shape(item());
+  ok('横条：底色是整段时间，进度画成从左起的填充', kid(s1, 'track').shape.width === 40 && kid(s1, 'track').shape.y === 14 && kid(s1, 'fill').shape.width === 10 && kid(s1, 'fill').style.fill === 'BAR');
+  const s2 = shape(item({ done: true, progress: 10 }));
+  ok('完成的条：填满、用完成色', kid(s2, 'fill').shape.width === 40 && kid(s2, 'fill').style.fill === 'DONE');
+  const s3 = shape(item({ overdue: true }));
+  ok('过期的条：用警示色', kid(s3, 'fill').style.fill === 'DANGER' && kid(s3, 'track').style.stroke === 'DANGER');
+  ok('没有进度：不画填充', !kid(shape(item({ progress: null })), 'fill'));
+  ok('终点、支线终点在条尾画标记，普通任务没有', !!kid(shape(item({ role: 'end' })), 'end-marker') && !!kid(shape(item({ role: 'branch_end' })), 'branch-end-marker') && !kid(s1, 'end-marker'));
+  ok('悬停时不在链上的条变淡；刚变的描粗；标红的边框用警示色', kid(shape(item(), { dim: true }), 'track').style.opacity === 0.25 && kid(shape(item(), { flash: true }), 'track').style.lineWidth === 3 && kid(shape(item(), { red: true }), 'track').style.stroke === 'DANGER');
+  const ar = g.ganttArrowShape(item({ index: 0, end: T0 + 2 * D }), item({ index: 2, start: T0 + 5 * D }), 'req', api, TOK, { dim: false, selected: false });
+  const line = kid(ar, 'arrow-line');
+  ok('箭头：从前置的截止到后继的开始，折线再加箭头', JSON.stringify(line.shape.points[0]) === '[20,0]' && JSON.stringify(line.shape.points.at(-1)) === '[50,40]' && !!kid(ar, 'arrow-head') && line.style.lineDash === null && line.style.stroke === 'LINE');
+  const ar2 = g.ganttArrowShape(item({ index: 0 }), item({ index: 2 }), 'opt', api, TOK, { dim: true, selected: true });
+  ok('可选依赖画虚线；选中的用主色；不在链上的变淡', Array.isArray(kid(ar2, 'arrow-line').style.lineDash) && kid(ar2, 'arrow-line').style.stroke === 'BAR' && g.ganttArrowShape(item({ index: 0 }), item({ index: 2 }), 'req', api, TOK, { dim: true, selected: false }).children[0].style.opacity === 0.15);
+  const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const gb = read('../web/src/bench-blocks/GanttBlock.tsx'), bv = read('../web/src/bench-blocks/BenchView.tsx'), lite = read('../web/src/bench-blocks/echarts-lite.ts');
+  ok('GanttBlock 不写内联样式、不写死颜色（颜色只取 DESIGN_TOKENS）', !/style=\{\{/.test(gb) && !/#[0-9A-Fa-f]{3,6}\b|rgba?\(/.test(gb) && /DESIGN_TOKENS/.test(gb));
+  ok('今天竖线；超过 25 条加纵向滚动', /markLine: \{[^}]*silent: true[\s\S]*?data: \[\{ xAxis: now \}\]/.test(gb) && /const scroll = lay\.items\.length > GANTT_VISIBLE_ROWS;/.test(gb) && /dataZoom: scroll \?/.test(gb));
+  ok('横条与箭头都用纯函数画；点条看详情；悬停高亮链', /renderItem: \(p: \{ dataIndex: number \}, api: never\) => \{\s*const it = lay\.items\[p\.dataIndex\];\s*return ganttBarShape\(/.test(gb) && /return ganttArrowShape\(/.test(gb) && /c\.on\('click', \(p\) => \{ const id = barId\(p\); if \(id !== null\) callbacks\.current\.onPick\(id\); \}\)/.test(gb) && /c\.on\('mouseover', \(p\) => callbacks\.current\.onHover\(barId\(p\)\)\)/.test(gb));
+  ok('等价表格（含开始、截止、过期）；坏日期提示；键盘遍历', /data-testid="gantt-table"/.test(gb) && /title: '开始', dataIndex: 'start'/.test(gb) && /title: '过期', dataIndex: 'overdue'/.test(gb) && /data-testid="gantt-bad-dates"/.test(gb) && /<nav className="wm-dag-keys"/.test(gb) && /onKeyDown: \(e\) => \{ if \(e\.key === 'Enter'\) pickNode\(r\.id\); \}/.test(gb));
+  ok('BenchView 认 gantt；图表库多注册自定义系列、标线、数据缩放', /b\.type === 'gantt'\) return <GanttBlock/.test(bv) && /CustomChart/.test(lite) && /MarkLineComponent/.test(lite) && /DataZoomComponent/.test(lite));
+}
+
 console.log(`\ntask-graph-unit: ${pass} passed / ${fail} failed`);
 process.exit(fail ? 1 : 0);

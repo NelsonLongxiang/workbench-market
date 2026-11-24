@@ -1759,6 +1759,244 @@
                       "description": "列名 → 说明名"
                     }
                   }
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "type",
+                    "query",
+                    "id_col",
+                    "label_col",
+                    "start_col",
+                    "end_col"
+                  ],
+                  "description": "甘特图，只读。一行一个任务，一条横条：query 是明细查询（不能有 group、measures，不能写 limit、offset，最多画 500 个）；start_col、end_col 是开始、截止，须为日期或日期时间列，且在数据集定义里是必填列（required: true）；progress_col 是 0～100 的数值列，画成条内填充；给了 deps_col（写法同任务图）就画前置截止到后继开始的箭头；给了 role_col 就在终点、支线终点的条尾画标记；截止已过、没完成的条用警示色；status_col 配 done_values（缺省 [\"done\"]）认完成",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "gantt"
+                      ]
+                    },
+                    "title": {
+                      "type": "string",
+                      "description": "标题（64 字以内）"
+                    },
+                    "span": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 12,
+                      "description": "12 栏网格里占几栏"
+                    },
+                    "query": {
+                      "type": "object",
+                      "description": "查询描述（不写 SQL）。不写 group、measures 是明细查询；写了是聚合查询。完整写法和例子见技能 wm-data-views（references/query.md）",
+                      "properties": {
+                        "dataset": {
+                          "type": "string",
+                          "description": "数据集名（必填）"
+                        },
+                        "select": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "明细查询要哪些列；不写是全部列。和 group、measures 不能同时写"
+                        },
+                        "filter": {
+                          "type": "array",
+                          "description": "筛选条件，最多 20 条，全部满足才算（AND）",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "col",
+                              "op"
+                            ],
+                            "properties": {
+                              "col": {
+                                "type": "string",
+                                "description": "列名"
+                              },
+                              "op": {
+                                "type": "string",
+                                "enum": [
+                                  "=",
+                                  "!=",
+                                  ">",
+                                  ">=",
+                                  "<",
+                                  "<=",
+                                  "in",
+                                  "is_null",
+                                  "not_null",
+                                  "contains",
+                                  "prefix"
+                                ],
+                                "description": "比较符：= != > >= < <= 比大小；in 是「在这几个值里」（值放 values）；is_null / not_null 判空（不用 value）；contains 文本包含；prefix 开头是（文本、日期、时间列，比如按月筛日期列：prefix 2026-01）"
+                              },
+                              "value": {
+                                "description": "比较的值；写成 $名字 引用 params 里的值（没给就这条不生效）"
+                              },
+                              "values": {
+                                "type": "array",
+                                "description": "op 为 in 时的取值，1～200 个"
+                              }
+                            }
+                          }
+                        },
+                        "group": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          },
+                          "description": "按哪些列分组"
+                        },
+                        "measures": {
+                          "type": "array",
+                          "description": "聚合，最多 12 项",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "fn",
+                              "as"
+                            ],
+                            "properties": {
+                              "fn": {
+                                "type": "string",
+                                "enum": [
+                                  "count",
+                                  "count_distinct",
+                                  "sum",
+                                  "avg",
+                                  "min",
+                                  "max"
+                                ],
+                                "description": "count 不写 col 就是数行数（COUNT(*)），写了 col 是数这一列不为空的行；count_distinct 数不同的值；sum、avg 只用于整数和小数列"
+                              },
+                              "col": {
+                                "type": "string",
+                                "description": "对哪一列算（count 可以不写）"
+                              },
+                              "as": {
+                                "type": "string",
+                                "description": "结果列的别名（必填，小写字母开头）"
+                              },
+                              "label": {
+                                "type": "string",
+                                "description": "显示名"
+                              }
+                            }
+                          }
+                        },
+                        "sort": {
+                          "type": "array",
+                          "description": "排序，最多 8 项。聚合查询只能按输出列（分组列和别名）排；不写时聚合按分组列升序、明细按写入次序",
+                          "items": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": [
+                              "col"
+                            ],
+                            "properties": {
+                              "col": {
+                                "type": "string"
+                              },
+                              "dir": {
+                                "type": "string",
+                                "enum": [
+                                  "asc",
+                                  "desc"
+                                ],
+                                "description": "缺省 asc"
+                              }
+                            }
+                          }
+                        },
+                        "limit": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 5000,
+                          "description": "最多返回几行，缺省 200"
+                        },
+                        "offset": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "跳过前几行"
+                        },
+                        "current_only": {
+                          "type": "boolean",
+                          "description": "只取每条更正链上最新的那行（只用于公共区带来源列的数据集；那种数据集还能读来源列 _area、_task、_batch、_grant、_upstream、_supersedes 和行号 _row）"
+                        }
+                      },
+                      "required": [
+                        "dataset"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "id_col": {
+                      "type": "string",
+                      "description": "任务编号列（文本或整数，主键）"
+                    },
+                    "label_col": {
+                      "type": "string",
+                      "description": "任务名称列"
+                    },
+                    "start_col": {
+                      "type": "string",
+                      "description": "开始（日期或日期时间列，数据集里须为必填列）"
+                    },
+                    "end_col": {
+                      "type": "string",
+                      "description": "截止（日期或日期时间列，数据集里须为必填列）"
+                    },
+                    "deps_col": {
+                      "type": "string",
+                      "description": "依赖列（文本，可选）：逗号分隔前置编号，写法同任务图；给了就画箭头"
+                    },
+                    "role_col": {
+                      "type": "string",
+                      "description": "角色列（文本，可选）：end、branch_end 的条尾画标记"
+                    },
+                    "status_col": {
+                      "type": "string",
+                      "description": "状态列"
+                    },
+                    "done_values": {
+                      "type": "array",
+                      "maxItems": 20,
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "算完成的状态值，缺省 [\"done\"]"
+                    },
+                    "progress_col": {
+                      "type": "string",
+                      "description": "进度列（0～100 的数值），画成条内填充"
+                    },
+                    "group_col": {
+                      "type": "string",
+                      "description": "分组列，按组排"
+                    },
+                    "detail_cols": {
+                      "type": "array",
+                      "maxItems": 12,
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "点开任务时显示的 1～12 列"
+                    },
+                    "value_labels": {
+                      "type": "object",
+                      "description": "列名 → 取值 → 说法（一段文字，或 { text, tone }）"
+                    },
+                    "column_labels": {
+                      "type": "object",
+                      "description": "列名 → 说明名"
+                    }
+                  }
                 }
               ]
             }
