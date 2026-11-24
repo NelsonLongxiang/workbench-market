@@ -419,6 +419,14 @@ try {
     r = await srv.call('GET', B + '/render?view=plan', mgr);
     const blk = r.json?.blocks?.[0];
     check(r.status === 200 && blk?.type === 'gantt' && blk.data?.rows?.length === 2 && blk.data.truncated === false && blk.graph_meta?.filtered === false && blk.data.columns.find((c) => c.name === 'start')?.label === '开始', '取数：甘特图块回 2 行、不分页不截断、带取数说明、列带说明名', r.text.slice(0, 200));
+    // 甘特图自己的不分页上限：500 个全取、501 和 502 个只取 500 个并标截断（不靠任务图的用例代测）
+    const plans = (n) => Array.from({ length: n }, (_, i) => ({ id: 'p' + i, name: '排期' + i, start: '2026-01-01', due: '2026-01-02', deps: i ? 'p' + (i - 1) : null }));
+    for (const [n, cut] of [[500, false], [501, true], [502, true]]) {
+      await srv.call('POST', `${B}/datasets/plan/rows?op=replace`, { ...mgr, raw: JSON.stringify(plans(n)) });
+      r = await srv.call('GET', B + '/render?view=plan', mgr);
+      const b = r.json?.blocks?.[0];
+      check(b?.type === 'gantt' && b.data?.rows?.length === 500 && b.data.truncated === cut && b.graph_meta?.filtered === false, `甘特图 ${n} 个：只取 500 个，${cut ? '标截断' : '不算截断'}`, { n: b?.data?.rows?.length, t: b?.data?.truncated });
+    }
   }
 
   console.log('六之二、最终 HTTP 发布屏障');

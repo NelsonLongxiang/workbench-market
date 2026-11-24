@@ -8,7 +8,7 @@ import { Alert, Button, Descriptions, Drawer, Segmented, Table } from 'antd';
 import { DESIGN_TOKENS as T } from '../design-tokens';
 import { BlockFrame, type BlockFrameProps } from './Frame';
 import { FLASH_MS, diagnosticText, partialText } from './DagBlock';
-import { buildGraph, changedNodes, ganttArrowShape, ganttBarShape, ganttLayout, graphHighlight, graphTableRows, type GanttTokens, type GraphModel, type GraphSpec } from './task-graph';
+import { applyGanttOption, buildGraph, changedNodes, ganttChartOption, ganttLayout, graphHighlight, graphTableRows, type GanttChart, type GanttChartOption, type GanttTokens, type GraphModel, type GraphSpec } from './task-graph';
 
 export interface GanttBlockProps extends BlockFrameProps {
   spec: Omit<GraphSpec, 'kind'> & { start_col: string; end_col: string; detail_cols?: string[] };
@@ -17,13 +17,11 @@ export interface GanttBlockProps extends BlockFrameProps {
 
 const TOK: GanttTokens = { bar: T.colors.primary, done: T.colors.success, danger: T.colors.danger, track: T.colors['primary-subtle'], line: T.colors['border-strong'], marker: T.colors.text };
 const FONT = parseInt(T.typography.caption.fontSize, 10);
-/** 超过这么多条就加纵向滚动条 */
-export const GANTT_VISIBLE_ROWS = 25;
 
 type Picked = { seriesName?: string; dataIndex?: number };
-function GanttCanvas({ option, idAt, onPick, onHover, label }: { option: Record<string, unknown>; idAt: (index: number) => string | null; onPick: (id: string) => void; onHover: (id: string | null) => void; label: string }) {
+function GanttCanvas({ option, idAt, onPick, onHover, label }: { option: GanttChartOption; idAt: (index: number) => string | null; onPick: (id: string) => void; onHover: (id: string | null) => void; label: string }) {
   const el = useRef<HTMLDivElement>(null);
-  const chart = useRef<{ setOption: (o: unknown, n?: boolean) => void; resize: () => void; dispose: () => void } | null>(null);
+  const chart = useRef<(GanttChart & { resize: () => void; dispose: () => void }) | null>(null);
   const callbacks = useRef({ idAt, onPick, onHover, option });
   callbacks.current = { idAt, onPick, onHover, option };
   const [failed, setFailed] = useState(false);
@@ -33,7 +31,7 @@ function GanttCanvas({ option, idAt, onPick, onHover, label }: { option: Record<
       if (gone || !el.current) return;
       const c = echarts.init(el.current);
       chart.current = c as never;
-      c.setOption(callbacks.current.option);
+      applyGanttOption(c as never, callbacks.current.option);
       const barId = (p: unknown): string | null => { const d = p as Picked; return d.seriesName === 'bars' && typeof d.dataIndex === 'number' ? callbacks.current.idAt(d.dataIndex) : null; };
       c.on('click', (p) => { const id = barId(p); if (id !== null) callbacks.current.onPick(id); });
       c.on('mouseover', (p) => callbacks.current.onHover(barId(p)));
@@ -44,8 +42,8 @@ function GanttCanvas({ option, idAt, onPick, onHover, label }: { option: Record<
     return () => { gone = true; ro?.disconnect(); chart.current?.dispose(); chart.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  // 换数据时整份替换（条数会变）；数据缩放的位置由 dataZoom 自己保留
-  useEffect(() => { chart.current?.setOption(option, true); }, [option]);
+  // 悬停、选中、闪烁、实时刷新都会换配置：整份替换，但纵向可视范围先从图表读回、按新条数夹好再写进去（applyGanttOption）
+  useEffect(() => { if (chart.current) applyGanttOption(chart.current, option); }, [option]);
   if (failed) return <div className="wm-bb-truncated">图没能加载出来，刷新页面再试，或切到表格看。</div>;
   return <div ref={el} className="wm-gantt-canvas" role="img" aria-label={label} />;
 }
@@ -82,29 +80,8 @@ export function GanttBlock({ spec, graphMeta, ...frame }: GanttBlockProps) {
     return () => clearTimeout(t);
   }, [model]);
   const labelOf = (col: string) => frame.data?.columns.find((c) => c.name === col)?.label || col;
-  const option = useMemo(() => {
-    const scroll = lay.items.length > GANTT_VISIBLE_ROWS;
-    return {
-      animation: false, tooltip: { show: false },
-      grid: { left: 160, right: scroll ? 48 : 32, top: 28, bottom: 32 },
-      xAxis: { type: 'time', min: lay.min, max: lay.max, axisLabel: { color: T.colors['text-secondary'], fontSize: FONT }, splitLine: { show: true, lineStyle: { color: T.colors.border } } },
-      yAxis: { type: 'category', inverse: true, data: lay.items.map((i) => i.label), axisTick: { show: false }, axisLabel: { color: T.colors.text, fontSize: FONT, width: 148, overflow: 'truncate' } },
-      dataZoom: scroll ? [{ type: 'slider', yAxisIndex: 0, startValue: 0, endValue: GANTT_VISIBLE_ROWS - 1, right: 8, width: 12, showDetail: false }, { type: 'inside', yAxisIndex: 0, zoomOnMouseWheel: false, moveOnMouseWheel: true }] : [],
-      series: [
-        { type: 'custom', name: 'arrows', silent: true, z: 1, data: lay.arrows.map((_, k) => [k]),
-          renderItem: (p: { dataIndex: number }, api: never) => {
-            const a = lay.arrows[p.dataIndex];
-            return ganttArrowShape(lay.items[a.fromIndex], lay.items[a.toIndex], a.kind, api, TOK, { dim: !!highlight && !highlight.edges.has(a.key), selected: !!highlight?.edges.has(a.key) });
-          } },
-        { type: 'custom', name: 'bars', z: 2, encode: { x: [1, 2], y: 0 }, data: lay.items.map((i) => [i.index, i.start, i.end]),
-          renderItem: (p: { dataIndex: number }, api: never) => {
-            const it = lay.items[p.dataIndex];
-            return ganttBarShape(it, api, TOK, { dim: !!highlight && !highlight.nodes.has(it.id), flash: flash.has(it.id), red: model.red.has(it.id) });
-          },
-          markLine: { silent: true, symbol: 'none', label: { formatter: '今天', color: T.colors.danger, fontSize: FONT }, lineStyle: { color: T.colors.danger, type: 'dashed' }, data: [{ xAxis: now }] } },
-      ],
-    };
-  }, [lay, model, highlight, flash, now]);
+  const option = useMemo(() => ganttChartOption(lay, { tokens: TOK, font: FONT, colors: { text: T.colors.text, secondary: T.colors['text-secondary'], border: T.colors.border, danger: T.colors.danger }, highlight, flash, red: model.red, now }),
+    [lay, model, highlight, flash, now]);
   const table = useMemo(() => {
     const at = new Map(model.nodes.map((n) => [n.id, n]));
     const v = (id: string, col: string) => { const x = at.get(id)?.row?.[col]; return x === null || x === undefined ? '' : String(x); };

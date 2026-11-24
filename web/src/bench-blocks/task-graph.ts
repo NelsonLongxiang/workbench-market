@@ -530,3 +530,71 @@ export function ganttArrowShape(from: GanttItem, to: GanttItem, kind: DepKind, a
     { type: 'polygon', name: 'arrow-head', shape: { points: [[x1, y1], [x1 - head, y1 - head], [x1 - head, y1 + head]] }, style: { fill: stroke, opacity: style.opacity } },
   ] };
 }
+
+/* —— 甘特图的图表配置与更新：纯函数，ECharts 只经传入的 chart 调用（单测用真实 ECharts 的 SSR 跑） —— */
+
+/** 超过这么多条就加纵向滚动条 */
+export const GANTT_VISIBLE_ROWS = 25;
+export type ZoomWindow = { start: number; end: number };
+
+/** 纵向可视范围：不超过 visible 条就没有缩放；没有旧范围给前 visible 条；有旧范围就保住宽度、夹进新的条数（条数变少时整体上移） */
+export function ganttZoomWindow(prev: ZoomWindow | null, count: number, visible = GANTT_VISIBLE_ROWS): ZoomWindow | null {
+  if (count <= visible) return null;
+  if (!prev) return { start: 0, end: visible - 1 };
+  const width = Math.max(1, Math.min(count, prev.end - prev.start + 1));
+  const start = Math.max(0, Math.min(prev.start, count - width));
+  return { start, end: start + width - 1 };
+}
+
+export type GanttChartContext = {
+  tokens: GanttTokens; font: number; colors: { text: string; secondary: string; border: string; danger: string };
+  highlight: GraphHighlight | null; flash: Set<string>; red: Set<string>; now: number;
+};
+export type GanttChartOption = { yAxis: { data: string[] } & Record<string, unknown>; dataZoom: Record<string, unknown>[] } & Record<string, unknown>;
+
+/** 一份完整的图表配置：横条（含进度、过期、终点标记）、依赖箭头、今天线；超过 visible 条加纵向缩放，初始是前 visible 条 */
+export function ganttChartOption(lay: GanttLayout, ctx: GanttChartContext): GanttChartOption {
+  const first = ganttZoomWindow(null, lay.items.length);
+  const hl = ctx.highlight;
+  return {
+    animation: false, tooltip: { show: false },
+    grid: { left: 160, right: first ? 48 : 32, top: 28, bottom: 32 },
+    xAxis: { type: 'time', min: lay.min, max: lay.max, axisLabel: { color: ctx.colors.secondary, fontSize: ctx.font }, splitLine: { show: true, lineStyle: { color: ctx.colors.border } } },
+    yAxis: { type: 'category', inverse: true, data: lay.items.map((i) => i.label), axisTick: { show: false }, axisLabel: { color: ctx.colors.text, fontSize: ctx.font, width: 148, overflow: 'truncate' } },
+    dataZoom: first ? [{ type: 'slider', yAxisIndex: 0, startValue: first.start, endValue: first.end, right: 8, width: 12, showDetail: false }, { type: 'inside', yAxisIndex: 0, zoomOnMouseWheel: false, moveOnMouseWheel: true }] : [],
+    series: [
+      { type: 'custom', name: 'arrows', silent: true, z: 1, data: lay.arrows.map((_, k) => [k]),
+        renderItem: (p: { dataIndex: number }, api: CoordApi) => {
+          const a = lay.arrows[p.dataIndex];
+          return ganttArrowShape(lay.items[a.fromIndex], lay.items[a.toIndex], a.kind, api, ctx.tokens, { dim: !!hl && !hl.edges.has(a.key), selected: !!hl?.edges.has(a.key) });
+        } },
+      { type: 'custom', name: 'bars', z: 2, encode: { x: [1, 2], y: 0 }, data: lay.items.map((i) => [i.index, i.start, i.end]),
+        renderItem: (p: { dataIndex: number }, api: CoordApi) => {
+          const it = lay.items[p.dataIndex];
+          return ganttBarShape(it, api, ctx.tokens, { dim: !!hl && !hl.nodes.has(it.id), flash: ctx.flash.has(it.id), red: ctx.red.has(it.id) });
+        },
+        markLine: { silent: true, symbol: 'none', label: { formatter: '今天', color: ctx.colors.danger, fontSize: ctx.font }, lineStyle: { color: ctx.colors.danger, type: 'dashed' }, data: [{ xAxis: ctx.now }] } },
+    ],
+  };
+}
+
+export type GanttChart = { setOption: (o: unknown, notMerge?: boolean) => void; getOption: () => unknown };
+
+/** 图表当前的纵向可视范围（用户拖过、滚过之后的）；没有缩放或读不出来回 null */
+export function readZoomWindow(chart: GanttChart): ZoomWindow | null {
+  try {
+    const dz = (chart.getOption() as { dataZoom?: { startValue?: unknown; endValue?: unknown }[] } | undefined)?.dataZoom?.[0];
+    const s = dz?.startValue, e = dz?.endValue;
+    return typeof s === 'number' && typeof e === 'number' && Number.isFinite(s) && Number.isFinite(e) && e >= s ? { start: s, end: e } : null;
+  } catch { return null; }
+}
+
+/**
+ * 应用一份新配置。配置整份替换（条数、箭头都会变），但纵向可视范围不跟配置走：先读图表当前的范围，
+ * 按新条数夹好再写进去。悬停、选中、闪烁和实时刷新都会换配置，这样不会把用户滚到的位置打回前几条。
+ */
+export function applyGanttOption(chart: GanttChart, option: GanttChartOption): void {
+  const w = ganttZoomWindow(readZoomWindow(chart), option.yAxis.data.length);
+  const next = w && option.dataZoom.length ? { ...option, dataZoom: option.dataZoom.map((d, i) => (i === 0 ? { ...d, startValue: w.start, endValue: w.end } : d)) } : option;
+  chart.setOption(next, true);
+}

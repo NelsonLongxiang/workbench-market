@@ -232,10 +232,63 @@ console.log('甘特图');
   const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   const gb = read('../web/src/bench-blocks/GanttBlock.tsx'), bv = read('../web/src/bench-blocks/BenchView.tsx'), lite = read('../web/src/bench-blocks/echarts-lite.ts');
   ok('GanttBlock 不写内联样式、不写死颜色（颜色只取 DESIGN_TOKENS）', !/style=\{\{/.test(gb) && !/#[0-9A-Fa-f]{3,6}\b|rgba?\(/.test(gb) && /DESIGN_TOKENS/.test(gb));
-  ok('今天竖线；超过 25 条加纵向滚动', /markLine: \{[^}]*silent: true[\s\S]*?data: \[\{ xAxis: now \}\]/.test(gb) && /const scroll = lay\.items\.length > GANTT_VISIBLE_ROWS;/.test(gb) && /dataZoom: scroll \?/.test(gb));
-  ok('横条与箭头都用纯函数画；点条看详情；悬停高亮链', /renderItem: \(p: \{ dataIndex: number \}, api: never\) => \{\s*const it = lay\.items\[p\.dataIndex\];\s*return ganttBarShape\(/.test(gb) && /return ganttArrowShape\(/.test(gb) && /c\.on\('click', \(p\) => \{ const id = barId\(p\); if \(id !== null\) callbacks\.current\.onPick\(id\); \}\)/.test(gb) && /c\.on\('mouseover', \(p\) => callbacks\.current\.onHover\(barId\(p\)\)\)/.test(gb));
+  ok('画法与更新都走纯函数：配置来自 ganttChartOption，初次与每次更新都经 applyGanttOption（不直接 setOption）', /ganttChartOption\(lay, \{/.test(gb) && /applyGanttOption\(c as never, callbacks\.current\.option\)/.test(gb) && /if \(chart\.current\) applyGanttOption\(chart\.current, option\)/.test(gb) && !/\.setOption\(/.test(gb));
+  ok('点条看详情；悬停高亮链', /c\.on\('click', \(p\) => \{ const id = barId\(p\); if \(id !== null\) callbacks\.current\.onPick\(id\); \}\)/.test(gb) && /c\.on\('mouseover', \(p\) => callbacks\.current\.onHover\(barId\(p\)\)\)/.test(gb));
   ok('等价表格（含开始、截止、过期）；坏日期提示；键盘遍历', /data-testid="gantt-table"/.test(gb) && /title: '开始', dataIndex: 'start'/.test(gb) && /title: '过期', dataIndex: 'overdue'/.test(gb) && /data-testid="gantt-bad-dates"/.test(gb) && /<nav className="wm-dag-keys"/.test(gb) && /onKeyDown: \(e\) => \{ if \(e\.key === 'Enter'\) pickNode\(r\.id\); \}/.test(gb));
   ok('BenchView 认 gantt；图表库多注册自定义系列、标线、数据缩放', /b\.type === 'gantt'\) return <GanttBlock/.test(bv) && /CustomChart/.test(lite) && /MarkLineComponent/.test(lite) && /DataZoomComponent/.test(lite));
+}
+
+console.log('甘特图：图表配置与纵向可视范围');
+{
+  const D = g.DAY_MS, T0 = Date.parse('2026-01-01T00:00:00Z'), now = T0 + 10 * D;
+  const TOK = { bar: 'BAR', done: 'DONE', danger: 'DANGER', track: 'TRACK', line: 'LINE', marker: 'MARK' };
+  const gs = { kind: 'gantt', id_col: 'id', label_col: 'name', start_col: 's', end_col: 'e', status_col: 'st', deps_col: 'deps' };
+  const big = (n, done = 0) => Array.from({ length: n }, (_, i) => ({ id: 'T' + i, name: '任务' + i, s: '2026-01-01', e: '2026-01-' + String(2 + (i % 20)).padStart(2, '0'), deps: i % 10 ? 'T' + (i - 1) : null, st: i < done ? 'done' : 'todo' }));
+  const modelOf = (n, done) => g.buildGraph(big(n, done), gs, FULL);
+  const layOf = (m) => g.ganttLayout(m, { start_col: 's', end_col: 'e' }, now);
+  const ctx = (extra = {}) => ({ tokens: TOK, font: 12, colors: { text: 'TX', secondary: 'SC', border: 'BD', danger: 'DG' }, highlight: null, flash: new Set(), red: new Set(), now, ...extra });
+  const w = (x) => JSON.stringify(x);
+  ok('可视范围：不超过 25 条没有缩放；没有旧范围给前 25 条；旧范围保住宽度；条数变少时整体上移；变到 25 条以内不再缩放', g.ganttZoomWindow(null, 25) === null && w(g.ganttZoomWindow(null, 40)) === '{"start":0,"end":24}' && w(g.ganttZoomWindow({ start: 15, end: 39 }, 40)) === '{"start":15,"end":39}' && w(g.ganttZoomWindow({ start: 15, end: 39 }, 30)) === '{"start":5,"end":29}' && w(g.ganttZoomWindow({ start: 2, end: 9 }, 40)) === '{"start":2,"end":9}' && g.ganttZoomWindow({ start: 15, end: 39 }, 20) === null);
+  const m40 = modelOf(40), lay40 = layOf(m40), o40 = g.ganttChartOption(lay40, ctx()), o5 = g.ganttChartOption(layOf(modelOf(5)), ctx());
+  ok('配置：今天竖线（虚线、不响应鼠标）；超过 25 条才有纵向缩放、初始前 25 条', o40.series[1].markLine.data[0].xAxis === now && o40.series[1].markLine.silent === true && o40.series[1].markLine.lineStyle.type === 'dashed' && o40.dataZoom.length === 2 && o40.dataZoom[0].startValue === 0 && o40.dataZoom[0].endValue === 24 && o5.dataZoom.length === 0);
+  const fake = { coord: ([x, y]) => [(x - T0) / D * 10, y * 20], size: () => [0, 20] };
+  const a0 = lay40.arrows[0];
+  ok('配置：横条、箭头的 renderItem 就是 ganttBarShape、ganttArrowShape 的结果', w(o40.series[1].renderItem({ dataIndex: 3 }, fake)) === w(g.ganttBarShape(lay40.items[3], fake, TOK, { dim: false, flash: false, red: false })) && w(o40.series[0].renderItem({ dataIndex: 0 }, fake)) === w(g.ganttArrowShape(lay40.items[a0.fromIndex], lay40.items[a0.toIndex], a0.kind, fake, TOK, { dim: false, selected: false })));
+  const hl = g.graphHighlight(m40, 'T30', null);
+  const oh = g.ganttChartOption(lay40, ctx({ highlight: hl }));
+  const opOf = (sh) => sh.children.find((c) => c.name === 'track').style.opacity;
+  const opAt = (id) => opOf(oh.series[1].renderItem({ dataIndex: lay40.items.findIndex((i) => i.id === id) }, fake));
+  ok('配置：悬停时链上的条（T30～T39）不变、链外的（T5、T29）变淡', opAt('T30') === 1 && opAt('T35') === 1 && opAt('T5') === 0.25 && opAt('T29') === 0.25, { T30: opAt('T30'), T35: opAt('T35'), T5: opAt('T5'), T29: opAt('T29') });
+
+  // 真实 ECharts（SSR）：用户滚到第 16～40 条后，悬停、离开、闪烁、实时刷新都不该把可视范围打回前 25 条
+  const { createRequire } = await import('node:module');
+  const echarts = createRequire(new URL('../web/package.json', import.meta.url))('echarts');
+  const chart = echarts.init(null, null, { renderer: 'svg', ssr: true, width: 900, height: 700 });
+  const win = () => w(g.readZoomWindow(chart));
+  const scroll = () => chart.dispatchAction({ type: 'dataZoom', dataZoomIndex: 0, startValue: 15, endValue: 39 });
+  g.applyGanttOption(chart, o40);
+  ok('ECharts：初次是前 25 条', win() === '{"start":0,"end":24}', win());
+  scroll();
+  ok('ECharts：滚到第 16～40 条', win() === '{"start":15,"end":39}', win());
+  g.applyGanttOption(chart, oh);
+  ok('ECharts：悬停 T30（配置整份换）后可视范围不变', win() === '{"start":15,"end":39}', win());
+  g.applyGanttOption(chart, g.ganttChartOption(lay40, ctx()));
+  ok('ECharts：鼠标离开（高亮撤掉）后不变', win() === '{"start":15,"end":39}', win());
+  g.applyGanttOption(chart, g.ganttChartOption(lay40, ctx({ flash: new Set(['T31']), highlight: g.graphHighlight(m40, null, 'T39') })));
+  ok('ECharts：选中终点、刷新后描边闪烁时不变', win() === '{"start":15,"end":39}', win());
+  const m40b = modelOf(40, 12);
+  g.applyGanttOption(chart, g.ganttChartOption(layOf(m40b), ctx()));
+  ok('ECharts：实时刷新（条数不变、状态变了）后不变', win() === '{"start":15,"end":39}', win());
+  g.applyGanttOption(chart, g.ganttChartOption(layOf(modelOf(30)), ctx()));
+  ok('ECharts：刷新后只剩 30 条，范围保宽上移到第 6～30 条', win() === '{"start":5,"end":29}', win());
+  g.applyGanttOption(chart, g.ganttChartOption(layOf(modelOf(20)), ctx()));
+  ok('ECharts：只剩 20 条，不再缩放', g.readZoomWindow(chart) === null, win());
+  g.applyGanttOption(chart, o40);
+  ok('ECharts：又变回 40 条，从前 25 条起', win() === '{"start":0,"end":24}', win());
+  scroll();
+  chart.setOption(oh, true);
+  ok('对照：旧做法（直接整份 setOption）会打回前 25 条——证明上面几条确实在测保留', win() === '{"start":0,"end":24}', win());
+  chart.dispose();
 }
 
 console.log(`\ntask-graph-unit: ${pass} passed / ${fail} failed`);
