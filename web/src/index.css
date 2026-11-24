@@ -845,6 +845,14 @@ body { background: var(--wm-color-page); }
 .wm-img-missing-cell { min-width: 48px; height: 48px; padding: 0 var(--wm-space-1); }
 .wm-img-missing-card { width: 100%; height: 160px; border-radius: var(--wm-radius-md); }
 .wm-rec-image { grid-column: 1 / -1; }
+/* 任务图 dag（docs/task-graph-step1.md）：画布固定高度可缩放平移；摘要、诊断、可用键盘遍历的任务清单 */
+.wm-dag-canvas { width: 100%; height: 480px; }
+.wm-dag-summary { color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-caption); margin-bottom: var(--wm-space-2); }
+.wm-dag-summary-bad { color: var(--wm-color-danger-text); }
+.wm-dag-branches { display: flex; flex-wrap: wrap; gap: var(--wm-space-2); color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-caption); margin-bottom: var(--wm-space-2); }
+.wm-dag-problems { margin-bottom: var(--wm-space-2); }
+.wm-dag-problems ul { margin: 0; padding-left: var(--wm-space-4); }
+.wm-dag-keys { display: flex; flex-wrap: wrap; gap: var(--wm-space-1); margin-top: var(--wm-space-2); border-top: 1px solid var(--wm-color-border); padding-top: var(--wm-space-2); }
 .wm-bb-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wm-space-3) var(--wm-space-4); }
 .wm-bb-filter { display: inline-flex; align-items: center; gap: var(--wm-space-2); }
 .wm-bb-filter-label { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); white-space: nowrap; }

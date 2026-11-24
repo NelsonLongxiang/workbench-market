@@ -332,6 +332,36 @@ try {
   r = await srv.call('GET', '/api/bench-views/ghost/render?var=secret_unused', nobody);
   check(r.status === 403, '无权请求先拒绝，不探台或变量', r.status);
 
+  console.log('六之三、任务图 dag（docs/task-graph-step1.md）：保存 → 取数');
+  {
+    r = await srv.call('PUT', `${B}/datasets/tasks`, { ...mgr, body: { title: '任务', key: ['id'], columns: [{ name: 'id', type: 'text', label: '编号' }, { name: 'name', type: 'text', label: '任务' }, { name: 'deps', type: 'text', label: '前置' }, { name: 'role', type: 'text', label: '角色' }, { name: 'st', type: 'text', label: '状态' }, { name: 'pct', type: 'integer', label: '进度' }] } });
+    check(r.status === 200, '任务数据集', r.text.slice(0, 120));
+    const tasks = (n) => Array.from({ length: n }, (_, i) => ({ id: 't' + i, name: '任务' + i, deps: i ? 't' + (i - 1) : null, role: i === 0 ? 'start' : i === n - 1 ? 'end' : null, st: i === 0 ? 'done' : 'todo', pct: i === 0 ? 100 : 0 }));
+    r = await srv.call('POST', `${B}/datasets/tasks/rows?op=replace`, { ...mgr, raw: JSON.stringify(tasks(3)) });
+    check(r.status === 200, '写 3 个任务', r.text.slice(0, 120));
+    const cur = await srv.call('GET', B + '/view', mgr);
+    const dagBase = { type: 'dag', id_col: 'id', label_col: 'name', deps_col: 'deps', role_col: 'role', status_col: 'st', progress_col: 'pct', detail_cols: ['st', 'pct'] };
+    const dagDoc = { title: '任务图', views: [{ key: 'tasks', title: '任务', blocks: [{ ...dagBase, query: { dataset: 'tasks' } }, { ...dagBase, title: '只看待办', query: { dataset: 'tasks', filter: [{ col: 'st', op: 'eq', value: 'todo' }] } }] }] };
+    r = await srv.call('PUT', B + '/view', { ...mgr, body: { doc: dagDoc, base: cur.json.view.active_version, note: '任务图' } });
+    check(r.status === 200, '保存任务图视图', r.text.slice(0, 160));
+    const after = await srv.call('GET', B + '/view', mgr);
+    r = await srv.call('PUT', B + '/view', { ...mgr, body: { doc: { ...dagDoc, views: [{ ...dagDoc.views[0], blocks: [{ ...dagBase, query: { dataset: 'tasks', limit: 10 } }] }] }, base: after.json.view.active_version, note: '应被拒绝' } });
+    check(r.status === 400 && r.text.includes('limit'), '任务图的查询写 limit：保存即拒', r.text.slice(0, 160));
+    r = await srv.call('GET', B + '/render?view=tasks', mgr);
+    const [full, part] = r.json?.blocks ?? [];
+    check(r.status === 200 && full?.type === 'dag' && full.data?.rows?.length === 3 && full.data.truncated === false && full.graph_meta?.filtered === false && full.data.columns.find((c) => c.name === 'deps')?.label === '前置', '取数：全量块回 3 行、没截断、不算筛选、列带说明名', r.text.slice(0, 200));
+    check(part?.graph_meta?.filtered === true && part.data?.rows?.length === 2, '有 filter 的块：标成筛选（部分结果）', part?.graph_meta);
+    await srv.call('POST', `${B}/datasets/tasks/rows?op=replace`, { ...mgr, raw: JSON.stringify(tasks(500)) });
+    r = await srv.call('GET', B + '/render?view=tasks', mgr);
+    check(r.json?.blocks?.[0]?.data?.rows?.length === 500 && r.json.blocks[0].data.truncated === false, '恰好 500 个：全部取回、不算截断', { n: r.json?.blocks?.[0]?.data?.rows?.length, t: r.json?.blocks?.[0]?.data?.truncated });
+    await srv.call('POST', `${B}/datasets/tasks/rows?op=replace`, { ...mgr, raw: JSON.stringify(tasks(501)) });
+    r = await srv.call('GET', B + '/render?view=tasks', mgr);
+    check(r.json?.blocks?.[0]?.data?.rows?.length === 500 && r.json.blocks[0].data.truncated === true, '501 个：只取 500 个、标截断', { n: r.json?.blocks?.[0]?.data?.rows?.length, t: r.json?.blocks?.[0]?.data?.truncated });
+    await srv.call('POST', `${B}/datasets/tasks/rows?op=replace`, { ...mgr, raw: JSON.stringify(tasks(502)) });
+    r = await srv.call('GET', B + '/render?view=tasks', mgr);
+    check(r.json?.blocks?.[0]?.data?.rows?.length === 500 && r.json.blocks[0].data.truncated === true, '502 个：同样只取 500 个、标截断');
+  }
+
   console.log('六之二、最终 HTTP 发布屏障');
   const raceSrv = await boot('publication-race', { WM_BENCH_VIEWS: 'on' });
   await raceSrv.call('GET', '/api/auth/viewer', { session: SESSIONS.alpha });
