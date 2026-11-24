@@ -10,7 +10,7 @@ import { BenchView, type ViewResult } from '../bench-blocks/BenchView';
 import { getBenchView, submitBenchForm, type BenchEntry } from '../api';
 import { useChangePoll } from '../bench-change-poll';
 import { BENCH_VIEWS_OFF, benchViewError, isBenchViewsOff } from '../cockpit-frame-view';
-import { formError, pageTitle, paramsFromQuery, shouldRefreshEntry, toQuery, viewFromQuery } from '../bench-page-view';
+import { afterReload, formError, pageTitle, paramsFromQuery, pollAction, shouldRefreshEntry, toQuery, viewFromQuery, type PollAction } from '../bench-page-view';
 import BenchRename from './BenchRename';
 import { ReportsLink } from './BenchReports';
 
@@ -40,21 +40,24 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
     return () => { document.removeEventListener('visibilitychange', onBack); window.removeEventListener('focus', onBack); };
   }, [refreshEntry]);
 
-  const load = useCallback(async () => {
+  // background：实时刷新触发的后台取数。临时失败时留着旧图（afterReload 的 keep），交给轮询退避再试
+  const load = useCallback(async (background = false): Promise<PollAction> => {
     const mine = ++seq.current;
     const r = await getBenchView({ bench: cardId, view }, params);
-    if (mine !== seq.current) return; // 连着换了几次视图或筛选：只认最后一次
+    if (mine !== seq.current) return 'ok'; // 连着换了几次视图或筛选：只认最后一次（这一次由新的那次接手）
     setRefreshing(false);
-    if (r.status === 200 && r.body) setS({ phase: 'ok', result: r.body as ViewResult, requestKey: key });
-    else if (isBenchViewsOff(r.status, r.error)) setS({ phase: 'off' });
-    else setS({ phase: 'error', text: benchViewError(r.status, r.error) });
+    const act = pollAction(r.status, r.error, !!r.body);
+    const next = afterReload(act, background);
+    if (next === 'show') setS({ phase: 'ok', result: r.body as ViewResult, requestKey: key });
+    else if (next === 'collapse') setS(isBenchViewsOff(r.status, r.error) ? { phase: 'off' } : { phase: 'error', text: benchViewError(r.status, r.error) });
+    return act;
   // key 是视图和筛选值的指纹
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardId, key]);
   // 实时刷新：台库或视图变了就在后台重新取数（旧图照常显示）。没权限、台没了、未开启：作废在途的取数、收起旧结果
   const { paused } = useChangePoll({
     bench: cardId, cursor: s.phase === 'ok' ? s.result.cursor : null, active: s.phase === 'ok' && s.requestKey === key && !refreshing,
-    onChanged: () => { void load(); },
+    onChanged: () => load(true),
     onStop: (status, error) => { seq.current++; setS(isBenchViewsOff(status, error) ? { phase: 'off' } : { phase: 'error', text: benchViewError(status, error) }); },
   });
   // 换了视图：先回骨架，免得新数据回来前正文还是上一份视图的、看错；只改筛选（同一份视图）时留着现在的数据，刷新按钮转着

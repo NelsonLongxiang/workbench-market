@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 视图台页面（/use/<卡片 id>）的纯函数单测（web/src/bench-page-view.ts）：入口应答怎么走、地址里的视图和筛选、表单没交上去时说什么。数据都是合成的。 */
-import { BACKOFF_MS, POLL_MS, nextDelay, pollAction, ENTRY_REFRESH_MIN_MS, ENTRY_TEXT, asEntry, entryOutcome, formError, pageTitle, paramsFromQuery, reloadOutcome, renameOutcome, shouldRefreshEntry, showFromCard, toQuery, viewFromQuery } from '../web/src/bench-page-view.ts';
+import { BACKOFF_MS, POLL_MS, afterReload, nextDelay, pollAction, ENTRY_REFRESH_MIN_MS, ENTRY_TEXT, asEntry, entryOutcome, formError, pageTitle, paramsFromQuery, reloadOutcome, renameOutcome, shouldRefreshEntry, showFromCard, toQuery, viewFromQuery } from '../web/src/bench-page-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -49,16 +49,20 @@ ok('「跟卡片同名」：卡片名和台名不同才出；同名、没卡片�
 ok('「跟卡片同名」：不能改名的人永远不出（就算入口里带了卡片名，也不靠 asEntry 先去掉）', !showFromCard(asEntry({ ...E, bench: { ...E.bench, card_title: '合成卡片' }, can: { rename: false } })) && !showFromCard({ ...asEntry(E), bench: { ...E.bench, card_title: '合成卡片' }, can: { rename: false } }));
 
 // 实时刷新（docs/task-graph-step1.md 第五节之六）
-ok('轮询回答：200 照常；401、403、404、未开启停下；断网、5xx、其它重试', pollAction(200) === 'ok' && pollAction(401) === 'stop' && pollAction(403) === 'stop' && pollAction(404) === 'stop' && pollAction(503, 'bench_views_off') === 'stop' && pollAction(0) === 'retry' && pollAction(500) === 'retry' && pollAction(502) === 'retry' && pollAction(429) === 'retry');
+ok('回答：200 带游标或结果照常；200 却没有按临时失败重试；401、403、404、未开启停下；断网、5xx、409、429 重试', pollAction(200, undefined, true) === 'ok' && pollAction(200, undefined, false) === 'retry' && pollAction(401, undefined, true) === 'stop' && pollAction(403, undefined, true) === 'stop' && pollAction(404, undefined, true) === 'stop' && pollAction(503, 'bench_views_off', false) === 'stop' && pollAction(0, undefined, false) === 'retry' && pollAction(500, undefined, false) === 'retry' && pollAction(502, undefined, false) === 'retry' && pollAction(409, 'conflict', false) === 'retry' && pollAction(429, undefined, false) === 'retry');
+ok('重新取数之后：取到就换上；自动刷新的后台取数临时失败留着旧图；手动或首次取数失败、任何时候停下都收起', afterReload('ok', true) === 'show' && afterReload('ok', false) === 'show' && afterReload('retry', true) === 'keep' && afterReload('retry', false) === 'collapse' && afterReload('stop', true) === 'collapse' && afterReload('stop', false) === 'collapse');
 ok('间隔：平时 5 秒；连续失败按 5、10、20、40、60 秒退避，封顶 60 秒', POLL_MS === 5000 && nextDelay(0) === 5000 && J([1, 2, 3, 4, 5, 9].map(nextDelay)) === J([5000, 10000, 20000, 40000, 60000, 60000]) && BACKOFF_MS.length === 5);
 {
   const { readFileSync } = await import('node:fs');
   const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
   const hook = read('../web/src/bench-change-poll.ts'), page = read('../web/src/pages/BenchPage.tsx'), panel = read('../web/src/components/cockpit/BenchViewPanel.tsx');
-  ok('轮询：页面不可见就停、回来立刻问；晚到的回答作废；游标变了才重新取数', /visibilityState !== 'visible'\) return/.test(hook) && /addEventListener\('visibilitychange'/.test(hook) && /if \(gone\) return;/.test(hook) && /r\.cursor !== cursor\) \{ gone = true; cb\.current\.onChanged\(\)/.test(hook) && /removeEventListener\('visibilitychange'/.test(hook));
-  ok('轮询：停下就不再排下一次；失败退避并标暂停', /act === 'stop'\) \{ gone = true; cb\.current\.onStop/.test(hook) && /act === 'retry'\) \{ failures\+\+; setPaused\(true\); schedule\(nextDelay\(failures\)\)/.test(hook));
+  ok('轮询：页面不可见就停、回来立刻问；上一轮没问完不并发再问；晚到的回答作废', /if \(gone \|\| busy \|\| document\.visibilityState !== 'visible'\) return;/.test(hook) && /finally \{ busy = false; \}/.test(hook) && /addEventListener\('visibilitychange'/.test(hook) && /removeEventListener\('visibilitychange'/.test(hook) && /const r = await getBenchChanges\(bench\);\s*if \(gone\) return;/.test(hook));
+  ok('轮询：200 没游标按重试；停下就不再排；失败退避并标暂停；游标没变照常接着问', /pollAction\(r\.status, r\.error, typeof r\.cursor === 'string'\)/.test(hook) && /act === 'stop'\) \{ gone = true; cb\.current\.onStop/.test(hook) && /act === 'retry'\) \{ fail\(\); return; \}/.test(hook) && /const fail = \(\) => \{ failures\+\+; setPaused\(true\); schedule\(nextDelay\(failures\)\); \};/.test(hook) && /if \(r\.cursor === cursor\) \{ failures = 0; setPaused\(false\); schedule\(POLL_MS\); return; \}/.test(hook));
+  ok('轮询：游标变了等后台取数的结果——停下不再问、临时失败退避、取到了（游标没变也）接着问，不会永久失活', /const got = await cb\.current\.onChanged\(\);\s*if \(gone\) return;\s*if \(got === 'stop'\) \{ gone = true; return; \}\s*if \(got === 'retry'\) \{ fail\(\); return; \}\s*failures = 0; setPaused\(false\); schedule\(POLL_MS\);/.test(hook));
   ok('台页面：只在当前结果对应当前视图和筛选、没在取数时轮询；停下时作废在途取数并收起旧结果；暂停有提示', /active: s\.phase === 'ok' && s\.requestKey === key && !refreshing/.test(page) && /onStop: \(status, error\) => \{ seq\.current\+\+; setS\(/.test(page) && /data-testid="bench-page-poll-paused"/.test(page));
-  ok('驾驶舱面板同样接入', /useChangePoll\(\{/.test(panel) && /onStop: \(status, error\) => \{ seq\.current\+\+; setS\(/.test(panel) && /data-testid="ck-bench-view-poll-paused"/.test(panel));
+  ok('台页面：自动刷新走后台取数，按 afterReload 换上、留着或收起', /onChanged: \(\) => load\(true\)/.test(page) && /async \(background = false\): Promise<PollAction>/.test(page) && /const next = afterReload\(act, background\);\s*if \(next === 'show'\) setS\(/.test(page) && /else if \(next === 'collapse'\) setS\(/.test(page));
+  ok('驾驶舱面板：同样只在结果对应当前台、视图、筛选且没在取数时轮询', /const reqKey = JSON\.stringify\(\[refItem\.bench, refItem\.view, key\]\)/.test(panel) && /requestKey: JSON\.stringify\(\[refItem\.bench, refItem\.view, key\]\)/.test(panel) && /active: s\.phase === 'ok' && s\.requestKey === reqKey && !fetching/.test(panel) && /setFetching\(true\); void load\(\);/.test(panel) && /if \(mine !== seq\.current\) return 'ok';[^\n]*\n\s*setFetching\(false\);/.test(panel));
+  ok('驾驶舱面板：停下时作废在途取数、叫页签清掉这份结果；后台取数临时失败留着旧图也不清', /onStop: \(status, error\) => \{ seq\.current\+\+; setFetching\(false\); onLoaded\?\.\(refItem\.i, null\); setS\(/.test(panel) && /onChanged: \(\) => load\(true\)/.test(panel) && /const next = afterReload\(act, background\);\s*if \(next === 'keep'\) return act;\s*const got = next === 'show'/.test(panel) && /data-testid="ck-bench-view-poll-paused"/.test(panel));
 }
 
 console.log(`\nbench-page-unit: ${pass} 过 / ${fail} 败`);

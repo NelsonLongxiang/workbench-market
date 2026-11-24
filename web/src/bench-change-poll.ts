@@ -6,33 +6,43 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { getBenchChanges } from './api';
-import { nextDelay, pollAction, POLL_MS } from './bench-page-view';
+import { nextDelay, pollAction, POLL_MS, type PollAction } from './bench-page-view';
 
 
 /**
  * bench：台；cursor：当前画着的这份结果带的游标（没有就不轮询）；active：当前结果对应当前视图和筛选、且没有正在取数。
- * onChanged：游标变了（页面去重新取数）；onStop：没权限、台没了或未开启（页面收起旧结果）。返回 paused：自动刷新暂停中。
+ * onChanged：游标变了，页面在后台重新取数，回这次取数的结果（ok、stop：页面已收起旧结果、retry：页面留着旧图，这里退避再试）；
+ * onStop：/changes 回没权限、台没了或未开启（页面收起旧结果）。返回 paused：自动刷新暂停中。
  */
-export function useChangePoll(opts: { bench: string; cursor: string | null | undefined; active: boolean; onChanged: () => void; onStop: (status: number, error?: string) => void }): { paused: boolean } {
+export function useChangePoll(opts: { bench: string; cursor: string | null | undefined; active: boolean; onChanged: () => Promise<PollAction>; onStop: (status: number, error?: string) => void }): { paused: boolean } {
   const { bench, cursor, active } = opts;
   const cb = useRef(opts); cb.current = opts;
   const [paused, setPaused] = useState(false);
   useEffect(() => {
     setPaused(false);
     if (!active || !cursor) return;
-    let gone = false, timer: ReturnType<typeof setTimeout> | null = null, failures = 0;
+    // busy：这一轮还没问完（含后台重新取数），切回前台时不再并发问一次
+    let gone = false, busy = false, timer: ReturnType<typeof setTimeout> | null = null, failures = 0;
     const schedule = (ms: number) => { if (timer) clearTimeout(timer); timer = setTimeout(() => { void poll(); }, ms); };
+    const fail = () => { failures++; setPaused(true); schedule(nextDelay(failures)); };
     const poll = async () => {
       timer = null;
-      if (gone || document.visibilityState !== 'visible') return;
-      const r = await getBenchChanges(bench);
-      if (gone) return; // 台、游标或开关已经变了：这份回答作废
-      const act = pollAction(r.status, r.error);
-      if (act === 'stop') { gone = true; cb.current.onStop(r.status, r.error); return; }
-      if (act === 'retry') { failures++; setPaused(true); schedule(nextDelay(failures)); return; }
-      failures = 0; setPaused(false);
-      if (r.cursor !== cursor) { gone = true; cb.current.onChanged(); return; }
-      schedule(POLL_MS);
+      if (gone || busy || document.visibilityState !== 'visible') return;
+      busy = true;
+      try {
+        const r = await getBenchChanges(bench);
+        if (gone) return; // 台、游标或开关已经变了：这份回答作废
+        const act = pollAction(r.status, r.error, typeof r.cursor === 'string');
+        if (act === 'stop') { gone = true; cb.current.onStop(r.status, r.error); return; }
+        if (act === 'retry') { fail(); return; }
+        if (r.cursor === cursor) { failures = 0; setPaused(false); schedule(POLL_MS); return; }
+        // 游标变了：后台重新取数，旧图照常显示。取到新结果后游标变、这一轮作废重来；取到的游标没变也照常接着问
+        const got = await cb.current.onChanged();
+        if (gone) return;
+        if (got === 'stop') { gone = true; return; }
+        if (got === 'retry') { fail(); return; }
+        failures = 0; setPaused(false); schedule(POLL_MS);
+      } finally { busy = false; }
     };
     const onVis = () => { if (document.visibilityState === 'visible') { if (!timer) void poll(); } else if (timer) { clearTimeout(timer); timer = null; } };
     document.addEventListener('visibilitychange', onVis);

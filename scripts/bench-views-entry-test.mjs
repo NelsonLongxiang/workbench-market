@@ -413,6 +413,10 @@ try {
   await raceSrv.call('PUT', '/api/bench-views/binding-race/datasets/d', { ...raceWho, body: { columns: [{ name: 'n', type: 'integer', label: '数值' }] } });
   await raceSrv.call('POST', '/api/bench-views/binding-race/datasets/d/rows?op=replace', { ...raceWho, raw: JSON.stringify([{ n: 984321 }]) });
   await raceSrv.call('PUT', '/api/bench-views/binding-race/view', { ...raceWho, body: { base: 0, note: '合成竞态', doc: { title: '合成', views: [{ key: 'v', title: 'v', blocks: [{ type: 'stat', query: { dataset: 'd' }, value: 'n' }] }] } } });
+  const racedChanges = await raceSrv.call('GET', '/api/bench-views/binding-race/changes', raceWho);
+  check(racedChanges.status === 403 && !racedChanges.text.includes('cursor'), '真实 HTTP：变更游标读完、路由发布前微任务改绑，整份响应拒绝、不给游标', { status: racedChanges.status, body: racedChanges.text.slice(0, 160) });
+  const relink = await raceSrv.call('PUT', '/api/bench-views/binding-race/workbench', { ...raceWho, body: { workbench_id: raceCard.json.id, note: '合成竞态复绑' } });
+  check(relink.status === 200, '复绑回原卡片，再测取数的发布屏障', relink.text.slice(0, 120));
   const raced = await raceSrv.call('GET', '/api/bench-views/binding-race/render', raceWho);
   check(raced.status === 403 && !raced.text.includes('984321') && !raced.text.includes('var_revisions'), '真实 HTTP：adapter返回后、路由发布前微任务改绑，整份响应拒绝无数据残留', { status: raced.status, body: raced.text.slice(0, 160) });
 
