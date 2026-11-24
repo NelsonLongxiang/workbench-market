@@ -136,7 +136,7 @@ function get(u: URL, pin: { address: string; family: number }): Promise<Got> {
   return new Promise((resolve, reject) => {
     const req = (u.protocol === 'https:' ? httpsRequest : httpRequest)(u, {
       method: 'GET',
-      headers: { accept: 'image/png, image/jpeg, image/webp, image/gif', 'user-agent': 'workbench-market-image' },
+      headers: { accept: 'image/png, image/jpeg, image/webp', 'user-agent': 'workbench-market-image' },
       lookup: pinnedLookup(pin),
       timeout: IMAGE_LIMITS.timeoutMs,
     } as never, (res: IncomingMessage) => {

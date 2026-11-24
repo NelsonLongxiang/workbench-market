@@ -7,7 +7,8 @@
  *   I1 写图片列：完整 http(s) 链接、图库相对路径能写；ftp:、javascript:、..、以 / 开头、带账号口令、超长报 400
  *   I2 查询：图片列只能判空、计数；按值筛选、分组、min/max、排序报 400
  *   I3 代取判权：匿名 401、管理口令 403、跨站 403、台上没授予 403、只有 report-read 或 report-respond（读不了视图）403——这几种图库都没收到请求；只有 render 的人取得到
- *   I10 Q9 按引用判：来源视图不在路径里的台、视图里没这条链接、视图不存在、视图不显示图片列，都 403 且不外发；缓存命中也照判
+ *   I10 Q9 按引用判：来源视图不在路径里的台、视图里没这条链接、只是部分相同、视图不存在、视图不显示图片列，都 403 且不外发；缓存命中也照判；
+ *       来源按请求带的 p.* 渲染；没权限的人问不存在的台也是 403
  *   I4 代取结果：PNG 原样转出并带 nosniff、sandbox；JPEG、WebP（VP8X、VP8L）照转；GIF、SVG、text/html、头写 PNG 内容不是 PNG 都 415；超过 4000 万像素 502；302 502；超过 5 MB 502；超时 504
  *   I5 唯一保留的防护：完整链接指向回环（不在图库前缀下）、链路本地、私网、文档网段 400；在图库前缀下照取；地址分类照 url-admission.ts，只认公网
  *   I6 不转发读者的请求头：图库收到的请求里没有 Cookie、Authorization、Referer、X-Forwarded-For
@@ -54,6 +55,9 @@ const GALLERY = {
   '/photos/huge.png': ['image/png', hugePng], '/photos/huge.webp': ['image/webp', webpX(10000, 5000)],
   '/photos/anim.gif': ['image/gif', Buffer.from('474946383961010001000000002c00000000010001000002003b', 'hex')],
   '/photos/fake.png': ['image/png', Buffer.from('<html><script>alert(1)</script></html>')],
+  // 宽为 0 的 PNG（文件头合法，尺寸不合法）
+  '/photos/zero.png': ['image/png', (() => { const z = Buffer.from(PNG); z.writeUInt32BE(0, 16); return z; })()],
+  '/photos/m1.png': ['image/png', PNG], '/photos/m2.png': ['image/png', PNG],
 };
 const gallery = createHttpServer((req, res) => {
   hits.push({ path: req.url, headers: req.headers });
@@ -163,13 +167,18 @@ try {
   // Q9 按引用判：图片要出现在来源视图里才取得到。把测试用到的链接都写进图片列；视图 pics 显示整张表，noimg 不显示图片列
   {
     const REFS = ['photos/b.png', 'photos/c.png', 'photos/d.png', 'photos/page.html', 'photos/redirect.png', 'photos/big.png', 'photos/none.png', 'photos/vec.svg', 'photos/drip.png', 'photos/slow.png',
-      'photos/anim.gif', 'photos/fake.png', 'photos/huge.png', 'photos/a.jpg', 'photos/a.webp', 'photos/vp8l.webp', 'photos/huge.webp', 'photos/only2.png',
+      'photos/anim.gif', 'photos/fake.png', 'photos/huge.png', 'photos/a.jpg', 'photos/a.webp', 'photos/vp8l.webp', 'photos/huge.webp', 'photos/only2.png', 'photos/zero.png',
       'http://127.0.0.1:1/a.png', 'http://169.254.169.254/latest/meta-data', 'http://10.0.0.1/a.png', 'http://[::1]:1/a.png', 'http://192.0.2.1/a.png',
       `${GBASE}photos/a.png`, `${GBASE}..%2fsecret`, `${GBASE}photos/..%2F..%2Fsecret`];
     // only2.png 只给第二个台用：本台不写它
     const up = await srv.call('POST', '/api/bench-views/synth-img/datasets/pics/rows?op=upsert', { ...boss, raw: JSON.stringify([...REFS.filter((x) => x !== 'photos/only2.png').map((pic, i) => ({ id: 100 + i, pic, name: `图${i}` })), { id: 300, pic: null, name: 'photos/textonly.png' }]) });
     // 第 300 行：链接只出现在文本列（name）里，不在图片列——不算引用
+    // 按筛选值分月的数据集：同一视图换一组筛选值，渲染出来的图就不同（R8：来源要按请求带的 p.* 渲染）
+    const mp = await bv(boss, 'PUT', '/synth-img/datasets/mp', { key: ['id'], columns: [{ name: 'id', type: 'integer', label: '编号' }, { name: 'day', type: 'date', label: '日期' }, { name: 'pic', type: 'image', label: '图片' }] });
+    const mpRows = await srv.call('POST', '/api/bench-views/synth-img/datasets/mp/rows?op=replace', { ...boss, raw: JSON.stringify([{ id: 1, day: '2026-01-05', pic: 'photos/m1.png' }, { id: 2, day: '2026-02-03', pic: 'photos/m2.png' }]) });
+    check(mp.status === 200 && mpRows.status === 200, '（准备）分月数据集 mp', { mp: [mp.status, mp.text.slice(0, 160)], mpRows: [mpRows.status, mpRows.text.slice(0, 160)] });
     const vw = await bv(boss, 'PUT', '/synth-img/view', { doc: { title: '合成图片台', views: [
+      { key: 'bymonth', title: '按月', blocks: [{ type: 'filter-bar', fields: [{ name: 'month', kind: 'month' }] }, { type: 'table', query: { dataset: 'mp', filter: [{ col: 'day', op: 'prefix', value: '$month' }], sort: [{ col: 'id' }] } }] },
       { key: 'pics', title: '图片', blocks: [{ type: 'table', query: { dataset: 'pics', sort: [{ col: 'id' }] } }] },
       { key: 'noimg', title: '不显示图片', blocks: [{ type: 'table', query: { dataset: 'pics', select: ['id', 'name'], sort: [{ col: 'id' }] } }] }] }, base: 0, note: '合成' });
     check(up.status === 200 && vw.status === 200, '（准备）用到的链接写进图片列；视图 pics 显示图片列、noimg 不显示', { up: [up.status, up.text.slice(0, 160)], vw: [vw.status, vw.text.slice(0, 200)] });
@@ -232,6 +241,8 @@ try {
     const fake = await img(boss, 'photos/fake.png');
     check(gif.status === 415 && gif.json?.error === 'image_type_unsupported' && fake.status === 415 && fake.json?.error === 'image_unreadable' && !fake.text.includes('<script>'),
       'I4 GIF 415（Q4 不收）；头写 image/png、内容不是 PNG：415 image_unreadable，不转出内容', { gif: [gif.status, gif.json?.error], fake: [fake.status, fake.json?.error] });
+    const zero = await img(boss, 'photos/zero.png');
+    check(zero.status === 415 && zero.json?.error === 'image_unreadable', 'I4 宽为 0 的 PNG：415 image_unreadable（Q2c）', { zero: [zero.status, zero.json?.error] });
     const hugeP = await img(boss, 'photos/huge.png');
     const hugeW = await img(boss, 'photos/huge.webp');
     check(hugeP.status === 502 && hugeP.json?.error === 'image_too_many_pixels' && hugeW.status === 502 && hugeW.json?.error === 'image_too_many_pixels',
@@ -278,6 +289,7 @@ try {
     await srv.call('GET', '/api/bench-views/synth-img/image?u=photos%2Fc.png&view=pics', { headers: { ...REMOTE, ...same, authorization: 'Bearer synthetic', referer: 'http://example.test/x' }, session: P.boss });
     const h = hits.slice(n).find((x) => x.path === '/photos/c.png')?.headers ?? {};
     check(hits.length === n + 1 && !h.cookie && !h.authorization && !h.referer && !h['x-forwarded-for'], 'I6 图库收到的请求里没有 Cookie、Authorization、Referer、X-Forwarded-For', { got: Object.keys(h) });
+    check(typeof h.accept === 'string' && /image\/png/.test(h.accept) && !/gif|svg/i.test(h.accept), 'I6 发给图库的 accept 只列三种收的格式，不列 GIF、SVG', { accept: h.accept });
   }
 
   console.log('I7 缓存');
@@ -300,14 +312,25 @@ try {
       otherBenchView: (await img(boss, 'photos/only2.png', 'synth-img', 'other')).status, // 视图名只在别的台
       notReferenced: (await img(boss, 'photos/zzz.png')).status,
       textColumnOnly: (await img(boss, 'photos/textonly.png')).status, // 只在文本列里出现
+      substrOfStored: (await img(boss, 'photos/c')).status, // R6：请求值是图片列里某个值的一段
+      storedIsPrefix: (await img(boss, 'photos/c.png?v=1')).status, // R6：图片列里的值是请求值的一段
+      unknownBenchNoAuth: (await img(member, 'photos/c.png', 'nope-bench')).status, // R9：没权限的人问不存在的台，也是 403（不露台在不在）
       noView: (await img(boss, 'photos/c.png', 'synth-img', 'nope')).status,
       hiddenCol: (await img(boss, 'photos/c.png', 'synth-img', 'noimg')).status,
       badVersion: (await srv.call('GET', '/api/bench-views/synth-img/image?u=photos%2Fc.png&view=pics&version=99', boss)).status,
     };
     const h1 = hitsOf('/photos/only2.png');
-    check(Object.values(r).every((x) => x === 403) && h1 === h0 && hitsOf('/photos/zzz.png') === z0 && hitsOf('/photos/textonly.png') === 0,
-      'I10 来源不属于路径里的台、视图里没有这条链接、链接只在文本列、视图不存在、视图不显示图片列、版本不存在：都 403，图库收到的请求数为 0', { ...r, hits: [h0, h1] });
+    check(Object.values(r).every((x) => x === 403) && h1 === h0 && hitsOf('/photos/zzz.png') === z0 && hitsOf('/photos/textonly.png') === 0 && hitsOf('/photos/c') === 0 && hitsOf('/photos/c.png?v=1') === 0,
+      'I10 来源不属于路径里的台、视图里没有这条链接、链接只在文本列、只是部分相同（逐字相等才算）、视图不存在、视图不显示图片列、版本不存在、没权限的人问不存在的台：都 403，图库收到的请求数为 0', { ...r, hits: [h0, h1] });
     const pos = await img(boss, 'photos/only2.png', 'synth-img2', 'other');
+    const bossUnknown = (await img(boss, 'photos/c.png', 'nope-bench')).status;
+    check(bossUnknown === 404, 'I10 对照：有第一档权的人问不存在的台：404', { bossUnknown });
+    // R8：来源按请求带的筛选值渲染。m2 只在二月，按一月渲染的视图里没有它
+    const byMonth = (u, month) => srv.call('GET', `/api/bench-views/synth-img/image?u=${encodeURIComponent(u)}&view=bymonth&p.month=${month}`, boss);
+    const m0 = hitsOf('/photos/m2.png');
+    const m2jan = (await byMonth('photos/m2.png', '2026-01')).status, afterJan = hitsOf('/photos/m2.png');
+    const m2feb = (await byMonth('photos/m2.png', '2026-02')).status, m1jan = (await byMonth('photos/m1.png', '2026-01')).status;
+    check(m2jan === 403 && afterJan === m0 && m2feb === 200 && m1jan === 200, 'I10 来源按请求带的 p.* 渲染：二月的图按一月取 403、图库没收到；按二月取 200；一月的图按一月取 200（R8）', { m2jan, m2feb, m1jan, hits: [m0, afterJan] });
     check(mk2.status === 201 && ds2.status === 200 && rw2.status === 200 && vw2.status === 200 && pos.status === 200, 'I10 对照：同一条链接从它真正所在的台和视图取：200', { mk2: mk2.status, ds2: ds2.status, rw2: rw2.status, vw2: [vw2.status, vw2.text.slice(0, 120)], pos: pos.status });
     // 缓存命中照判：photos/c.png 已在缓存里
     const hc = hitsOf('/photos/c.png');
