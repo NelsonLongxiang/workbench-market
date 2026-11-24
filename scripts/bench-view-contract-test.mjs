@@ -61,7 +61,7 @@ const datasets = new Map([
   ['d', { name: 'd', columns: [{ name: 'a', type: 'text', label: 'A' }, { name: 'n', type: 'decimal', label: 'N' }] }],
   ['d2', { name: 'd2', columns: [{ name: 'r', type: 'text', required: true, label: 'R' }, { name: 'n', type: 'decimal', label: 'N' }] }],
   ['d3', { name: 'd3', columns: [{ name: 't', type: 'text', label: '事项' }, { name: 'st', type: 'text', label: '状态' }, { name: 'who', type: 'text', label: '负责人' }, { name: 'note', type: 'text', label: '说明' }, { name: 'day', type: 'date', label: '约定日期' }, { name: 'url', type: 'text', label: '来源' }, { name: 'raw', type: 'text' }, { name: 'n', type: 'decimal', label: 'N' }], key: [] }],
-  ['tasks', { name: 'tasks', columns: [{ name: 'id', type: 'text', label: '编号' }, { name: 'name', type: 'text', label: '任务' }, { name: 'deps', type: 'text', label: '前置' }, { name: 'role', type: 'text', label: '角色' }, { name: 'st', type: 'text', label: '状态' }, { name: 'pct', type: 'integer', label: '进度' }, { name: 'n', type: 'decimal', label: 'N' }], key: ['id'] }],
+  ['tasks', { name: 'tasks', columns: [{ name: 'id', type: 'text', label: '编号' }, { name: 'name', type: 'text', label: '任务' }, { name: 'deps', type: 'text', label: '前置' }, { name: 'role', type: 'text', label: '角色' }, { name: 'st', type: 'text', label: '状态' }, { name: 'pct', type: 'integer', label: '进度' }, { name: 'n', type: 'decimal', label: 'N' }, { name: 'start', type: 'date', label: '开始', required: true }, { name: 'due', type: 'date', label: '截止', required: true }, { name: 'loose', type: 'date', label: '大约' }, { name: 'at', type: 'datetime', label: '时刻', required: true }, { name: 'code', type: 'text', label: '代码', required: true }], key: ['id'] }],
 ]);
 const docOf = (blocks) => ({ title: '契约台', views: [{ key: 'v', title: '总览', blocks }] });
 const agg = { dataset: 'd', group: ['a'], measures: [{ fn: 'sum', col: 'n', as: 's', label: 'S' }] };
@@ -75,6 +75,7 @@ const positives = {
   progress: { type: 'progress', query: agg, value: 's', total: 100 },
   form: { type: 'form', dataset: 'd', fields: ['a', 'n'] },
   dag: { type: 'dag', query: { dataset: 'tasks', filter: [{ col: 'st', op: 'eq', value: 'todo' }] }, id_col: 'id', label_col: 'name', deps_col: 'deps', role_col: 'role', status_col: 'st', done_values: ['done', 'skipped'], progress_col: 'pct', detail_cols: ['st'], direction: 'TB', value_labels: { st: { done: { text: '完成', tone: 'success' } } } },
+  gantt: { type: 'gantt', query: { dataset: 'tasks' }, id_col: 'id', label_col: 'name', start_col: 'start', end_col: 'due', deps_col: 'deps', role_col: 'role', status_col: 'st', done_values: ['done'], progress_col: 'pct', group_col: 'role', detail_cols: ['st'], value_labels: { st: { done: '完成' } } },
   records: { type: 'records', query: { dataset: 'd3' }, title_col: 't', badges: ['st'], fields: ['who'], details: ['note'], date_col: 'day', links: [{ col: 'url', label: '查看依据' }], page_size: 20, value_labels: { st: { open: '进行中' } }, empty_text: '暂无事项' },
 };
 for (const t of BLOCK_TYPES) assert.deepEqual(validateViewDoc(docOf([positives[t]]), datasets), [], `${t} 正例须过`);
@@ -96,6 +97,27 @@ for (const t of BLOCK_TYPES) assert.deepEqual(validateViewDoc(docOf([positives[t
   };
   for (const [k, blk] of Object.entries(bad)) assert.ok(validateViewDoc(docOf([blk]), datasets).length > 0, `dag 反例 ${k} 须拒`);
   assert.deepEqual(validateViewDoc(docOf([base]), datasets), [], 'dag 只给必填项也合法');
+}
+// 甘特图的特征反例：开始或截止不是必填列、不是日期、缺截止、聚合、写了 limit、带任务图才有的 direction、依赖列不是文本、进度不是数值
+{
+  const base = { type: 'gantt', query: { dataset: 'tasks' }, id_col: 'id', label_col: 'name', start_col: 'start', end_col: 'due' };
+  const bad = {
+    startNotRequired: { ...base, start_col: 'loose' },
+    endNotRequired: { ...base, end_col: 'loose' },
+    startNotDate: { ...base, start_col: 'code' },
+    noEnd: { type: 'gantt', query: { dataset: 'tasks' }, id_col: 'id', label_col: 'name', start_col: 'start' },
+    aggregate: { ...base, query: { dataset: 'tasks', group: ['st'], measures: [{ fn: 'count', as: 'c', label: 'C' }] } },
+    limit: { ...base, query: { dataset: 'tasks', limit: 10 } },
+    direction: { ...base, direction: 'TB' },
+    sourceCol: { ...base, source_col: 'st' },
+    depsNotText: { ...base, deps_col: 'pct' },
+    progressNotNumber: { ...base, progress_col: 'name' },
+  };
+  for (const [k, blk] of Object.entries(bad)) assert.ok(validateViewDoc(docOf([blk]), datasets).length > 0, `gantt 反例 ${k} 须拒`);
+  assert.ok(validateViewDoc(docOf([bad.startNotRequired]), datasets).some((e) => /必填列/.test(e)), 'gantt：开始不是必填列时说清楚要 required');
+  assert.ok(validateViewDoc(docOf([bad.startNotDate]), datasets).some((e) => /日期或日期时间列/.test(e)), 'gantt：必填但不是日期的列也拒，说清楚要日期');
+  assert.deepEqual(validateViewDoc(docOf([base]), datasets), [], 'gantt 只给必填项也合法（不给依赖、角色列）');
+  assert.deepEqual(validateViewDoc(docOf([{ ...base, end_col: 'at' }]), datasets), [], 'gantt：截止可以是日期时间列');
   // 取数说明：有 filter 才算筛选；只开 current_only 不算（第五节之一）
   assert.deepEqual(dagGraphMeta({ dataset: 'tasks' }), { filtered: false });
   assert.deepEqual(dagGraphMeta({ dataset: 'tasks', current_only: true }), { filtered: false }, '只开 current_only 按全量');

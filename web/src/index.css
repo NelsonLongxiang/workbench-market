@@ -847,6 +847,7 @@ body { background: var(--wm-color-page); }
 .wm-rec-image { grid-column: 1 / -1; }
 /* 任务图 dag（docs/task-graph-step1.md）：画布固定高度可缩放平移；摘要、诊断、可用键盘遍历的任务清单 */
 .wm-dag-canvas { width: 100%; height: 480px; }
+.wm-gantt-canvas { width: 100%; height: 520px; }
 .wm-dag-summary { color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-caption); margin-bottom: var(--wm-space-2); }
 .wm-dag-summary-bad { color: var(--wm-color-danger-text); }
 .wm-dag-branches { display: flex; flex-wrap: wrap; gap: var(--wm-space-2); color: var(--wm-color-text-secondary); font-size: var(--wm-font-size-caption); margin-bottom: var(--wm-space-2); }

@@ -892,11 +892,11 @@ export class BenchStoreCore {
             continue;
           }
           // 任务图不分页：取最多 500 个，第 501 个存在即 truncated；有 filter 就是部分结果（current_only 不算筛选）
-          const isDag = b.type === 'dag';
+          const isDag = b.type === 'dag' || b.type === 'gantt'; // 任务图与甘特图：同一种不分页取数
           const r = await run(isDag ? { ...(b.query as Record<string, unknown>), limit: DAG_LIMITS.nodes } : b.query);
           if (!r.data) { blocks.push({ ...b, error: r.error }); continue; }
           // 表格的表头：视图里给的 column_labels，其次是数据集、聚合里起的说明名；都没有就给空，由页面写「第 N 列」——不拿列名（键名）当表头
-          const listed = b.type === 'table' || b.type === 'records' || b.type === 'dag';
+          const listed = b.type === 'table' || b.type === 'records' || b.type === 'dag' || b.type === 'gantt';
           const given = listed && isObj(b.column_labels) ? b.column_labels as Record<string, string> : {};
           const columns = r.data.columns.map((c) => (listed ? publicColumn({ ...c, label: Object.hasOwn(given, c.name) ? given[c.name] : c.labeled ? c.label : '' }) : publicColumn(c)));
           // 记录卡的来源链接先在服务端核一遍：每行每个链接给 { href, host }，不认的给 null（页面再核一次）

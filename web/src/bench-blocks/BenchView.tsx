@@ -12,6 +12,7 @@ import { StatBlock } from './Stat';
 import { TableBlock } from './Table';
 import { NativeTable } from './NativeTable';
 import { DagBlock, type DagBlockProps } from './DagBlock';
+import { GanttBlock, type GanttBlockProps } from './GanttBlock';
 import { BlockFrame } from './Frame';
 import { ImageSourceContext } from './BenchImage';
 import { asTableContext } from '../bench-table-view';
@@ -77,6 +78,9 @@ export function BenchView({ result, loading, onParams, onSubmit, formDisabledRea
         if (b.type === 'dag') return <DagBlock key={i} {...common} spec={{ id_col: str(b.id_col), label_col: str(b.label_col), deps_col: str(b.deps_col), role_col: str(b.role_col), status_col: str(b.status_col) || undefined,
           done_values: Array.isArray(b.done_values) ? b.done_values as string[] : undefined, progress_col: str(b.progress_col) || undefined, source_col: str(b.source_col) || undefined, group_col: str(b.group_col) || undefined,
           detail_cols: Array.isArray(b.detail_cols) ? b.detail_cols as string[] : undefined, direction: b.direction === 'TB' ? 'TB' : 'LR' }} graphMeta={b.graph_meta as DagBlockProps['graphMeta']} valueLabels={b.value_labels} />;
+        if (b.type === 'gantt') return <GanttBlock key={i} {...common} spec={{ id_col: str(b.id_col), label_col: str(b.label_col), start_col: str(b.start_col), end_col: str(b.end_col), deps_col: str(b.deps_col) || undefined, role_col: str(b.role_col) || undefined,
+          status_col: str(b.status_col) || undefined, done_values: Array.isArray(b.done_values) ? b.done_values as string[] : undefined, progress_col: str(b.progress_col) || undefined, group_col: str(b.group_col) || undefined,
+          detail_cols: Array.isArray(b.detail_cols) ? b.detail_cols as string[] : undefined }} graphMeta={b.graph_meta as GanttBlockProps['graphMeta']} />;
         // 不认识的组件类型：说一句，不画空白
         return <BlockFrame key={i} frame={frame} title={b.title} span={common.span} kind="unknown" skipEmpty><div className="wm-bb-truncated" data-testid="block-unknown">这个组件（{String(b.type).slice(0, 32)}）要新版页面才能显示，刷新页面或稍后再试。</div></BlockFrame>;
       })}

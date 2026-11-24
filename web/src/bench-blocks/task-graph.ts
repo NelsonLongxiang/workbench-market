@@ -45,8 +45,9 @@ export function parseDeps(cell: unknown, self: string): ParsedDeps {
 }
 
 export type GraphSpec = {
-  kind: 'dag' | 'flow';
-  id_col: string; label_col: string; deps_col: string; role_col: string;
+  kind: 'dag' | 'flow' | 'gantt';
+  /** 依赖、角色列：任务图、流程图必填；甘特图可不给（不给就没有箭头，也不核起点终点） */
+  id_col: string; label_col: string; deps_col?: string; role_col?: string;
   status_col?: string; done_values?: string[]; progress_col?: string; source_col?: string; group_col?: string;
 };
 export type Role = 'start' | 'end' | 'branch_end' | '';
@@ -101,7 +102,7 @@ export function buildGraph(rows: Record<string, unknown>[], spec: GraphSpec, met
     const id = strOf(row[spec.id_col]);
     if (!validId(id) || byId.has(id)) { badIds++; continue; }
     const p = spec.progress_col ? row[spec.progress_col] : null;
-    const n: GNode = { id, label: strOf(row[spec.label_col]) || id, role: roleOf(row[spec.role_col]), status: spec.status_col ? (row[spec.status_col] === null || row[spec.status_col] === undefined ? null : strOf(row[spec.status_col])) : null,
+    const n: GNode = { id, label: strOf(row[spec.label_col]) || id, role: roleOf(spec.role_col ? row[spec.role_col] : null), status: spec.status_col ? (row[spec.status_col] === null || row[spec.status_col] === undefined ? null : strOf(row[spec.status_col])) : null,
       progress: typeof p === 'number' && Number.isFinite(p) ? Math.max(0, Math.min(100, p)) : null, group: spec.group_col ? strOf(row[spec.group_col]) : '', row };
     nodes.push(n); byId.set(id, n);
   }
@@ -113,7 +114,7 @@ export function buildGraph(rows: Record<string, unknown>[], spec: GraphSpec, met
   const selfDeps: string[] = [];
   let depsCut = false, edgesCut = false;
   for (const n of nodes) {
-    const p = parseDeps(n.row?.[spec.deps_col], n.id);
+    const p = parseDeps(spec.deps_col ? n.row?.[spec.deps_col] : null, n.id);
     if (p.bad.length) diagnostics.push({ code: 'bad-deps', node: n.id, items: p.bad });
     if (p.selfDropped) selfDeps.push(n.id);
     if (p.cut) depsCut = true;
@@ -141,11 +142,12 @@ export function buildGraph(rows: Record<string, unknown>[], spec: GraphSpec, met
   // 环（只在真实节点之间；占位没有前置，不会在环里）
   const cyc = findCycle(nodes.map((n) => n.id), succ);
   const blocked = spec.kind === 'dag' && !!cyc;
-  if (cyc && spec.kind === 'dag') diagnostics.push({ code: 'cycle', path: cyc });
+  // 甘特图有环照画（横条不靠分层），但要报出来
+  if (cyc && spec.kind !== 'flow') diagnostics.push({ code: 'cycle', path: cyc });
   const red = new Set<string>();
   // 起点终点与支线终点（只在全量时核）
   let startId: string | null = null, endId: string | null = null, endpointsOk = false;
-  if (full && !blocked) {
+  if (full && !blocked && spec.role_col) {
     const starts = nodes.filter((n) => n.role === 'start').map((n) => n.id), ends = nodes.filter((n) => n.role === 'end').map((n) => n.id);
     if (starts.length !== 1) diagnostics.push({ code: 'start-count', ids: starts });
     if (ends.length !== 1) diagnostics.push({ code: 'end-count', ids: ends });
@@ -439,4 +441,160 @@ export function changedNodes(prev: Map<string, string> | null, model: Pick<Graph
     if (prev && prev.has(n.id) && prev.get(n.id) !== fp) changed.add(n.id);
   }
   return { fingerprints, changed };
+}
+
+/* —— 甘特图（docs/task-graph-step1.md 第四节之二）：每个任务一条横条 —— */
+
+export type GanttItem = { id: string; label: string; index: number; start: number; end: number; progress: number | null; done: boolean; overdue: boolean; role: Role; group: string };
+export type GanttArrow = { from: string; to: string; kind: DepKind; fromIndex: number; toIndex: number; key: string };
+export type GanttLayout = { items: GanttItem[]; arrows: GanttArrow[]; badDates: string[]; min: number; max: number };
+export const DAY_MS = 86_400_000;
+
+/**
+ * 日期列（YYYY-MM-DD）按当天 0 点（UTC）算；截止取当天结束（第二天 0 点），一天的任务也有宽度。
+ * 日期时间列照原值。读不出来回 null。
+ */
+export function ganttTime(v: unknown, edge: 'start' | 'end'): number | null {
+  if (typeof v !== 'string' || !v.trim()) return null;
+  const s = v.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const t = Date.parse(s + 'T00:00:00Z');
+    return Number.isNaN(t) ? null : edge === 'end' ? t + DAY_MS : t;
+  }
+  const t = Date.parse(s);
+  return Number.isNaN(t) ? null : t;
+}
+
+/**
+ * 横条的排法：先按分组（出现顺序），组内按开始时间，再按原行序。
+ * 完成：有状态列按派生状态；没有状态列按进度 100。过期：截止已到、没完成。
+ * 日期读不出来或截止不晚于开始的任务不画条，列进 badDates。箭头只连两头都画了条的依赖（前置的截止 → 后继的开始）。
+ */
+export function ganttLayout(model: Pick<GraphModel, 'nodes' | 'edges' | 'derived'>, spec: { start_col: string; end_col: string }, now: number): GanttLayout {
+  const groups: string[] = [];
+  const order = new Map(model.nodes.map((n, i) => [n.id, i]));
+  const raw: Omit<GanttItem, 'index'>[] = [];
+  const badDates: string[] = [];
+  for (const n of model.nodes) {
+    if (n.placeholder) continue;
+    if (!groups.includes(n.group)) groups.push(n.group);
+    const start = ganttTime(n.row?.[spec.start_col], 'start'), end = ganttTime(n.row?.[spec.end_col], 'end');
+    if (start === null || end === null || end <= start) { badDates.push(n.id); continue; }
+    const d = model.derived.get(n.id) ?? null;
+    const done = d === 'done' || (d === null && n.progress === 100);
+    raw.push({ id: n.id, label: n.label, start, end, progress: n.progress, done, overdue: !done && end <= now, role: n.role, group: n.group });
+  }
+  raw.sort((a, b) => groups.indexOf(a.group) - groups.indexOf(b.group) || a.start - b.start || order.get(a.id)! - order.get(b.id)!);
+  const items = raw.map((r, index) => ({ ...r, index }));
+  const at = new Map(items.map((i) => [i.id, i.index]));
+  const arrows = model.edges.filter((e) => at.has(e.from) && at.has(e.to))
+    .map((e) => ({ from: e.from, to: e.to, kind: e.kind, fromIndex: at.get(e.from)!, toIndex: at.get(e.to)!, key: graphEdgeKey(e) }));
+  const min = items.length ? Math.min(...items.map((i) => i.start)) : now;
+  const max = items.length ? Math.max(...items.map((i) => i.end)) : now + DAY_MS;
+  return { items, arrows, badDates, min: Math.min(min, now), max: Math.max(max, now) };
+}
+
+export type GanttTokens = { bar: string; done: string; danger: string; track: string; line: string; marker: string };
+type CoordApi = { coord: (v: [number, number]) => number[]; size: (v: [number, number]) => number[] };
+
+/**
+ * custom 系列的一条横条（纯函数：api 只用 coord、size，单测传假的）。
+ * 底色是整段时间；进度画成从左起的填充（完成算 100）；过期用 danger；终点、支线终点在条尾画三角标记。
+ */
+export function ganttBarShape(item: GanttItem, api: CoordApi, t: GanttTokens, opts: { dim: boolean; flash: boolean; red: boolean }) {
+  const [x0, y] = api.coord([item.start, item.index]);
+  const [x1] = api.coord([item.end, item.index]);
+  const h = api.size([0, 1])[1] * 0.6, w = Math.max(2, x1 - x0), top = y - h / 2;
+  const color = item.overdue ? t.danger : item.done ? t.done : t.bar;
+  const opacity = opts.dim ? 0.25 : 1;
+  const children: Record<string, unknown>[] = [
+    { type: 'rect', name: 'track', shape: { x: x0, y: top, width: w, height: h, r: 3 }, style: { fill: t.track, stroke: opts.red ? t.danger : color, lineWidth: opts.flash ? 3 : 1, opacity } },
+  ];
+  const p = item.done ? 100 : item.progress;
+  if (p !== null && p > 0) children.push({ type: 'rect', name: 'fill', shape: { x: x0, y: top, width: (w * p) / 100, height: h, r: 3 }, style: { fill: color, opacity } });
+  if (item.role === 'end' || item.role === 'branch_end') {
+    children.push({ type: 'polygon', name: item.role === 'end' ? 'end-marker' : 'branch-end-marker', shape: { points: [[x1, top], [x1 + h / 2, y], [x1, top + h]] }, style: { fill: t.marker, opacity } });
+  }
+  return { type: 'group', children };
+}
+
+/** 依赖箭头：前置的截止 → 后继的开始，折线加箭头；可选依赖画虚线 */
+export function ganttArrowShape(from: GanttItem, to: GanttItem, kind: DepKind, api: CoordApi, t: GanttTokens, opts: { dim: boolean; selected: boolean }) {
+  const [x0, y0] = api.coord([from.end, from.index]);
+  const [x1, y1] = api.coord([to.start, to.index]);
+  const elbow = x0 + 8, head = 5;
+  const stroke = opts.selected ? t.bar : t.line;
+  const style = { stroke, lineWidth: opts.selected ? 2 : 1, opacity: opts.dim ? 0.15 : 1, fill: 'none', lineDash: kind === 'opt' ? [4, 3] : null };
+  return { type: 'group', children: [
+    { type: 'polyline', name: 'arrow-line', shape: { points: [[x0, y0], [elbow, y0], [elbow, y1], [x1, y1]] }, style },
+    { type: 'polygon', name: 'arrow-head', shape: { points: [[x1, y1], [x1 - head, y1 - head], [x1 - head, y1 + head]] }, style: { fill: stroke, opacity: style.opacity } },
+  ] };
+}
+
+/* —— 甘特图的图表配置与更新：纯函数，ECharts 只经传入的 chart 调用（单测用真实 ECharts 的 SSR 跑） —— */
+
+/** 超过这么多条就加纵向滚动条 */
+export const GANTT_VISIBLE_ROWS = 25;
+export type ZoomWindow = { start: number; end: number };
+
+/** 纵向可视范围：不超过 visible 条就没有缩放；没有旧范围给前 visible 条；有旧范围就保住宽度、夹进新的条数（条数变少时整体上移） */
+export function ganttZoomWindow(prev: ZoomWindow | null, count: number, visible = GANTT_VISIBLE_ROWS): ZoomWindow | null {
+  if (count <= visible) return null;
+  if (!prev) return { start: 0, end: visible - 1 };
+  const width = Math.max(1, Math.min(count, prev.end - prev.start + 1));
+  const start = Math.max(0, Math.min(prev.start, count - width));
+  return { start, end: start + width - 1 };
+}
+
+export type GanttChartContext = {
+  tokens: GanttTokens; font: number; colors: { text: string; secondary: string; border: string; danger: string };
+  highlight: GraphHighlight | null; flash: Set<string>; red: Set<string>; now: number;
+};
+export type GanttChartOption = { yAxis: { data: string[] } & Record<string, unknown>; dataZoom: Record<string, unknown>[] } & Record<string, unknown>;
+
+/** 一份完整的图表配置：横条（含进度、过期、终点标记）、依赖箭头、今天线；超过 visible 条加纵向缩放，初始是前 visible 条 */
+export function ganttChartOption(lay: GanttLayout, ctx: GanttChartContext): GanttChartOption {
+  const first = ganttZoomWindow(null, lay.items.length);
+  const hl = ctx.highlight;
+  return {
+    animation: false, tooltip: { show: false },
+    grid: { left: 160, right: first ? 48 : 32, top: 28, bottom: 32 },
+    xAxis: { type: 'time', min: lay.min, max: lay.max, axisLabel: { color: ctx.colors.secondary, fontSize: ctx.font }, splitLine: { show: true, lineStyle: { color: ctx.colors.border } } },
+    yAxis: { type: 'category', inverse: true, data: lay.items.map((i) => i.label), axisTick: { show: false }, axisLabel: { color: ctx.colors.text, fontSize: ctx.font, width: 148, overflow: 'truncate' } },
+    dataZoom: first ? [{ type: 'slider', yAxisIndex: 0, startValue: first.start, endValue: first.end, right: 8, width: 12, showDetail: false }, { type: 'inside', yAxisIndex: 0, zoomOnMouseWheel: false, moveOnMouseWheel: true }] : [],
+    series: [
+      { type: 'custom', name: 'arrows', silent: true, z: 1, data: lay.arrows.map((_, k) => [k]),
+        renderItem: (p: { dataIndex: number }, api: CoordApi) => {
+          const a = lay.arrows[p.dataIndex];
+          return ganttArrowShape(lay.items[a.fromIndex], lay.items[a.toIndex], a.kind, api, ctx.tokens, { dim: !!hl && !hl.edges.has(a.key), selected: !!hl?.edges.has(a.key) });
+        } },
+      { type: 'custom', name: 'bars', z: 2, encode: { x: [1, 2], y: 0 }, data: lay.items.map((i) => [i.index, i.start, i.end]),
+        renderItem: (p: { dataIndex: number }, api: CoordApi) => {
+          const it = lay.items[p.dataIndex];
+          return ganttBarShape(it, api, ctx.tokens, { dim: !!hl && !hl.nodes.has(it.id), flash: ctx.flash.has(it.id), red: ctx.red.has(it.id) });
+        },
+        markLine: { silent: true, symbol: 'none', label: { formatter: '今天', color: ctx.colors.danger, fontSize: ctx.font }, lineStyle: { color: ctx.colors.danger, type: 'dashed' }, data: [{ xAxis: ctx.now }] } },
+    ],
+  };
+}
+
+export type GanttChart = { setOption: (o: unknown, notMerge?: boolean) => void; getOption: () => unknown };
+
+/** 图表当前的纵向可视范围（用户拖过、滚过之后的）；没有缩放或读不出来回 null */
+export function readZoomWindow(chart: GanttChart): ZoomWindow | null {
+  try {
+    const dz = (chart.getOption() as { dataZoom?: { startValue?: unknown; endValue?: unknown }[] } | undefined)?.dataZoom?.[0];
+    const s = dz?.startValue, e = dz?.endValue;
+    return typeof s === 'number' && typeof e === 'number' && Number.isFinite(s) && Number.isFinite(e) && e >= s ? { start: s, end: e } : null;
+  } catch { return null; }
+}
+
+/**
+ * 应用一份新配置。配置整份替换（条数、箭头都会变），但纵向可视范围不跟配置走：先读图表当前的范围，
+ * 按新条数夹好再写进去。悬停、选中、闪烁和实时刷新都会换配置，这样不会把用户滚到的位置打回前几条。
+ */
+export function applyGanttOption(chart: GanttChart, option: GanttChartOption): void {
+  const w = ganttZoomWindow(readZoomWindow(chart), option.yAxis.data.length);
+  const next = w && option.dataZoom.length ? { ...option, dataZoom: option.dataZoom.map((d, i) => (i === 0 ? { ...d, startValue: w.start, endValue: w.end } : d)) } : option;
+  chart.setOption(next, true);
 }
