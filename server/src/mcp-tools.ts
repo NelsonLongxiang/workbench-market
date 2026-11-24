@@ -33,6 +33,7 @@ export const MCP_TOOLS: McpToolDef[] = [
         tool: { type: 'string', description: '只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）' },
         ref: { type: 'string', description: '只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1' },
         full: { type: 'boolean', description: 'true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）' },
+        area: { type: 'string', description: '只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）' },
       },
       additionalProperties: false,
     },

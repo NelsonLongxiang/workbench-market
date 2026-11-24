@@ -3,7 +3,8 @@ import { Service } from '@deepseek-ai/cordis';
 import { svc } from '../context.ts';
 import { db } from '../db.ts';
 import { HttpError } from '../errors.ts';
-import { rolesCovering } from '../judgment.ts';
+import { areaVerdict, rolesCovering } from '../judgment.ts';
+import type { HttpService } from '../http.ts';
 import { AREA_ID_RE, type AreaService } from './area.ts';
 import type { GrantService } from './grant.ts';
 import type { McpService } from './mcp.ts';
@@ -114,6 +115,22 @@ export class AreaAccessService extends Service {
         .get(sessionId, area, applicant, actions, reason, now) as RequestRow;
       return { ok: true, duplicate: false, request: requestView(created) };
     });
+  }
+
+  /** 第 4 步调用时复用这一交集。只问当前授权，避免缓存过期权限。 */
+  effectiveActions(sessionId: number, area: unknown, now = Date.now()) {
+    const principal = this.applicant(sessionId);
+    if (typeof area !== 'string' || !AREA_ID_RE.test(area)) reject(400, 'area_access_scope_invalid', '请指定一个合法的领域标识');
+    if (areas().get(area)?.status !== 'active') return { area, effective_actions: [] };
+    const approvals = db.prepare("SELECT actions FROM area_access_requests WHERE session_id = ? AND applicant = ? AND area_id = ? AND status = 'approved'")
+      .all(sessionId, principal, area) as { actions: string }[];
+    const catalog = new Map(svc<HttpService>('http').actions().map(({ action, kind }) => [action, kind]));
+    const actions = new Set(approvals.flatMap(row => JSON.parse(row.actions) as string[]));
+    const effective_actions = [...actions].filter(action => {
+      const kind = catalog.get(action);
+      return kind !== undefined && areaVerdict({ principal, area, action, kind, now }).verdict === 'allow';
+    }).sort();
+    return { area, effective_actions };
   }
 
   requestForSession(sessionId: number, id: number) {
