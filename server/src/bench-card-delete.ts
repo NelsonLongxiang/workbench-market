@@ -57,9 +57,9 @@ export type BenchScale = { datasets: number; rows: number; bytes: number; view_v
 async function scaleOf(slug: string): Promise<BenchScale | null> {
   if (!benchStoreExists(slug)) return null;
   const s = await benchStore(slug);
-  const ds = await s.datasets(), vv = await s.viewVersions(), app = await s.appCounts(), rep = await s.reportCounts();
-  if (!ds.length && !vv.length && !app.submissions && !app.files && !rep.reports) return null;
-  return { datasets: ds.length, rows: ds.reduce((n, d) => n + d.row_count, 0), bytes: ds.reduce((n, d) => n + d.data_bytes, 0), view_versions: vv.length, ...app, ...rep };
+  const ds = await s.datasetStorageTotals(), vv = await s.viewVersions(), app = await s.appCounts(), rep = await s.reportCounts();
+  if (!ds.datasets && !vv.length && !app.submissions && !app.files && !rep.reports) return null;
+  return { ...ds, view_versions: vv.length, ...app, ...rep };
 }
 
 /**

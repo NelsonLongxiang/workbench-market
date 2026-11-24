@@ -169,6 +169,13 @@ export function createBench(input: unknown, actor: string, at: number): BenchEnt
  * 部门变了（含解绑、从没绑到绑上）：这个台上已经批给 MCP 会话的授予全部收回、没定的申请全部驳回——
  * 那些是原来管这个台的人批的，台换了主人，不该原样带过去；要用的重新申请，由新部门的人批。只是在同一个部门里细到团队或放开，不动。
  */
+/** 判权之前捕获。授予到期没有落库写时仍在提交边界拒绝。 */
+export function captureBenchStorageFence(now = Date.now()): { revision: number; expiresAt?: number } {
+  const row = db.prepare(`SELECT revision, (SELECT MIN(expires_at) FROM grants WHERE status = 'active' AND expires_at > ?) AS expires_at
+    FROM bench_storage_fence WHERE id = 1`).get(now) as { revision: number; expires_at: number | null };
+  return { revision: row.revision, ...(row.expires_at === null ? {} : { expiresAt: row.expires_at }) };
+}
+
 export function bindBench(slug: string, input: unknown, actor: string, at: number): { bench: BenchEntry; changed: boolean; revoked_mcp_grants: number; rejected_mcp_requests: number } {
   const o = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Record<string, unknown>;
   const extra = Object.keys(o).filter((k) => !['department', 'team_host', 'team', 'note'].includes(k));

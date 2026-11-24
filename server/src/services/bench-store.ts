@@ -138,7 +138,7 @@ function fromWire(e: BenchWireError): BenchError {
 }
 
 function spawn(lane: Lane): Worker {
-  const w = new Worker(new URL('./bench-store-worker.ts', import.meta.url), { workerData: { root: ROOT, kit: benchSqlKit('sqlite') } });
+  const w = new Worker(new URL('./bench-store-worker.ts', import.meta.url), { workerData: { root: ROOT, kit: benchSqlKit('sqlite'), primaryPath: join(dataDir, 'workbench-market.db') } });
   stats.spawns++;
   w.on('message', (m: BenchReply) => onReply(lane, w, m));
   // 线程里抛了没人接的错（比如内存用尽）会先报错、再退出。只在退出的时候收拾：那时线程已经不在了，不会和新起的线程抢库的锁
@@ -289,6 +289,9 @@ export class BenchStore {
     return call(this.slug, method, args);
   }
   datasets(): ReturnType<Core['datasets']> { return this.rpc('datasets', []); }
+  datasetStorageTotals(): ReturnType<Core['datasetStorageTotals']> { return this.rpc('datasetStorageTotals', []); }
+  datasetFence(...a: Parameters<Core['datasetFence']>): ReturnType<Core['datasetFence']> { return this.rpc('datasetFence', a); }
+  datasetLifecycle(...a: Parameters<Core['datasetLifecycle']>): ReturnType<Core['datasetLifecycle']> { return this.rpc('datasetLifecycle', a); }
   defineDataset(...a: Parameters<Core['defineDataset']>): ReturnType<Core['defineDataset']> { return this.rpc('defineDataset', a); }
   datasetVersions(...a: Parameters<Core['datasetVersions']>): ReturnType<Core['datasetVersions']> { return this.rpc('datasetVersions', a); }
   replace(...a: Parameters<Core['replace']>): ReturnType<Core['replace']> { return this.rpc('replace', a); }
@@ -340,7 +343,9 @@ export class BenchStore {
   appDataDrop(...a: Parameters<Core['appDataDrop']>): ReturnType<Core['appDataDrop']> { return this.rpc('appDataDrop', a); }
   appFileDrop(...a: Parameters<Core['appFileDrop']>): ReturnType<Core['appFileDrop']> { return this.rpc('appFileDrop', a); }
   reportBindingGet(...a: Parameters<Core['reportBindingGet']>): ReturnType<Core['reportBindingGet']> { return this.rpc('reportBindingGet', a); }
+  reportBindingContext(...a: Parameters<Core['reportBindingContext']>): ReturnType<Core['reportBindingContext']> { return this.rpc('reportBindingContext', a); }
   reportBindingPut(...a: Parameters<Core['reportBindingPut']>): ReturnType<Core['reportBindingPut']> { return this.rpc('reportBindingPut', a); }
+  reportBindingStop(...a: Parameters<Core['reportBindingStop']>): ReturnType<Core['reportBindingStop']> { return this.rpc('reportBindingStop', a); }
   reportSlots(...a: Parameters<Core['reportSlots']>): ReturnType<Core['reportSlots']> { return this.rpc('reportSlots', a); }
   reportInsert(...a: Parameters<Core['reportInsert']>): ReturnType<Core['reportInsert']> { return this.rpc('reportInsert', a); }
   reportGet(...a: Parameters<Core['reportGet']>): ReturnType<Core['reportGet']> { return this.rpc('reportGet', a); }

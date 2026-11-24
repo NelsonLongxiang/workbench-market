@@ -10,7 +10,7 @@ import { DatabaseSync } from 'node:sqlite';
 const root=resolve('.'),out=resolve('tmp/startup-self-probe-http-'+Date.now());
 mkdirSync(out,{recursive:true});let checks=0;
 const check=(name,condition)=>{assert.ok(condition,name);checks++;console.log('PASS '+name)};
-const BENCH_PROBES=['market.bench-views.anonymous-read','market.bench-views.anonymous-write','market.bench-views.var-render-anonymous','market.bench-views.table-export-anonymous','market.bench-views.table-row-anonymous','market.bench-views.report-generate-anonymous'];
+const BENCH_PROBES=['market.bench-views.anonymous-read','market.bench-views.anonymous-write','market.bench-views.var-render-anonymous','market.bench-views.table-export-anonymous','market.bench-views.table-row-anonymous','market.bench-views.report-generate-anonymous','market.bench-views.anonymous-stop-report'];
 const spare=async()=>{const s=createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));assert(![3080,9800,9801].includes(p));return p;};
 const websocket=port=>new Promise((resolve,reject)=>{
  const s=connect(port,'127.0.0.1');let bytes=0;
@@ -106,7 +106,7 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    if(gate==='enforce')check(label+' login-gate rows all pass',['page','app','api'].every(k=>health.self_probe.rows.some(x=>x.id==='market.login-gate.'+k&&x.verdict==='pass'))&&health.self_probe.rows.some(x=>x.id==='market.a2a-direct.unsigned'&&x.verdict==='pass')&&health.login_gate==='enforce');
    if(gate!=='enforce')check(label+' no login-gate rows when gate is off',!health.self_probe.rows.some(x=>x.id.startsWith('market.login-gate.')||x.id.startsWith('market.a2a-direct.')));
    // 数据视图入口缺省开（不设就开），只有显式 off 时没有这三行
-   if(benchViews!=='off'){const rows=health.self_probe.rows.filter(x=>x.id.startsWith('market.bench-views.'));check(label+' exactly the three named bench-view rows pass',rows.length===BENCH_PROBES.length&&BENCH_PROBES.every(id=>rows.some(x=>x.id===id&&x.verdict==='pass'&&x.status===401)));}
+   if(benchViews!=='off'){const rows=health.self_probe.rows.filter(x=>x.id.startsWith('market.bench-views.'));check(label+' exactly the seven named bench-view rows pass',rows.length===BENCH_PROBES.length&&BENCH_PROBES.every(id=>rows.some(x=>x.id===id&&x.verdict==='pass'&&x.status===401)));}
    else check(label+' no bench-view rows while the entry is off',!health.self_probe.rows.some(x=>x.id.startsWith('market.bench-views.')));
    check(label+' ordinary request works after successful startup',(await fetch('http://127.0.0.1:'+port+'/api/workbenches')).status===200);
   }

@@ -329,6 +329,7 @@ export const ASKED: Readonly<Record<string, { global: Kind; scoped: Kind | null 
   'bench-store.mcp-decide': { global: 'decide', scoped: 'decide' },
   // 报告（docs/report-step1.md 第四节；报告第 1 步 PR B）：绑模板、生成、读，和视图描述、取数同一档
   'bench-store.report-bind': { global: 'write', scoped: 'write' },
+  'bench-store.report-bind-stop': { global: 'decide', scoped: null },
   'bench-store.report-generate': { global: 'write', scoped: 'write' },
   'bench-store.report-read': { global: 'write', scoped: 'write' },
   'bench-store.report-respond': { global: 'write', scoped: 'write' },
