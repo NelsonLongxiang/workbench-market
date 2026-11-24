@@ -1,11 +1,14 @@
 {
   "domain": "mcp",
-  "what": "MCP 网关的控制面：上游的读和配、会话的建列吊销、会话授权、工具目录、调用记录、权限申请的列表批准驳回，共 11 条路由，都只给管理员。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
+  "what": "MCP 网关的控制面：上游的读和配、会话的建列吊销、会话授权、工具目录、调用记录、权限申请的列表批准驳回，含管理员控制面和登录本人确认会话归属的入口，共 14 条路由。response 是搬之前录下来的，由 scripts/route-replay-test.mjs --record 写入，不手改。",
   "routes": [
     "GET /api/mcp/upstreams",
     "PUT /api/mcp/upstreams",
     "POST /api/mcp/sessions",
     "GET /api/mcp/sessions",
+    "POST /api/mcp/sessions/:id/responsibility-proposals",
+    "GET /api/mcp/responsibilities/mine",
+    "POST /api/mcp/responsibilities/:id/confirm",
     "DELETE /api/mcp/sessions/:id",
     "PUT /api/mcp/sessions/:id/grants",
     "GET /api/mcp/tools",
@@ -15,12 +18,115 @@
     "POST /api/mcp/access-requests/:id/reject"
   ],
   "exempt": [
+    { "route": "GET /api/mcp/responsibilities/mine", "class": "invalid", "why": "本人列表不读输入参数", "shown_by": "responsibility/mine" },
     { "route": "GET /api/mcp/upstreams", "class": "invalid", "why": "上游列表不读请求里的任何东西", "shown_by": "open/upstreams-none" },
     { "route": "GET /api/mcp/sessions", "class": "invalid", "why": "会话列表不读请求里的任何东西", "shown_by": "open/sessions" },
     { "route": "GET /api/mcp/tools", "class": "invalid", "why": "工具目录不读请求里的任何东西", "shown_by": "open/tools" },
     { "route": "GET /api/mcp/calls", "class": "invalid", "why": "调用记录只读 limit，给什么都不拒（不是数取 200，太大封顶 1000）", "shown_by": "open/calls-limit-text" }
   ],
   "scenarios": [
+    {
+      "name": "responsibility",
+      "what": "管理员提出，登录本人确认。使用无归属的合成存量会话。",
+      "env": { "ADMIN_TOKEN": "replay-synthetic-admin" },
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["identity-fake"],
+      "seed": [
+        { "table": "principals", "row": { "id": "user:alpha", "id_key": "user:alpha", "kind": "person" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "alpha", "external_key": "alpha", "principal_id": "user:alpha" } },
+        { "table": "mcp_sessions", "row": { "id": 1, "name": "synthetic-responsibility", "token_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "created_by": "user:creator" } }
+      ],
+      "steps": [
+        {
+          "id": "propose-anon",
+          "route": "POST /api/mcp/sessions/:id/responsibility-proposals",
+          "class": "unauthorized",
+          "request": { "method": "POST", "path": "/api/mcp/sessions/1/responsibility-proposals", "headers": { "x-forwarded-for": "192.0.2.10" }, "json": { "principal": "user:alpha" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "propose-invalid",
+          "route": "POST /api/mcp/sessions/:id/responsibility-proposals",
+          "class": "invalid",
+          "request": { "method": "POST", "path": "/api/mcp/sessions/1/responsibility-proposals", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "52", "etag": "W/\"34-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "请指定提议的个人主体 principal" } }
+        },
+        {
+          "id": "propose",
+          "route": "POST /api/mcp/sessions/:id/responsibility-proposals",
+          "class": "normal",
+          "request": { "method": "POST", "path": "/api/mcp/sessions/1/responsibility-proposals", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "principal": "user:alpha" } },
+          "save": { "id": "id" },
+          "response": { "status": 201, "type": "application/json; charset=utf-8", "headers": { "content-length": "8", "etag": "W/\"8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "id": 1 } }
+        },
+        {
+          "id": "mine-anon",
+          "route": "GET /api/mcp/responsibilities/mine",
+          "class": "unauthorized",
+          "request": { "method": "GET", "path": "/api/mcp/responsibilities/mine", "headers": { "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "46", "etag": "W/\"2e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "mcp_responsibility_person_required" }
+          }
+        },
+        {
+          "id": "mine",
+          "route": "GET /api/mcp/responsibilities/mine",
+          "class": "normal",
+          "vary": { "proposals.0.created_at": 60000 },
+          "request": { "method": "GET", "path": "/api/mcp/responsibilities/mine", "headers": { "cookie": "session_id=fake-internal-alpha-0001", "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "116", "etag": "W/\"74-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "proposals": [{ "id": 1, "session": "synthetic-responsibility", "proposed_by": "admin-token", "created_at": 1893456000000 }] }
+          }
+        },
+        {
+          "id": "confirm-anon",
+          "route": "POST /api/mcp/responsibilities/:id/confirm",
+          "class": "unauthorized",
+          "request": { "method": "POST", "path": "/api/mcp/responsibilities/{{id}}/confirm", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "46", "etag": "W/\"2e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "mcp_responsibility_person_required" }
+          }
+        },
+        {
+          "id": "confirm-missing",
+          "route": "POST /api/mcp/responsibilities/:id/confirm",
+          "class": "invalid",
+          "request": { "method": "POST", "path": "/api/mcp/responsibilities/999/confirm", "headers": { "cookie": "session_id=fake-internal-alpha-0001", "sec-fetch-site": "same-origin" }, "json": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "87", "etag": "W/\"57-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "没有这条待你确认的归属提议", "code": "mcp_responsibility_missing" }
+          }
+        },
+        {
+          "id": "confirm",
+          "route": "POST /api/mcp/responsibilities/:id/confirm",
+          "class": "normal",
+          "request": { "method": "POST", "path": "/api/mcp/responsibilities/{{id}}/confirm", "headers": { "cookie": "session_id=fake-internal-alpha-0001", "sec-fetch-site": "same-origin" }, "json": {} },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "53", "etag": "W/\"35-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "session_id": 1, "responsible_principal": "user:alpha" }
+          }
+        }
+      ]
+    },
     {
       "name": "open",
       "what": "登录门关；这些路由只认管理员（本机也要口令），管理口令由环境给合成值。预先写进库：两个会话（一个持有已下线的工具名和一个上游工具名、一个已吊销）、六条权限申请、三条调用记录（经 HTTP 只能从 /mcp 的工具调用产生）。上游配成连不上的本机地址。定了时钟。",
@@ -276,7 +382,12 @@
           "class": "invalid",
           "what": "建会话：名字已存在，400",
           "request": { "method": "POST", "path": "/api/mcp/sessions", "headers": { "x-admin-token": "replay-synthetic-admin" }, "json": { "name": "replay-a" } },
-          "response": { "status": 400, "type": "application/json; charset=utf-8", "headers": { "content-length": "40", "etag": "W/\"28-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "会话名已存在: replay-a" } }
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "71", "etag": "W/\"47-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "会话名已存在: replay-a", "code": "mcp_session_name_used" }
+          }
         },
         {
           "id": "session-create-upper",
@@ -301,12 +412,12 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "494", "etag": "W/\"1ee-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "734", "etag": "W/\"2de-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
-              { "id": 4, "name": "replay-b", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-              { "id": 3, "name": "replay-a", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-              { "id": 1, "name": "seed-agent", "grants": ["workbench_list", "gone_tool", "up__x"], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              { "id": 4, "name": "replay-b", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "system" },
+              { "id": 3, "name": "replay-a", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "system" },
+              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "legacy" },
+              { "id": 1, "name": "seed-agent", "grants": ["workbench_list", "gone_tool", "up__x"], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "legacy" }
             ]
           }
         },
@@ -364,12 +475,12 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "513", "etag": "W/\"201-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "753", "etag": "W/\"2f1-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
-              { "id": 4, "name": "replay-b", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-              { "id": 3, "name": "replay-a", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-              { "id": 1, "name": "seed-agent", "grants": ["workbench_list", "gone_tool", "up__x"], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              { "id": 4, "name": "replay-b", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "system" },
+              { "id": 3, "name": "replay-a", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "system" },
+              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "legacy" },
+              { "id": 1, "name": "seed-agent", "grants": ["workbench_list", "gone_tool", "up__x"], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "legacy" }
             ]
           }
         },
@@ -453,12 +564,21 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "524", "etag": "W/\"20c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "764", "etag": "W/\"2fc-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
-              { "id": 4, "name": "replay-b", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-              { "id": 3, "name": "replay-a", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-              { "id": 1, "name": "seed-agent", "grants": ["workbench_list", "up__x", "workbench_vars_get@1"], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              { "id": 4, "name": "replay-b", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "system" },
+              { "id": 3, "name": "replay-a", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "system" },
+              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "legacy" },
+              {
+                "id": 1,
+                "name": "seed-agent",
+                "grants": ["workbench_list", "up__x", "workbench_vars_get@1"],
+                "revoked_at": "",
+                "last_used_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "responsible_principal": null,
+                "responsibility_kind": "legacy"
+              }
             ]
           }
         },
@@ -861,12 +981,21 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "540", "etag": "W/\"21c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "780", "etag": "W/\"30c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
-              { "id": 4, "name": "replay-b", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-              { "id": 3, "name": "replay-a", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-              { "id": 1, "name": "seed-agent", "grants": ["workbench_list", "up__x", "workbench_vars_get@1", "skill_publish"], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              { "id": 4, "name": "replay-b", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "system" },
+              { "id": 3, "name": "replay-a", "grants": [], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "system" },
+              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "legacy" },
+              {
+                "id": 1,
+                "name": "seed-agent",
+                "grants": ["workbench_list", "up__x", "workbench_vars_get@1", "skill_publish"],
+                "revoked_at": "",
+                "last_used_at": "",
+                "created_at": "YYYY-MM-DD hh:mm:ss",
+                "responsible_principal": null,
+                "responsibility_kind": "legacy"
+              }
             ]
           }
         },
@@ -1244,10 +1373,10 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "278", "etag": "W/\"116-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "398", "etag": "W/\"18e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
-              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" },
-              { "id": 1, "name": "seed-agent", "grants": ["workbench_list", "gone_tool", "up__x"], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss" }
+              { "id": 2, "name": "seed-revoked", "grants": [], "revoked_at": "YYYY-MM-DD hh:mm:ss", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "legacy" },
+              { "id": 1, "name": "seed-agent", "grants": ["workbench_list", "gone_tool", "up__x"], "revoked_at": "", "last_used_at": "", "created_at": "YYYY-MM-DD hh:mm:ss", "responsible_principal": null, "responsibility_kind": "legacy" }
             ]
           }
         },

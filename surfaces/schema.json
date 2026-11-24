@@ -621,6 +621,14 @@
       "note TEXT NOT NULL DEFAULT ''",
       "at TEXT NOT NULL DEFAULT datetime('now')"
     ],
+    "mcp_responsibility_proposals": [
+      "id INTEGER PK",
+      "session_id INTEGER NOT NULL",
+      "principal_id TEXT NOT NULL",
+      "proposed_by TEXT NOT NULL",
+      "created_at INTEGER NOT NULL",
+      "confirmed_at INTEGER"
+    ],
     "mcp_result_refs": [
       "id TEXT PK",
       "session_id INTEGER NOT NULL",
@@ -641,7 +649,9 @@
       "revoked_at TEXT NOT NULL DEFAULT ''",
       "last_used_at TEXT NOT NULL DEFAULT ''",
       "created_at TEXT NOT NULL DEFAULT datetime('now')",
-      "created_by TEXT NOT NULL DEFAULT ''"
+      "created_by TEXT NOT NULL DEFAULT ''",
+      "responsible_principal TEXT",
+      "is_system INTEGER NOT NULL DEFAULT 0"
     ],
     "principal_identities": [
       "provider TEXT NOT NULL PK",
@@ -1288,6 +1298,8 @@
     "idx_mcp_access_requests_status ON mcp_access_requests: CREATE INDEX idx_mcp_access_requests_status ON mcp_access_requests (status, id)",
     "idx_mcp_calls_session ON mcp_calls: CREATE INDEX idx_mcp_calls_session ON mcp_calls (session_name, at)",
     "idx_mcp_grant_audit_session ON mcp_grant_audit: CREATE INDEX idx_mcp_grant_audit_session ON mcp_grant_audit (session_id, id)",
+    "idx_mcp_responsibility_principal ON mcp_responsibility_proposals: CREATE INDEX idx_mcp_responsibility_principal ON mcp_responsibility_proposals (principal_id, id)",
+    "idx_mcp_responsibility_session ON mcp_responsibility_proposals: CREATE INDEX idx_mcp_responsibility_session ON mcp_responsibility_proposals (session_id, id)",
     "idx_mcp_result_refs_expires ON mcp_result_refs: CREATE INDEX idx_mcp_result_refs_expires ON mcp_result_refs (expires_at)",
     "idx_mcp_result_refs_session ON mcp_result_refs: CREATE INDEX idx_mcp_result_refs_session ON mcp_result_refs (session_id, created_at)",
     "idx_principal_identities_principal ON principal_identities: CREATE INDEX idx_principal_identities_principal ON principal_identities (principal_id)",

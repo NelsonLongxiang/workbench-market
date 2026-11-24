@@ -218,7 +218,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "6531", "etag": "W/\"1983-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "6663", "etag": "W/\"1a07-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "jsonrpc": "2.0",
               "id": 5,
@@ -232,7 +232,8 @@
                       "properties": {
                         "tool": { "type": "string", "description": "只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）" },
                         "ref": { "type": "string", "description": "只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1" },
-                        "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" }
+                        "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" },
+                        "area": { "type": "string", "description": "只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）" }
                       },
                       "additionalProperties": false
                     }
@@ -328,7 +329,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "5875", "etag": "W/\"16f3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "6007", "etag": "W/\"1777-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "jsonrpc": "2.0",
               "id": 6,
@@ -342,7 +343,8 @@
                       "properties": {
                         "tool": { "type": "string", "description": "只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）" },
                         "ref": { "type": "string", "description": "只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1" },
-                        "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" }
+                        "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" },
+                        "area": { "type": "string", "description": "只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）" }
                       },
                       "additionalProperties": false
                     }
@@ -692,7 +694,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "26292", "etag": "W/\"66b4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "26424", "etag": "W/\"6738-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "jsonrpc": "2.0",
               "id": 2,
@@ -706,7 +708,8 @@
                       "properties": {
                         "tool": { "type": "string", "description": "只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）" },
                         "ref": { "type": "string", "description": "只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1" },
-                        "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" }
+                        "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" },
+                        "area": { "type": "string", "description": "只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）" }
                       },
                       "additionalProperties": false
                     }

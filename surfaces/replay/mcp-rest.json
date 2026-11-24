@@ -117,7 +117,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "32769", "etag": "W/\"8001-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "32901", "etag": "W/\"8085-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -419,7 +419,8 @@
                             "properties": {
                               "tool": { "type": "string", "description": "只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）" },
                               "ref": { "type": "string", "description": "只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1" },
-                              "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" }
+                              "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" },
+                              "area": { "type": "string", "description": "只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）" }
                             },
                             "additionalProperties": false
                           }
@@ -758,7 +759,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "13126", "etag": "W/\"3346-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "13258", "etag": "W/\"33ca-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-none）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -783,7 +784,8 @@
                             "properties": {
                               "tool": { "type": "string", "description": "只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）" },
                               "ref": { "type": "string", "description": "只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1" },
-                              "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" }
+                              "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" },
+                              "area": { "type": "string", "description": "只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）" }
                             },
                             "additionalProperties": false
                           }
@@ -989,7 +991,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "32769", "etag": "W/\"8001-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "32901", "etag": "W/\"8085-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -1291,7 +1293,8 @@
                             "properties": {
                               "tool": { "type": "string", "description": "只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）" },
                               "ref": { "type": "string", "description": "只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1" },
-                              "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" }
+                              "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" },
+                              "area": { "type": "string", "description": "只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）" }
                             },
                             "additionalProperties": false
                           }
@@ -2985,7 +2988,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "67235", "etag": "W/\"106a3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "67367", "etag": "W/\"10727-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -3287,7 +3290,8 @@
                             "properties": {
                               "tool": { "type": "string", "description": "只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）" },
                               "ref": { "type": "string", "description": "只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1" },
-                              "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" }
+                              "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" },
+                              "area": { "type": "string", "description": "只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）" }
                             },
                             "additionalProperties": false
                           }
@@ -4462,7 +4466,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "32769", "etag": "W/\"8001-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "32901", "etag": "W/\"8085-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -4764,7 +4768,8 @@
                             "properties": {
                               "tool": { "type": "string", "description": "只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）" },
                               "ref": { "type": "string", "description": "只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1" },
-                              "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" }
+                              "full": { "type": "boolean", "description": "true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）" },
+                              "area": { "type": "string", "description": "只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）" }
                             },
                             "additionalProperties": false
                           }

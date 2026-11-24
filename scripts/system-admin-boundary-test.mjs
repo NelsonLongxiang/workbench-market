@@ -155,7 +155,7 @@ try {
       { sock: sock.status, unbind: unbind.status, toOwner: toOwner.status, toMember: toMember.status, batch: batch.json?.results?.[0]?.status, unbindOwner: unbindOwner.status, toPlain: toPlain.status });
   }
   {
-    const ms = await sam.go('POST', '/api/mcp/sessions', { json: { name: 'synthetic-sam-mcp' } });
+    const ms = await sam.go('POST', '/api/mcp/sessions', { json: { name: 'synthetic-sam-mcp', responsible_principal: 'user:sam' } });
     const add = ms.json?.id ? await sam.go('PUT', `/api/mcp/sessions/${ms.json.id}/grants`, { json: { grants: ['sop_run_list'] } }) : null;
     const byOwner = ms.json?.id ? await olga.go('PUT', `/api/mcp/sessions/${ms.json.id}/grants`, { json: { grants: ['sop_run_list'] } }) : null;
     const shrink = ms.json?.id ? await sam.go('PUT', `/api/mcp/sessions/${ms.json.id}/grants`, { json: { grants: [] } }) : null;
@@ -217,11 +217,11 @@ try {
       return r.status;
     };
     const pendingOf = async (sessionName) => ((await tokenCall('GET', '/api/mcp/access-requests?status=pending')).json ?? []).find((x) => x.session_name === sessionName)?.id;
-    const ms = await sam.go('POST', '/api/mcp/sessions', { json: { name: 'synthetic-sam-n1' } });
+    const ms = await sam.go('POST', '/api/mcp/sessions', { json: { name: 'synthetic-sam-n1', responsible_principal: 'user:sam' } });
     await ask(ms.json?.token);
     const samReq = await pendingOf('synthetic-sam-n1');
     const samApprove = samReq ? await sam.go('POST', `/api/mcp/access-requests/${samReq}/approve`, { json: { note: '合成' } }) : null;
-    const os = await olga.go('POST', '/api/mcp/sessions', { json: { name: 'synthetic-olga-n1' } });
+    const os = await olga.go('POST', '/api/mcp/sessions', { json: { name: 'synthetic-olga-n1', responsible_principal: 'user:olga' } });
     await ask(os.json?.token);
     const olgaReq = await pendingOf('synthetic-olga-n1');
     const olgaSelf = olgaReq ? await olga.go('POST', `/api/mcp/access-requests/${olgaReq}/approve`, { json: { note: '合成' } }) : null;

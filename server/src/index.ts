@@ -522,6 +522,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/areas\/[a-z][a-z0-9-]{0,47}\/specs(\/activate)?$/,
   // 只为领域负责人和属主放行这三条路径；路由内强制登录的人、同源及当前范围。
   /^\/api\/areas\/[a-z][a-z0-9-]{0,47}\/(access-limits\/[1-9][0-9]{0,11}|access-requests\/[1-9][0-9]{0,11}\/(approve|reject))$/,
+  // 归属确认的路由重新认登录本人，不能用管理口令或会话令牌代办。
+  /^\/api\/mcp\/responsibilities\/[1-9][0-9]{0,11}\/confirm$/,
   // 报告维度的定报告维度（建、发版、复核、移指针、撤）：持本领域 area-report 授予的人多半不是管理员。路由内认人、核同源、按对象判
   // （routes/report-dimensions.ts 的 existingSetter；docs/report-step1.md 第四节）；只此几条路径
   /^\/api\/report-dimensions(\/[a-z][a-z0-9-]{0,47}\/(templates(\/[1-9][0-9]{0,8}\/review)?|activate|retire))?$/,
@@ -3576,9 +3578,13 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
     return svc<AreaAccessService>('areaAccess').submit(sess.id, args);
   }
   if (name === 'access_info') {
-    const given = (['ref', 'tool', 'full'] as const).filter((k) => args?.[k] !== undefined && !(k === 'full' && args.full === false));
+    const given = (['ref', 'tool', 'full', 'area'] as const).filter((k) => args?.[k] !== undefined && !(k === 'full' && args.full === false));
     if (given.length > 1) bad(`access_info 的 ${given.join('、')} 一次只能给一个`);
     if (args?.full !== undefined && typeof args.full !== 'boolean') bad('full 写 true 或 false');
+  }
+  if (name === 'access_info' && args?.area !== undefined) {
+    if (!sess) throw new HttpError(403, '领域权限须用有可信归属的会话查询', { code: 'area_access_unbound_session' });
+    return svc<AreaAccessService>('areaAccess').effectiveActions(sess.id, args.area);
   }
   if (name === 'access_info' && args?.ref !== undefined) {
     // 只查一条：只认本会话的；别的会话的和不存在的同一句
@@ -3703,7 +3709,7 @@ function accessRequestId(req: express.Request): number {
   return id;
 }
 
-registerMcpRoutes(http, { adminGuard, bad, sha256Hex, MCP_UPSTREAM_PREFIX_RE, MCP_SESSION_NAME_RE, MCP_SCOPED_TOOLS, ACCESS_STATUSES, ACCESS_REASON_MAX, upstreamHealth, upstreamToolCache, mcpUpstreams, mcpAggregatedTools, mcpRegisteredNames, resolveGrants, pageLimit, parseToolList, adminActor, accessRequestId });
+registerMcpRoutes(http, { adminGuard, bad, sha256Hex, MCP_UPSTREAM_PREFIX_RE, MCP_SESSION_NAME_RE, MCP_SCOPED_TOOLS, ACCESS_STATUSES, ACCESS_REASON_MAX, upstreamHealth, upstreamToolCache, mcpUpstreams, mcpAggregatedTools, mcpRegisteredNames, resolveGrants, pageLimit, parseToolList, adminActor, accessRequestId, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) });
 
 // ---------- /mcp 与 REST（/api/mcp-rest/*）共用：会话认定、审计、tools/call ----------
 type McpChannel = 'mcp' | 'rest';
@@ -3713,7 +3719,7 @@ function mcpGatewaySession(req: express.Request, res: express.Response): McpSess
   if (!MCP_GATEWAY_ON) return null;
   const m = /^Bearer ([0-9a-f]{64})$/i.exec(String(req.headers.authorization ?? ''));
   const sess = m ? mcpSessionByToken(m[1]) : null;
-  if (!sess) {
+  if (!sess || !svc<McpService>('mcp').sessionOwnerEnabled(sess.id)) {
     if (!isStartupProbeRequest(req)) mcp401Count += 1; // self-probe is not adoption traffic
     res.setHeader('WWW-Authenticate', 'Bearer realm="workbench-market mcp"');
     res.status(401).json({ error: 'unauthorized: valid session token required', hint: '会话与令牌由管理员经 /api/mcp/sessions 创建分发' });

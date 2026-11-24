@@ -1045,6 +1045,21 @@ CREATE TABLE IF NOT EXISTS local_accounts (
 `);
 // MCP 会话是谁建的（管理员的留痕写法，user:<名>、odoo:<登录名>、admin-token……）：批准这个会话的访问申请时，建会话的人不能自己批（docs/local-accounts.md 第 5 节）
 addColumnIfMissing('mcp_sessions', "created_by TEXT NOT NULL DEFAULT ''");
+// 第 16 篇第 3 步：保留旧会话的空归属。创建者是审计，不能拿来回填责任人。
+addColumnIfMissing('mcp_sessions', 'responsible_principal TEXT REFERENCES principals (id)');
+addColumnIfMissing('mcp_sessions', 'is_system INTEGER NOT NULL DEFAULT 0 CHECK (is_system IN (0, 1))');
+db.exec(`
+CREATE TABLE IF NOT EXISTS mcp_responsibility_proposals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL REFERENCES mcp_sessions (id),
+  principal_id TEXT NOT NULL REFERENCES principals (id),
+  proposed_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  confirmed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_responsibility_session ON mcp_responsibility_proposals (session_id, id);
+CREATE INDEX IF NOT EXISTS idx_mcp_responsibility_principal ON mcp_responsibility_proposals (principal_id, id);
+`);
 // 站内账号的凭据最后是谁设的（docs/local-accounts.md 第 5 节）：系统管理员建账号、重置密码时记下他（主体）和时刻，本人改了密码就清掉。
 // 放行给业务数据的授予时据此提示放行人「此人凭据由系统管理员设置」，要放行人确认
 for (const [col, ddl] of [['credential_by_system', "TEXT NOT NULL DEFAULT ''"], ['credential_by_system_at', 'INTEGER']] as const) {

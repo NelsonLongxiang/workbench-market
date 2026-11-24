@@ -135,6 +135,28 @@ try {
   ok('拒掉的都没发出令牌（库里只有成功的两张）', q('SELECT COUNT(*) AS c FROM a2a_seat_tokens')[0].c === 2, String(q('SELECT COUNT(*) AS c FROM a2a_seat_tokens')[0].c));
 
   console.log('三、每次调用复核');
+  // 归属从实际尚有效的节点分配取，令牌不缓存责任人。合成分配不需要外部节点或用户。
+  run("INSERT INTO principals (id, id_key, kind) VALUES ('user:seat-first', 'user:seat-first', 'person'), ('user:seat-next', 'user:seat-next', 'person')");
+  run("INSERT INTO areas (id, name, status, created_at, created_by, updated_at, updated_by) VALUES ('seat-area', '合成领域', 'active', 0, 'test', 0, 'test')");
+  const assign = (principal) => run('INSERT INTO seat_assignments (host, team, seat, seat_id, principal_id, assigned_by, assigned_at, peer_root, key_fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    A.fp, 'alpha-node/canvas/demo', 'alpha-node/a0000001', 'seat-a1', principal, 'test', Date.now(), A.root, fullFp(A.pk));
+  const seatApply = () => mcp(tok1, 'tools/call', { name: 'access_request', arguments: { area: 'seat-area', actions: ['area.read'], reason: '合成席位' } });
+  const noOwner = await seatApply();
+  assign('user:seat-first');
+  const firstOwner = await seatApply();
+  run("UPDATE seat_assignments SET ended_at = ? WHERE host = ? AND seat_id = 'seat-a1'", Date.now(), A.fp);
+  assign('user:seat-next');
+  const nextOwner = await seatApply();
+  const records = q("SELECT applicant FROM area_access_requests WHERE area_id = 'seat-area' ORDER BY id").map(r => r.applicant);
+  ok('实际席位令牌无分配时不得申请；分配和改派后同一令牌分别记当前责任人', noOwner.body?.result?.isError === true &&
+    firstOwner.body?.result?.isError !== true && nextOwner.body?.result?.isError !== true && records.join() === 'user:seat-first,user:seat-next', JSON.stringify(records));
+  const oldSeatApplication = q("SELECT id FROM area_access_requests WHERE area_id = 'seat-area' AND applicant = 'user:seat-first'")[0]?.id;
+  const oldReceipt = await mcp(tok1, 'tools/call', { name: 'access_info', arguments: { ref: 'area-' + oldSeatApplication } });
+  ok('席位改派后原申请只属于原责任人，当前令牌不能看', oldReceipt.body?.result?.isError === true &&
+    oldReceipt.body.result.content[0].text.includes('area_access_request_missing'));
+  run("UPDATE principals SET status = 'disabled' WHERE id = 'user:seat-next'");
+  ok('停用席位当前责任人立即拒绝已发令牌', (await mcp(tok1, 'tools/list', {})).status === 401);
+  run("UPDATE principals SET status = 'active' WHERE id = 'user:seat-next'");
   run("DELETE FROM a2a_roster_node_seats WHERE host = ? AND seat_id = 'seat-a1'", A.fp);
   m = await mcp(tok1, 'tools/list', {});
   ok('名册撤掉席位 → 已发的令牌下一次调用 401', m.status === 401, String(m.status));
