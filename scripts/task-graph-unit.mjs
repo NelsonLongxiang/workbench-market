@@ -193,7 +193,7 @@ console.log('甘特图');
   const rows = [
     { id: 'b', name: '实现', s: '2026-01-06', e: '2026-01-20', deps: 'a', st: 'todo', grp: 'x' },
     { id: 'a', name: '设计', s: '2026-01-01', e: '2026-01-05', st: 'done', grp: 'x' },
-    { id: 'c', name: '测试', s: '2026-01-03', e: '2026-01-04', st: 'todo', grp: 'y' },
+    { id: 'c', name: '测试', s: '2026-01-03', e: '2026-01-04', deps: '?z', st: 'todo', grp: 'y' },
     { id: 'z', name: '坏日期', s: '2026-01-09', e: '2026-01-02', st: 'todo', grp: 'y' },
     { id: 'w', name: '缺日期', s: '2026-01-09', st: 'todo', grp: 'y' },
   ];
@@ -204,7 +204,7 @@ console.log('甘特图');
   ok('排法：先按分组（出现顺序），组内按开始；坏日期、缺日期不画条、列出来', lay.items.map((i) => i.id).join() === 'a,b,c' && lay.badDates.sort().join() === 'w,z', { items: lay.items.map((i) => i.id), bad: lay.badDates });
   const A = lay.items.find((i) => i.id === 'a'), Bi = lay.items.find((i) => i.id === 'b'), C = lay.items.find((i) => i.id === 'c');
   ok('完成按派生状态；截止已过没完成算过期，完成的不算，截止没到的不算', A.done && !A.overdue && C.overdue && !Bi.overdue && !Bi.done);
-  ok('箭头只连两头都画了条的依赖，带边的键', lay.arrows.length === 1 && lay.arrows[0].from === 'a' && lay.arrows[0].to === 'b' && lay.arrows[0].fromIndex === 0 && lay.arrows[0].toIndex === 1 && lay.arrows[0].key === 'a|b|req');
+  ok('箭头只连两头都画了条的依赖（c 的前置 z 日期坏、没画条，不连），带边的键', lay.arrows.length === 1 && lay.arrows[0].from === 'a' && lay.arrows[0].to === 'b' && lay.arrows[0].fromIndex === 0 && lay.arrows[0].toIndex === 1 && lay.arrows[0].key === 'a|b|req');
   ok('时间范围含所有条和今天', lay.min === T0 && lay.max === T0 + 20 * D);
   const noStatus = g.ganttLayout(g.buildGraph([{ id: 'p', name: 'p', s: '2026-01-01', e: '2026-01-02', pct: 100 }, { id: 'q', name: 'q', s: '2026-01-01', e: '2026-01-02', pct: 40 }], gs({ status_col: undefined, progress_col: 'pct' }), FULL), { start_col: 's', end_col: 'e' }, now);
   ok('没配状态列：进度 100 算完成（不算过期），其余过了截止算过期', noStatus.items[0].done && !noStatus.items[0].overdue && noStatus.items[1].overdue);
