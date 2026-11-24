@@ -836,6 +836,15 @@ body { background: var(--wm-color-page); }
 .wm-rec-link { color: var(--wm-color-primary); font-size: var(--wm-font-size-caption); }
 .wm-rec-toggle:focus-visible, .wm-rec-link:focus-visible { outline: 2px solid var(--wm-color-primary); outline-offset: 2px; border-radius: var(--wm-radius-sm); }
 .wm-rec-link-invalid { color: var(--wm-color-text-disabled); font-size: var(--wm-font-size-caption); }
+/* 图片列（docs/image-step1.md 用例 9）：表格 48px 见方、记录卡 160px 高占满宽，裁切不变形；取不到时虚线占位 */
+.wm-img { object-fit: cover; border-radius: var(--wm-radius-sm); background: var(--wm-color-surface); cursor: zoom-in; }
+.wm-img-cell { width: 48px; height: 48px; }
+.wm-img-card { width: 100%; height: 160px; border-radius: var(--wm-radius-md); }
+.wm-img-root-card { display: block; width: 100%; }
+.wm-img-missing { display: inline-flex; align-items: center; justify-content: center; border: 1px dashed var(--wm-color-border); border-radius: var(--wm-radius-sm); color: var(--wm-color-text-disabled); font-size: var(--wm-font-size-caption); }
+.wm-img-missing-cell { min-width: 48px; height: 48px; padding: 0 var(--wm-space-1); }
+.wm-img-missing-card { width: 100%; height: 160px; border-radius: var(--wm-radius-md); }
+.wm-rec-image { grid-column: 1 / -1; }
 .wm-bb-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wm-space-3) var(--wm-space-4); }
 .wm-bb-filter { display: inline-flex; align-items: center; gap: var(--wm-space-2); }
 .wm-bb-filter-label { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); white-space: nowrap; }

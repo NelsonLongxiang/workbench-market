@@ -11,6 +11,7 @@ import { ProgressBlock } from './Progress';
 import { StatBlock } from './Stat';
 import { TableBlock } from './Table';
 import { NativeTable } from './NativeTable';
+import { ImageSourceContext } from './BenchImage';
 import { asTableContext } from '../bench-table-view';
 import { filterBarValue, layoutSpans, snapSpan, valueLabel, withLabelColumns, type BlockData, type BlockError } from './blocks-view';
 
@@ -35,12 +36,16 @@ export interface BenchViewProps {
   /** Only the standalone bench page enables authenticated table download/detail actions. */
   tableBench?: string;
   tableDisabled?: boolean;
+  /** 图片列经哪个台代取（台页面给卡片 id，驾驶舱给引用的台）；不给就画「图片取不到」占位 */
+  imageBench?: string;
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 /** 表单块的 can_submit 是 false 时的说法 */
 export const FORM_DENIED = '你的账号不能在这个台上填表。要填的话，请管理层为你开通这个台的权限。';
-export function BenchView({ result, loading, onParams, onSubmit, formDisabledReason, frame, dense, hideFilters, tableBench, tableDisabled, filterValue }: BenchViewProps) {
+export function BenchView({ result, loading, onParams, onSubmit, formDisabledReason, frame, dense, hideFilters, tableBench, tableDisabled, filterValue, imageBench }: BenchViewProps) {
+  // 图片的来源视图就是这次取数：台、视图、版本、筛选值（服务端按这一组重渲染、核对引用）
+  const imageSource = imageBench && result ? { bench: imageBench, view: result.view.key, version: result.version, params: result.params } : null;
   const blocks = result?.blocks ?? [];
   // 宽度按真正画出来的块排（隐藏的筛选栏不占位）：独占一行又没写 span 的块撑满这一行
   const KNOWN = new Set(['filter-bar', 'form', 'stat', 'progress', 'table', 'records', 'bar', 'line', 'pie']);
@@ -48,6 +53,7 @@ export function BenchView({ result, loading, onParams, onSubmit, formDisabledRea
   const laid = layoutSpans(shown.map(({ b }) => b));
   const spanOf = new Map(shown.map(({ i }, k) => [i, laid[k]]));
   return (
+    <ImageSourceContext.Provider value={imageSource}>
     <DashGrid top>
       {blocks.map((b, i) => {
         const common = { frame, title: b.title, span: spanOf.get(i) ?? snapSpan(b.span, b.type), loading, error: b.error ?? null, data: b.data ?? null };
@@ -68,5 +74,6 @@ export function BenchView({ result, loading, onParams, onSubmit, formDisabledRea
         return null; // 不认识的组件类型不画（保存视图描述时已经拦过）
       })}
     </DashGrid>
+    </ImageSourceContext.Provider>
   );
 }
