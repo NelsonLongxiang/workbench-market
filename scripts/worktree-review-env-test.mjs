@@ -247,18 +247,21 @@ test('signals during cleanup preserve removal of every owned directory', async (
 
 function fakePnpm(invalid = false) {
   const dir = join(root, 'path-' + seq);
-  write(dir, 'pnpm', '#!' + node + '\n' + [
-    'const {spawnSync}=require("node:child_process");',
+  write(dir, 'pnpm.mjs', '#!' + node + '\n' + [
+    'import { spawnSync } from "node:child_process";',
+    'import { writeFileSync } from "node:fs";',
     'const args=process.argv.slice(2);',
     'const guarded=args.includes("--config.verifyDepsBeforeRun=false");',
     'const offline=args.includes("--config.offline=true");',
     'const leaf=args.filter((arg)=>!arg.startsWith("--config."));',
     'if(leaf.join(" ")==="config get verifyDepsBeforeRun"){console.log(guarded&&offline&&process.env.TEST_INVALID!=="1"?"false":"undefined");process.exit(0)}',
-    'if(!guarded||!offline) {require("node:fs").writeFileSync("unexpected-install","pre-script");process.exit(12)}',
+    'if(!guarded||!offline) {writeFileSync("unexpected-install","pre-script");process.exit(12)}',
     'if(leaf.join(" ")==="check") {const r=spawnSync("pnpm",["--filter","web","typecheck"],{stdio:"inherit"});process.exit(r.status??1)}',
     'if(leaf.join(" ")==="--filter web typecheck") {console.log("guarded nested check");process.exit(0)}',
     'process.exit(13);',
   ].join('\n') + '\n', { mode: 0o755 });
+  symlinkSync('pnpm.mjs', join(dir, 'pnpm'));
+  symlinkSync('pnpm.mjs', join(dir, 'custom-launcher'));
   return { ...process.env, PATH: dir + ':' + process.env.PATH, TEST_INVALID: invalid ? '1' : '0' };
 }
 
@@ -271,12 +274,28 @@ test('requires effective pnpm config and guards nested checks without an install
   clean(target);
 });
 
+test('uses the same pnpm guard for a symlink and the actual executable', () => {
+  const { target } = fixture();
+  const env = fakePnpm();
+  const launcher = join(root, 'path-' + seq, 'pnpm');
+  for (const entry of [launcher, realpathSync(launcher), join(dirname(launcher), 'custom-launcher')]) {
+    const r = run(target, [entry, 'config', 'get', 'verifyDepsBeforeRun'], env);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout.trim(), 'false', entry);
+    clean(target);
+  }
+});
+
 test('refuses a pnpm that reports undefined before running its check', () => {
   const { target } = fixture();
-  const r = run(target, ['pnpm', 'check'], fakePnpm(true));
-  assert.equal(r.status, 1, r.stderr);
-  assert.match(r.stderr, /did not adopt verifyDepsBeforeRun=false/);
-  assert.equal(r.stdout, '');
-  assert.equal(existsSync(join(target, 'unexpected-install')), false);
-  clean(target);
+  const env = fakePnpm(true);
+  const launcher = join(root, 'path-' + seq, 'pnpm');
+  for (const entry of ['pnpm', launcher, realpathSync(launcher)]) {
+    const r = run(target, [entry, 'check'], env);
+    assert.equal(r.status, 1, r.stderr);
+    assert.match(r.stderr, /did not adopt verifyDepsBeforeRun=false/);
+    assert.equal(r.stdout, '');
+    assert.equal(existsSync(join(target, 'unexpected-install')), false);
+    clean(target);
+  }
 });

@@ -158,18 +158,32 @@ function checkEnvironment(state) {
   return { ...env, ...overrides, COREPACK_ENABLE_NETWORK: '0' };
 }
 
+function findExecutable(executable, cwd, pathEnv) {
+  const candidates = executable.includes(sep)
+    ? [resolve(cwd, executable)]
+    : (pathEnv ?? '').split(':').map(dir => resolve(cwd, dir, executable));
+  return candidates.find(path => {
+    try {
+      accessSync(path, constants.X_OK);
+      return stat(realpathSync(path))?.isFile();
+    } catch (error) {
+      if (!['ENOENT', 'EACCES', 'ENOTDIR'].includes(error.code)) throw error;
+      return false;
+    }
+  });
+}
+
+const pnpmEntry = (path) => /^pnpm(?:\.[cm]?js)?$/.test(basename(path));
+
 function prepareCommand(command, cwd, state, env) {
   const name = basename(command[0]);
   if (name === 'npm' || name === 'npx' || name === 'corepack') {
     throw Error('Use the installed pnpm executable directly, without a package-manager wrapper');
   }
-  const directPnpm = name === 'pnpm';
-  const executable = directPnpm ? command[0] : 'pnpm';
-  const candidates = executable.includes(sep) ? [resolve(cwd, executable)] : (env.PATH ?? '').split(':').map(dir => resolve(cwd, dir, executable));
-  const pnpm = candidates.find(path => {
-    try { accessSync(path, constants.X_OK); return !stat(path)?.isDirectory(); }
-    catch (error) { if (!['ENOENT', 'EACCES', 'ENOTDIR'].includes(error.code)) throw error; return false; }
-  });
+  const executable = findExecutable(command[0], cwd, env.PATH);
+  // A bin link and the underlying entry (e.g. pnpm.mjs) must take the same path through the guard.
+  const directPnpm = pnpmEntry(command[0]) || (executable && pnpmEntry(realpathSync(executable)));
+  const pnpm = directPnpm ? executable : findExecutable('pnpm', cwd, env.PATH);
   if (!pnpm && !directPnpm) return command;
   if (!pnpm) throw Error('An already installed pnpm executable is required');
   const quote = value => "'" + value.replaceAll("'", "'\"'\"'") + "'";
