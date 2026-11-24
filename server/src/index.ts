@@ -72,6 +72,8 @@ import { registerDepartmentRoutes } from './routes/departments.ts';
 import { registerTeamRoutes } from './routes/teams.ts';
 import { registerRelationRoutes } from './routes/relations.ts';
 import { registerAreaRoutes } from './routes/areas.ts';
+import { registerAreaAccessRoutes } from './routes/area-access.ts';
+import type { AreaAccessService } from './services/area-access.ts';
 import { registerReportDimensionRoutes } from './routes/report-dimensions.ts';
 import { rosterStaleMinutesFromEnv, type TeamService } from './services/team.ts';
 import { proposalTtlDaysFromEnv, rosterGoneHoursFromEnv, type RelationProposalService } from './services/relation-proposal.ts';
@@ -518,6 +520,8 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/knowledge\/project-depts$/,
   // 领域的定规范：持本领域 area-spec 授予的人多半不是管理员。路由内认人、核同源、按对象判（routes/areas.ts 的 specSetter）；只此两条子路径
   /^\/api\/areas\/[a-z][a-z0-9-]{0,47}\/specs(\/activate)?$/,
+  // 只为领域负责人和属主放行这三条路径；路由内强制登录的人、同源及当前范围。
+  /^\/api\/areas\/[a-z][a-z0-9-]{0,47}\/(access-limits\/[1-9][0-9]{0,11}|access-requests\/[1-9][0-9]{0,11}\/(approve|reject))$/,
   // 报告维度的定报告维度（建、发版、复核、移指针、撤）：持本领域 area-report 授予的人多半不是管理员。路由内认人、核同源、按对象判
   // （routes/report-dimensions.ts 的 existingSetter；docs/report-step1.md 第四节）；只此几条路径
   /^\/api\/report-dimensions(\/[a-z][a-z0-9-]{0,47}\/(templates(\/[1-9][0-9]{0,8}\/review)?|activate|retire))?$/,
@@ -2091,6 +2095,7 @@ registerDepartmentRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActo
 registerTeamRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
 registerRelationRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
 registerAreaRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 领域（规范 15）：属主建撤、定规范；属主、管理层看全部
+registerAreaAccessRoutes(http, (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)));
 registerReportDimensionRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 报告的维度和模板（第 19 篇）：属主和持本领域 area-report 的人定；登录的人读
 registerAccessRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
 registerAttentionRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
@@ -3526,7 +3531,7 @@ function isoOf(v: unknown): string | null {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 /** 申请对会话的编号：通用申请 mcp-N，台的申请 bench-N（两套编号各自从 1 起，不带前缀会撞号） */
-const ACCESS_REF_RE = /^(mcp|bench)-([1-9]\d{0,11})$/;
+const ACCESS_REF_RE = /^(mcp|bench|area)-([1-9]\d{0,11})$/;
 /** 会话看到的申请：不带 decided_by（管理员身份不外露给会话）；时刻统一成 ISO */
 function accessRequestForSession(r: Pick<AccessRequestRow, 'id' | 'tools' | 'reason' | 'status' | 'note' | 'decided_at' | 'created_at'>) {
   return { id: r.id, ref: `mcp-${r.id}`, tools: parseToolList(r.tools), reason: r.reason, status: r.status, note: r.note, decided_at: isoOf(r.decided_at), created_at: isoOf(r.created_at) };
@@ -3566,7 +3571,10 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
     const end = Math.min(total, offset + n);
     return { id: row.id, tool: row.tool, sha256: row.sha256, total_chars: total, offset, text: row.body.slice(offset, end), next_offset: end < total ? end : null };
   }
-  const catalog = await mcpAggregatedTools();
+  if (name === 'access_request' && (args?.area !== undefined || args?.actions !== undefined)) {
+    if (!sess) throw new HttpError(403, '领域申请必须使用有可信归属的会话', { code: 'area_access_unbound_session' });
+    return svc<AreaAccessService>('areaAccess').submit(sess.id, args);
+  }
   if (name === 'access_info') {
     const given = (['ref', 'tool', 'full'] as const).filter((k) => args?.[k] !== undefined && !(k === 'full' && args.full === false));
     if (given.length > 1) bad(`access_info 的 ${given.join('、')} 一次只能给一个`);
@@ -3575,10 +3583,11 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
   if (name === 'access_info' && args?.ref !== undefined) {
     // 只查一条：只认本会话的；别的会话的和不存在的同一句
     const m = typeof args.ref === 'string' ? ACCESS_REF_RE.exec(args.ref.trim()) : null;
-    if (!m) bad('ref 写成 mcp-<编号>（通用申请）或 bench-<编号>（台的申请），编号见 access_request 的应答');
+    if (!m) bad('ref 写成 mcp-<编号>、bench-<编号> 或 area-<编号>，编号见 access_request 的应答');
     const id = Number(m![2]);
     const notFound = () => bad(`本会话没有这条申请：${args.ref}`);
     if (!sess) notFound();
+    if (m![1] === 'area') return { request: svc<AreaAccessService>('areaAccess').requestForSession(sess!.id, id) };
     if (m![1] === 'mcp') {
       const row = svc<McpService>('mcp').accessRequestById(id) as AccessRequestRow | undefined;
       if (!row || row.session_id !== sess!.id) notFound();
@@ -3588,6 +3597,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
     if (!row) notFound();
     return { request: benchRequestForSession(row!) };
   }
+  const catalog = await mcpAggregatedTools();
   if (name === 'access_info') {
     const granted = (t: McpToolDef) => mcpToolGranted(sess, t.name); // 网关关时全部可调
     const benchGrants = sess && BENCH_VIEWS.on ? benchGrantsOf(sess.id) : new Map<string, string[]>();

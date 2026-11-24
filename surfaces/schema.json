@@ -243,6 +243,27 @@
       "code TEXT NOT NULL DEFAULT ''",
       "a2a_node8 TEXT NOT NULL DEFAULT ''"
     ],
+    "area_access_limits": [
+      "id INTEGER PK",
+      "grant_id INTEGER NOT NULL",
+      "actions TEXT NOT NULL",
+      "set_by TEXT NOT NULL",
+      "created_at INTEGER NOT NULL"
+    ],
+    "area_access_requests": [
+      "id INTEGER PK",
+      "session_id INTEGER NOT NULL",
+      "area_id TEXT NOT NULL",
+      "applicant TEXT NOT NULL",
+      "actions TEXT NOT NULL",
+      "reason TEXT NOT NULL",
+      "status TEXT NOT NULL DEFAULT 'pending'",
+      "created_at INTEGER NOT NULL",
+      "decided_by TEXT",
+      "decided_at INTEGER",
+      "note TEXT NOT NULL DEFAULT ''",
+      "limit_id INTEGER"
+    ],
     "area_events": [
       "seq INTEGER PK",
       "area_id TEXT NOT NULL",
@@ -1241,6 +1262,9 @@
     "idx_app_data_idem ON app_data: CREATE UNIQUE INDEX idx_app_data_idem ON app_data (app_slug, idempotency_key) WHERE idempotency_key <> ''",
     "idx_app_data_slug ON app_data: CREATE INDEX idx_app_data_slug ON app_data(app_slug, created_at)",
     "idx_app_files_slug ON app_files: CREATE INDEX idx_app_files_slug ON app_files(app_slug, created_at)",
+    "idx_area_access_limits_grant ON area_access_limits: CREATE INDEX idx_area_access_limits_grant ON area_access_limits (grant_id, id)",
+    "idx_area_access_requests_area ON area_access_requests: CREATE INDEX idx_area_access_requests_area ON area_access_requests (area_id, status, id)",
+    "idx_area_access_requests_session ON area_access_requests: CREATE INDEX idx_area_access_requests_session ON area_access_requests (session_id, created_at)",
     "idx_area_events_area ON area_events: CREATE INDEX idx_area_events_area ON area_events (area_id, seq)",
     "idx_bench_bind_audit_slug ON bench_bind_audit: CREATE INDEX idx_bench_bind_audit_slug ON bench_bind_audit (slug, id)",
     "idx_bench_mcp_audit_bench ON bench_mcp_audit: CREATE INDEX idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, id)",

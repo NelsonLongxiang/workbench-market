@@ -1706,6 +1706,33 @@ if (hasTable('area_events_pr1')) {
     db.exec('COMMIT');
   } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
 }
+// 领域接入的审批与原有按工具申请分开。上限版本与审批留痕可按精确授予复核。
+db.exec(`
+CREATE TABLE IF NOT EXISTS area_access_limits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  grant_id INTEGER NOT NULL REFERENCES grants (id),
+  actions TEXT NOT NULL,
+  set_by TEXT NOT NULL REFERENCES principals (id),
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_area_access_limits_grant ON area_access_limits (grant_id, id);
+CREATE TABLE IF NOT EXISTS area_access_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL REFERENCES mcp_sessions (id),
+  area_id TEXT NOT NULL REFERENCES areas (id),
+  applicant TEXT NOT NULL REFERENCES principals (id),
+  actions TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  created_at INTEGER NOT NULL,
+  decided_by TEXT REFERENCES principals (id),
+  decided_at INTEGER,
+  note TEXT NOT NULL DEFAULT '',
+  limit_id INTEGER REFERENCES area_access_limits (id)
+);
+CREATE INDEX IF NOT EXISTS idx_area_access_requests_area ON area_access_requests (area_id, status, id);
+CREATE INDEX IF NOT EXISTS idx_area_access_requests_session ON area_access_requests (session_id, created_at);
+`);
 // 报告的维度和模板（docs/report-step1.md 第二节第 1 小节；第 19 篇）。维度属于领域（area_id 空是跨领域的维度），一个维度一串模板版本。
 //   report_dimensions：标识、所属领域、名字、状态（active / retired）、生效指针（active_version）。不删，撤了只读。
 //   report_templates：(维度, 版本) 复合主键；正文是模板 JSON（上限 200 KB，按字节），正文摘要 sha256 和判据部分的摘要 criteria_sha256

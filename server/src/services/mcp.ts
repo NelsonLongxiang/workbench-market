@@ -68,6 +68,10 @@ export class McpService extends Service {
   sessionFull(id: number) {
     return db.prepare('SELECT id, name, grants, revoked_at, created_by FROM mcp_sessions WHERE id = ?').get(id);
   }
+  /** 第 16 篇第 3 步在这里接可信归属。当前没有任何会话能以创建者或席位证明责任人。 */
+  areaAccessPrincipal(_sessionId: number): string | null {
+    return null;
+  }
   /** 记下会话是谁建的（建会话的接口建好之后调） */
   sessionCreatedBy(id: number, by: string) {
     return db.prepare('UPDATE mcp_sessions SET created_by = ? WHERE id = ?').run(by, id);

@@ -16,7 +16,7 @@ import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 import { svc } from '../context.ts';
 import type { GrantService } from './grant.ts';
-import type { PrincipalStatusChanged } from './principal.ts';
+import type { PrincipalService, PrincipalStatusChanged } from './principal.ts';
 import type { DepartmentService } from './department.ts';
 import { areaVerdict } from '../judgment.ts';
 import { AREA_LEAD_ACTIONS, AREA_SPEC_ACTION } from '../roles.ts';
@@ -111,6 +111,16 @@ export class AreaService extends Service {
       if (area === null) return no('area-scope-required');
       if (!subject.principal) return no('no-grant');
       return areaVerdict({ principal: subject.principal, action, kind: 'write', area });
+    }
+    if (action === 'area.access-approve' || action === 'area.access-requests' || action === 'area.access-limit-set') {
+      const person = subject.principal ? svc<PrincipalService>('principals').get(subject.principal) : null;
+      if (!person || person.kind !== 'person' || person.status !== 'active') return no('area-access-person-required');
+      if (area === null) return no('area-scope-required');
+      if (subject.owner && action === 'area.access-limit-set') return this.get(area) ? ok('area-owner') : no('area-missing');
+      if (this.get(area)?.status !== 'active') return no('area-access-unavailable');
+      if (subject.owner) return ok('area-owner');
+      if (action === 'area.access-limit-set') return no('area-owner-only');
+      return areaVerdict({ principal: person.id, action: 'area.access-approve', kind: 'decide', area });
     }
     if (action === 'area.accept' || AREA_LEAD_ACTIONS.includes(action)) return no('area-step1-not-routed');
     if (action === AREA_SPEC_ACTION) {

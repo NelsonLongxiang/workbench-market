@@ -176,7 +176,7 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
   app.post('/api/areas/:id/retire', {
     action: 'area.retire', kind: 'decide',
     // 负责人专有的动作（过目放行、改派、批接入）第 1 步只登记、走不到（docs/domains-step1.md 第七节第 8 条）：when 恒为假，先让 area-lead 能引用
-    refine: AREA_LEAD_ACTIONS.map((action) => ({ action, kind: 'decide' as const, why: '负责人专有的动作，第 1 步只登记（恒为假），挂在领域的写路由下', when: () => false })),
+    refine: AREA_LEAD_ACTIONS.filter((action) => action !== 'area.access-approve').map((action) => ({ action, kind: 'decide' as const, why: '负责人专有的动作，第 1 步只登记（恒为假），挂在领域的写路由下', when: () => false })),
   }, route(async (req, res) => {
     const w = await ownerOnly(req, res, 'area.retire');
     if (!w) return;
