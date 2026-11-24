@@ -139,6 +139,10 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
 
 单个 KPI、进度目标和着色阈值已经在本卡片的变量空间里时，不要复制进一份数据集：在视图的指标 value、进度 value/total 或 tone_rules 的阈值上写 `{ "var": "完整键名" }`，详见 `references/views.md`。只读本台有限数值，运行时取当前值，缺键/类型不符/热层不可用显示块错误。谁能写变量仍走现有变量工具的授权；保存视图只决定给本视图读者展示哪些数，不放宽变量 API。
 
+## 跟踪长程任务（依赖图、甘特图、流程图）
+
+把任务存成台里一个数据集，一行一个任务，前置写在自己那一行（`a` 必需、`?a` 可选、`a|b` 任一）；角色列标起点 `start`、主线终点 `end`、支线终点 `branch_end`。拆任务、推进、改终点都只是 `dataset_upsert` 这张表，页面上的 `dag`、`gantt`、`flow` 约 5 秒内自动重画。写法和规矩见 `references/views.md`「任务图」，照着抄见 `references/recipes.md`「长程任务」。
+
 ## 改页面
 
 1. `view_get` 读现在生效的那一版，记下版本号。
@@ -221,8 +225,8 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
 - `references/rest.md`：REST 入口的地址（每个工具对应哪条）、谁进得来、大写入怎么发
 - `references/datasets.md`：列的类型和值怎么写、改列的规矩、快照与退回
 - `references/query.md`：查询描述的全部写法（筛选、分组、聚合、排序、`$参数`）
-- `references/views.md`：八种组件各自的键、筛选栏、表单、取值的说法、按值着色、宽度
+- `references/views.md`：十二种组件各自的键、筛选栏、表单、取值的说法、按值着色、宽度；任务图三种组件（依赖图、甘特图、流程图）的任务表、依赖写法、起点终点、实时刷新
 - `references/view-doc-schema.json`：视图描述的完整机器可读契约（每种组件的键、必填、上限）。`view_put` 的参数说明里只给大致形状，写视图前先读这份；它由代码生成，和服务端校验同一来源
 - `references/limits.md`：全部上限和时限
-- `references/recipes.md`：几个常见的台照着抄
+- `references/recipes.md`：几个常见的台照着抄，含长程任务（依赖图、甘特图、进度曲线）和允许退回的审批流程图
 - `references/example-inspection.md`：一个完整的例子，从建数据集到能打开页面（合成·设备巡检台，数据全是合成的）
