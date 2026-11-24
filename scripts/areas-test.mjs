@@ -37,7 +37,7 @@
  *   node scripts/areas-test.mjs
  */
 import { createServer } from 'node:net';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -897,6 +897,93 @@ try {
     const rpcAfterRevoke = await areaMcp();
     check(drop.status === 200 && afterGrantRevoke.json?.effective_actions?.length === 0 && rpcActions(rpcAfterRevoke)?.length === 0,
       'F6 撤账户授予后同一令牌在两通道立即失去该领域有效动作', { drop, afterGrantRevoke, rpcAfterRevoke });
+    // 使用本地合成名册和实际签发的令牌，验证改派不继承审批。
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const publicDer = publicKey.export({ format: 'der', type: 'spki' });
+    const digest = createHash('sha256').update(publicDer).digest('hex');
+    const host = digest.slice(0, 8), fingerprint = 'sha256:' + digest;
+    const root = 'https://fixture-area-seat.example.test', seatId = 'fixture-seat';
+    const seatTeam = 'fixture-area-seat/canvas/demo', seat = 'fixture-area-seat/a0000001';
+    const rosterTime = new Date().toISOString();
+    const seatRows = A.db();
+    seatRows.prepare("INSERT INTO a2a_peers (id, root_url, zone, public_key, key_fingerprint, status, registered_by, registered_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', 'test', ?, ?)")
+      .run('peer_' + host, root, 'fixture-area-seat', publicDer.toString('base64'), fingerprint, rosterTime, rosterTime);
+    seatRows.prepare('INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(host, root, fingerprint, 'fixture-area-seat', rosterTime, rosterTime);
+    seatRows.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, '合成席位', 'member', ?)")
+      .run(root, fingerprint, host, seatTeam, seat, seatId, rosterTime);
+    seatRows.close();
+    const assign = principal => {
+      const d = A.db();
+      const now = Date.now();
+      try {
+        d.prepare('UPDATE seat_assignments SET ended_at = ? WHERE host = ? AND seat_id = ? AND ended_at IS NULL').run(now, host, seatId);
+        d.prepare("INSERT INTO seat_assignments (host, team, seat, seat_id, principal_id, assigned_by, assigned_at, peer_root, key_fingerprint) VALUES (?, ?, ?, ?, ?, 'test', ?, ?, ?)")
+          .run(host, seatTeam, seat, seatId, principal, now, root, fingerprint);
+      } finally { d.close(); }
+    };
+    for (const principal of ['user:tom', 'user:nina']) {
+      const g = await draftBy(null, principal, 'area-member', 'area:' + alpha);
+      const submitted = await A.cli('POST', '/api/grants/' + g.id + '/submit');
+      const accepted = await A.cli('POST', '/api/grants/' + g.id + '/approve');
+      if (submitted.status !== 200 || accepted.status !== 200) throw Error('合成席位的账户授予未生效');
+    }
+    assign('user:tom');
+    const exchange = { v: 1, root, host, seat_id: seatId, ts: Date.now(), nonce: 'fixture-seat-ident-1', aud: A.base };
+    const canonical = JSON.stringify(['wm-seat-token/1', exchange.root, exchange.host, exchange.seat_id, exchange.ts, exchange.nonce, exchange.aud]);
+    const issued = await A.remote('POST', '/api/a2a/seat-token', {
+      json: { ...exchange, sig: sign(null, Buffer.from(canonical), privateKey).toString('base64') },
+    });
+    if (issued.status !== 200 || !issued.json?.token) throw Error('合成席位令牌未签发：' + issued.status);
+    const seatSession = issued.json;
+    const lookupSeat = A.db();
+    const seatSubject = lookupSeat.prepare('SELECT session_id FROM a2a_seat_subjects WHERE peer_root = ? AND key_fingerprint = ? AND seat_id = ?')
+      .get(root, fingerprint, seatId);
+    lookupSeat.close();
+    if (!seatSubject) throw Error('合成席位会话未建立');
+    const seatActions = () => callTool(seatSession.token, 'access_info', { area: alpha });
+    const oldApproved = await ask(seatSession, ['area.read']);
+    const oldDecision = await decided(olga, idOf(oldApproved));
+    const oldEffective = await seatActions();
+    const oldPending = await ask(seatSession, ['area.read']);
+    if (oldDecision.status !== 200 || oldEffective.json?.effective_actions?.join() !== 'area.read' || request(oldPending)?.status !== 'pending') {
+      throw Error('合成席位前任的批准及待批准备失败');
+    }
+    assign('user:nina');
+    const beforeNewApproval = await seatActions();
+    const oldAfterReassign = await decided(olga, idOf(oldPending));
+    const newPending = await ask(seatSession, ['area.read']);
+    const newDecision = await decided(olga, idOf(newPending));
+    const afterNewApproval = await seatActions();
+    check(beforeNewApproval.status === 200 && beforeNewApproval.json?.effective_actions?.length === 0 && newDecision.status === 200 &&
+      afterNewApproval.json?.effective_actions?.join() === 'area.read', 'F8 席位新人有本人授予，仍须重新获批才有效', { beforeNewApproval, newDecision, afterNewApproval });
+    check(oldAfterReassign.status === 409 && oldAfterReassign.json?.code === 'area_access_applicant_changed',
+      'F9 改派后不可批准前任的待批申请', oldAfterReassign);
+
+    const pinPending = await ask(seatSession, ['area.read']);
+    const setBoundFingerprint = value => {
+      const d = A.db();
+      try { d.prepare('UPDATE a2a_seat_subjects SET key_fingerprint = ? WHERE session_id = ?').run(value, seatSubject.session_id); }
+      finally { d.close(); }
+    };
+    // 合成过期绑定。用正常登录的审批路径验证归属检查，避免席位令牌自身的校验先行遮住结果。
+    setBoundFingerprint('sha256:' + (digest[0] === '0' ? '1' : '0') + digest.slice(1));
+    const mismatchedPin = await decided(olga, idOf(pinPending));
+    setBoundFingerprint(fingerprint);
+    const restoredPin = await decided(olga, idOf(pinPending));
+    check(mismatchedPin.status === 403 && mismatchedPin.json?.code === 'area_access_unbound_session' && restoredPin.status === 200,
+      'F10 会话绑定与当前名册公钥指纹不符时不可审批，恢复匹配后可审批', { mismatchedPin, restoredPin });
+
+    const ticketGrant = await olga.go('PUT', '/api/mcp/sessions/' + unbound.id + '/grants', { json: { grants: ['skill_file_put'] } });
+    const uploadBytes = 'synthetic-owner-checked-upload';
+    const uploadTicket = () => callTool(unbound.token, 'skill_file_put', { size: Buffer.byteLength(uploadBytes), sha256: sha(uploadBytes) });
+    const putTicket = (path) => fetch(new URL(new URL(path).pathname, A.base), {
+      method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: uploadBytes,
+    });
+    const beforeDisableTicket = await uploadTicket();
+    if (ticketGrant.status !== 200 || beforeDisableTicket.status !== 200 || !beforeDisableTicket.json?.upload_url) {
+      throw Error('绑定会话上传票准备失败');
+    }
     const stale = await ask(guest, ['demo.write']);
     const disabled = await A.cli('POST', '/api/principals/disable', { id: 'user:tom', reason: '合成停用责任人' });
     const disabledAsk = await ask(guest, ['demo.disable-check']);
@@ -904,8 +991,13 @@ try {
     const boundDisabledMcp = await areaMcp();
     check(boundDisabledRest.status === 401 && boundDisabledMcp.status === 401, 'F7 停用实际责任人立即使两个通道拒绝同一令牌', { boundDisabledRest, boundDisabledMcp });
     const disabledApprove = await decided(olga, idOf(stale));
+    const disabledUpload = await putTicket(beforeDisableTicket.json.upload_url);
     const restored = await A.cli('POST', '/api/principals/restore', { id: 'user:tom', reason: '合成恢复责任人' });
     const restoredView = await callTool(guest.token, 'access_info', { ref: 'area-' + idOf(stale) });
+    const restoredTicket = await uploadTicket();
+    const restoredUpload = restoredTicket.json?.upload_url ? await putTicket(restoredTicket.json.upload_url) : null;
+    check(disabledUpload.status === 403 && restored.status === 200 && restoredUpload?.status === 201,
+      'F11 停用责任人后已签发的上传票拒绝，恢复后新票正常', { blocked: disabledUpload.status, restored: restoredUpload?.status });
     check(disabled.status === 200 && disabledAsk.status === 401 &&
       disabledApprove.status === 403 && disabledApprove.json?.code === 'area_access_unbound_session' && restored.status === 200 &&
       request(restoredView)?.status === 'pending', 'E20 只停用责任人即可阻止申请和批准，恢复责任人后原申请仍待批',
