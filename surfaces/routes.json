@@ -6,6 +6,7 @@
       "USE /  <- expressInit",
       "USE /  <- middleware",
       "USE /  <- sessionRenewal",
+      "USE /  <- <anonymous>",
       "USE /  <- middleware",
       "USE /  <- <anonymous>",
       "USE /  <- corsMiddleware",

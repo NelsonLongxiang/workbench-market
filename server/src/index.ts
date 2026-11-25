@@ -21,7 +21,7 @@ import { initializeTaskCenter, taskCenterSteps, taskView, taskListView, taskCent
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
 import { createPortalObservation } from './portal-observation.ts';
-import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
+import { addressesPublicMarketHttps, allSurfaceServers, browserMarked, originIsThisSurface, publicBusinessConfirmationOrigin, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createReadStream, createWriteStream } from 'node:fs';
@@ -365,6 +365,35 @@ if (A2A_FOLLOWUP_RATE === null) {
 const FETCH_STEP_REFUSALS: ReadonlySet<string> = new Set(['unregistered', 'no-card', 'not-derivable', 'bad-sig']);
 const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY, refreshCooldownMs: A2A_CARD_COOLDOWN_MS });
 app.use(sessionRenewal(SESSION_LIFE)); // 一次登录持续保持：带着市场会话来的 /api/ 请求，满一天续一次（session-policy.ts）
+// 只在这些业务确认的写入口接入公共市场。来源验证通过后仍要求会话本人，路由继续判对象与权限。
+const publicBusinessConfirmationPaths = [
+  /^\/api\/relations\/proposals\/[1-9]\d{0,15}\/(approve|reject)$/,
+  /^\/api\/report-dimensions\/[a-z][a-z0-9-]{0,47}\/activate$/,
+  /^\/api\/report-governance\/inbox\/p-[1-9][0-9]{0,14}\/(confirm|reject)$/,
+  /^\/api\/areas\/[a-z][a-z0-9-]{0,47}\/(specs\/activate|access-requests\/[1-9][0-9]{0,11}\/(approve|reject))$/,
+];
+const publicConfirmationPerson = new WeakMap<express.Request, string>();
+app.use(async (req, res, next) => {
+  if (surfaceOf(req) === 'control' && addressesPublicMarketHttps(req)) {
+    res.status(403).json({ error: 'business_confirmation_origin_denied' }); return;
+  }
+  if (req.method !== 'POST' || !publicBusinessConfirmationPaths.some(path => path.test(req.path.toLowerCase()))) return next();
+  const origin = publicBusinessConfirmationOrigin(req);
+  if (origin === 'local') return next();
+  res.set('Cache-Control', 'private, no-store');
+  if (origin === 'denied' || onVaultHost(req)) { res.status(403).json({ error: 'business_confirmation_origin_denied' }); return; }
+  if (req.headers['x-admin-token'] !== undefined || req.headers.authorization !== undefined) {
+    res.status(403).json({ error: 'business_confirmation_person_required' }); return;
+  }
+  const person = await requestPerson(req);
+  if (!person.principal) {
+    res.status(person.hasCredential ? 403 : 401).json({ error: 'business_confirmation_person_required' }); return;
+  }
+  publicConfirmationPerson.set(req, person.principal);
+  next();
+});
+const publicPerson = (req: express.Request): string | undefined => publicConfirmationPerson.get(req);
+
 app.use(loginGate.middleware);
 const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;
 app.use((req, _res, next) => { if (surfaceOf(req) === 'market') portalObserver?.observe(req); next(); });
@@ -2101,10 +2130,10 @@ registerGrantRoutes(http, { markAdmin, adminGuard, adminActor, adminHeaderOk, cr
 { const n = svc<GrantService>('grants').migrationAdminsIgnored(); if (n) console.log(JSON.stringify({ source: 'grants', event: 'migration-admin-ignored', count: n, note: '迁移来的 admin 授予在认管理员时不算；要整批收回用 POST /api/grants/revoke-migration', at: new Date().toISOString() })); }
 registerDepartmentRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
 registerTeamRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
-registerRelationRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
-registerAreaRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 领域（规范 15）：属主建撤、定规范；属主、管理层看全部
-registerAreaAccessRoutes(http, (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)));
-registerReportDimensionRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 报告的维度和模板（第 19 篇）：属主和持本领域 area-report 的人定；登录的人读
+registerRelationRoutes(http, { publicPerson, markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
+registerAreaRoutes(http, { publicPerson, markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 领域（规范 15）：属主建撤、定规范；属主、管理层看全部
+registerAreaAccessRoutes(http, (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)), publicPerson);
+registerReportDimensionRoutes(http, { publicPerson, markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 报告的维度和模板（第 19 篇）：属主和持本领域 area-report 的人定；登录的人读
 registerAccessRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
 registerAttentionRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
 registerWorkItemRoutes(http, { markAdmin, adminGuard, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
@@ -3868,7 +3897,7 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
 }
 
 registerCapabilityRoutes(http, { wrap, mcpGatewaySession, mcpPublicOrigin, invokeCapability });
-registerReportGovernanceRoutes(http, { wrap, enabled: BENCH_VIEWS.on,
+registerReportGovernanceRoutes(http, { publicPerson, wrap, enabled: BENCH_VIEWS.on,
   session: req => {
     const bearer = /^Bearer ([0-9a-f]{64})$/i.exec(String(req.headers.authorization ?? ''));
     return MCP_GATEWAY_ON && bearer ? mcpSessionByToken(bearer[1]) : null;

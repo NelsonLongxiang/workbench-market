@@ -31,6 +31,7 @@
  *   node scripts/report-dimensions-test.mjs
  */
 import { createServer } from 'node:net';
+import { request as httpRequest } from 'node:http';
 import { createHash } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -43,6 +44,8 @@ const ROOT = join(HERE, '..');
 const OUT = join(ROOT, 'tmp', `report-dimensions-${process.pid}-${Date.now().toString(36)}`);
 const ADMIN_TOKEN = 'synthetic-report-dimensions-admin-token';
 const BUSY_MS = 10_000;
+const PUBLIC_ORIGIN = 'https://market.example.test:9443';
+const PUBLIC_HOST = new URL(PUBLIC_ORIGIN).host;
 
 let pass = 0, fail = 0;
 const check = (ok, label, detail = '') => { if (ok) pass++; else fail++; console.log(`  ${ok ? '✓' : '✗'} ${label}${ok || !detail ? '' : `（${typeof detail === 'string' ? detail : JSON.stringify(detail)}）`}`); };
@@ -54,14 +57,16 @@ const children = [];
 let log = '';
 rmSync(OUT, { recursive: true, force: true });
 
-async function boot() {
+async function boot(publicMarket = false) {
   const port = await freePort();
+  const controlPort = publicMarket ? await freePort() : 0;
   const base = `http://127.0.0.1:${port}`;
-  const data = join(OUT, 'data'), home = join(OUT, 'home');
+  const fixture = join(OUT, publicMarket ? 'public' : 'direct');
+  const data = join(fixture, 'data'), home = join(fixture, 'home');
   for (const d of [data, home]) mkdirSync(d, { recursive: true });
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
-  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', REDIS_URL: '', MARKET_PUBLIC_URL: base, WM_TRUSTED_PROXIES: '127.0.0.1', ADMIN_TOKEN });
+  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: String(controlPort), DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', REDIS_URL: '', MARKET_PUBLIC_URL: publicMarket ? PUBLIC_ORIGIN : base, WM_TRUSTED_PROXIES: '127.0.0.1', ADMIN_TOKEN });
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(child);
   child.stdout.on('data', (d) => { log += String(d); }); child.stderr.on('data', (d) => { log += String(d); });
@@ -111,7 +116,28 @@ async function boot() {
   const grant = async (principal, role) => { const d = await cli('POST', '/api/grants', { principal, role, scope: '*', reason: '合成' }); const id = d.json?.grant?.id; await cli('POST', `/api/grants/${id}/submit`); const a = await cli('POST', `/api/grants/${id}/approve`); return { id, status: a.status }; };
   const person = async (username, pw, ip) => { const t = (await cli('POST', '/api/local-accounts', { username })).json?.temp_password ?? ''; return login(username, t, pw, ip); };
   const db = () => new DatabaseSync(join(data, 'workbench-market.db'), { timeout: BUSY_MS });
-  return { base, browser, login, cli, remote, grant, person, db };
+  const publicPost = (path, { actor, headers = {}, body = {}, control = false, method = 'POST' } = {}) => {
+    const h = { host: PUBLIC_HOST, origin: PUBLIC_ORIGIN, 'sec-fetch-site': 'same-origin', 'x-real-ip': '192.0.2.99', ...headers };
+    if (actor?.jar.size) h.cookie = [...actor.jar].map(([key, value]) => key + '=' + value).join('; ');
+    for (const key of Object.keys(h)) if (h[key] === undefined) delete h[key];
+    const payload = JSON.stringify(body);
+    h['content-type'] = 'application/json';
+    h['content-length'] = String(Buffer.byteLength(payload));
+    // fetch 会替换 Host。只连本机隔离监听，用 node:http 保留要测试的 Host。
+    return new Promise((resolve, reject) => {
+      const req = httpRequest(new URL(path, control ? 'http://127.0.0.1:' + controlPort : base),
+        { method, headers: h, signal: AbortSignal.timeout(15000) }, res => {
+          let text = '';
+          res.setEncoding('utf8').on('data', chunk => { text += chunk; }).on('error', reject).on('end', () => {
+            let json = null;
+            try { json = JSON.parse(text); } catch { /* 控制面也可能返回文本 */ }
+            resolve({ status: res.statusCode, json });
+          });
+        });
+      req.on('error', reject).end(payload);
+    });
+  };
+  return { base, browser, login, cli, remote, grant, person, db, publicPost, controlPort };
 }
 
 /** 库里的维度、模板、复核、留痕各有几行（看「库里没有变化」） */
@@ -627,6 +653,118 @@ try {
       check(byFormerReviewer.status === 201 && staleReview.status === 409 && staleReview.json?.error === 'report_template_unreviewed' &&
         ninaGrant.status === 200 && newReview.status === 200 && activated.json?.dimension?.active_version === 3,
         'RGP4 同判据复核人后来成为作者，历史复核不能激活，独立人复核后恢复', { byFormerReviewer, staleReview, newReview, activated });
+    } finally { db.close(); }
+  }
+  // 公网 Host 与 Origin 用真实 HTTP 发给本机隔离监听；控制面使用独立端口。
+  {
+    const P = await boot(true);
+    const owner = await P.person('ownerweb', 'Owner-pass-00001', '192.0.2.101');
+    const reporter = await P.person('reportweb', 'Report-pass-00001', '192.0.2.102');
+    const drafter = await P.person('draftweb', 'Draft-pass-00001', '192.0.2.103');
+    const stranger = await P.person('otherweb', 'Other-pass-00001', '192.0.2.104');
+    const dormant = await P.person('pausedweb', 'Paused-pass-00001', '192.0.2.105');
+    const scopedGrant = async (principal, role, scope) => {
+      const draft = await P.cli('POST', '/api/grants', { principal, role, scope, reason: '合成来源用例' });
+      const id = draft.json?.grant?.id;
+      const sent = await P.cli('POST', '/api/grants/' + id + '/submit');
+      const approved = await P.cli('POST', '/api/grants/' + id + '/approve');
+      if (draft.status !== 201 || sent.status !== 200 || approved.status !== 200) throw Error('公共市场授予夹具未准备好：' + JSON.stringify({ draft, sent, approved }));
+    };
+    const area = 'public-fixture';
+    await P.cli('POST', '/api/areas', { id: area, name: '合成公共领域' });
+    await scopedGrant('user:ownerweb', 'owner', '*');
+    await scopedGrant('user:ownerweb', 'area-lead', 'area:' + area);
+    await scopedGrant('user:reportweb', 'area-report', 'area:' + area);
+    await scopedGrant('user:draftweb', 'area-report', 'area:' + area);
+    await scopedGrant('user:pausedweb', 'owner', '*');
+    await P.cli('POST', '/api/areas', { id: 'outside-fixture', name: '合成其他领域' });
+    await scopedGrant('user:otherweb', 'area-lead', 'area:outside-fixture');
+    const dimension = await P.cli('POST', '/api/report-dimensions', { area, id: 'public-template', title: '合成模板' });
+    const template = await reporter.go('POST', '/api/report-dimensions/public-template/templates', { json: { body: tpl() } });
+    const review = await drafter.go('POST', '/api/report-dimensions/public-template/templates/1/review', { json: {} });
+    const spec = await P.cli('POST', '/api/areas/' + area + '/specs', { body: '合成规范' });
+    const db = P.db();
+    try {
+      // 部门写面已停止；只模拟其历史留下的待确认记录。批准与新领域授予走原有服务。
+      const rel = db.prepare("INSERT INTO relation_proposals (kind, department_id, principal_id, proposed_by, proposed_at) VALUES ('dept-lead', ?, 'user:draftweb', 'admin-token', ?) RETURNING id");
+      const approvePath = '/api/relations/proposals/' + rel.get(area, Date.now()).id + '/approve';
+      const rejectPath = '/api/relations/proposals/' + rel.get(area, Date.now()).id + '/reject';
+      const act = '/api/report-dimensions/public-template/activate';
+      const specAct = '/api/areas/' + area + '/specs/activate';
+      const token = 'd'.repeat(64);
+      db.prepare("INSERT INTO mcp_sessions (name, token_sha256, responsible_principal) VALUES ('public-governance-fixture', ?, 'user:draftweb')").run(sha(token));
+      const bearer = { authorization: 'Bearer ' + token };
+      const requestAccess = () => P.remote('POST', '/api/mcp-rest/tools/access_request', { headers: bearer, json: {
+        area, actions: ['report.governance-dimension-create'], reason: '合成公共治理',
+      } });
+      const request = await requestAccess();
+      const areaRequests = '/api/areas/' + area + '/access-requests/';
+      const approvalPath = areaRequests + request.json?.request?.ref?.slice(5) + '/approve';
+      const approveArea = await P.publicPost(approvalPath, { actor: owner });
+      const secondRequest = await requestAccess();
+      const rejectAreaPath = areaRequests + secondRequest.json?.request?.ref?.slice(5) + '/reject';
+      const propose = (id) => P.remote('POST', '/api/report-governance/proposals', { headers: bearer, json: {
+        op: 'dimension-create', idempotency_key: id, args: { area, id, title: '公共治理' },
+      } });
+      const pending = await propose('public-governance');
+      const pendingReject = await propose('public-governance-reject');
+      const inbox = await reporter.go('GET', '/api/report-governance/inbox');
+      const frozen = inbox.json?.proposals?.find(p => p.id === pending.json?.id);
+      if (!frozen) throw Error('公共市场治理夹具失败：' + JSON.stringify({ dimension, template, review, spec, request, approveArea, pending, inbox }));
+      const gov = '/api/report-governance/inbox/' + frozen.id + '/confirm';
+      const confirmation = { snapshot_sha256: frozen.snapshot_sha256 };
+      const actions = [
+        [approvePath, owner, {}], [rejectPath, owner, {}], [act, reporter, { version: 1 }],
+        [gov, reporter, confirmation], [specAct, owner, { version: 1 }], [approvalPath, owner, {}], [rejectAreaPath, owner, {}],
+      ];
+      const forge = [
+        { origin: 'https://elsewhere.example.test' }, { origin: 'http://market.example.test:9443' }, { origin: 'null' }, { origin: undefined },
+        { host: 'gateway.example.test', 'x-forwarded-host': PUBLIC_HOST, 'x-forwarded-proto': 'https' },
+        { origin: undefined, host: 'gateway.example.test', forwarded: 'host=' + PUBLIC_HOST + ';proto=https' },
+        { origin: 'https://elsewhere.example.test', 'sec-fetch-site': 'same-origin', 'x-forwarded-host': PUBLIC_HOST, 'x-forwarded-proto': 'https' },
+        { 'sec-fetch-site': 'cross-site' }, { 'sec-fetch-site': 'same-site' },
+      ];
+      const denied = [];
+      for (const [path, actor, body] of actions) {
+        for (const headers of forge) denied.push(await P.publicPost(path, { actor, body, headers }));
+      }
+      check(denied.every(r => r.status === 403 && r.json?.error === 'business_confirmation_origin_denied'),
+        'PUB1 每条确认先拒伪造 Origin、Host、反代头、跨站与缺失来源', denied.filter(r => r.status !== 403 || r.json?.error !== 'business_confirmation_origin_denied'));
+      const control = await Promise.all(actions.map(([path, actor, body]) => P.publicPost(path, { actor, body, control: true })));
+      check(control.every(r => r.status === 403 || r.status === 404), 'PUB2 同样的公共 Host 和 Origin 不放行控制面', control);
+      const anon = await Promise.all(actions.map(([path, , body]) => P.publicPost(path, { body })));
+      const tokens = await Promise.all(actions.map(([path, actor, body]) => P.publicPost(path, { actor, body, headers: { 'x-admin-token': ADMIN_TOKEN } })));
+      const sessionConfirm = await P.publicPost(gov, { actor: reporter, body: confirmation, headers: bearer });
+      const off = await P.cli('POST', '/api/principals/disable', { id: 'user:pausedweb', reason: '合成停用' });
+      const disabled = await P.publicPost(approvePath, { actor: dormant });
+      check(anon.every(r => r.status === 401) && tokens.every(r => r.status === 403) && sessionConfirm.status === 403 && off.status === 200 && [401, 403].includes(disabled.status),
+        'PUB3 真同源也要活跃自然人，无登录、管理口令、网关令牌和停用身份均不能确认', { anon, tokens, sessionConfirm, off, disabled });
+      const noAccess = await Promise.all(actions.map(([path, , body]) => P.publicPost(path, { actor: stranger, body })));
+      const mismatchedDigest = await P.publicPost(gov, { actor: reporter, body: { snapshot_sha256: '1'.repeat(64) } });
+      const missingTarget = await P.publicPost('/api/report-dimensions/no-public-dimension/activate', { actor: reporter, body: { version: 1 } });
+      check(noAccess.every(r => [403, 404].includes(r.status)) && noAccess[2].json?.error === 'report_dimension_set_forbidden' &&
+        noAccess[4].json?.error === 'areas_spec_holder_only' && mismatchedDigest.status === 409 && missingTarget.status === 404,
+        'PUB4 公共来源通过后仍核各自角色、作用域、对象与冻结摘要', { noAccess, mismatchedDigest, missingTarget });
+      const neighboring = await P.publicPost('/api/report-dimensions/public-template/retire', { actor: owner });
+      const limit = await P.publicPost('/api/areas/' + area + '/access-limits/1', { actor: owner, method: 'PUT' });
+      const admin = await P.publicPost('/api/workbenches', { actor: owner, headers: { 'x-admin-token': ADMIN_TOKEN }, control: true });
+      const controlHost = '127.0.0.1:' + P.controlPort;
+      // 同一有效口令在控制面自身的来源可进正常参数验证。
+      const localControl = await P.publicPost('/api/workbenches', { control: true, headers: { host: controlHost, origin: 'http://' + controlHost, 'x-admin-token': ADMIN_TOKEN } });
+      check(neighboring.status === 403 && limit.status === 403 && admin.status === 403 && localControl.status === 400,
+        'PUB5 未接入的维度撤销、领域上限与控制管理写不获公共来源例外，控制面自身同源照旧', { neighboring, limit, admin, localControl });
+      const relationship = await P.publicPost(approvePath, { actor: owner });
+      const declined = await P.publicPost(rejectPath, { actor: owner });
+      const activated = await P.publicPost(act, { actor: reporter, body: { version: 1 } });
+      const confirmed = await P.publicPost(gov, { actor: reporter, body: confirmation });
+      const refusedProposal = await P.publicPost('/api/report-governance/inbox/' + pendingReject.json?.id + '/reject', { actor: reporter });
+      const specActive = await P.publicPost(specAct, { actor: owner, body: { version: 1 } });
+      const rejectedArea = await P.publicPost(rejectAreaPath, { actor: owner });
+      check([dimension.status, template.status, review.status, spec.status, approveArea.status].join(',') === '201,201,200,201,200' &&
+        relationship.json?.proposal?.status === 'approved' && declined.json?.proposal?.status === 'rejected' && activated.json?.dimension?.active_version === 1 &&
+        confirmed.json?.status === 'confirmed' && refusedProposal.json?.status === 'rejected' && specActive.json?.area?.spec_version === 1 && rejectedArea.json?.request?.status === 'rejected',
+        'PUB6 公共 HTTPS 真同源且有授权的人完成关系、维度、报告治理、领域规范及接入的业务确认',
+        { relationship, declined, activated, confirmed, refusedProposal, specActive, approveArea, rejectedArea });
     } finally { db.close(); }
   }
 } catch (e) {
