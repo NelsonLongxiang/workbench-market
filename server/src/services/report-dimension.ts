@@ -147,6 +147,12 @@ function identifiedPerson(principal: string | null): boolean {
   return !!p && p.kind === 'person' && p.status === 'active';
 }
 
+export function normalizeDimensionTitle(title: unknown): string | null {
+  if (typeof title !== 'string') return null;
+  const normalized = title.trim();
+  return plainText(normalized, 64) ? normalized : null;
+}
+
 export class ReportDimensionService extends Service {
   constructor(ctx: any) {
     super(ctx, 'reportDimensions');
@@ -199,8 +205,8 @@ export class ReportDimensionService extends Service {
   /** 建维度。area 为 null 是跨领域的维度；领域的要在、没撤 */
   create(input: { id: string; title: string; area: string | null }, actor: DimensionActor, now: number): { ok: true; dimension: DimensionView } | DimensionRefusal {
     if (!DIMENSION_ID_RE.test(input.id)) return refuse(400, 'report_dimension_id_invalid', '维度标识要是小写字母开头的字母、数字、连字符，最多 48 个字符');
-    const title = input.title.trim();
-    if (!plainText(title, 64)) return refuse(400, 'report_dimension_title_invalid', '维度名字要是 1～64 个字符，不带控制字符');
+    const title = normalizeDimensionTitle(input.title);
+    if (title === null) return refuse(400, 'report_dimension_title_invalid', '维度名字要是 1～64 个字符，不带控制字符');
     if (input.area !== null) {
       const a = svc<AreaService>('areas').get(input.area);
       if (!a) return refuse(404, 'area_missing', `领域 ${input.area} 不存在`);

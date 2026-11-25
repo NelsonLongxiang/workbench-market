@@ -47,6 +47,7 @@ async function fixture({reportDimCreateBroken=false,reportDimTemplateBroken=fals
  app.get('/api/report-dimensions',(_req,res)=>reportDimReadBroken?res.json({dimensions:[]}):res.status(401).json({error:'report_dimensions_auth_required'}));
  app.post('/api/bench-views/:bench/reports/:dimension/binding/stop',(_req,res)=>res.status(401).end());
  app.post('/api/report-governance/inbox/:id/confirm',(_req,res)=>res.status(401).end());
+ app.post('/api/report-governance/proposals',(_req,res)=>res.status(403).end());
  app.get('/api/knowledge',(_req,res)=>knowledgeBroken?res.status(200).json({items:[],source:'ok'}):res.status(401).json({error:'login_required'}));
  app.put('/api/knowledge/project-depts',(_req,res)=>knowledgeMapBroken?res.status(403).json({error:'need admin'}):res.status(401).json({error:'login_required'}));
  app.post('/api/knowledge/remember',(_req,res)=>rememberBroken?res.status(403).json({error:'need admin'}):res.status(401).json({error:'login_required'}));
@@ -209,6 +210,7 @@ for(const nodeEnv of ['development','test']){
  app.get('/api/report-dimensions',(_req,res)=>res.status(401).end());
  app.post('/api/bench-views/:bench/reports/:dimension/binding/stop',(_req,res)=>res.status(401).end());
  app.post('/api/report-governance/inbox/:id/confirm',(_req,res)=>res.status(401).end());
+ app.post('/api/report-governance/proposals',(_req,res)=>res.status(403).end());
  const server=createServer(app);const running=probe.run({market:server,gatewayOn:true,nodeEnv:'test'});
  await new Promise(r=>setTimeout(r,900));await new Promise(r=>server.listen(0,'127.0.0.1',r));
  try{const r=await running;check('market surface that starts listening after the request timeout still passes',r.passed===true&&r.rows.some(x=>x.surface==='market')&&r.rows.filter(x=>x.surface==='market').every(x=>x.verdict==='pass'));}finally{server.closeAllConnections();await new Promise(r=>server.close(r));}

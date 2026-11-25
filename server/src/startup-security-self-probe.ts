@@ -164,6 +164,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
         { id: 'market.bench-views.anonymous-write', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views', body: '{"slug":"wm-self-probe","title":"x"}', headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.anonymous-stop-report', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/reports/probe/binding/stop', body: '{}', headers: REMOTE_ANON, status: 401 },
         { id: 'market.report-governance.anonymous-confirm', target: m, surface: 'market' as const, method: 'POST', path: '/api/report-governance/inbox/p-1/confirm', body: '{}', headers: REMOTE_ANON, status: 401 },
+        { id: 'market.report-governance.anonymous-dimension-propose', target: m, surface: 'market' as const, method: 'POST', path: '/api/report-governance/proposals', body: '{"op":"dimension-create","args":{"area":"probe","id":"probe","title":"probe"},"idempotency_key":"probe"}', headers: REMOTE_ANON, status: 403 },
       ] : []),
       // 授予管理面：远程匿名列不出授予（GET 不经写请求总门，拒的是路由自己的管理门；登录门开着时登录门先拦 401）
       // L19：授予的读对登录的人放开（只看自己能放行的），远程匿名仍然读不到（没登录 401）

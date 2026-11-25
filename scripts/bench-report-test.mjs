@@ -889,6 +889,12 @@ try {
       wrongDimension.status === 403 && wrongDimension.text === missingDimension.text,
       'RG1 授予精确到台和维度，未授权与未登记目标同拒', { bound: bound.status, lead, proposerRole, grant: okGrant?.status, access: access.text, ask: ask.text, wrong: wrongDimension.text });
     if (!ask.json?.id) throw Error('治理夹具未提案：' + ask.text);
+    const catalog = await srv.call('POST', '/api/mcp-rest/tools/access_info', { headers: bearer, body: {} });
+    const governance = catalog.json?.capabilities?.filter(row => row.name.startsWith('report.governance-')) ?? [];
+    const fields = 'area,description,granted,kind,name';
+    check(catalog.status === 200 && governance.map(row => row.name).sort().join(',') === 'report.governance-propose,report.governance-result' &&
+      governance.every(row => Object.keys(row).sort().join(',') === fields && row.granted === true),
+      'RG6 默认 access_info 只列两条治理简行，不展开参数', { status: catalog.status, governance });
     const id = ask.json.id;
     const invoked = await srv.call('POST', '/mcp', { headers: bearer, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
       name: 'invoke', arguments: { target: 'report.governance-propose', args: input },
@@ -940,6 +946,24 @@ try {
       recovered.json?.status === 'confirmed' && recovered.json?.result?.version === input.args.base + 2 &&
       settled.json?.binding?.version === committed.json?.binding?.version,
       'RG5 台库提交后主库回执失败，重试查持久回执收敛且不重写绑定', { firstConfirm, unsettled, committed, recovered, settled });
+    const proposalCount = () => db.prepare('SELECT COUNT(*) AS n FROM report_governance_proposals').get().n;
+    const approval = db.prepare('SELECT * FROM area_access_requests WHERE id = ?');
+    const approvalId = Number(ref.slice(5));
+    const approvedBefore = approval.get(approvalId);
+    const grantId = db.prepare("SELECT id FROM grants WHERE principal_id = 'user:beta' AND role = 'management' AND scope = '*' AND status = 'active'").get()?.id;
+    const currentInput = { ...input, args: { ...input.args, base: settled.json?.binding?.version } };
+    const allowed = await rest({ ...currentInput, idempotency_key: 'bind-fixture-grant-active' });
+    const revokeManagement = await cli('POST', '/api/grants/' + grantId + '/revoke', { reason: '合成：验证报告治理当前授予撤销' });
+    const countBefore = proposalCount();
+    const denied = await rest({ ...currentInput, idempotency_key: 'bind-fixture-grant-revoked' });
+    const countAfter = proposalCount();
+    const approvedAfter = approval.get(approvalId);
+    check(allowed.status === 202 && revokeManagement.status === 200 && approvedBefore?.status === 'approved' &&
+      JSON.stringify(approvedBefore) === JSON.stringify(approvedAfter) && denied.status === 403 && denied.text === wrongDimension.text &&
+      countAfter === countBefore, 'RG7 台和维度批准保留，责任人当前账户失权同拒且无新增提案',
+      { allowed: allowed.status, revoked: revokeManagement.status, approval: approvedAfter?.status, denied: denied.status, counts: [countBefore, countAfter] });
+    // 恢复账户授予，让后续改绑回转测试只受台范围的约束。
+    if (!await activate({ principal: 'user:beta', role: 'management', scope: '*' })) throw Error('未恢复合成报告治理授予');
     const moved = await bv(boss, 'PUT', benchPath + '/binding', { department: '' });
     const movedBack = await bv(boss, 'PUT', benchPath + '/binding', { department: area });
     const lost = await srv.call('GET', '/api/report-governance/proposals/' + id, { headers: bearer });

@@ -504,6 +504,76 @@ try {
     check(retire.status === 200 && retire.json?.dimension?.status === 'retired' && after.add === 409 && after.review === 409 && after.act === 409 && after.again === 409 && after.read === 200 && dbRetired && same(before, counts(A)),
       'R7b 撤了的维度：发版、复核、移指针、再撤 409，读照常；库里直接改也拒；库里没有变化', { retire: retire.status, after, dbRetired });
   }
+  // 维度治理：用已登录的真实合成账户、网关会话和接入申请 API。
+  {
+    const db = A.db();
+    try {
+      const fixtureToken = 'a'.repeat(64);
+      db.prepare("INSERT INTO mcp_sessions (name, token_sha256, responsible_principal) VALUES ('governance-dimension-fixture', ?, 'user:ria')").run(sha(fixtureToken));
+      const headers = { Authorization: 'Bearer ' + fixtureToken };
+      const propose = (id, extra = {}) => A.remote('POST', '/api/report-governance/proposals', { headers, json: {
+        op: 'dimension-create', idempotency_key: id, args: { area: 'zeta', id, title: '  合成维度  ', ...extra },
+      } });
+      const blocked = await propose('governance-register');
+      const apply = await A.remote('POST', '/api/mcp-rest/tools/access_request', { headers, json: {
+        area: 'zeta', actions: ['report.governance-dimension-create'], reason: '合成治理登记',
+      } });
+      const requestId = apply.json?.request?.ref?.slice(5);
+      const grant = await olga.go('POST', '/api/areas/zeta/access-requests/' + requestId + '/approve', { json: {} });
+      const wrongArea = await propose('governance-register', { area: 'eta' });
+      const missingArea = await propose('governance-register', { area: 'absent-area' });
+      const badArgs = await propose('governance-register', { area_status: 'active' });
+      const countBefore = counts(A);
+      const pending = await propose('governance-register');
+      const mcp = await A.remote('POST', '/mcp', { headers, json: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
+        name: 'invoke', arguments: { target: 'report.governance-propose', args: {
+          op: 'dimension-create', idempotency_key: 'governance-register', args: { area: 'zeta', id: 'governance-register', title: '合成维度' },
+        } },
+      } } });
+      const repeat = JSON.parse(mcp.json?.result?.content?.[0]?.text ?? '{}');
+      check(blocked.status === 403 && grant.status === 200 && wrongArea.status === 403 && same(wrongArea.json, missingArea.json) && badArgs.status === 400 &&
+        pending.status === 202 && pending.json?.status === 'pending' && repeat.id === pending.json?.id && same(countBefore, counts(A)),
+        'RGD1 维度登记须在批准领域内，归一标题的提案重放且不写维度，拒绝代填冻结字段', { blocked, apply, grant, wrongArea, missingArea, badArgs, pending, repeat });
+      const inbox = async id => (await rex.go('GET', '/api/report-governance/inbox')).json?.proposals?.find(row => row.id === id);
+      const confirm = (actor, id, digest) => actor.go('POST', '/api/report-governance/inbox/' + id + '/confirm', { json: { snapshot_sha256: digest } });
+      const frozen = await inbox(pending.json?.id);
+      if (!frozen) throw Error('登记提案未出现：' + JSON.stringify(pending));
+      const noPermission = await confirm(mona, frozen.id, frozen.snapshot_sha256);
+      const wrongDigest = await confirm(rex, frozen.id, 'b'.repeat(64));
+      const created = await confirm(rex, frozen.id, frozen.snapshot_sha256);
+      const again = await confirm(rex, frozen.id, frozen.snapshot_sha256);
+      const read = await rex.go('GET', '/api/report-dimensions/governance-register');
+      const receipt = await A.remote('GET', '/api/report-governance/proposals/' + frozen.id, { headers });
+      check(noPermission.status === 403 && wrongDigest.status === 409 && created.json?.status === 'confirmed' && same(created.json, again.json) &&
+        read.json?.dimension?.title === '合成维度' && read.json.dimension.area_id === 'zeta' && read.json.dimension.active_version === null &&
+        read.json.dimension.created_by === 'user:rex' && receipt.json?.result?.dimension === 'governance-register' && counts(A).dims === countBefore.dims + 1,
+        'RGD2 由本人对冻结摘要确认，登记一次、无生效模板，查询只回维度标识', { frozen, noPermission, wrongDigest, created, again, read, receipt });
+
+      const collision = await propose('governance-collision');
+      const colliding = await inbox(collision.json?.id);
+      await rex.go('POST', '/api/report-dimensions', { json: { id: 'governance-collision', area: 'zeta', title: '先提交' } });
+      const collided = await confirm(rex, colliding.id, colliding.snapshot_sha256);
+      const tx = await propose('governance-atomic');
+      const atomic = await inbox(tx.json?.id);
+      db.exec("CREATE TRIGGER fixture_registration_failure BEFORE UPDATE ON report_governance_proposals WHEN NEW.status = 'confirmed' BEGIN SELECT RAISE(ABORT, 'fixture: fail dimension receipt'); END");
+      let failed;
+      try { failed = await confirm(rex, atomic.id, atomic.snapshot_sha256); }
+      finally { db.exec('DROP TRIGGER fixture_registration_failure'); }
+      const afterFailure = await rex.go('GET', '/api/report-dimensions/governance-atomic');
+      const retry = await confirm(rex, atomic.id, atomic.snapshot_sha256);
+      check(collided.json?.status === 'conflict' && failed.status === 500 && afterFailure.status === 404 && retry.json?.status === 'confirmed',
+        'RGD3 标识被占用时冲突，确认回执落库失败则回滚维度和领取状态，修复后可重试', { collided, failed, afterFailure, retry });
+
+      const stale = await propose('governance-revoked');
+      const staleFrozen = await inbox(stale.json?.id);
+      const revoked = await A.cli('POST', '/api/grants/' + riaG.id + '/revoke', { reason: '合成：提案责任人失权' });
+      const denied = await confirm(rex, staleFrozen.id, staleFrozen.snapshot_sha256);
+      const none = await rex.go('GET', '/api/report-dimensions/governance-revoked');
+      const hidden = await A.remote('GET', '/api/report-governance/proposals/' + staleFrozen.id, { headers });
+      check(revoked.status === 200 && denied.json?.status === 'conflict' && denied.json?.reason === 'authorization_changed' && none.status === 404 && hidden.status === 403,
+        'RGD4 确认时重验发起人当前领域授予，失权不登记也不再返回结果', { revoked, denied, none, hidden });
+    } finally { db.close(); }
+  }
 } catch (e) {
   fail++;
   console.log(`  ✗ 跑不下去：${e?.stack ?? e}`);
