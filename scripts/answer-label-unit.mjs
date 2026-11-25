@@ -40,6 +40,8 @@ const unnamed = sources.filter((s) => recentTitle({ title: null, source: s }) ==
 ok('从服务端读出了「关注」的来源（读法失灵时先红）', sources.length >= 10 && sources.includes('a2a-peers'), sources.join(','));
 ok('「关注」各来源在「我处理过的」里都有中文名（对端公钥那一行没标题时写「对端公钥」）', unnamed.length === 0 && recentTitle({ title: null, source: 'a2a-peers' }) === '对端公钥', unnamed.join(','));
 
+ok('报告复核邀请无标题时有准确中文来源，已有标题照常保留', recentTitle({ title: null, source: 'report-review-invitations' }) === '报告复核邀请' && recentTitle({ title: '合成报告复核', source: 'report-review-invitations' }) === '合成报告复核');
+
 function J(x) { return JSON.stringify(x); }
 console.log(`\nanswer-label-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
