@@ -6,8 +6,16 @@ import { getBench, resolveBenchRef } from './bench-registry.ts';
 import type { GrantService } from './grant.ts';
 import type { PrincipalService } from './principal.ts';
 
-export const SCOPES = ['bench:read', 'bench:write', 'view', 'grants', 'report-dimensions'] as const;
-export type Scope = typeof SCOPES[number];
+export const PERSONAL_TOKEN_SCOPES = [
+  { id: 'bench:read', label: '读取台数据', description: '查询指定台的数据集并读取报告。' },
+  { id: 'bench:write', label: '写入台数据', description: '定义指定台的数据集，以及新增、更新或删除行。' },
+  { id: 'view', label: '保存视图', description: '保存指定台的视图配置。' },
+  { id: 'grants', label: '处理 MCP 申请', description: '查看指定台的 MCP 授予并处理申请。' },
+  { id: 'report-dimensions', label: '管理报告维度', description: '按既有权限发布、复核和激活维度模板，可绑定到已选的台。' },
+] as const;
+export type Scope = typeof PERSONAL_TOKEN_SCOPES[number]['id'];
+const SCOPES = new Set<string>(PERSONAL_TOKEN_SCOPES.map(scope => scope.id));
+export const PERSONAL_TOKEN_LIMITS = { default_expires_in_days: 30, min_expires_in_days: 1, max_expires_in_days: 90 } as const;
 const DAY = 86_400_000;
 const NAME = /^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,47}$/u;
 const BENCH_REF = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -20,7 +28,7 @@ type TokenRow = {
 };
 const decode = (row: TokenRow) => ({ ...row, scopes: JSON.parse(row.scopes) as Scope[], benches: JSON.parse(row.benches) as string[] });
 export type PersonalToken = ReturnType<typeof decode>;
-function invalid(message: string): never { throw new HttpError(400, message, { code: 'personal_token_invalid' }); }
+function invalid(message: string): never { throw new HttpError(400, message, { error: 'personal_token_invalid', message }); }
 
 export function listPersonalTokens(principal: string): PersonalToken[] {
   return (db.prepare('SELECT ' + metadata + ' FROM owner_personal_tokens WHERE principal = ? ORDER BY created_at DESC, id').all(principal) as TokenRow[]).map(decode);
@@ -28,17 +36,17 @@ export function listPersonalTokens(principal: string): PersonalToken[] {
 
 export function issuePersonalToken(principal: string, input: Record<string, unknown>, now = Date.now()) {
   if (!input || Object.keys(input).some(k => !['name', 'scopes', 'benches', 'expires_in_days'].includes(k))) invalid('个人令牌设置有不认识的字段');
-  const { name, scopes, benches, expires_in_days: days = 30 } = input;
+  const { name, scopes, benches, expires_in_days: days = PERSONAL_TOKEN_LIMITS.default_expires_in_days } = input;
   if (typeof name !== 'string' || !NAME.test(name) || name !== name.trim()) invalid('令牌名称限 1～48 个字母、数字、空格、点、短横线或下划线');
-  if (!Array.isArray(scopes) || scopes.length === 0 || scopes.length > SCOPES.length || scopes.some(s => !SCOPES.includes(s)) || new Set(scopes).size !== scopes.length) invalid('请选择有效且不重复的作用域');
+  if (!Array.isArray(scopes) || scopes.length === 0 || scopes.length > SCOPES.size || scopes.some(s => !SCOPES.has(s)) || new Set(scopes).size !== scopes.length) invalid('请选择有效且不重复的作用域');
   if (!Array.isArray(benches) || benches.length > 128 || benches.some(b => typeof b !== 'string' || !BENCH_REF.test(b))) invalid('请选择可用的台');
   const canonical = [...new Set((benches as string[]).map(resolveBenchRef))];
   if (canonical.some(b => !getBench(b)) || (canonical.length === 0 && (scopes as Scope[]).some(s => s !== 'report-dimensions'))) invalid('台相关的作用域须选择已登记的台');
-  if (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 90) invalid('有效期须为 1～90 天');
+  if (typeof days !== 'number' || !Number.isInteger(days) || days < PERSONAL_TOKEN_LIMITS.min_expires_in_days || days > PERSONAL_TOKEN_LIMITS.max_expires_in_days) invalid('有效期须为 1～90 天');
   const token = 'wmu_' + randomBytes(32).toString('base64url');
   const row = db.prepare('INSERT INTO owner_personal_tokens (id, token_sha256, principal, name, scopes, benches, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (principal, name) DO NOTHING RETURNING ' + metadata)
     .get(randomUUID(), digest(token), principal, name, JSON.stringify(scopes), JSON.stringify(canonical), now, now + Number(days) * DAY) as TokenRow | undefined;
-  if (!row) throw new HttpError(409, '此令牌名称已使用，请换一个名字', { code: 'personal_token_name_taken' });
+  if (!row) throw new HttpError(409, '此令牌名称已使用，请换一个名字', { error: 'personal_token_name_taken', message: '此令牌名称已使用，请换一个名字' });
   return { token, personal_token: decode(row) };
 }
 
