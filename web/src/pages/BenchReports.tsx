@@ -4,13 +4,13 @@
  *  页面只消费接口，不另判：读、回应的规矩都在服务端（services/bench-report.ts），这里照它的应答画、照它的说法提示。 */
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Button, Empty, Input, Radio, Result, Skeleton, Tag, Typography } from 'antd';
+import { Alert, Button, Empty, Image, Input, Radio, Result, Skeleton, Tag, Typography } from 'antd';
 import { ArrowLeftOutlined, FileTextOutlined } from '@ant-design/icons';
 import { getBenchEntry, getBenchReport, listBenchReports, respondBenchReport, type BenchEntry, type ReportListItem, type ReportListNames, type ReportNames, type ReportNode, type ReportRead, type ReportResponse } from '../api';
 import { entryOutcome } from '../bench-page-view';
 import { fmtNumber } from '../bench-blocks/blocks-view';
 import { BarBlock } from '../bench-blocks/Chart';
-import { actorKindText, basisText, gateText, groupBySubject, headsOf, kindLabel, myHead, nameOr, positionText, replacedIds, reportError, reportRoute, respondProblem, sourceText, stanceText, timeText } from '../report-page-view';
+import { REPORT_IMAGE_TEXT, actorKindText, basisText, gateText, groupBySubject, headsOf, kindLabel, myHead, nameOr, positionText, replacedIds, reportError, reportImageSrc, reportImageState, reportRoute, respondProblem, sourceText, stanceText, timeText, type ReportImageState } from '../report-page-view';
 
 type Load<T> = { phase: 'loading' } | { phase: 'ok'; data: T } | { phase: 'error'; text: string };
 
@@ -154,7 +154,7 @@ function OneReport({ cardId, reportId, entry, column }: { cardId: string; report
           {gateText(d.gate) ? <span className="wm-rp-meta" data-testid="report-gate">{gateText(d.gate)}</span> : null}
         </div>
       </header>
-      <div className="wm-rp-body"><Nodes nodes={rep.body.body} level={1} /></div>
+      <div className="wm-rp-body"><Nodes nodes={rep.body.body} level={1} img={{ bench: entry.bench.slug, report: rep.id }} /></div>
       <footer className="wm-rp-meta wm-rp-sources" data-testid="report-sources">
         来源：{rep.sources.map((x, i) => sourceText(names.sources[i], x)).join('；')}
       </footer>
@@ -233,13 +233,15 @@ function RespondBox({ cardId, reportId, claimKey, stances, mine, onDone }: { car
   );
 }
 
-/** 冻结的正文：封面、小节、文字、栅格、统计、表格、柱状图（和 P0 的阅读结构一样；图片节点这一步不收，服务端已拒） */
-function Nodes({ nodes, level }: { nodes: ReportNode[]; level: number }) {
+/** 冻结的正文：封面、小节、文字、栅格、统计、表格、柱状图、图片（图片经代取，来源是这份报告） */
+type ImgFrom = { bench: string; report: number };
+function Nodes({ nodes, level, img }: { nodes: ReportNode[]; level: number; img: ImgFrom }) {
   return <>{nodes.map((n) => {
     if (n.type === 'cover') return <header key={n.id} className="wm-rp-cover" data-node={n.id}><h1>{n.title}</h1>{n.content ? <p>{n.content}</p> : null}</header>;
-    if (n.type === 'section') { const H = level <= 1 ? 'h2' : 'h3'; return <section key={n.id} data-node={n.id}><H className="wm-rp-h">{n.title}</H><Nodes nodes={n.children ?? []} level={level + 1} /></section>; }
+    if (n.type === 'section') { const H = level <= 1 ? 'h2' : 'h3'; return <section key={n.id} data-node={n.id}><H className="wm-rp-h">{n.title}</H><Nodes nodes={n.children ?? []} level={level + 1} img={img} /></section>; }
+    if (n.type === 'image') return <ReportImage key={n.id} node={n} img={img} />;
     if (n.type === 'text') return <p key={n.id} data-node={n.id} className="wm-rp-text">{n.content}</p>;
-    if (n.type === 'grid') return <div key={n.id} data-node={n.id} className="wm-rp-grid"><Nodes nodes={n.children ?? []} level={level} /></div>;
+    if (n.type === 'grid') return <div key={n.id} data-node={n.id} className="wm-rp-grid"><Nodes nodes={n.children ?? []} level={level} img={img} /></div>;
     if (n.type === 'data-view' && n.data) {
       const p = n.props ?? {};
       if (n.component === 'stat') {
@@ -259,6 +261,36 @@ function Nodes({ nodes, level }: { nodes: ReportNode[]; level: number }) {
     }
     return null;
   })}</>;
+}
+
+/**
+ * 报告里的一张图：取一次代取地址，按应答码画——200 显示取到的这份字节（就是服务端按冻结哈希核过的那份），409「图片已变」、其余「图片取不到」，
+ * 都不显示链接原文。显示用 blob 地址（主界面现在没有 CSP；以后加 CSP 时 img-src 要放 blob:）。样式只用 token 类名
+ */
+function ReportImage({ node, img }: { node: ReportNode; img: ImgFrom }) {
+  const src = reportImageSrc(img.bench, img.report, node.src);
+  const [s, setS] = useState<{ phase: 'loading' } | { phase: 'shown'; url: string } | { phase: Exclude<ReportImageState, 'ok'> }>({ phase: 'loading' });
+  useEffect(() => {
+    if (!src) { setS({ phase: 'missing' }); return; }
+    let live = true, url = '';
+    setS({ phase: 'loading' });
+    void fetch(src, { credentials: 'same-origin' }).then(async (r) => {
+      const st = reportImageState(r.status);
+      if (st !== 'ok') { if (live) setS({ phase: st }); return; }
+      const made = URL.createObjectURL(await r.blob());
+      if (live) { url = made; setS({ phase: 'shown', url: made }); } else URL.revokeObjectURL(made);
+    }, () => { if (live) setS({ phase: 'missing' }); });
+    return () => { live = false; if (url) URL.revokeObjectURL(url); };
+  }, [src]);
+  const alt = node.alt ?? '';
+  return (
+    <figure className="wm-rp-figure" data-node={node.id} data-testid="report-image">
+      {s.phase === 'shown' ? <Image src={s.url} alt={alt} className="wm-rp-img" rootClassName="wm-rp-img-root" preview={{ mask: '查看原图' }} data-testid="report-image-shown" />
+        : s.phase === 'loading' ? <span className="wm-img-missing wm-rp-img-missing" role="img" aria-label="图片加载中" aria-busy="true" />
+        : <span className="wm-img-missing wm-rp-img-missing" role="img" aria-label={REPORT_IMAGE_TEXT[s.phase]} data-testid={`report-image-${s.phase}`}>{REPORT_IMAGE_TEXT[s.phase]}</span>}
+      {alt ? <figcaption className="wm-rp-figcaption">{alt}</figcaption> : null}
+    </figure>
+  );
 }
 
 /** 台页面顶栏的「报告」：服务端说能看报告（can.reports）才出 */

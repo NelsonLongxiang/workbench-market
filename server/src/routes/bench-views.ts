@@ -34,6 +34,8 @@ import { viaBegin, viaSettle } from '../attention-via.ts';
 import { assertBenchBinding, renderBenchView } from '../services/bench-render.ts';
 import { bindReport, generateReport, listReports, readReport, respondReport, SUBJECT_RE } from '../services/bench-report.ts';
 import { fetchImage, ImageError, viewRefersImage } from '../bench-image.ts';
+import { imageNodesOf } from '../services/report-compile.ts';
+import { createHash } from 'node:crypto';
 
 export type BenchViewsConfig = { on: boolean; imageGalleryBase: string | null };
 /** 启动时读一次：WM_BENCH_VIEWS（on / off，缺省 on；不需要时显式 off 关掉）；WM_IMAGE_GALLERY_BASE（图库前缀，可不设）。不合法拒绝启动 */
@@ -329,7 +331,7 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     } catch (err) { fail(res, err); }
   }));
   app.post('/api/bench-views/:bench/reports', { action: 'bench-store.report-generate', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-generate', async (req, res, s, actor, fence) => {
-    const out = await generateReport(benchOf(req), s, req.body, actor, Date.now(), fence!);
+    const out = await generateReport(benchOf(req), s, req.body, actor, Date.now(), fence!, { galleryBase: deps.imageGalleryBase ?? null });
     res.status(201);
     return out;
   }));
@@ -431,14 +433,35 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   // 图片代取（docs/image-step1.md 第四节）：浏览器不访问图库，由市场取了再给。
   // 属主 2026-11-23 定 Q9 按引用判：来源是这个台的一份视图（view、version、p.* 照渲染时的写法），读者能读它（render），
   // 照这组参数渲染出来确实有这条链接（image 列）——三条都满足才放行；任何一条不满足同一个 403，不发外部请求，缓存命中也照判。
-  // 台没登记的，判过第一档权才回 404（没权限的人看不出台存不存在）。报告作来源在报告的 image 节点（PR C）时再加。
+  // 台没登记的，判过第一档权才回 404（没权限的人看不出台存不存在）。
+  // 报告作来源（图片第 1 步 PR C，用例 8）：带 report=<编号> 时，判法同样三条——读者能读这个台的报告（report-read，不要 render）、
+  // 这份报告属于这个台、报告冻结的正文里有一个图片节点就是这条链接；都满足才取。取回的图按冻结的哈希核：不一样回 409 image_changed（页面显示「图片已变」），不给新图。
   app.get('/api/bench-views/:bench/image', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
     const bench = getBench(req.params.bench);
     const actor = await who(req, res);
     if (!actor) return;
-    if (!may(actor, 'bench-store.render', bench)) return forbid(res);
+    const fromReport = req.query.report !== undefined;
+    if (!may(actor, fromReport ? 'bench-store.report-read' : 'bench-store.render', bench)) return forbid(res);
     if (!bench) return res.status(404).json({ error: 'bench_not_found' });
     const ref = typeof req.query.u === 'string' ? req.query.u : '';
+    if (fromReport) {
+      const id = typeof req.query.report === 'string' && /^[1-9][0-9]{0,14}$/.test(req.query.report) ? Number(req.query.report) : 0;
+      let frozenSha: string | null = null;
+      try {
+        const r = id ? await (await benchStore(bench.slug)).reportGet(id) : null;
+        if (r) frozenSha = imageNodesOf((JSON.parse(r.report.body) as { body?: unknown }).body).find((n) => n.src === ref)?.sha256 || null;
+      } catch { frozenSha = null; } // 报告不存在、正文读不出：都当没引用
+      if (!frozenSha) return forbid(res);
+      try {
+        const got = await fetchImage(ref, deps.imageGalleryBase ?? null);
+        if (createHash('sha256').update(got.body).digest('hex') !== frozenSha) return void res.status(409).json({ error: 'image_changed', message: '图片已变' });
+        res.set({ 'Content-Type': got.type, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'private, max-age=300', 'Referrer-Policy': 'no-referrer' });
+        return void res.send(got.body);
+      } catch (e) {
+        if (e instanceof ImageError) return void res.status(e.http).json({ error: e.code, message: e.message });
+        throw e;
+      }
+    }
     const params: Record<string, string> = {};
     for (const [k, v] of Object.entries(req.query)) if (k.startsWith('p.') && typeof v === 'string') params[k.slice(2)] = v;
     let referenced = false;

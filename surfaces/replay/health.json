@@ -24,7 +24,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10107", "etag": "W/\"277b-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10320", "etag": "W/\"2850-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -70,6 +70,7 @@
                   { "id": "market.bench-views.anonymous-read", "surface": "market", "method": "GET", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.var-render-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/render?var=wm-self-probe", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-export-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/export", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.bench-views.report-image-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/image?u=photos%2Fwm-self-probe.png&report=1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-row-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/row", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
@@ -119,7 +120,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9562", "etag": "W/\"255a-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9775", "etag": "W/\"262f-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -165,6 +166,7 @@
                   { "id": "market.bench-views.anonymous-read", "surface": "market", "method": "GET", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.var-render-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/render?var=wm-self-probe", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-export-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/export", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.bench-views.report-image-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/image?u=photos%2Fwm-self-probe.png&report=1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-row-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/row", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
@@ -205,7 +207,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10107", "etag": "W/\"277b-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10320", "etag": "W/\"2850-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -251,6 +253,7 @@
                   { "id": "market.bench-views.anonymous-read", "surface": "market", "method": "GET", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.var-render-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/render?var=wm-self-probe", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-export-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/export", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.bench-views.report-image-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/image?u=photos%2Fwm-self-probe.png&report=1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-row-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/row", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
@@ -300,7 +303,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10406", "etag": "W/\"28a6-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10619", "etag": "W/\"297b-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -347,6 +350,7 @@
                   { "id": "market.bench-views.anonymous-read", "surface": "market", "method": "GET", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.var-render-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/render?var=wm-self-probe", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-export-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/export", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.bench-views.report-image-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/image?u=photos%2Fwm-self-probe.png&report=1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-row-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/row", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
@@ -398,7 +402,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9677", "etag": "W/\"25cd-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9890", "etag": "W/\"26a2-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -445,6 +449,7 @@
                   { "id": "market.bench-views.anonymous-read", "surface": "market", "method": "GET", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.var-render-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/render?var=wm-self-probe", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-export-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/export", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.bench-views.report-image-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/image?u=photos%2Fwm-self-probe.png&report=1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-row-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/row", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
@@ -493,7 +498,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10107", "etag": "W/\"277b-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10320", "etag": "W/\"2850-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -539,6 +544,7 @@
                   { "id": "market.bench-views.anonymous-read", "surface": "market", "method": "GET", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.var-render-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/render?var=wm-self-probe", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-export-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/export", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.bench-views.report-image-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/image?u=photos%2Fwm-self-probe.png&report=1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-row-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/row", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
@@ -586,7 +592,7 @@
           "response": {
             "status": 503,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9585", "etag": "W/\"2571-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9798", "etag": "W/\"2646-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": false,
               "service": "workbench-market-server",
@@ -632,6 +638,7 @@
                   { "id": "market.bench-views.anonymous-read", "surface": "market", "method": "GET", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.var-render-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/render?var=wm-self-probe", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-export-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/export", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.bench-views.report-image-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/image?u=photos%2Fwm-self-probe.png&report=1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-row-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/row", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
@@ -673,7 +680,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10129", "etag": "W/\"2791-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10342", "etag": "W/\"2866-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -719,6 +726,7 @@
                   { "id": "market.bench-views.anonymous-read", "surface": "market", "method": "GET", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.var-render-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/render?var=wm-self-probe", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-export-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/export", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.bench-views.report-image-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/image?u=photos%2Fwm-self-probe.png&report=1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-row-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/row", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
@@ -776,7 +784,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10956", "etag": "W/\"2acc-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "11169", "etag": "W/\"2ba1-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -822,6 +830,7 @@
                   { "id": "market.bench-views.anonymous-read", "surface": "market", "method": "GET", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.var-render-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/render?var=wm-self-probe", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-export-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/export", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.bench-views.report-image-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/image?u=photos%2Fwm-self-probe.png&report=1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-row-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/row", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
@@ -877,7 +886,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10396", "etag": "W/\"289c-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10609", "etag": "W/\"2971-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -923,6 +932,7 @@
                   { "id": "market.bench-views.anonymous-read", "surface": "market", "method": "GET", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.var-render-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/render?var=wm-self-probe", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-export-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/export", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.bench-views.report-image-anonymous", "surface": "market", "method": "GET", "path": "/api/bench-views/wm-self-probe/image?u=photos%2Fwm-self-probe.png&report=1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.table-row-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/table/row", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },

@@ -110,3 +110,19 @@ export function gateText(gate: Record<string, unknown> | null): string {
   if (!gate) return '';
   return gate.open_dispute_blocks_acceptance === true ? '模板声明：有未处理的反驳时不能验收' : '模板声明：有未处理的反驳也可以验收';
 }
+
+/**
+ * 报告里的图片（docs/image-step1.md 用例 8，图片第 1 步 PR C）：地址一律是市场的代取路由，来源是这份报告（report=<编号>），
+ * 浏览器不直接访问图片链接。服务端按「读者能读这个台的报告、报告属于这个台、冻结的正文里有这条链接」判，并按冻结的哈希核对取回的图
+ */
+export function reportImageSrc(bench: string, reportId: number, ref: unknown): string | null {
+  if (typeof ref !== 'string' || ref === '' || !bench || !Number.isSafeInteger(reportId) || reportId < 1) return null;
+  const q = new URLSearchParams();
+  q.set('u', ref);
+  q.set('report', String(reportId));
+  return `/api/bench-views/${encodeURIComponent(bench)}/image?${q.toString()}`;
+}
+/** 代取的应答码 → 图片节点画成什么：200 照显示；409（取回的图和冻结的哈希对不上）「图片已变」，不显示新图；其余「图片取不到」 */
+export type ReportImageState = 'ok' | 'changed' | 'missing';
+export const reportImageState = (status: number): ReportImageState => (status === 200 ? 'ok' : status === 409 ? 'changed' : 'missing');
+export const REPORT_IMAGE_TEXT: Record<Exclude<ReportImageState, 'ok'>, string> = { changed: '图片已变', missing: '图片取不到' };

@@ -2,7 +2,7 @@
 /** 报告页（/use/<卡片 id>/reports，报告第 1 步 PR D）的纯函数单测（web/src/report-page-view.ts）：地址、分组、并排取哪几份、回应接在谁后面、错误说法。数据都是合成的。 */
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { STANCE_TEXT, UNNAMED, actorKindText, basisText, gateText, nameOr, positionText, sourceText, groupBySubject, headsOf, kindLabel, myHead, replacedIds, reportError, reportRoute, respondProblem, stanceText } from '../web/src/report-page-view.ts';
+import { REPORT_IMAGE_TEXT, reportImageSrc, reportImageState, STANCE_TEXT, UNNAMED, actorKindText, basisText, gateText, nameOr, positionText, sourceText, groupBySubject, headsOf, kindLabel, myHead, replacedIds, reportError, reportRoute, respondProblem, stanceText } from '../web/src/report-page-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -122,6 +122,24 @@ ok('源码检查自证（#965 统筹补）：下标写法 d[\'dimension_id\']、
   && internalReadsInText('const { responder: who } = r; const A = () => <p>{`来自 ${who}`}</p>;').length === 1
   && internalReadsInText('const { producer } = r; const A = () => <p data-p={producer}>{nameOr(names.actors[producer])}</p>;').length === 0
   && internalReadsInText("const A = () => <p>{nameOr(names.dimensions[d['dimension_id']])}</p>;").length === 0);
+
+// 图片节点（docs/image-step1.md 用例 8，图片第 1 步 PR C）：地址经代取、来源是这份报告；应答码 → 显示、「图片已变」、「图片取不到」
+{
+  const src = reportImageSrc('synth-rep', 12, 'photos/a b&c.png');
+  const q = new URL(src, 'http://x').searchParams;
+  ok('图片：地址是本台的代取路由，带原链接（编码）和 report=编号，不带 view；浏览器不直接访问链接',
+    src.startsWith('/api/bench-views/synth-rep/image?') && q.get('u') === 'photos/a b&c.png' && q.get('report') === '12' && !q.has('view') && !src.includes('photos/a b'));
+  ok('图片：没有链接、编号不是正整数、没有台：给 null（页面画「图片取不到」）',
+    [reportImageSrc('synth-rep', 12, ''), reportImageSrc('synth-rep', 12, null), reportImageSrc('synth-rep', 0, 'a.png'), reportImageSrc('synth-rep', 1.5, 'a.png'), reportImageSrc('', 1, 'a.png')].every((x) => x === null));
+  ok('图片：200 照显示；409（冻结哈希对不上）「图片已变」；401、403、404、415、502、503、504 都「图片取不到」',
+    reportImageState(200) === 'ok' && reportImageState(409) === 'changed' && [401, 403, 404, 415, 502, 503, 504, 0].every((s) => reportImageState(s) === 'missing')
+    && REPORT_IMAGE_TEXT.changed === '图片已变' && REPORT_IMAGE_TEXT.missing === '图片取不到');
+  const page = readFileSync(new URL('../web/src/pages/BenchReports.tsx', import.meta.url), 'utf8');
+  const comp = page.slice(page.indexOf('function ReportImage'), page.indexOf('/** 台页面顶栏'));
+  ok('源码：正文按 image 节点画 ReportImage，地址取 reportImageSrc、状态取 reportImageState；显示的是取到的那份（blob），不写链接原文、不写内联样式和写死的颜色',
+    /n\.type === 'image'\) return <ReportImage/.test(page) && /reportImageSrc\(img\.bench, img\.report, node\.src\)/.test(comp) && /reportImageState\(r\.status\)/.test(comp)
+    && /URL\.createObjectURL/.test(comp) && !/\{node\.src\}/.test(comp) && !/style=\{\{/.test(comp) && !/#[0-9A-Fa-f]{3,6}\b|rgba?\(/.test(comp));
+}
 
 console.log(`\nreport-page-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
