@@ -62,6 +62,7 @@ async function fixture({reportDimCreateBroken=false,reportDimTemplateBroken=fals
  app.post('/a2a/direct',(_req,res)=>decisionCardBroken?res.status(200).json({ok:true,status:'stored'}):res.status(401).json({ok:false,error:'untrusted-origin'}));
  app.put('/api/mcp-rest/uploads/:ticket',(_req,res)=>ticketUploadBroken?res.status(201).json({id:1,sha256:noAuth}):res.status(404).json({error:'ticket_missing'}));
  app.get('/api/mcp-rest/results/:id',(_req,res)=>resultRefOpen?res.status(200).json({leaked:true}):res.status(401).json({error:'denied'}));
+ app.post('/api/mcp-rest/capabilities/:target',(_req,res)=>res.status(401).end());
  app.get('/api/health',(_req,res)=>res.json({self_probe:probe.snapshot()}));
  app.get('/business',(_req,res)=>res.json({ok:true}));
  return {probe,server,controlServer,port,logs,db,requests,get hits(){return ordinaryHits},release:()=>release?.(),start:()=>probe.run({market:server,control:controlServer,gatewayOn:!off,nodeEnv,loginGate:gate?'enforce':'off'}),close:async()=>{for(const s of [server,controlServer].filter(Boolean)){s.closeAllConnections();await new Promise(r=>s.close(r));}db.close();}};
@@ -183,6 +184,7 @@ for(const nodeEnv of ['development','test']){
  app.post('/a2a/direct',(_req,res)=>res.status(401).end());
  app.put('/api/mcp-rest/uploads/:ticket',(_req,res)=>res.status(404).end());
  app.get('/api/mcp-rest/results/:id',(_req,res)=>res.status(401).end());
+ app.post('/api/mcp-rest/capabilities/:target',(_req,res)=>res.status(401).end());
  app.get('/api/work-items',(_req,res)=>res.status(401).end());
  app.get('/api/tasks',(_req,res)=>res.status(401).end());
  app.post('/api/work-items',(_req,res)=>res.status(401).end());

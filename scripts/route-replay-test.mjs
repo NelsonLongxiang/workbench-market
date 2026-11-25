@@ -56,6 +56,7 @@ const FIXTURES = {
   // 登录提供方换成假的（scripts/identity-fake-provider.mjs）：认人只看 session_id 的值，不访问任何外部系统
   'identity-fake': { preload: join(HERE, 'identity-fake-preload.mjs'), env: { IDENTITY_SEAM_ROOT: ROOT } },
   'area-access-identity': { preload: join(HERE, 'fixtures/area-access-identity-preload.mjs'), env: {} },
+  'capability-fixture': { preload: join(HERE, 'fixtures/capability-extensions/fixture-domain/server.mjs'), env: { WM_EXTENSIONS_DIR: join(HERE, 'fixtures/capability-extensions') } },
   // 本机起一个假飞书、建一个放好合成应用凭证的临时凭据库，飞书登录指过去（scripts/feishu-fake-preload.mjs）
   'feishu-fake': { preload: join(HERE, 'feishu-fake-preload.mjs'), env: { IDENTITY_SEAM_ROOT: ROOT } },
   // 本机起一个假 GitHub，预先放好几个仓库，自产台同步指过去（scripts/github-fake-preload.mjs）

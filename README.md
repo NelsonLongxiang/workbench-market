@@ -415,6 +415,8 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   skill-shadow.ts（技能影子副本：推一版（migrate-layerfs 和补推共用，推完读回摘要一致才记 succeeded）、定时补推（挂在根上下文上随之停·对外断开时整轮跳过、不记失败·LayerFS 没配置不做·连不上这一轮停下、日志只在通断变化时打·异常的版本退避·二进制记 skipped））
   login-gate.ts（全站登录门 WM_LOGIN_GATE：enforce 时页面 302 登录、API 401）
   mcp-tools.ts（MCP 工具注册表）
+  capabilities.ts（领域能力声明、目录与入参校验）
+  routes/capabilities.ts（用同一会话授权链调用领域能力的 REST 入口）
   mcp-result-limits.ts（大结果给引用的阈值和期限：生产固定 64 KB、15 分钟；WM_MCP_RESULT_LIMITS 只在 NODE_ENV=test 时认，别的环境设了拒绝启动）
   owner-pending.ts（待属主看板的判断，服务端那一份：和 web/src/owner-pending.ts 跑同一份用例表 scripts/owner-pending-cases.json）
   outbound-gate.ts（对外断开 WM_OUTBOUND=off 的闸：在 net.Socket.connect、DNS、UDP、子进程这几层拦下一切出站并计数；index.ts 第一个引入它）

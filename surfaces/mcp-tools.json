@@ -19,6 +19,7 @@
   "dataset_snapshots  read",
   "dataset_upsert  write",
   "design_standard  read",
+  "invoke  write  exempt",
   "report_generate  write",
   "report_get  read",
   "report_list  read",

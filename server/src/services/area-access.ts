@@ -4,6 +4,7 @@ import { svc } from '../context.ts';
 import { db } from '../db.ts';
 import { HttpError } from '../errors.ts';
 import { areaVerdict, rolesCovering } from '../judgment.ts';
+import { capabilityIndex } from '../capabilities.ts';
 import type { HttpService } from '../http.ts';
 import { AREA_ID_RE, type AreaService } from './area.ts';
 import type { GrantService } from './grant.ts';
@@ -125,6 +126,7 @@ export class AreaAccessService extends Service {
     const approvals = db.prepare("SELECT actions FROM area_access_requests WHERE session_id = ? AND applicant = ? AND area_id = ? AND status = 'approved'")
       .all(sessionId, principal, area) as { actions: string }[];
     const catalog = new Map(svc<HttpService>('http').actions().map(({ action, kind }) => [action, kind]));
+    for (const cap of capabilityIndex()) if (cap.area === area) catalog.set(cap.name, cap.kind);
     const actions = new Set(approvals.flatMap(row => JSON.parse(row.actions) as string[]));
     const effective_actions = [...actions].filter(action => {
       const kind = catalog.get(action);

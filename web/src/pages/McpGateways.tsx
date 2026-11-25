@@ -365,7 +365,7 @@ export default function McpGateways() {
     { title: '结果', dataIndex: 'ok', width: 70, fixed: 'left', render: (_, c) => (c.ok ? <Tag color="success">成功</Tag> : <Tag color="error">失败</Tag>) },
     { title: '工具', dataIndex: 'tool', width: 160, render: (_, c) => <Typography.Text className="wm-mono wm-caption">{c.tool || '—'}</Typography.Text> },
     { title: '会话', dataIndex: 'session_name', width: 120, render: (_, c) => <Typography.Text className="wm-mono wm-caption">{c.session_name}</Typography.Text> },
-    { title: '渠道', dataIndex: 'channel', width: 70, render: (_, c) => <Tag>{c.channel === 'rest' ? 'REST' : 'MCP'}</Tag> },
+    { title: '渠道', dataIndex: 'channel', width: 70, render: (_, c) => <Tag>{c.channel === 'rest' ? 'REST' : c.channel === 'mcp-invoke' ? 'MCP 调用' : 'MCP'}</Tag> },
     { title: '方法', dataIndex: 'method', width: 100, render: (_, c) => <Typography.Text className="wm-mono wm-caption">{c.method}</Typography.Text> },
     { title: '耗时', dataIndex: 'duration_ms', width: 80, align: 'right', render: (_, c) => <Typography.Text className="wm-num">{c.duration_ms}ms</Typography.Text> },
     { title: '错误', dataIndex: 'error', ellipsis: true, render: (_, c) => <Typography.Text type="secondary" className="wm-caption">{c.error || '—'}</Typography.Text> },
