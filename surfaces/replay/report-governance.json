@@ -640,6 +640,68 @@
           "compare": "status",
           "request": { "method": "GET", "path": "/api/report-governance/review-invites/{{inv}}", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
           "response": { "status": 200 }
+        },
+        {
+          "id": "person-review-activation-target",
+          "compare": "status",
+          "request": {
+            "method": "POST",
+            "path": "/api/report-dimensions/invite-monthly/templates/1/review",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": {}
+          },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "apply-dimension-activate-access",
+          "compare": "status",
+          "request": {
+            "method": "POST",
+            "path": "/api/mcp-rest/tools/access_request",
+            "headers": { "x-forwarded-for": "198.51.100.7", "authorization": "Bearer ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" },
+            "json": { "area": "governance-demo", "actions": ["report.governance-dimension-activate"], "report_scope": { "dimension": "invite-monthly" }, "reason": "回放激活" }
+          },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "approve-dimension-activate-access",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/areas/governance-demo/access-requests/3/approve", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "propose-dimension-activate",
+          "compare": ["status"],
+          "request": {
+            "method": "POST",
+            "path": "/api/report-governance/proposals",
+            "headers": { "x-forwarded-for": "198.51.100.7", "authorization": "Bearer ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" },
+            "json": {
+              "op": "dimension-activate",
+              "idempotency_key": "fixture-dimension-activate",
+              "args": { "dimension": "invite-monthly", "version": 1, "body_sha256": "{{inviteBody}}", "criteria_sha256": "{{inviteCriteria}}", "expected_active_version": null, "review_version": 1 }
+            }
+          },
+          "save": { "activation": "id" },
+          "response": { "status": 202, "picked": { "status": "pending" } }
+        },
+        {
+          "id": "read-dimension-activate-inbox",
+          "compare": ["proposals.0.op", "proposals.0.frozen.snapshot.target.version", "proposals.0.frozen.snapshot.review.version"],
+          "request": { "method": "GET", "path": "/api/report-governance/inbox", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "save": { "activationDigest": "proposals.0.snapshot_sha256" },
+          "response": { "status": 200, "picked": { "proposals.0.op": "dimension-activate", "proposals.0.frozen.snapshot.target.version": 1, "proposals.0.frozen.snapshot.review.version": 1 } }
+        },
+        {
+          "id": "confirm-dimension-activate",
+          "compare": ["status", "result.version"],
+          "request": {
+            "method": "POST",
+            "path": "/api/report-governance/inbox/{{activation}}/confirm",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "snapshot_sha256": "{{activationDigest}}" }
+          },
+          "response": { "status": 200, "picked": { "status": "confirmed", "result.version": 1 } }
         }
       ]
     }

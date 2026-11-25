@@ -19,3 +19,5 @@ description: 工作台市场报告治理。使用通用调用或 REST 提出绑�
 提议后由有权人在站内「等你拍板」核对冻结内容并确认。会话可用 `report.governance-result { "id": "p-编号" }` 或 GET `/api/report-governance/proposals/p-编号` 查询。收到冲突时重新读对象再提；未授权时检查台与维度的接入及当前本人授予。不要提交身份、授予、任意路由或数据行。
 
 请人复核用 `review-invite`，单独申请该维度的 `report.governance-review-invite`。参数为 `dimension`、`version`、`body_sha256`、`criteria_sha256`、`invitees`（1～5 位有权非作者）。同键重放不会重复产生站内待办。返回的 `i-` 编号可用 `report.governance-result` 查询。复核本人从站内待办查看精确版本并提交复核。
+
+激活或回退模板用 `dimension-activate`，单独申请该维度的 `report.governance-dimension-activate`。指定 `dimension`、目标 `version`、正文和判据摘要、`expected_active_version`（尚无时写 null）、实际复核所在的 `review_version`。经授权本人确认后才会移动指针。

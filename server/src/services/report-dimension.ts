@@ -346,6 +346,32 @@ export class ReportDimensionService extends Service {
     return reviewers.some(row => identifiedPerson(row.reviewed_by_principal) && !known.has(row.reviewed_by_principal!));
   }
 
+  /** 治理激活只认申请指定的复核，而非任取一条同判据的复核。 */
+  activationSnapshot(id: string, version: number, reviewVersion: number) {
+    const dimension = this.get(id);
+    if (!dimension || dimension.status !== 'active') return null;
+    const readVersion = (number: number) => {
+      const row = db.prepare('SELECT body, sha256, criteria_sha256 FROM report_templates WHERE dimension_id = ? AND version = ?')
+        .get(id, number) as { body: string; sha256: string; criteria_sha256: string } | undefined;
+      if (!row || sha256(row.body) !== row.sha256) return null;
+      try {
+        if (criteriaDigest(JSON.parse(row.body)) !== row.criteria_sha256) return null;
+      } catch { return null; }
+      return { version: number, body_sha256: row.sha256, criteria_sha256: row.criteria_sha256 };
+    };
+    const target = readVersion(version);
+    const reviewTarget = version === reviewVersion ? target : readVersion(reviewVersion);
+    const active = dimension.active_version === null ? null : readVersion(dimension.active_version);
+    if (!target || reviewTarget?.criteria_sha256 !== target.criteria_sha256 || (dimension.active_version !== null && !active)) return null;
+    const review = db.prepare('SELECT reviewed_by, reviewed_by_principal, reviewed_at FROM report_template_reviews WHERE dimension_id = ? AND version = ?')
+      .get(id, reviewVersion) as { reviewed_by: string; reviewed_by_principal: string | null; reviewed_at: number } | undefined;
+    const reviewer = review?.reviewed_by_principal;
+    if (!review || !reviewer || !identifiedPerson(reviewer)) return null;
+    const authors = this.criteriaAuthors(id, target.criteria_sha256);
+    if (!this.authorsIdentified(authors) || authors.some(row => row.created_by === review.reviewed_by || this.authorPrincipals(row).includes(reviewer))) return null;
+    return { active, target, review: { version: reviewVersion, principal: reviewer, at: review.reviewed_at, criteria_sha256: reviewTarget.criteria_sha256 } };
+  }
+
   /**
    * 把生效指针移到已有的一版（回退也是它，不新增版本）。按判据部分判：这一版的判据要和某个复核过的版本一样，不然 409。
    * 判据摘要按正文重算一遍再比存下的：库里被人直接写进一行摘要和正文对不上的，这里不认（409）
