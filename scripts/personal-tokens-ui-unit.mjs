@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /** 设置页「个人令牌」（#1063）的纯函数单测（web/src/personal-tokens-view.ts），加上原文不落地、不带管理口令的源码检查。数据都是合成的。 */
 import { readFileSync } from 'node:fs';
-import { PERSONAL_TOKENS_PATH, personalTokenPath } from '../web/src/personal-tokens-api.ts';
+import { PERSONAL_TOKENS_PATH, issuePersonalToken, listPersonalTokens, personalTokenPath, revokePersonalToken } from '../web/src/personal-tokens-api.ts';
 import { FALLBACK_SCOPES, ONE_TIME_NOTE, actionProblem, benchesLabel, draftProblem, expiryLabel, issueBody, issuedOf, lastUsedLabel, listProblem, maxDaysOf, newDraft, scopesLabel, scopesOf, stateTag, tagLabel, tokenRowOf, tokenState, tokensOf } from '../web/src/personal-tokens-view.ts';
 
 let pass = 0, fail = 0;
@@ -36,6 +36,18 @@ ok('契约：路径 /api/owner/personal-tokens，撤销按 id 编码拼路径', 
 ok('契约：撤销 204 算办成', actionProblem({ status: 204, body: null }) === null);
 ok('表单核对：空名字直接说名字（不靠下一项兜住）', draftProblem({ name: '', scopes: [], benches: [], days: 30 }, 90).includes('名字'));
 ok('只显示一次的说明写明了离开就没了、怎么存', ONE_TIME_NOTE.includes('只显示这一次') && ONE_TIME_NOTE.includes('0600'));
+
+// 适配层实发的请求：换掉 fetch，看方法、路径、请求体、凭据，以及不带管理口令；撤销 204 没有应答体
+const calls = [];
+globalThis.fetch = async (url, init = {}) => { calls.push({ url, method: init.method ?? 'GET', body: init.body ?? null, credentials: init.credentials, headers: init.headers ?? {} });
+  const status = init.method === 'DELETE' ? 204 : init.method === 'POST' ? 201 : 200;
+  return { status, json: async () => (status === 204 ? (() => { throw new Error('no body'); })() : {}) }; };
+const lr = await listPersonalTokens(); const ir = await issuePersonalToken({ name: '甲', scopes: ['view'], benches: ['a'], expires_in_days: 30 }); const rr = await revokePersonalToken('t/1');
+ok('适配层：清单 GET、签发 POST 带 JSON 体、撤销 DELETE 按 id 编码', J(calls.map((c) => c.method + ' ' + c.url)) === J(['GET /api/owner/personal-tokens', 'POST /api/owner/personal-tokens', 'DELETE /api/owner/personal-tokens/t%2F1']) && JSON.parse(calls[1].body).name === '甲' && calls[0].body === null && calls[2].body === null);
+ok('适配层：都带本人会话（same-origin），都不带管理口令', calls.every((c) => c.credentials === 'same-origin' && !Object.keys(c.headers).some((h) => h.toLowerCase() === 'x-admin-token')));
+ok('适配层：状态码原样交回，撤销 204 不读应答体', lr.status === 200 && ir.status === 201 && rr.status === 204 && rr.body === null);
+globalThis.fetch = async () => { throw new Error('offline'); };
+ok('适配层：断网交回状态 0，不抛', (await listPersonalTokens()).status === 0);
 
 // 源码检查：原文不落地、不带管理口令、不进地址
 const src = ['web/src/personal-tokens-api.ts', 'web/src/personal-tokens-view.ts', 'web/src/components/PersonalTokensCard.tsx'].map((f) => readFileSync(new URL('../' + f, import.meta.url), 'utf8')).join('\n')
