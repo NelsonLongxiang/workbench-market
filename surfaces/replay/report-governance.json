@@ -17,7 +17,7 @@
   "scenarios": [
     {
       "name": "binding",
-      "env": { "WM_BENCH_VIEWS": "on", "ADMIN_TOKEN": "replay-synthetic-admin", "MCP_GATEWAY": "on" },
+      "env": { "WM_BENCH_VIEWS": "on", "ADMIN_TOKEN": "replay-synthetic-admin", "MCP_GATEWAY": "on", "WM_REPLAY_CLOCK_MODE": "fixed" },
       "clock": "2030-01-01T00:00:00Z",
       "fixtures": ["identity-fake"],
       "seed": [

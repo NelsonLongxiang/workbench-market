@@ -1039,6 +1039,13 @@ async function selftest() {
   check(shifted.status === 0 && shifted.stdout.trim() === JSON.stringify(['2030-01-01T00:00', '2030-01-01T00:00', true, '1970-01-01T00:00:00.000Z', true, true]), `定时钟：Date.now()、new Date()、Date() 都从给的时刻开始走；带参数的 new Date(x) 照旧 ${shifted.stdout.trim()}${shifted.stderr.trim()}`);
   const refusedOutsideTest = spawnSync(process.execPath, ['--import', pathToFileURL(CLOCK_PRELOAD).href, '-e', 'console.log(1)'], { env: { PATH: process.env.PATH, NODE_ENV: 'production', WM_REPLAY_CLOCK: '2030-01-01T00:00:00Z' }, encoding: 'utf8' });
   const refusedBadClock = spawnSync(process.execPath, ['--import', pathToFileURL(CLOCK_PRELOAD).href, '-e', 'console.log(1)'], { env: { PATH: process.env.PATH, NODE_ENV: 'test' }, encoding: 'utf8' });
+  const clockWait = 'const a=Date.now(); setTimeout(()=>console.log(JSON.stringify({same:Date.now()===a,now:Date.now(),newDate:+new Date(),dateCall:Date()===new Date(a).toString()})),1100)';
+  const clockRun = (mode, nodeEnv = 'test') => spawnSync(process.execPath, ['--import', pathToFileURL(CLOCK_PRELOAD).href, '-e', clockWait], { env: { PATH: process.env.PATH, NODE_ENV: nodeEnv, WM_REPLAY_CLOCK: '2030-01-01T00:00:00Z', ...(mode ? { WM_REPLAY_CLOCK_MODE: mode } : {}) }, encoding: 'utf8' });
+  const fixed = clockRun('fixed'), moving = clockRun(), badMode = clockRun('typo'), fixedProduction = clockRun('fixed', 'production');
+  const f = fixed.status === 0 ? JSON.parse(fixed.stdout) : {}; const m = moving.status === 0 ? JSON.parse(moving.stdout) : {};
+  check(fixed.status === 0 && f.same && f.now === Date.parse('2030-01-01T00:00:00Z') && f.newDate === f.now && f.dateCall, '固定回放时钟：真实定时器跨过一秒，三种当前时间保持场景时刻');
+  check(moving.status === 0 && m.same === false && m.now >= Date.parse('2030-01-01T00:00:01Z'), '缺省回放时钟照旧继续走，不受固定场景影响');
+  check(badMode.status === 1 && fixedProduction.status === 1 && fixedProduction.stdout === '', '固定回放时钟：拼错模式和生产环境均拒绝');
   check(refusedOutsideTest.status === 1 && refusedOutsideTest.stdout === '' && refusedBadClock.status === 1 && refusedBadClock.stdout === '', '定时钟：不是测试环境、或者没给时刻，预加载让进程直接退出，不带着假的时钟起来');
   // 假 GitHub、假 LayerFS：测试环境里起得来、把地址交给进程，commit 号每次一样；别的环境直接退出
   const servicesProbe = `const a = process.env.WM_GITHUB_API, l = process.env.LAYERFS_SERVICE_URL, t = process.env.LAYERFS_SERVICE_TOKEN;

@@ -4,7 +4,8 @@
  * 给路由的录制回放用（scripts/route-replay-test.mjs，场景里写了 clock 才带上）：
  * 应答里凡是由「现在」算出来的数——还有几天过期、今天是哪一天——每次都不一样，定了时钟才能录下来比。
  *
- * 只平移 Date：new Date()、Date.now()、Date()。带参数的 new Date(x)、Date.parse、Date.UTC 照旧；定时器照常走。
+ * 缺省平移 Date；WM_REPLAY_CLOCK_MODE=fixed 时把当前时间固定在场景clock（仅显式场景使用）。
+ * new Date()、Date.now()、Date() 同口径；带参数的 new Date(x)、Date.parse、Date.UTC 照旧；定时器照常走。
  * 数据库自己取的时间（datetime('now')）不受影响，仍然是真的时间：
  * 拿数据库里的时间和进程里的「现在」比大小的路由，定了时钟行为会变，那样的场景不要写 clock。
  *
@@ -21,9 +22,15 @@ if (!Number.isFinite(start)) {
   process.exit(1);
 }
 
+// 个别回放需要跨请求精确比较到期值：显式固定Date；缺省仍继续走，定时器不变。
+const mode = process.env.WM_REPLAY_CLOCK_MODE ?? 'running';
+if (mode !== 'running' && mode !== 'fixed') {
+  console.error('[replay-clock-preload] WM_REPLAY_CLOCK_MODE 只收 running 或 fixed');
+  process.exit(1);
+}
 const RealDate = Date;
 const offset = start - RealDate.now();
-const shiftedNow = () => RealDate.now() + offset;
+const shiftedNow = () => mode === 'fixed' ? start : RealDate.now() + offset;
 const ShiftedDate = new Proxy(RealDate, {
   // new Date()：不带参数才是「现在」
   construct(target, args, newTarget) { return Reflect.construct(target, args.length === 0 ? [shiftedNow()] : args, newTarget); },
