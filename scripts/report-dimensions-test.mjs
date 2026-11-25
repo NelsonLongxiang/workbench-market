@@ -112,7 +112,12 @@ async function boot(publicMarket = false) {
   const remote = (method, path, { json, token, headers = {} } = {}) => fetch(new URL(path, base), {
     method, headers: { 'x-real-ip': '198.51.100.9', ...(token ? { 'x-admin-token': token } : {}), ...(json === undefined ? {} : { 'content-type': 'application/json' }), ...headers },
     body: json === undefined ? undefined : JSON.stringify(json),
-  }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
+  }).then(async (r) => {
+    const text = await r.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* 非 JSON 应答 */ }
+    return { status: r.status, json, text };
+  });
   const grant = async (principal, role) => { const d = await cli('POST', '/api/grants', { principal, role, scope: '*', reason: '合成' }); const id = d.json?.grant?.id; await cli('POST', `/api/grants/${id}/submit`); const a = await cli('POST', `/api/grants/${id}/approve`); return { id, status: a.status }; };
   const person = async (username, pw, ip) => { const t = (await cli('POST', '/api/local-accounts', { username })).json?.temp_password ?? ''; return login(username, t, pw, ip); };
   const db = () => new DatabaseSync(join(data, 'workbench-market.db'), { timeout: BUSY_MS });
@@ -665,7 +670,8 @@ try {
         const badArgs = { version: 0 };
         const invalidBeforeApproval = await activateRequest('activate-invalid-before-approval', badArgs);
         check(beforeActivate.status === 403 && beforeActivate.json?.code === 'report_governance_forbidden' &&
-          invalidBeforeApproval.status === 403 && invalidBeforeApproval.text === beforeActivate.text,
+          invalidBeforeApproval.status === 403 && invalidBeforeApproval.json?.code === 'report_governance_forbidden' &&
+          typeof beforeActivate.text === 'string' && beforeActivate.text.length > 0 && invalidBeforeApproval.text === beforeActivate.text,
           'RGA3 未取得精确激活批准时，非法参数也先返回同一个 403', { beforeActivate, invalidBeforeApproval });
         const activationAccess = await A.remote('POST', '/api/mcp-rest/tools/access_request', { headers, json: {
           area: 'zeta', actions: ['report.governance-dimension-activate'], report_scope: { dimension: dimensionId }, reason: '合成治理回退',
