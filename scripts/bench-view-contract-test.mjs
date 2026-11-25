@@ -181,4 +181,8 @@ for (const [name, blocks] of negatives) {
   const top = validateViewDoc({ title: 'x', views: [{ key: 'v', title: 't', blocks: [] }], theme: 'dark' }, datasets).find((e) => e.includes('有不认识的键 theme'));
   assert.ok(top?.includes('这里能用的键：title、views'), `顶层也列出能用的键（${top}）`);
 }
+const { renderComponentCatalog } = await import('./gen-view-doc-schema.mjs');
+const componentCatalog = readFileSync(new URL('../skills/wm-data-views/references/views.md', import.meta.url), 'utf8');
+assert.equal(componentCatalog, renderComponentCatalog(componentCatalog), '组件一览与服务端契约一致');
+
 console.log(`bench-view-contract-test: ${BLOCK_TYPES.length} 个契约分支同构 + 正反例全部通过；不认识的键报出能用的键`);

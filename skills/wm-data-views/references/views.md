@@ -21,20 +21,21 @@
 
 ## 组件一览
 
-| `type` | 画什么 | 自己的键 |
-|---|---|---|
-| `filter-bar` | 筛选栏 | `fields` |
-| `stat` | 一个大数 | `query`、`value`（取哪个输出列）、`unit`、`tone_rules` |
-| `progress` | 进度条 | `query`、`value`、`total`（一个输出列，或者写死的正数） |
-| `table` | 表格 | `query`、`columns`（显示哪些列、什么次序）、`page_size`（5～200）、`value_labels`、`column_labels` |
-| `records` | 记录卡（每行一张卡片） | `query`、`title_col`（必填）、`badges`、`fields`、`details`、`date_col`、`links`、`page_size`（5～200）、`value_labels`、`column_labels`、`empty_text` |
-| `bar` | 柱状图 | `query`、`x`、`y`（一个或几个数值列）、`series`、`stacked`、`horizontal`、`tone_rules` |
-| `line` | 折线图 | `query`、`x`、`y`、`series`、`area` |
-| `pie` | 饼图 | `query`、`label`、`value`、`donut` |
-| `form` | 表单 | `dataset`、`fields`、`submit_label` |
-| `dag` | 任务依赖图 | `query`、`id_col`、`label_col`、`deps_col`、`role_col`（必填）、`status_col`、`done_values`、`progress_col`、`source_col`、`group_col`、`detail_cols`、`direction`、`value_labels`、`column_labels` |
-| `gantt` | 甘特图 | `query`、`id_col`、`label_col`、`start_col`、`end_col`（必填）、`deps_col`、`role_col`、`status_col`、`done_values`、`progress_col`、`group_col`、`detail_cols`、`value_labels`、`column_labels` |
-| `flow` | 流程图 | 同 `dag`，另加 `shape_col` |
+<!-- 由 node scripts/gen-view-doc-schema.mjs 生成。 -->
+| 类型 | 必填键 | 组件键 | 说明 |
+| --- | --- | --- | --- |
+| `filter-bar` | `fields` | `fields` | fields 是 1～12 个筛选字段 { name, kind, label?, default?, options? }，kind 只有 month / date / select / search；查询里用 $名字 引用的参数要先在这里声明；只有 select 给 options（一组文本，或 { dataset, col } 取某列的不同取值） |
+| `stat` | `value` | `query`、`value`、`unit`、`tone_rules` | value 指向查询的一个输出列，或写本台引用 { var: 键名 }（此时不写 query，块独立取值）；tone_rules 按值着色，最多 2 条 |
+| `table` | `query` | `query`、`columns`、`page_size`、`value_labels`、`column_labels` | columns 选显示哪些输出列；每列要有说明名（数据集列定义的 label 或 column_labels）；page_size 5～200；value_labels 是「列名 → 取值 → 说法」 |
+| `records` | `query`、`title_col` | `query`、`title_col`、`badges`、`fields`、`details`、`date_col`、`links`、`page_size`、`value_labels`、`column_labels`、`empty_text` | 每行一张卡片。title_col 是卡片标题列；badges 0～3 列显示成徽标（说法走 value_labels），fields 0～8 列一直可见，details 0～12 列收在「展开」里，date_col 是日期或时间列；这五处引用的列互不重复，每列要有说明名（数据集列定义的 label 或 column_labels）。links 0～3 个 { col, label }：col 的值是网址，只认 http(s)，卡片上只显示 label（12 字以内）；page_size 5～200；empty_text 是没有记录时的说法 |
+| `bar` | `query`、`x`、`y` | `query`、`x`、`y`、`series`、`stacked`、`horizontal`、`tone_rules` | x 是分类列，y 是 1～12 个数值列（或用 series 拆系列，不和多个 y 同用）；tone_rules 只用于单系列的柱子 |
+| `line` | `query`、`x`、`y` | `query`、`x`、`y`、`series`、`area` | x 通常是时间列，y 是 1～12 个数值列；series 拆系列（不和多个 y 同用）；area 是面积填充 |
+| `pie` | `query`、`label`、`value` | `query`、`label`、`value`、`donut` | label 是分类列，value 是数值列，donut 画环形 |
+| `progress` | `value`、`total` | `query`、`value`、`total` | value、total 指向数值输出列，或写本台引用 { var: 键名 }（total 也可以写大于 0 的数字） |
+| `form` | `dataset`、`fields` | `dataset`、`fields`、`submit_label` | 直接写数据集（表单没有 query）；fields 是 1～40 个列名，数据集的必填列都要在表单里 |
+| `dag` | `query`、`id_col`、`label_col`、`deps_col`、`role_col` | `query`、`id_col`、`label_col`、`deps_col`、`role_col`、`status_col`、`done_values`、`progress_col`、`source_col`、`group_col`、`detail_cols`、`direction`、`value_labels`、`column_labels` | 任务依赖图，只读。一行一个任务：query 是明细查询（不能有 group、measures，不能写 limit、offset，最多画 500 个）；deps_col 是文本列，逗号分隔前置编号：a 必需、?a 可选、a\|b 任一；role_col 是文本列，start 起点、end 主线终点、branch_end 支线终点，其余留空（起点终点各恰好一个，没有后继的任务都要标终点）；status_col 配 done_values（缺省 ["done"]）认完成；progress_col 是 0～100 的数值列；detail_cols 是点开任务时显示的 1～12 列；direction 为 LR 或 TB |
+| `gantt` | `query`、`id_col`、`label_col`、`start_col`、`end_col` | `query`、`id_col`、`label_col`、`start_col`、`end_col`、`deps_col`、`role_col`、`status_col`、`done_values`、`progress_col`、`group_col`、`detail_cols`、`value_labels`、`column_labels` | 甘特图，只读。一行一个任务，一条横条：query 是明细查询（不能有 group、measures，不能写 limit、offset，最多画 500 个）；start_col、end_col 是开始、截止，须为日期或日期时间列，且在数据集定义里是必填列（required: true）；progress_col 是 0～100 的数值列，画成条内填充；给了 deps_col（写法同任务图）就画前置截止到后继开始的箭头；给了 role_col 就在终点、支线终点的条尾画标记；截止已过、没完成的条用警示色；status_col 配 done_values（缺省 ["done"]）认完成 |
+| `flow` | `query`、`id_col`、`label_col`、`deps_col`、`role_col` | `query`、`id_col`、`label_col`、`deps_col`、`role_col`、`status_col`、`done_values`、`progress_col`、`source_col`、`group_col`、`detail_cols`、`direction`、`shape_col`、`value_labels`、`column_labels` | 流程图，只读。键同任务图 dag，另可给 shape_col（文本列：step 步骤、decision 判断画成菱形；起点、终点由角色列定）。与 dag 的不同：允许循环（如「审核不过 → 退回修改」），回边画成弯线，不因有环挡图；没有出口的循环报「走不到终点」；依赖写成 a=说法 或 ?a=说法 时，说法画在边上 |
 
 图表的规矩：
 
