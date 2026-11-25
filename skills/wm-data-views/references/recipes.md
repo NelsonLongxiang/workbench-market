@@ -90,20 +90,20 @@ AI 拆任务、推进、改终点都只是写任务表；页面自己画。先�
 
 ```json rows:tasks
 [
-  { "id": "kickoff", "name": "立项", "role": "start", "status": "done", "progress": 100, "start": "2026-01-05", "due": "2026-01-06" },
+  { "id": "kickoff", "name": "立项", "role": "start", "status": "done", "progress": 100, "source": "工单 PRJ-1", "start": "2026-01-05", "due": "2026-01-06" },
   { "id": "research", "name": "调研", "deps": "kickoff", "status": "doing", "progress": 40, "start": "2026-01-06", "due": "2026-01-12" },
-  { "id": "design", "name": "设计", "deps": "kickoff,?research", "status": "done", "progress": 100, "start": "2026-01-07", "due": "2026-01-14" },
+  { "id": "design", "name": "设计", "deps": "kickoff,?research", "status": "done", "progress": 100, "source": "工单 PRJ-3", "start": "2026-01-07", "due": "2026-01-14" },
   { "id": "impl_a", "name": "实现甲方案", "deps": "design", "status": "doing", "progress": 60, "start": "2026-01-15", "due": "2026-01-28" },
   { "id": "impl_b", "name": "实现乙方案", "deps": "design", "status": "todo", "progress": 0, "start": "2026-01-15", "due": "2026-01-30" },
   { "id": "release", "name": "发布", "deps": "impl_a|impl_b", "role": "end", "status": "todo", "progress": 0, "start": "2026-02-02", "due": "2026-02-03" }
 ]
 ```
 
-推进一步就按主键改那几行（必填列要给全）；改起点、终点也一样，撤旧的、标新的放在同一批里。甲方案做完了：
+推进一步就按主键改那几行（必填列要给全）。依赖图配了来源列，做完的任务顺手填上来源（工单号、链接），没填的会提示一下；改起点、终点也一样，撤旧的、标新的放在同一批里。甲方案做完了：
 
 ```json upsert:tasks
 [
-  { "id": "impl_a", "name": "实现甲方案", "deps": "design", "status": "done", "progress": 100, "start": "2026-01-15", "due": "2026-01-28" }
+  { "id": "impl_a", "name": "实现甲方案", "deps": "design", "status": "done", "progress": 100, "source": "工单 PRJ-4", "start": "2026-01-15", "due": "2026-01-28" }
 ]
 ```
 
@@ -131,7 +131,7 @@ AI 拆任务、推进、改终点都只是写任务表；页面自己画。先�
 
 - 统计卡数的是写入时就定好的状态。「完成率」「到主线终点还差几个」在依赖图的摘要里，按依赖算，不用自己算。
 - 乙方案经任一组汇合回发布，不是没有后继的叶子，所以不需要支线终点。发布只要甲、乙任一完成：甲做完后发布就「可开始」，完成率按立项、设计、甲、发布四个算（3/4，还差 1 个），乙和可选的调研不计入。
-- 真正走不下去、也不汇合回主线的支线，才要在角色列标 `branch_end`，否则报「支线没确认终点」。
+- 真正走不下去、也不汇合回主线的支线，才要在角色列标 `branch_end`，否则报「支线没确认终点」并标红；这不影响主线完成率。
 - 任务过了 500 个，或者给图的查询加了筛选，图会说明「当前是部分任务」，不核终点。
 
 ## 审批流程：允许退回的流程图
