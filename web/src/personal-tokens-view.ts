@@ -94,6 +94,12 @@ export function issuedOf(body: unknown): { token: string; row: TokenRow | null }
   return { token: o.token, row: tokenRowOf(o.personal_token) };
 }
 
+/** 服务端写成中文句子的 message（或 error），没有就 null */
+function serverSentence(r: SourceResult): string | null {
+  const o = r.body && typeof r.body === 'object' ? (r.body as { message?: unknown; error?: unknown }) : {};
+  for (const x of [o.message, o.error]) if (typeof x === 'string' && x.trim() && /[^\x00-\x7f]/.test(x)) return x.trim();
+  return null;
+}
 const codeOf = (r: SourceResult): string => (r.body && typeof r.body === 'object' && typeof (r.body as { error?: unknown }).error === 'string' ? (r.body as { error: string }).error : '');
 /** 服务端只给代号、不给句子的几种拒绝，各自说清楚（代号本身不露） */
 function refusalText(r: SourceResult): string | null {
@@ -106,15 +112,14 @@ function refusalText(r: SourceResult): string | null {
 export function listProblem(r: SourceResult | null): { type: 'warning' | 'info'; text: string } | null {
   if (!r || (r.status >= 200 && r.status < 300)) return null;
   if (r.status === 401) return { type: 'warning', text: '请先登录，登录后才能管理个人令牌。' };
-  if (r.status === 403) return { type: 'info', text: refusalText(r) ?? '个人令牌只有属主本人能签发和管理。' };
+  if (r.status === 403) return { type: 'info', text: refusalText(r) ?? serverSentence(r) ?? '个人令牌只有属主本人能签发和管理。' };
   if (r.status === 404) return { type: 'info', text: '个人令牌的服务还没上线。' };
   return { type: 'warning', text: '读不到个人令牌，稍后再试。' };
 }
 /** 签发、撤销没办成：服务端写成中文句子的 message 照说（名字重了、有效期超了），代号不露 */
 export function actionProblem(r: SourceResult): string | null {
   if (r.status >= 200 && r.status < 300) return null;
-  const b = r.body && typeof r.body === 'object' ? (r.body as { message?: unknown; error?: unknown }) : {};
-  for (const v of [b.message, b.error]) if (typeof v === 'string' && v.trim() && /[^\x00-\x7f]/.test(v)) return v.trim();
+  const said = serverSentence(r); if (said) return said;
   const refused = refusalText(r); if (refused) return refused;
   if (r.status === 0) return '连不上服务器，检查网络后再试。';
   if (r.status === 401) return '登录过期了，请重新登录后再试。';
