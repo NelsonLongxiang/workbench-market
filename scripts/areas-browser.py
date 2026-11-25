@@ -53,12 +53,16 @@ def setup(ctx):
     def me(r): fake(r, {'gate': 'off', 'authenticated': True, 'via': 'session', 'login': 'syn-a', 'principal': 'user:syn-a', 'display_name': '合成甲', 'roles': ['owner']})
     def grants(r):
         rec(r); p = re.sub(r'^https?://[^/]+', '', r.request.url)
-        if p == '/api/grants' and r.request.method == 'POST': return fake(r, {'grant': {'id': 77, 'status': 'draft'}}, 201)
+        if p == '/api/grants' and r.request.method == 'POST':
+            state['selected_lead'] = r.request.post_data_json['principal']
+            return fake(r, {'grant': {'id': 77, 'status': 'draft'}}, 201)
         if p.endswith('/submit'): return fake(r, {'grant': {'id': 77, 'status': 'pending'}})
         if p.endswith('/approve'):
             code, res = state.get('approve', (200, {'grant': {'id': 77, 'status': 'active'}}))
             if code == 200:
-                LEADS[state.get('assign_area', 'syn-buy')] = [{'grant': 77, 'principal': 'user:syn-c', 'display_name': '合成丙', 'status': 'active'}]
+                principal = state['selected_lead']
+                person = next(p for p in PRINCIPALS['principals'] if p['id'] == principal)
+                LEADS[state.get('assign_area', 'syn-buy')] = [{'grant': 77, 'principal': principal, 'display_name': person['display_name'], 'status': 'active'}]
                 state['areas'] = [{**x, 'status': 'active'} if x['id'] == state.get('assign_area', 'syn-buy') else x for x in state['areas']]
             return fake(r, res, code)
         return fake(r, {'grants': []})
@@ -157,8 +161,8 @@ with sync_playwright() as p:
         buy.locator('[data-testid=area-lead-pick]').click()
         soft(lambda: pg.locator('.ant-select-dropdown:visible .ant-select-item-option').first.wait_for(timeout=10000))  # 等候选人的下拉选项出来
         opts = pg.locator('.ant-select-dropdown:visible .ant-select-item-option').all_inner_texts()
-        check('可选的人：在用的人列出来（这个领域还没有负责人），自己（合成甲，属主本人）、停用的和席位不列', sorted(opts) == sorted(['合成乙', '合成丙']), opts)
-        pg.locator('.ant-select-dropdown:visible .ant-select-item-option', has_text='合成丙').click()
+        check('可选的人：包括属主本人，只列在用的人', sorted(opts) == sorted(['合成甲', '合成乙', '合成丙']), opts)
+        pg.locator('.ant-select-dropdown:visible .ant-select-item-option', has_text='合成甲').click()
         sent.clear(); buy.locator('[data-testid=area-lead-save]').click()
         # 等三步都发出去了（起草 → 提交 → 放行，放行那一条记下来了），再等「已放行」的提示和重读后的「在用」
         until(pg, lambda: any(x['path'].endswith('/approve') for x in sent))
@@ -166,10 +170,10 @@ with sync_playwright() as p:
         soft(lambda: pg.wait_for_function("() => document.querySelector('[data-testid=area-card][data-area=syn-buy] [data-testid=area-status]')?.innerText === '在用'", timeout=10000))
         g = [x for x in sent if x['path'].startswith('/api/grants')]
         check('指定：起草 area-lead（principal、role、scope、写了理由）→ 提交 → 放行，三步按顺序',
-              [x['path'] for x in g] == ['/api/grants', '/api/grants/77/submit', '/api/grants/77/approve'] and g[0]['body']['principal'] == 'user:syn-c'
+              [x['path'] for x in g] == ['/api/grants', '/api/grants/77/submit', '/api/grants/77/approve'] and g[0]['body']['principal'] == 'user:syn-a'
               and g[0]['body']['role'] == 'area-lead' and g[0]['body']['scope'] == 'area:syn-buy' and g[0]['body']['reason'].strip() != '', g)
-        check('放行后：提示已放行；重读后这个领域是「在用」，负责人是合成丙', '已放行' in ' '.join(pg.locator('.ant-message-notice').all_inner_texts())
-              and buy.locator('[data-testid=area-status]').inner_text() == '在用' and buy.locator('[data-testid=area-leads]').inner_text().endswith('合成丙'))
+        check('放行后：提示已放行；重读后这个领域是「在用」，负责人是属主合成甲', '已放行' in ' '.join(pg.locator('.ant-message-notice').all_inner_texts())
+              and buy.locator('[data-testid=area-status]').inner_text() == '在用' and buy.locator('[data-testid=area-leads]').inner_text().endswith('合成甲'))
         fin = card(pg, 'syn-fin')
         fin.locator('[data-testid=area-lead-open]').click(); fin.locator('[data-testid=area-lead-pick]').click()
         soft(lambda: pg.locator('.ant-select-dropdown:visible .ant-select-item-option').first.wait_for(timeout=10000))  # 等候选人的下拉选项出来

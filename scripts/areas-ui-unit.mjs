@@ -35,6 +35,11 @@ const principals = { principals: [
 const cands = leadCandidates(principals, leads);
 ok('可选的人：只列在用的人（不列停用的、席位）；已经是生效或待放行负责人的不再列；人停用了的负责人可以再列（他本人也停用了就不列）', cands.map((c) => c.id).join() === 'user:syn-c', J(cands));
 ok('可选的人：不列自己（不能给自己授予）', leadCandidates(principals, [], 'user:syn-a').map((c) => c.id).sort().join() === 'user:syn-b,user:syn-c');
+ok('有效属主选择领域负责人时列自己', leadCandidates(principals, [], 'user:syn-a', true).some(c => c.id === 'user:syn-a'));
+ok('属主已生效或待放行时仍不列自己，停用时也不列',
+  !leadCandidates(principals, leads, 'user:syn-a', true).some(c => c.id === 'user:syn-a') &&
+  !leadCandidates(principals, leads, 'user:syn-b', true).some(c => c.id === 'user:syn-b') &&
+  !leadCandidates(principals, [], 'user:syn-d', true).some(c => c.id === 'user:syn-d'));
 ok('可选的人：主体清单读不到就是空', leadCandidates(null, []).length === 0);
 {
   // #999：两个账号显示名相同（同一个人的两个账号、或两位同名同事），下拉框里要分得清

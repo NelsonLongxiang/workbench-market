@@ -1073,11 +1073,11 @@ for (const [col, ddl] of [['bound_by_system', "TEXT NOT NULL DEFAULT ''"], ['bou
 // 阶段六 6b：授予（谁有哪个角色）。角色本身是声明（server/src/roles.ts），这里只放数据。
 //   grants：主体、角色、范围、期限、理由、起草人、放行人、状态。状态只有五种，只能往前走：
 //     draft 草稿 → pending 待核 → active 生效 → revoked 撤销 或 expired 过期；草稿和待核也可以直接撤销（作废、驳回）。
-//     规则写在库里，不靠页面：不能给自己授予（起草人、放行人都不能是被授予的主体）；放行人只在待核→生效那一步写；
+//     规则写在库里：自授只给有效属主兼任领域负责人；放行人只在待核→生效那一步写；
 //     生效时没过期；过期只能在到期之后；主体、角色、范围、期限、理由、起草人建好就不能改；不删除。
 //     管理员级的授予只有属主能放行、不是人的主体要有在职的责任人、决定类权限不给不是人的主体：这几条要看角色声明，在服务里判。
 //   grant_events：每一步一行（起草、提交、放行、撤销、过期），只增不改。
-db.exec(`
+const grantsTable = `
 CREATE TABLE IF NOT EXISTS grants (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   principal_id TEXT NOT NULL CHECK (principal_id GLOB '?*:?*'),
@@ -1092,10 +1092,58 @@ CREATE TABLE IF NOT EXISTS grants (
   approved_by_principal TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  CHECK (created_by_principal IS NULL OR created_by_principal <> principal_id),
-  CHECK (approved_by_principal IS NULL OR approved_by_principal <> principal_id),
+  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','migration')),
   CHECK (status NOT IN ('active','expired') OR approved_by IS NOT NULL)
 );
+`;
+const ownerSelfAreaLead = `NEW.role = 'area-lead' AND NEW.scope GLOB 'area:?*' AND EXISTS (
+    SELECT 1 FROM grants AS held JOIN principals AS person ON person.id = held.principal_id
+    WHERE held.principal_id = NEW.principal_id AND person.kind = 'person' AND person.status = 'active'
+      AND held.role = 'owner' AND held.scope = '*' AND held.status = 'active'
+      AND (held.expires_at IS NULL OR held.expires_at > CAST(unixepoch('subsec') * 1000 AS INTEGER))
+  )`;
+const grantSelfGuards = `
+CREATE TRIGGER IF NOT EXISTS grants_self_draft BEFORE INSERT ON grants
+  WHEN NEW.created_by_principal = NEW.principal_id AND NOT (${ownerSelfAreaLead})
+  BEGIN SELECT RAISE(ABORT, '不能给自己授予'); END;
+CREATE TRIGGER IF NOT EXISTS grants_self_approve BEFORE UPDATE OF approved_by_principal ON grants
+  WHEN NEW.approved_by_principal = NEW.principal_id AND NEW.approved_by_principal IS NOT OLD.approved_by_principal AND NOT (${ownerSelfAreaLead})
+  BEGIN SELECT RAISE(ABORT, '不能放行授给自己的'); END;
+`;
+
+// 旧库上的表级 CHECK 不能修改。只重建 grants，保留主键、高水位、附属对象和外部表对 grants 的引用。
+const grantsHasLegacySelfChecks = () => {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'grants'").get() as { sql: string } | undefined;
+  return row?.sql.includes('created_by_principal <> principal_id') === true;
+};
+if (grantsHasLegacySelfChecks()) {
+  const foreignKeys = (db.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys;
+  const legacyAlter = (db.prepare('PRAGMA legacy_alter_table').get() as { legacy_alter_table: number }).legacy_alter_table;
+  db.exec('PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON;');
+  try {
+    migrateOnce(grantsHasLegacySelfChecks, () => {
+      const attached = db.prepare("SELECT sql FROM sqlite_master WHERE tbl_name = 'grants' AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type, name").all() as { sql: string }[];
+      const sequence = db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'grants'").get() as { seq: number } | undefined;
+      const columns = tableColumns('grants').map(c => schemaIdent(c.name)).join(', ');
+      db.exec('ALTER TABLE grants RENAME TO grants_before_owner_area_lead');
+      db.exec(grantsTable);
+      db.exec(`INSERT INTO grants (${columns}) SELECT ${columns} FROM grants_before_owner_area_lead`);
+      db.exec('DROP TABLE grants_before_owner_area_lead');
+      if (sequence) {
+        db.prepare("DELETE FROM sqlite_sequence WHERE name = 'grants'").run();
+        db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('grants', ?)").run(sequence.seq);
+      }
+      for (const object of attached) db.exec(object.sql);
+      db.exec(grantSelfGuards);
+    });
+  } finally {
+    db.exec(`PRAGMA legacy_alter_table = ${legacyAlter}; PRAGMA foreign_keys = ${foreignKeys};`);
+  }
+}
+
+db.exec(grantsTable);
+db.exec(grantSelfGuards);
+db.exec(`
 CREATE INDEX IF NOT EXISTS idx_grants_principal ON grants (principal_id, status);
 CREATE TRIGGER IF NOT EXISTS grants_start_draft BEFORE INSERT ON grants WHEN NEW.status <> 'draft' OR NEW.approved_by IS NOT NULL OR NEW.approved_by_principal IS NOT NULL
   BEGIN SELECT RAISE(ABORT, '授予一律从草稿开始'); END;

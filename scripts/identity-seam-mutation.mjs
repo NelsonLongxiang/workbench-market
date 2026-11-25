@@ -350,9 +350,9 @@ const MUTANTS = [
     find: "typeof outer?.encrypt === 'string' ? decrypt(encryptKey, outer.encrypt) as Record<string, any> | null : null;", replace: "typeof outer?.encrypt === 'string' ? decrypt(encryptKey, outer.encrypt) as Record<string, any> | null : outer as Record<string, any>;" },
   // —— 角色声明与授予（6b）——
   { id: 'grant-self-unchecked', what: '服务不查自授（只剩库里的约束）', file: GRANT_SVC, suites: [GRANTS],
-    find: "    if (actor.principal && actor.principal === g.principal_id) return refuse(403, 'self_grant', '不能给自己授予');\n", replace: '' },
-  { id: 'grant-self-db-check', what: '库里不约束起草人不能是被授予的主体', file: DB, suites: [GRANTS],
-    find: '  CHECK (created_by_principal IS NULL OR created_by_principal <> principal_id),\n', replace: '' },
+    find: "    if (actor.principal === g.principal_id && (g.role !== 'area-lead' || p.kind !== 'person' || this.heldAdmin(actor.principal, now) !== 'owner')) {\n      return refuse(403, 'self_grant', '不能给自己授予');\n    }\n", replace: '' },
+  { id: 'grant-self-db-check', what: '库里不拦无资格的自授起草', file: DB, suites: [GRANTS],
+    find: "  WHEN NEW.created_by_principal = NEW.principal_id AND NOT (${ownerSelfAreaLead})\n", replace: "  WHEN 0\n" },
   { id: 'grant-owner-unchecked', what: '管理员级的授予谁都能放行', file: GRANT_SVC, suites: [GRANTS],
     find: " && !actor.owner) return refuse(403, 'owner_required',", replace: " && false) return refuse(403, 'owner_required'," },
   { id: 'grant-admin-level-by-id-only', what: '管理员级只认 owner、admin 两个 id（带管理类权限的组织角色漏掉）', file: ROLES, suites: [GRANTS],
