@@ -38,6 +38,8 @@ import { buildBoard, findBoardWorkbench, parseConfig, BOARD_PATH, type BoardVar 
 import { openSeatAsks, rejectedReplies, SEAT_ASK_BATCH, SEAT_ASK_LIMIT } from './services/attention-sources.ts';
 import { benchMcpDecider, benchViewsConfig } from './routes/bench-views.ts';
 import { pendingBenchRequests } from './services/bench-mcp.ts';
+import { requestPerson } from './request-person.ts';
+import { reviewInvitationsFor } from './services/report-governance.ts';
 
 /** 提问回执带的选项，接在问题后面给人看（答复仍是自由文本） */
 function optionsHint(json: string): string {
@@ -457,6 +459,19 @@ export function installAttentionProviders(attention: AttentionService, deps: Att
             waiting_for: node.node_name ?? '', since: node.roster_received_at ?? '', link: '/team', object: x.team, phase: 'node-changed',
           });
         });
+      },
+    }),
+    provide({
+      source: 'report-review-invitations', label: '报告模板复核',
+      async list(req) {
+        const person = await requestPerson(req);
+        const principal = person.principal;
+        if (!principal) return null;
+        return reviewInvitationsFor(principal).map(row => item({
+          source: 'report-review-invitations', source_id: row.id, category: 'review',
+          title: '复核报告模板第 ' + row.version + ' 版', object: row.dimension, waiting_for: principal,
+          since: new Date(row.created_at).toISOString(), link: '/attention?report-review=' + row.id,
+        }));
       },
     }),
     provide({

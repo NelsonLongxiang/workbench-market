@@ -59,7 +59,7 @@ export const MCP_TOOLS: McpToolDef[] = [
         actions: { type: 'array', items: { type: 'string' }, description: '同一领域要申请的动作，须和 area 一起填写，不与 tools 混写' },
         report_scope: { type: 'object', additionalProperties: false, required: ['dimension'], properties: {
           bench: { type: 'string' }, dimension: { type: 'string' },
-        }, description: '台绑定指定 bench 和 dimension；模板发布只指定 dimension' },
+        }, description: '台绑定指定 bench 和 dimension；模板发布及复核邀请只指定 dimension' },
         reason: { type: 'string', description: '用途说明（必填·≤500 字）' },
       },
       required: ['reason'],

@@ -218,7 +218,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "7322", "etag": "W/\"1c9a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "7337", "etag": "W/\"1ca9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "jsonrpc": "2.0",
               "id": 5,
@@ -258,7 +258,7 @@
                           "additionalProperties": false,
                           "required": ["dimension"],
                           "properties": { "bench": { "type": "string" }, "dimension": { "type": "string" } },
-                          "description": "台绑定指定 bench 和 dimension；模板发布只指定 dimension"
+                          "description": "台绑定指定 bench 和 dimension；模板发布及复核邀请只指定 dimension"
                         },
                         "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" }
                       },
@@ -342,7 +342,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "6666", "etag": "W/\"1a0a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "6681", "etag": "W/\"1a19-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "jsonrpc": "2.0",
               "id": 6,
@@ -382,7 +382,7 @@
                           "additionalProperties": false,
                           "required": ["dimension"],
                           "properties": { "bench": { "type": "string" }, "dimension": { "type": "string" } },
-                          "description": "台绑定指定 bench 和 dimension；模板发布只指定 dimension"
+                          "description": "台绑定指定 bench 和 dimension；模板发布及复核邀请只指定 dimension"
                         },
                         "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" }
                       },
@@ -720,7 +720,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "27083", "etag": "W/\"69cb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "27098", "etag": "W/\"69da-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "jsonrpc": "2.0",
               "id": 2,
@@ -760,7 +760,7 @@
                           "additionalProperties": false,
                           "required": ["dimension"],
                           "properties": { "bench": { "type": "string" }, "dimension": { "type": "string" } },
-                          "description": "台绑定指定 bench 和 dimension；模板发布只指定 dimension"
+                          "description": "台绑定指定 bench 和 dimension；模板发布及复核邀请只指定 dimension"
                         },
                         "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" }
                       },

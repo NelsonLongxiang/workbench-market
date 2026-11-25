@@ -1,10 +1,18 @@
 {
   "domain": "report-governance",
   "what": "报告治理使用真实站内身份、精确接入批准和实际台库验证。",
-  "routes": ["POST /api/report-governance/proposals", "GET /api/report-governance/proposals/:id", "GET /api/report-governance/inbox", "POST /api/report-governance/inbox/:id/confirm", "POST /api/report-governance/inbox/:id/reject"],
+  "routes": [
+    "POST /api/report-governance/proposals",
+    "GET /api/report-governance/proposals/:id",
+    "GET /api/report-governance/inbox",
+    "POST /api/report-governance/inbox/:id/confirm",
+    "POST /api/report-governance/inbox/:id/reject",
+    "GET /api/report-governance/review-invites/:id"
+  ],
   "exempt": [
     { "route": "GET /api/report-governance/proposals/:id", "class": "invalid", "why": "不存在或编号无效与无权统一拒绝", "shown_by": "binding/result" },
-    { "route": "POST /api/report-governance/inbox/:id/reject", "class": "invalid", "why": "驳回仅认登录人名下可审核编号，无效编号与无权统一拒绝", "shown_by": "binding/reject" }
+    { "route": "POST /api/report-governance/inbox/:id/reject", "class": "invalid", "why": "驳回仅认登录人名下可审核编号，无效编号与无权统一拒绝", "shown_by": "binding/reject" },
+    { "route": "GET /api/report-governance/review-invites/:id", "class": "invalid", "why": "编号非法与不可见邀请统一拒绝", "shown_by": "binding/open-invitation" }
   ],
   "scenarios": [
     {
@@ -536,6 +544,101 @@
             "headers": { "cache-control": "private, no-store", "content-length": "88", "etag": "W/\"58-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "id": "p-2", "kind": "proposal", "op": "bench-bind", "status": "rejected", "reason": "rejected" }
           }
+        },
+        {
+          "id": "register-invite-dimension",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/report-dimensions", "headers": {}, "json": { "id": "invite-monthly", "area": "governance-demo", "title": "合成待复核" } },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "publish-invite-template",
+          "compare": "status",
+          "request": {
+            "method": "POST",
+            "path": "/api/report-dimensions/invite-monthly/templates",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" },
+            "json": {
+              "body": {
+                "schema_version": 2,
+                "title": "回放月报",
+                "parameters": {},
+                "fields": {},
+                "slots": { "orders": { "columns": [{ "name": "id", "type": "integer", "label": "编号" }, { "name": "amount", "type": "decimal", "label": "金额", "nullable": true }], "key": ["id"], "max_rows": 50, "completeness": "all" } },
+                "body": [{ "id": "cover", "type": "cover", "title": ["回放月报"] }, { "id": "tbl", "type": "data-view", "component": "table", "data": "orders", "props": { "columns": ["id", "amount"] } }],
+                "claims": [{ "kind": "conclusion", "label": "结论", "min": 1, "max": 1 }],
+                "responses": { "stances": ["agree", "dispute"], "reason_required": true },
+                "gate": { "open_dispute_blocks_acceptance": false }
+              }
+            }
+          },
+          "save": { "inviteBody": "template.sha256", "inviteCriteria": "template.criteria_sha256" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "apply-invitation-access",
+          "compare": "status",
+          "request": {
+            "method": "POST",
+            "path": "/api/mcp-rest/tools/access_request",
+            "headers": { "x-forwarded-for": "198.51.100.7", "authorization": "Bearer ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" },
+            "json": { "area": "governance-demo", "actions": ["report.governance-review-invite"], "report_scope": { "dimension": "invite-monthly" }, "reason": "回放邀请" }
+          },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "approve-invitation-access",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/areas/governance-demo/access-requests/2/approve", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "invite-review",
+          "request": {
+            "method": "POST",
+            "path": "/api/report-governance/proposals",
+            "headers": { "x-forwarded-for": "198.51.100.7", "authorization": "Bearer ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" },
+            "json": { "op": "review-invite", "idempotency_key": "fixture-review-invite", "args": { "dimension": "invite-monthly", "version": 1, "body_sha256": "{{inviteBody}}", "criteria_sha256": "{{inviteCriteria}}", "invitees": ["user:alpha"] } }
+          },
+          "save": { "inv": "id" },
+          "response": {
+            "status": 202,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "73", "etag": "W/\"49-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "id": "i-1", "kind": "invite", "status": "active", "expires_at": 1894060800654 }
+          }
+        },
+        {
+          "id": "anonymous-invitation",
+          "route": "GET /api/report-governance/review-invites/:id",
+          "class": "unauthorized",
+          "request": { "method": "GET", "path": "/api/report-governance/review-invites/{{inv}}", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "88", "etag": "W/\"58-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "请以本站自然人账户登录", "code": "report_governance_person_required" }
+          }
+        },
+        {
+          "id": "other-person-invitation",
+          "route": "GET /api/report-governance/review-invites/:id",
+          "class": "unauthorized",
+          "request": { "method": "GET", "path": "/api/report-governance/review-invites/{{inv}}", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "94", "etag": "W/\"5e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "本会话不能访问这项报告治理能力", "code": "report_governance_forbidden" }
+          }
+        },
+        {
+          "id": "open-invitation",
+          "route": "GET /api/report-governance/review-invites/:id",
+          "class": "normal",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/report-governance/review-invites/{{inv}}", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 200 }
         }
       ]
     }

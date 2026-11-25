@@ -17,6 +17,8 @@ export const AREA_ACCESS_LIMIT = 'area.access-limit-set';
 export const REPORT_BIND_ACCESS = 'report.governance-bench-bind';
 export const REPORT_CREATE_ACCESS = 'report.governance-dimension-create';
 export const REPORT_PUBLISH_ACCESS = 'report.governance-template-publish';
+export const REPORT_REVIEW_INVITE_ACCESS = 'report.governance-review-invite';
+type ReportDimensionAccess = typeof REPORT_PUBLISH_ACCESS | typeof REPORT_REVIEW_INVITE_ACCESS;
 export type ReportBindGrantScope = { bench: string; dimension: string };
 const benchName = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const actionName = /^[a-z][a-z0-9-]{0,47}\.[a-z][a-z0-9-]{0,47}$/;
@@ -156,8 +158,8 @@ export class AreaAccessService extends Service {
         if (selected.length !== 1) reject(400, 'area_access_report_scope_invalid', '报告绑定操作须单独申请');
         scope = reportBindScopeKey(area, reportBindScope(input.report_scope));
         if (!scope) reject(403, 'area_access_unavailable', '这个领域当前不接受此台的接入申请');
-      } else if (selected.includes(REPORT_PUBLISH_ACCESS)) {
-        if (selected.length !== 1) reject(400, 'area_access_report_scope_invalid', '模板发布操作须单独申请');
+      } else if ((selected.includes(REPORT_PUBLISH_ACCESS) || selected.includes(REPORT_REVIEW_INVITE_ACCESS))) {
+        if (selected.length !== 1) reject(400, 'area_access_report_scope_invalid', '报告维度操作须单独申请');
         scope = reportDimensionScopeKey(area, reportDimensionScope(input.report_scope).dimension);
         if (!scope) reject(403, 'area_access_unavailable', '这个领域当前不接受此维度的接入申请');
       } else if (input.report_scope !== undefined) {
@@ -207,20 +209,20 @@ export class AreaAccessService extends Service {
     return rows.map(row => row.area_id).filter(area => this.hasReportCreateApproval(sessionId, principal, area));
   }
 
-  reportPublishApprovals(sessionId: number, principal: string): { area: string; dimension: string }[] {
+  reportDimensionApprovals(sessionId: number, principal: string, action: ReportDimensionAccess): { area: string; dimension: string }[] {
     const rows = db.prepare("SELECT DISTINCT area_id, governance_scope FROM area_access_requests WHERE session_id = ? AND applicant = ? AND status = 'approved' AND governance_scope IS NOT NULL AND actions = ? ORDER BY area_id, governance_scope")
-      .all(sessionId, principal, JSON.stringify([REPORT_PUBLISH_ACCESS])) as { area_id: string; governance_scope: string }[];
+      .all(sessionId, principal, JSON.stringify([action])) as { area_id: string; governance_scope: string }[];
     return rows.flatMap(row => {
       const scope = JSON.parse(row.governance_scope) as { dimension: string };
       return areas().get(row.area_id)?.status === 'active' && reportDimensionScopeKey(row.area_id, scope.dimension) === row.governance_scope
         ? [{ area: row.area_id, dimension: scope.dimension }] : [];
     });
   }
-  hasReportPublishApproval(sessionId: number, principal: string, area: string, dimension: string): boolean {
+  hasReportDimensionApproval(sessionId: number, principal: string, area: string, dimension: string, action: ReportDimensionAccess): boolean {
     if (areas().get(area)?.status !== 'active') return false;
     const key = reportDimensionScopeKey(area, dimension);
     return key !== null && Boolean(db.prepare("SELECT id FROM area_access_requests WHERE session_id = ? AND applicant = ? AND area_id = ? AND status = 'approved' AND governance_scope = ? AND actions = ?")
-      .get(sessionId, principal, area, key, JSON.stringify([REPORT_PUBLISH_ACCESS])));
+      .get(sessionId, principal, area, key, JSON.stringify([action])));
   }
 
   reportBindApprovals(sessionId: number, principal: string): (ReportBindGrantScope & { area: string })[] {

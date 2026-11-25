@@ -306,6 +306,12 @@ export class ReportDimensionService extends Service {
     });
   }
 
+  mayReviewInvitation(id: string, criteria: string, principal: string): boolean {
+    const authors = this.criteriaAuthors(id, criteria);
+    return identifiedPerson(principal) && authors.length > 0 && this.authorsIdentified(authors) &&
+      !authors.some(row => this.authorPrincipals(row).includes(principal) || row.created_by === principal);
+  }
+
   private criteriaAuthors(id: string, criteria: string): CriteriaAuthor[] {
     return db.prepare('SELECT version, created_by, created_by_principal, draft_author_principal FROM report_templates WHERE dimension_id = ? AND criteria_sha256 = ? ORDER BY version')
       .all(id, criteria) as CriteriaAuthor[];

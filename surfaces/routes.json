@@ -327,6 +327,7 @@
       "POST /api/mcp-rest/capabilities/:target  <- <anonymous>",
       "POST /api/report-governance/proposals  <- <anonymous>",
       "GET /api/report-governance/proposals/:id  <- <anonymous>",
+      "GET /api/report-governance/review-invites/:id  <- <anonymous>",
       "GET /api/report-governance/inbox  <- <anonymous>",
       "POST /api/report-governance/inbox/:id/confirm  <- <anonymous>",
       "POST /api/report-governance/inbox/:id/reject  <- <anonymous>",

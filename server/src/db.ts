@@ -1926,6 +1926,29 @@ CREATE TABLE IF NOT EXISTS report_governance_audit (
   status TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_report_governance_audit_at ON report_governance_audit (at);
+CREATE TABLE IF NOT EXISTS report_governance_invites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL REFERENCES mcp_sessions (id),
+  principal_id TEXT NOT NULL REFERENCES principals (id),
+  area_id TEXT NOT NULL,
+  dimension_id TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK (version > 0),
+  body_sha256 TEXT NOT NULL,
+  criteria_sha256 TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_sha256 TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  void_reason TEXT CHECK (void_reason IN ('expired', 'revoked', 'superseded', 'ineligible')),
+  FOREIGN KEY (dimension_id, version) REFERENCES report_templates (dimension_id, version),
+  UNIQUE (session_id, dimension_id, idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS report_governance_invitees (
+  invite_id INTEGER NOT NULL REFERENCES report_governance_invites (id),
+  principal_id TEXT NOT NULL REFERENCES principals (id),
+  PRIMARY KEY (invite_id, principal_id)
+);
+CREATE INDEX IF NOT EXISTS idx_report_governance_invitees_person ON report_governance_invitees (principal_id, invite_id);
 CREATE TRIGGER IF NOT EXISTS report_governance_audit_no_update BEFORE UPDATE ON report_governance_audit
   BEGIN SELECT RAISE(ABORT, '治理审计不可改写'); END;
 CREATE TRIGGER IF NOT EXISTS report_governance_audit_no_replace BEFORE INSERT ON report_governance_audit

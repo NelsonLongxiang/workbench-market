@@ -4,7 +4,7 @@ import { HttpError } from '../errors.ts';
 import { BenchError } from '../bench-query.ts';
 import { requestPerson } from '../request-person.ts';
 import { confirmReportGovernance, governanceForbidden, governanceInbox, proposalId, proposeReportGovernance,
-  rejectReportGovernance, resultReportGovernance } from '../services/report-governance.ts';
+  rejectReportGovernance, resultReportGovernance, openReviewInvitation } from '../services/report-governance.ts';
 
 type Deps = {
   wrap: (run: (req: express.Request, res: express.Response) => Promise<unknown>) => express.RequestHandler;
@@ -37,6 +37,11 @@ export function registerReportGovernanceRoutes(app: HttpService, deps: Deps) {
   }));
   app.get('/api/report-governance/proposals/:id', { action: 'report.governance-result', kind: 'read', statusNotVerdict: SESSION_GATES }, wrap(async (req, res) => {
     res.json(resultReportGovernance(deps.session(req), { id: req.params.id }, 'rest'));
+  }));
+  app.get('/api/report-governance/review-invites/:id', { action: 'report.governance-invite-read', kind: 'read', statusNotVerdict: SITE_PERSON }, wrap(async (req, res) => {
+    const view = openReviewInvitation(await identity(req), req.params.id);
+    if (!view) governanceForbidden();
+    res.json(view);
   }));
   app.get('/api/report-governance/inbox', { action: 'report.governance-inbox', kind: 'read', statusNotVerdict: SITE_PERSON }, wrap(async (req, res) => {
     const principal = await identity(req);
