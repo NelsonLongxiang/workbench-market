@@ -8,10 +8,23 @@
  *  WS upgrade 不经过 Express：调用方在每个 server 上挂 'upgrade'，用 surfaceOf(req) 同样判面（req.socket 照样可用）。 */
 import type { Server, IncomingMessage } from 'node:http';
 import type { Express } from 'express';
+import { defineConfig, loadConfig } from './config.ts';
 
 export type SurfaceName = 'market' | 'control' | (string & {});
 type Registered = { name: SurfaceName; port: number; server: Server };
 const surfaces: Registered[] = [];
+
+const publicMarketConfig = defineConfig(env => {
+  const raw = env.MARKET_PUBLIC_URL?.trim();
+  if (!raw || !/^https?:\/\//i.test(raw)) return null;
+  try {
+    const url = new URL(raw);
+    if (url.username || url.password) return null;
+    return { origin: url.origin, host: url.host };
+  } catch { return null; }
+});
+const publicMarket = loadConfig(publicMarketConfig);
+export const marketPublicOrigin = (): string | null => publicMarket?.origin ?? null;
 
 /** 读端口配置：WM_CONTROL_PORT 缺省不开（属主 2026-11-02 撤销 #292 M1 控制面强制：管理写凭口令或 Odoo 管理员在业务面即可）；
  *  显式给端口才开一个可选的独立管理端口；'0' 或与业务端口相同 → 不开 */
@@ -75,15 +88,35 @@ export function rawLoopback(req: IncomingMessage): boolean {
   return (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') && !forwarded(req);
 }
 
-/** Origin 是否就是本面：host 与请求 Host 相同，且端口等于本面端口（Host 由浏览器如实填写；端口再钉一次） */
-export function originIsThisSurface(req: IncomingMessage): boolean {
+/** 直连仍按监听端口判。业务路由可以接受部署方配置的公共来源，来源信任与监听面均不取自转发头。 */
+export function originIsThisSurface(req: IncomingMessage, allowPublicMarket = false): boolean {
   const origin = req.headers.origin;
   if (!origin || origin === 'null') return false;
+  if (allowPublicMarket && publicMarket && surfaceOf(req) === 'market' &&
+      origin === publicMarket.origin && req.headers.host === publicMarket.host) return true;
   try {
     const u = new URL(String(origin));
     const port = Number(u.port || (u.protocol === 'https:' ? 443 : 80));
     return u.host === String(req.headers.host ?? '') && port === req.socket?.localPort;
   } catch { return false; }
+}
+
+/** 公共地址只由启动配置和真实 Origin/Host 声明识别，反代头不参与。 */
+export function addressesPublicMarketHttps(req: IncomingMessage): boolean {
+  return !!publicMarket?.origin.startsWith('https://') &&
+    (req.headers.host?.toLowerCase() === publicMarket.host || req.headers.origin === publicMarket.origin);
+}
+
+/** 明确面向公共 HTTPS 的业务确认。非公共直连仍由原路由校验。 */
+export function publicBusinessConfirmationOrigin(req: IncomingMessage): 'local' | 'public' | 'denied' {
+  if (!publicMarket?.origin.startsWith('https://')) return 'local';
+  const { host, origin } = req.headers;
+  const addressedPublic = addressesPublicMarketHttps(req);
+  if (!addressedPublic && !origin && (browserMarked(req) || (req.headers.cookie && !rawLoopback(req)))) return 'denied';
+  if (!addressedPublic) return req.headers.cookie && forwarded(req) ? 'denied' : 'local';
+  const site = req.headers['sec-fetch-site'];
+  return surfaceOf(req) === 'market' && host === publicMarket.host && origin === publicMarket.origin && (site === undefined || site === 'same-origin')
+    ? 'public' : 'denied';
 }
 
 /** 给浏览器显示的另一面地址（只用请求里的主机名拼链接，不据此做任何授权） */

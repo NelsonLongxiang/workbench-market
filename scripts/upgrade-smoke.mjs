@@ -89,7 +89,9 @@ const expectedBenchProbes = [
   'market.bench-views.var-render-anonymous',
   'market.bench-views.table-export-anonymous',
   'market.bench-views.table-row-anonymous',
-  'market.bench-views.report-generate-anonymous', // 报告第 1 步 PR B：匿名生成报告
+  'market.bench-views.report-image-anonymous',
+  'market.bench-views.report-generate-anonymous',
+  'market.bench-views.anonymous-stop-report',
 ];
 function benchRows(probe) { return (Array.isArray(probe?.rows) ? probe.rows : []).filter((r) => String(r?.id).startsWith('market.bench-views.')); }
 function benchProbesPassed(probe) {
@@ -116,10 +118,10 @@ if (argv.includes('--selftest')) {
   t('原有行没了：算改了', rowsChangedOf({ work_item_backfill: [bf()] }, { work_item_backfill: [] }, [], vol), true);
   t('什么都没变：不算', run(bf(), bf()), false);
   // Frozen observed contract, independent of the implementation's expected-ID list above.
-  const goodRows = ['anonymous-read', 'anonymous-write', 'var-render-anonymous', 'table-export-anonymous', 'table-row-anonymous', 'report-generate-anonymous']
+  const goodRows = ['anonymous-read', 'anonymous-write', 'var-render-anonymous', 'table-export-anonymous', 'table-row-anonymous', 'report-image-anonymous', 'report-generate-anonymous', 'anonymous-stop-report']
     .map((name) => ({ id: 'market.bench-views.' + name, verdict: 'pass', status: 401 }));
   const probes = (label, rows, want) => t(label, benchProbesPassed({ rows }) ? [] : ['probe contract mismatch'], !want);
-  probes('六条具名匿名守卫都通过且401：放行', goodRows, true);
+  probes('八条具名匿名守卫都通过且401：放行', goodRows, true);
   probes('probe顺序变化、夹着其他域：仍放行', [...goodRows].reverse().concat({ id: 'market.other', verdict: 'pass', status: 200 }), true);
   for (let i = 0; i < goodRows.length; i++) {
     const id = goodRows[i].id;
@@ -427,9 +429,9 @@ try {
   const countDiff = Object.keys(after2.counts).filter((t) => after2.counts[t] !== after1.counts[t]);
   check(countDiff.length === 0, '幂等：第二次启动后各表行数相同', countDiff.map((t) => `${t} ${after1.counts[t]} → ${after2.counts[t]}`).join('；'));
   check(after2.counts.work_items === after1.counts.work_items && after2.counts.work_item_log === after1.counts.work_item_log && after1.counts.work_items !== undefined, `幂等：第二次启动没有再补建事项（${after2.counts.work_items}）`);
-  // 台库：入口缺省开着（六条具名匿名守卫），但升级不该凭空建出台库、登记出台；开着入口之后建的台，要经得起回滚和再上线
+  // 台库：入口缺省开着（八条具名匿名守卫），但升级不该凭空建出台库、登记出台；开着入口之后建的台，要经得起回滚和再上线
   check(!existsSync(join(DATA, 'bench-stores')) && after2.tables.includes('bench_views') && after2.counts.bench_views === 0 && benchProbesPassed(probe2),
-    '台库：入口缺省开着——升级后数据目录里没有台库，台的登记表是空的，自检里六条具名匿名守卫均只出现一次、pass 且 HTTP 401');
+    '台库：入口缺省开着——升级后数据目录里没有台库，台的登记表是空的，自检里八条具名匿名守卫均只出现一次、pass 且 HTTP 401');
   const benchSeed = benchRun('seed');
   check(benchSeed.ok && JSON.parse(benchSeed.json || '{}').rows?.length === 3, '台库：用本检出的服务登记一个合成台，建数据集、写 3 行、留快照、存视图', benchSeed.err ?? '');
   const benchSchema1 = benchSchema();
@@ -437,7 +439,7 @@ try {
   const probeBench = await selfProbe(s.base);
   await stopServer(s);
   check(s.ok && probeBench?.passed === true && benchProbesPassed(probeBench),
-    '台库：开着入口启动，自检全过，读、写、变量渲染、完整导出、来源详情、生成报告六条匿名守卫均只出现一次、pass 且 HTTP 401', JSON.stringify(benchRows(probeBench)));
+    '台库：开着入口启动，自检全过，读、写、变量渲染、完整导出、来源详情、报告取图、生成报告、停用生成八条匿名守卫均只出现一次、pass 且 HTTP 401', JSON.stringify(benchRows(probeBench)));
   report.head = { new_tables: after1.tables.filter((t) => !before.tables.includes(t)), self_probe_rows: probe1?.rows?.length ?? 0, boot_ms: servers.filter((x) => x.label.startsWith('head')).map((x) => x.ms) };
 
   // 3. 回滚到基线

@@ -1,4 +1,5 @@
 # skills 目录（仓库内技能源）
+| wm-report-governance | 通过通用调用提交报告治理提案，由有权人在站内确认；当前开放单台单维度的绑定。 |
 
 市场自有技能的**仓库内单一事实源**——发布链以此为准（`.agents/skills` 为本机装载面·两处同步）。
 
@@ -7,7 +8,7 @@
 | wm-usage | 如何使用市场（用户视角 5 分钟）|
 | wm-quickstart | 快速开始构建（builder 视角 15 分钟）|
 | wm-market-guide | 深度参考（UI/UX token、自产台、坑；工具不逐个列，以 `access_info` 的目录为准，怎么找见 wm-capability-access）|
-| wm-data-views | 数据视图：不写 HTML 建台——建数据集、更新数据、写视图描述、八种组件、上限、出错怎么办。例子由 `scripts/skill-data-views-examples-test.mjs` 用真实现逐个跑（CI），代码改了技能没跟上会红 |
+| wm-data-views | 数据视图：不写 HTML 建台——建数据集、更新数据、写视图描述、十二种组件（含依赖图、甘特图、流程图）、上限、出错怎么办。例子由 `scripts/skill-data-views-examples-test.mjs` 用真实现逐个跑（CI），代码改了技能没跟上会红 |
 | wm-capability-access | 能力接入：目录 → 按名字取参数表 → 申请 → MCP / REST 调用；大结果的引用怎么取。例子由 `scripts/skill-capability-access-examples-test.mjs` 在隔离实例上逐个真跑（CI），代码改了技能没跟上会红 |
 
 ## 市场技能聚合（三源·`node scripts/skill-import.mjs` 幂等重跑=漂移自动升版）

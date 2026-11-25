@@ -34,7 +34,10 @@ let pass = 0, fail = 0;
 const check = (ok, label, detail) => { if (ok) pass++; else fail++; console.log(`  ${ok ? '✓' : '✗'} ${label}${ok || detail === undefined ? '' : `（${typeof detail === 'string' ? detail : JSON.stringify(detail)}）`}`); };
 /** 跑一句写库的 SQL，交回被拒的那句话（没被拒交回 null） */
 const refused = (db, sql, args = []) => { try { db.prepare(sql).run(...args); return null; } catch (e) { return String(e?.message ?? e); } };
-const GUARD = /只增不改|append only|never changed|never deleted|已冻结/;
+const GUARD = /只增不改|append only|never changed|never deleted|已冻结|治理审计不可(?:改写|覆盖)/;
+const REPORT_GOVERNANCE_GUARDS = [
+  'report_governance_no_replace', 'report_governance_audit_no_update', 'report_governance_audit_no_replace',
+];
 
 /**
  * 每张只增表：主键列、正常写一行要的列和值、用来覆盖的另一组值（换执行人和内容）、要拦哪几样（缺省改、删、覆盖都拦）。
@@ -60,6 +63,9 @@ const TABLES = [
   // 删照旧（留给按时间清理）：拦改和覆盖
   { table: 'mcp_calls', pk: 'id', cols: ['session_name', 'method', 'tool', 'seat'], row: ['synthetic:a', 'tools/call', 'list_rows', 'synthetic:a'], swap: ['synthetic:b', 'tools/call', 'put_rows', 'synthetic:b'], deny: ['update', 'replace'] },
   { table: 'a2a_seat_token_log', pk: 'id', cols: ['at', 'host', 'outcome', 'reason'], row: [1, 'synthetic:a', 'issued', ''], swap: [2, 'synthetic:b', 'refused', 'x'], deny: ['update', 'replace'] },
+  { table: 'report_governance_audit', pk: 'id', cols: ['at', 'proposal_id', 'action', 'channel', 'session_id', 'principal_id', 'actor_id', 'status'],
+    row: [1, 1, 'report.governance-propose', 'rest', 1, 'synthetic:a', null, 'pending'],
+    swap: [2, 1, 'report.governance-confirmed', 'market', 1, 'synthetic:a', 'synthetic:b', 'confirmed'], deny: ['update', 'replace'] },
   // 发出去就不变：不删（原有）、不改、不覆盖；另有唯一键 event_id
   { table: 'workbench_events', pk: 'id', cols: ['event_id', 'source', 'workbench', 'item', 'context_id', 'submitter_kind', 'submitter', 'data_sha256', 'dispatch', 'routed'],
     row: ['wbe-00000000000000a1', 'task-center', 'syn-bench', 'syn-item', 'ctx-a', 'human', 'synthetic:a', 'aa', 1, 'target'],
@@ -114,6 +120,26 @@ try {
       check(del === null && snap() === undefined, `${t.table}：删照旧（留给按时间清理）`, del);
     }
   }
+
+  // 提案允许合法状态流转。防覆盖须同时认主键和幂等唯一键。
+  db.prepare("INSERT INTO principals (id, id_key, kind) VALUES ('user:governance-fixture', 'user:governance-fixture', 'person')").run();
+  const session = db.prepare("INSERT INTO mcp_sessions (name, token_sha256, responsible_principal) VALUES ('append-only-governance-fixture', ?, 'user:governance-fixture') RETURNING id").get('a'.repeat(64)).id;
+  const cols = 'session_id, principal_id, op, target_key, idempotency_key, request_sha256, snapshot_sha256, frozen, created_at, expires_at';
+  const values = [session, 'user:governance-fixture', 'bench-bind', '["bench","report"]', 'first', 'a'.repeat(64), 'b'.repeat(64), '{}', 1, 2];
+  const restoreValues = [...values.slice(0, 4), 'different', ...values.slice(5)];
+  const insert = 'INSERT INTO report_governance_proposals (' + cols + ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+  const id = db.prepare(insert + ' RETURNING id').get(...values).id;
+  const proposal = () => JSON.stringify(db.prepare('SELECT * FROM report_governance_proposals WHERE id = ?').get(id));
+  const original = proposal();
+  const samePrimary = refused(db, 'INSERT OR REPLACE INTO report_governance_proposals (id, ' + cols + ') VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [id, ...restoreValues]);
+  const sameIdempotency = refused(db, insert.replace('INSERT INTO', 'INSERT OR REPLACE INTO'), values);
+  const reason = '报告治理提案不可覆盖';
+  check(samePrimary === reason && sameIdempotency === reason && proposal() === original,
+    'report_governance_no_replace：主键及幂等键各自冲突均拒绝覆盖，保留原提案', { samePrimary, sameIdempotency });
+  const settled = db.prepare("UPDATE report_governance_proposals SET status = 'rejected', decided_at = ? WHERE id = ?").run(2, id).changes;
+  const fresh = refused(db, insert, restoreValues);
+  check(settled === 1 && fresh === null && db.prepare('SELECT status FROM report_governance_proposals WHERE id = ?').get(id)?.status === 'rejected',
+    'report_governance_proposals：合法状态流转与新键提案仍允许', { settled, fresh });
 
   console.log('二、整库：只增表都要有防覆盖');
   const trg = db.prepare("SELECT name, tbl_name, sql FROM sqlite_master WHERE type = 'trigger'").all();
@@ -220,6 +246,16 @@ try {
   const MAIN = ['grants', 'work_items', 'areas', 'report_dimensions'].flatMap((t) => [`${t}_no_delete`, `${t}_no_replace`]);
   check(MAIN.every((n) => names.includes(n) && have.has(n)), '可以改的主表（授予、事项、领域、报告维度）上不删、不能覆盖那八条在名单里，库里也有', MAIN.filter((n) => !names.includes(n) || !have.has(n)));
   check(guards.length > 0 && guards.every((n) => names.includes(n)), `库里防改、删、覆盖的触发器（${guards.length} 条）都在名单里`, guards.filter((n) => !names.includes(n)));
+  for (const name of REPORT_GOVERNANCE_GUARDS) {
+    const sql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(name)?.sql;
+    if (!sql) { check(false, name + '：库里有已定义的保护触发器'); continue; }
+    db.exec('DROP TRIGGER ' + name);
+    const missing = dbm.appendOnlySelfCheck();
+    db.exec(sql);
+    const restored = dbm.appendOnlySelfCheck();
+    check(!missing.ok && missing.reason === 'missing:' + name && restored.ok && !restored.warn && logRows() === n0 && seqOf() === s0,
+      name + '：启动自检精确点名，恢复后通过且不留痕', { missing, restored });
+  }
   // 拿掉一条：点名缺的是哪条
   const rsql = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'wbe_log_no_replace'").get().sql;
   db.exec('DROP TRIGGER wbe_log_no_replace');

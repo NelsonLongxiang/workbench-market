@@ -1,16 +1,21 @@
-/** #326 real index tests. Fresh synthetic data/home and reserved loopback ports only. */
+/** #326 real index tests. Fresh synthetic data/home and reserved loopback ports only. Pass --keep to retain successful diagnostics. */
 import assert from 'node:assert/strict';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer, connect } from 'node:net';
 import { createServer as httpServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-const root=resolve('.'),out=resolve('tmp/startup-self-probe-http-'+Date.now());
-mkdirSync(out,{recursive:true});let checks=0;
+const root = realpathSync('.');
+const tmp = join(root, 'tmp');
+mkdirSync(tmp, { recursive: true });
+if (realpathSync(tmp) !== tmp) throw Error('Expected a real tmp directory in the checkout');
+const out = mkdtempSync(join(tmp, 'startup-self-probe-http-'));
+const keep = process.argv.includes('--keep');
+let checks = 0;
 const check=(name,condition)=>{assert.ok(condition,name);checks++;console.log('PASS '+name)};
-const BENCH_PROBES=['market.bench-views.anonymous-read','market.bench-views.anonymous-write','market.bench-views.var-render-anonymous','market.bench-views.table-export-anonymous','market.bench-views.table-row-anonymous','market.bench-views.report-generate-anonymous'];
+const BENCH_PROBES=['market.bench-views.anonymous-read','market.bench-views.anonymous-write','market.bench-views.var-render-anonymous','market.bench-views.table-export-anonymous','market.bench-views.table-row-anonymous','market.bench-views.report-image-anonymous','market.bench-views.report-generate-anonymous','market.bench-views.anonymous-stop-report'];
 const spare=async()=>{const s=createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const p=s.address().port;await new Promise(r=>s.close(r));assert(![3080,9800,9801].includes(p));return p;};
 const websocket=port=>new Promise((resolve,reject)=>{
  const s=connect(port,'127.0.0.1');let bytes=0;
@@ -55,7 +60,7 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
  if(unset)delete env.MCP_GATEWAY;
  if(nodeEnv===null)delete env.NODE_ENV;
  const child=spawn(process.execPath,['--import','data:text/javascript,'+encodeURIComponent(preload),'server/src/index.ts'],{cwd:root,env,stdio:['ignore','pipe','pipe']});
- const ended=once(child,'exit');let so='',se='',health=null,status=null,pendingChecked=false;
+ const ended=once(child,'close');let so='',se='',health=null,status=null,pendingChecked=false;
  child.stdout.on('data',b=>so+=b);child.stderr.on('data',b=>se+=b);
  try{
   for(let i=0;i<160;i++){
@@ -106,7 +111,7 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    if(gate==='enforce')check(label+' login-gate rows all pass',['page','app','api'].every(k=>health.self_probe.rows.some(x=>x.id==='market.login-gate.'+k&&x.verdict==='pass'))&&health.self_probe.rows.some(x=>x.id==='market.a2a-direct.unsigned'&&x.verdict==='pass')&&health.login_gate==='enforce');
    if(gate!=='enforce')check(label+' no login-gate rows when gate is off',!health.self_probe.rows.some(x=>x.id.startsWith('market.login-gate.')||x.id.startsWith('market.a2a-direct.')));
    // 数据视图入口缺省开（不设就开），只有显式 off 时没有这三行
-   if(benchViews!=='off'){const rows=health.self_probe.rows.filter(x=>x.id.startsWith('market.bench-views.'));check(label+' exactly the three named bench-view rows pass',rows.length===BENCH_PROBES.length&&BENCH_PROBES.every(id=>rows.some(x=>x.id===id&&x.verdict==='pass'&&x.status===401)));}
+   if(benchViews!=='off'){const rows=health.self_probe.rows.filter(x=>x.id.startsWith('market.bench-views.'));check(label+' exactly the eight named bench-view rows pass',rows.length===BENCH_PROBES.length&&BENCH_PROBES.every(id=>rows.some(x=>x.id===id&&x.verdict==='pass'&&x.status===401)));}
    else check(label+' no bench-view rows while the entry is off',!health.self_probe.rows.some(x=>x.id.startsWith('market.bench-views.')));
    check(label+' ordinary request works after successful startup',(await fetch('http://127.0.0.1:'+port+'/api/workbenches')).status===200);
   }
@@ -119,45 +124,52 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
   }finally{db.close();}
   check(label+' logs never contain admin credential or private request header',!(so+se).includes(env.ADMIN_TOKEN)&&!so.includes('x-wm-self-probe'));
  }finally{
-  if(child.exitCode===null&&child.signalCode===null){child.kill();await ended;}
+  if(child.exitCode===null&&child.signalCode===null)child.kill();
+  await ended;
   if(foreign){foreign.closeAllConnections();await new Promise(r=>foreign.close(r));}
   writeFileSync(join(dir,'stdout.log'),so);writeFileSync(join(dir,'stderr.log'),se);
  }
 }
-await runCase('production-off',{off:true,expectFailure:true});
-await runCase('unset-environment-off',{off:true,nodeEnv:null,expectFailure:true});
-await runCase('empty-environment-off',{off:true,nodeEnv:'',expectFailure:true});
-await runCase('unknown-environment-off',{off:true,nodeEnv:'staging',expectFailure:true});
-await runCase('normal-control',{control:true});
-await runCase('normal-control-off');
-await runCase('gateway-unset',{unset:true});
-await runCase('occupied-control',{control:true,occupied:true});
-await runCase('development-off',{off:true,nodeEnv:'development'});
-await runCase('test-off',{off:true,nodeEnv:'test'});
-await runCase('development-off-broken-write',{off:true,nodeEnv:'development',mutation:'browser-write',expectFailure:true});
-await runCase('startup-ingress',{mutation:'hold-probe'});
-await runCase('mcp-auth-regression',{mutation:'mcp-auth',expectFailure:true});
-await runCase('browser-write-regression',{mutation:'browser-write',expectFailure:true});
-await runCase('principals-admin-read-regression',{mutation:'principals-admin-read',expectFailure:true});
-await runCase('forged-login-callback-regression',{mutation:'forged-login-callback',expectFailure:true});
-await runCase('unsigned-login-event-regression',{mutation:'unsigned-login-event',expectFailure:true});
-await runCase('portal-access-validation-regression',{mutation:'portal-access-validation',expectFailure:true});
-await runCase('portal-session-strip-regression',{mutation:'portal-session-strip',expectFailure:true});
-await runCase('export-reveal-regression',{mutation:'export-reveal',expectFailure:true});
-await runCase('grants-admin-read-regression',{mutation:'grants-admin-read',expectFailure:true});
-await runCase('bench-views-on',{benchViews:'on'});
-await runCase('bench-views-off',{benchViews:'off'});
-await runCase('bench-views-on-login-gate',{benchViews:'on',gate:'enforce',control:true});
-await runCase('bench-views-anonymous-regression',{benchViews:'on',mutation:'bench-views-anonymous',expectFailure:true});
-await runCase('app-data-read-regression',{mutation:'app-data-read',expectFailure:true});
-await runCase('sop-run-write-regression',{mutation:'sop-run-write',expectFailure:true});
-await runCase('vars-missing-regression',{mutation:'vars-missing',expectFailure:true});
-await runCase('probe-timeout',{mutation:'mcp-timeout',expectFailure:true});
-await runCase('probe-handler-error',{mutation:'handler-error',expectFailure:true});
-await runCase('login-gate-enforce',{gate:'enforce',control:true});
-await runCase('login-gate-enforce-gateway-off-ignored',{gate:'enforce',off:true});
-await runCase('login-gate-bypassed',{gate:'enforce',mutation:'login-gate',expectFailure:true});
-await runCase('login-gate-apps-leak',{gate:'enforce',mutation:'login-gate-apps',expectFailure:true});
-await runCase('a2a-direct-unsigned-leak',{gate:'enforce',mutation:'a2a-direct-unsigned',expectFailure:true});
-writeFileSync(join(out,'result.json'),JSON.stringify({checks,production_requests:0,personal_home_access:false},null,2));
-console.log(JSON.stringify({out,checks}));
+try {
+  await runCase('production-off',{off:true,expectFailure:true});
+  await runCase('unset-environment-off',{off:true,nodeEnv:null,expectFailure:true});
+  await runCase('empty-environment-off',{off:true,nodeEnv:'',expectFailure:true});
+  await runCase('unknown-environment-off',{off:true,nodeEnv:'staging',expectFailure:true});
+  await runCase('normal-control',{control:true});
+  await runCase('normal-control-off');
+  await runCase('gateway-unset',{unset:true});
+  await runCase('occupied-control',{control:true,occupied:true});
+  await runCase('development-off',{off:true,nodeEnv:'development'});
+  await runCase('test-off',{off:true,nodeEnv:'test'});
+  await runCase('development-off-broken-write',{off:true,nodeEnv:'development',mutation:'browser-write',expectFailure:true});
+  await runCase('startup-ingress',{mutation:'hold-probe'});
+  await runCase('mcp-auth-regression',{mutation:'mcp-auth',expectFailure:true});
+  await runCase('browser-write-regression',{mutation:'browser-write',expectFailure:true});
+  await runCase('principals-admin-read-regression',{mutation:'principals-admin-read',expectFailure:true});
+  await runCase('forged-login-callback-regression',{mutation:'forged-login-callback',expectFailure:true});
+  await runCase('unsigned-login-event-regression',{mutation:'unsigned-login-event',expectFailure:true});
+  await runCase('portal-access-validation-regression',{mutation:'portal-access-validation',expectFailure:true});
+  await runCase('portal-session-strip-regression',{mutation:'portal-session-strip',expectFailure:true});
+  await runCase('export-reveal-regression',{mutation:'export-reveal',expectFailure:true});
+  await runCase('grants-admin-read-regression',{mutation:'grants-admin-read',expectFailure:true});
+  await runCase('bench-views-on',{benchViews:'on'});
+  await runCase('bench-views-off',{benchViews:'off'});
+  await runCase('bench-views-on-login-gate',{benchViews:'on',gate:'enforce',control:true});
+  await runCase('bench-views-anonymous-regression',{benchViews:'on',mutation:'bench-views-anonymous',expectFailure:true});
+  await runCase('app-data-read-regression',{mutation:'app-data-read',expectFailure:true});
+  await runCase('sop-run-write-regression',{mutation:'sop-run-write',expectFailure:true});
+  await runCase('vars-missing-regression',{mutation:'vars-missing',expectFailure:true});
+  await runCase('probe-timeout',{mutation:'mcp-timeout',expectFailure:true});
+  await runCase('probe-handler-error',{mutation:'handler-error',expectFailure:true});
+  await runCase('login-gate-enforce',{gate:'enforce',control:true});
+  await runCase('login-gate-enforce-gateway-off-ignored',{gate:'enforce',off:true});
+  await runCase('login-gate-bypassed',{gate:'enforce',mutation:'login-gate',expectFailure:true});
+  await runCase('login-gate-apps-leak',{gate:'enforce',mutation:'login-gate-apps',expectFailure:true});
+  await runCase('a2a-direct-unsigned-leak',{gate:'enforce',mutation:'a2a-direct-unsigned',expectFailure:true});
+  writeFileSync(join(out,'result.json'),JSON.stringify({checks,production_requests:0,personal_home_access:false},null,2));
+  if (!keep) rmSync(out, { recursive: true, maxRetries: 5, retryDelay: 100 });
+  console.log(JSON.stringify({ out, checks, retained: keep }));
+} catch (error) {
+  console.error('Startup self-probe diagnostics: ' + out);
+  throw error;
+}

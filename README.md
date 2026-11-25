@@ -42,9 +42,10 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_VARS_STORE`（工作台的常量、变量存在哪：`main` 缺省，只用主库；`shadow` 主库是真源、同时写一份卡片的台库；`bench` 卡片的台库是真源、尽力写回主库留作回退。对外应答三档一样。`bench` 档配了 Redis 时，键名以 `hot.` 开头的变量（高频变量）先写 Redis、30 秒落一次台库，起名 `hot.` 就表示接受最多丢 30 秒；Redis 不通而这张卡片还有没落盘的写入时，这类变量回 503 可重试。填错拒绝启动。上线时保持 `main`，另两档等生产演练和属主批准，见 docs/data-views.md 第十三节）
 - `WM_APP_DATA_STORE`（台的提交记录和附件的元数据存在哪：`main` 缺省，只用主库；`shadow` 照旧读主库、写主库之后原样抄一份进卡片的台库；`bench` 读卡片的台库、写照旧先写主库（id 由主库发）再抄进台库。附件字节不搬。对外应答三档一样。填错拒绝启动。上线时保持 `main`，见 docs/data-views.md 第十三节第 6 条）
 - `MARKET_TEAM`（A2A team 默认 `market`；名片的 team、会话句柄 `<MARKET_TEAM>/<node8>` 和工作台事件出站的 caller_session 都用它）
-- `MARKET_PUBLIC_URL`（对外基址·A2A 卡片与 MCP `skill_download` 下载链接用；生产建议设成 https 地址——没设时下载链接取请求主机，主机名不规范就不签发）
+- `MARKET_PUBLIC_URL`（对外基址·A2A 卡片与 MCP `skill_download` 下载链接用；生产建议设成 https 地址——没设时下载链接取请求主机，主机名不规范就不签发）。HTTPS 反代后的数据视图接口也使用这个地址的来源：配置须为不含账号口令的 HTTP(S) URL，反代须保留与之匹配的公共 Host 和浏览器 Origin（非默认端口也须一致）。来源例外限于已注册的业务面，按原规则核个人登录和台授权。未设或无法解析时仅使用原有的来源判断。 当该地址为 HTTPS 时，关系确认与驳回、报告维度激活、报告治理确认与驳回、领域规范激活和领域接入审批也接入该来源。要求真实业务监听端口、精确公共 Host 与 Origin、站内启用本人及原有对象授权。控制监听端口拒绝该公共地址。
 - `A2A_API_KEY`/`A2A_STATE_URL`（A2A 外部面）
 - `WM_BENCH_VIEWS`（数据视图的入口·缺省 `on`（未设即开；不需要时设 `off`，`/api/bench-views` 下的每条路由都直接回 404）：开着时开放给有管理层授予（范围「全部」）的登录账号，和在台所绑的部门上有已放行授予的人；只有普通员工授予的人读也不行，管理口令看不了台里的数据；其它值拒绝启动；见 [docs/data-views.md](docs/data-views.md)）
+- `WM_IMAGE_GALLERY_BASE`（图片的图库前缀·可不设；形如 `http://127.0.0.1:8090/`，要是 http(s)、以 `/` 结尾、不带账号口令和查询串，不合法拒绝启动。数据集的图片列里可以写图库内的相对路径，代取时拼在这个前缀后面；不设时只认完整的 http(s) 链接。浏览器不访问图库：图片一律经 `/api/bench-views/<台>/image` 由市场代取，判权同取数（能看这个台或能读它的报告）；不跟随跳转，单张 5 MB、10 秒、同时 8 个；只转出 PNG、JPEG、WebP、GIF；完整链接指向本机或内网地址时不取，图库那台主机除外。图库不要凭据，按属主决定只绑本机回环；见 [docs/image-support-design.md](docs/image-support-design.md)）
 - `WM_MCP_RESULT_LIMITS`（只给测试用：大结果给引用的阈值和期限，写成 `inline=<字节>,ttl=<毫秒>`；只在 `NODE_ENV=test` 时认，别的环境设了就拒绝启动。生产上固定是 64 KB、15 分钟）
 - `WM_TEST_SCHEMA_PAUSE_MS`（只给测试用：主库启动装视图时，在「核对定义」「删」「建」之间各停这么多毫秒；缺列补列（`addColumnIfMissing`）、只做一次的迁移（`migrateOnce`）在「事务里再核一次」和「补」之间也停这么久，0～5000，用来把多进程同时启动的竞态窗口撑大，见 `scripts/db-startup-race-test.mjs`；只在 `NODE_ENV=test` 时认，别的环境设了就拒绝启动。生产上不设，恒为 0）
 - `WM_TEST_SCHEMA_BARRIER`（只给测试用：写成 `<名字>@<进程数>@<绝对路径的目录>`，主库启动迁移走到标着这个名字的地方（现在只有 `teams`，那四张表的补列加回填）时，在目录里留一个以进程号为名的空文件，等目录里凑够这么多个再一起往下，最多等 10 秒；目录要写绝对路径、不能带 `..`、要已经存在，按软链展开以后的真实路径要是 `DATA_DIR` 下面的子目录（不能是 `DATA_DIR` 本身；不认系统临时目录；`DATA_DIR` 自己是 `/` 或只有一层的根也不收），不满足的读配置时就拒绝启动；多个进程同时启动时用来让它们一起进同一段迁移，见 `scripts/db-startup-race-test.mjs`；只在 `NODE_ENV=test` 时认，别的环境设了就拒绝启动。生产上不设）
@@ -381,6 +382,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   bench-query.ts（数据视图的查询描述：台的作者和 agent 不写 SQL，只给筛选、分组、聚合、排序、行数上限；这里核对并翻成参数化语句·名字只认白名单且必须已定义·值全走参数·见 docs/data-views.md）
   bench-views.ts（数据视图的视图描述：保存前核对组件类型、键、引用的数据集和列、查询、筛选栏参数；两个版本之间的差异·第一批八种组件）
   bench-table.ts（原生表格上下文校验与 CSV 编码：完整匹配导出、版本修订和公式形文本转义）
+  bench-image.ts（图片代取：格子里的链接还原成地址〔图库相对路径拼 WM_IMAGE_GALLERY_BASE〕·完整链接指向本机、内网时不取〔图库主机除外〕，解析一次就钉住地址·只发 GET、不带读者的请求头、不跟随跳转、5 MB、10 秒、同时 8 个·只转出四种位图·进程内缓存 5 分钟；判权在路由里先做）
   bench-bindings.ts（视图显式引用本台常量变量的纯校验与数值解析；不执行表达式、不读库、不枚举空间）
   config.ts（配置的落点：模块自己的 Config，defineConfig 声明认哪些环境变量、怎么解析，启动时取一次；服务类插件写成 static Config，由 Cordis 装插件时校验）
   admin-token-env.ts（启动环境给的管理口令 ADMIN_TOKEN：启动时取一次、全进程只认这一份；对外只给有没有、常量时间比对、登录门指纹三样，口令本身不出模块。index.ts 的口令校验、a2a.ts、管理口令路由都经它）
@@ -413,6 +415,8 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   skill-shadow.ts（技能影子副本：推一版（migrate-layerfs 和补推共用，推完读回摘要一致才记 succeeded）、定时补推（挂在根上下文上随之停·对外断开时整轮跳过、不记失败·LayerFS 没配置不做·连不上这一轮停下、日志只在通断变化时打·异常的版本退避·二进制记 skipped））
   login-gate.ts（全站登录门 WM_LOGIN_GATE：enforce 时页面 302 登录、API 401）
   mcp-tools.ts（MCP 工具注册表）
+  capabilities.ts（领域能力声明、目录与入参校验）
+  routes/capabilities.ts（用同一会话授权链调用领域能力的 REST 入口）
   mcp-result-limits.ts（大结果给引用的阈值和期限：生产固定 64 KB、15 分钟；WM_MCP_RESULT_LIMITS 只在 NODE_ENV=test 时认，别的环境设了拒绝启动）
   owner-pending.ts（待属主看板的判断，服务端那一份：和 web/src/owner-pending.ts 跑同一份用例表 scripts/owner-pending-cases.json）
   outbound-gate.ts（对外断开 WM_OUTBOUND=off 的闸：在 net.Socket.connect、DNS、UDP、子进程这几层拦下一切出站并计数；index.ts 第一个引入它）
@@ -473,9 +477,14 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   seat-tokens.ts（席位用节点签名换 1 小时的 MCP 令牌（设计和给节点侧的格式见 [docs/seat-token-exchange.md](docs/seat-token-exchange.md)）：按钉住的节点公钥验签（指纹 = 名册的 host）、核节点 active 和名册里的席位、签名只认一次；令牌只存 sha256、不续期，每次调用复核席位和节点；每个席位一个长期的授权主体（mcp_sessions 一行），grants 和按台批的授予挂在它上面，跨令牌轮换保留）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
   area.ts（领域：Cordis 服务 `areas`·领域、领域规范的版本（建好不能改、不能删，改规范 = 新加一版、回退 = 移生效指针）、留痕·新建的是 pending-lead·撤领域时同一个写事务里一并撤销 area:<标识> 的没结束的授予（草稿、待核、生效）·撤了只读不删；docs/domains-step1.md·负责人：生效的负责人没有了（收回、到期、本人停用）就退回 pending-lead、有了就回 active，留痕 lead-active / lead-missing·收回最后一位负责人回 409（撤领域除外）·workGate：pending-lead 时不能触发、验收·migrateDepartments：每个部门一个写事务，建同标识领域（source=department），给有生效负责人授予的部门起草 area-lead（待核），旧表不删）
+  area-access.ts（第 16 篇第 2 步的领域接入服务：属主按负责人授予设置动作上限，审批事务核当前领域、归属及回避，领域审批单独留痕）
   bench-report.ts（台上的报告：绑定、生成并冻结、清单、读、回应，路由和 MCP 的 report_* 工具都走这一处；维度属于某个领域时只有绑在这个领域的台能用；产出方、回应者由调用方身份定，席位和 MCP 会话记 AI；回应者的位置按回应时生效的授予记；「未处理的反驳」只算人的回应链的链头，报告被更正之后不再算）
   report-compile.ts（报告的编排：模板第二版 + 台的绑定 + 台库按绑定取回的数 + 输入 + 论断 → 冻结的报告；纯函数，不碰库。由 P0 的技术试验（web/src/report-template/p0.ts）改写：来源（视图版本、视图描述的 sha256、行数）由台库填，不收调用方给的；取不完、列类型不合就拒，不出半份报告；论断的类别、条数照模板，依据指的行要在这份报告里；图片节点这一步不收（素材授权还没定））
   report-dimension.ts（报告的维度和模板：Cordis 服务 `reportDimensions`·维度属于一个领域或跨领域；模板版本建好不能改、不能删、不修剪，发版不自动生效；和上一版比出 layout / criteria，判据类（criteria，第一版也算）要作者以外的人复核过才能移成生效；撤了只读；每步一行留痕；定报告维度只认属主和持本领域 area-report 授予的人，跨领域的只有属主，见 [docs/report-step1.md](docs/report-step1.md)）
+  report-governance-proposal.ts（报告治理提案账本，同事务审计、确认状态与操作号）
+  services/report-governance.ts（报告提案和站内确认编排）
+  services/bench-access.ts（台级授权的共享判定）
+  routes/report-governance.ts（报告治理的会话和站内入口）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   bench-mcp.ts（数据视图的 MCP 工具：授予按「会话 × 台 × 工具」记在自己的表里，不放进会话的 grants·申请由会话提、台的管理层批·读也按台限定·执行时把台库的方法对到工具名上）
   bench-registry.ts（视图台的登记：主库里只记有这个台、叫什么、谁建的、绑到哪个部门和团队·登记过的台才有库，没登记的标识一律当作不存在·改绑留痕·卡片 id 为主、台标识为别名：入口写卡片 id 或台标识都认（resolveBenchRef），只给 workbench_id 就开出 wb-<卡片 id>·纯数字标识不许登记·删卡片时登记和授予一起删（removeCardBench）·绑定的标识要是没撤的领域或还没迁的部门，撤了的领域拒）
@@ -524,6 +533,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   cookies.ts（Cookie 池 /api/cookies）
   departments.ts（部门 /api/departments：登录的人读列表、单个部门的成员、某人属于哪些部门；管理员建改删部门和成员）
   areas.ts（领域 /api/areas：属主、管理层、管理口令、本机命令行看全部，别人看持有 area:<领域> 授予的那些、单条 404；建、撤只有属主；定规范只认属主和持本领域 area-spec 的人（这两条不经管理员门、路由内认人）；规范的版本清单和单版；列表带 can（建、迁、指定负责人，只有属主为真），单条带 leads；POST /api/areas/migrate 部门迁成领域：只有属主，幂等，给有生效负责人授予的部门起草 area-lead 待核）
+  area-access.ts（领域接入审批：登录的属主设置动作上限，本领域负责人或属主查看申请并批准或驳回，写入核同源）
   report-dimensions.ts（报告的维度和模板 /api/report-dimensions：登录的人都能读；建维度、发模板、复核、移生效指针、撤是「定报告维度」，只认属主（本机命令行算属主）和持本领域 area-report 授予的人，跨领域的维度只有属主，别的角色覆盖了也不算；不经管理员门，路由内认人、核同源、按对象判，见 [docs/report-step1.md](docs/report-step1.md)）
   teams.ts（团队与分配 /api/teams：团队页（部门 → 团队 → 成员，按看的人的可见范围在服务端裁好）、「我的 AI 员工」；管理员认领、退回、指定和移除负责人；负责人分配、收回、改派成员（改派一个事务里收回并分给另一个人；状态码不代表授权）；团队的变更记录、某人各段分配的历史（按关系裁：管理员、管理层看全部，负责人看自己的团队，本人看自己的；读不到的按不存在回））
   access.ts（角色预设 ②：以某人的身份看 /api/principals/:id/access（管理员看任何人、登录的人看自己，带 action 给判定结论）、红线清单 /api/access/red-lines、首次安装向导 /api/setup/wizard（管理员跑，属主放行））

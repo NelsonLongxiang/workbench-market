@@ -18,6 +18,7 @@
     "GET /api/bench-views/:bench/view/diff",
     "POST /api/bench-views/:bench/view/rollback",
     "GET /api/bench-views/:bench/render",
+    "GET /api/bench-views/:bench/image",
     "POST /api/bench-views/:bench/table/export",
     "POST /api/bench-views/:bench/table/row",
     "POST /api/bench-views/:bench/form",
@@ -29,12 +30,14 @@
     "PUT /api/bench-views/:bench/workbench",
     "GET /api/bench-views/:bench/reports/:dimension/binding",
     "PUT /api/bench-views/:bench/reports/:dimension/binding",
+    "POST /api/bench-views/:bench/reports/:dimension/binding/stop",
     "POST /api/bench-views/:bench/reports",
     "GET /api/bench-views/:bench/reports",
     "GET /api/bench-views/:bench/reports/:id",
     "GET /api/report-subjects/:subject",
     "POST /api/bench-views/:bench/reports/:id/responses",
-    "PUT /api/bench-views/:bench/title"
+    "PUT /api/bench-views/:bench/title",
+    "GET /api/bench-views/:bench/changes"
   ],
   "exempt": [],
   "scenarios": [
@@ -179,6 +182,14 @@
           "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
         },
         {
+          "id": "off-get-bench-image",
+          "route": "GET /api/bench-views/:bench/image",
+          "class": "invalid",
+          "what": "开关关着：图片代取也回 404",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/image?u=photos%2Fa.png", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
           "id": "off-post-bench-form",
           "route": "POST /api/bench-views/:bench/form",
           "class": "invalid",
@@ -269,6 +280,14 @@
           "what": "入口关闭：新表格操作同样404，不认身份也不建库",
           "request": { "method": "POST", "path": "/api/bench-views/demo/table/row", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": {} },
           "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
+        },
+        {
+          "id": "off-get-bench-changes",
+          "route": "GET /api/bench-views/:bench/changes",
+          "class": "invalid",
+          "what": "数据视图未开启：变更游标也不开",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/changes", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 404, "type": "application/json; charset=utf-8", "headers": { "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "bench_views_off" } }
         }
       ]
     },
@@ -277,7 +296,7 @@
       "what": "开关开着，MCP 网关开着（会话要有令牌才提得了申请）。登录走假的提供方；alpha 有管理层授予（范围全部）能读写，beta 只有普通员工的授予（范围全部），读写都进不来，admin 会话没有授予。",
       "env": { "WM_BENCH_VIEWS": "on", "ADMIN_TOKEN": "replay-synthetic-admin", "MCP_GATEWAY": "on" },
       "clock": "2030-01-01T00:00:00Z",
-      "fixtures": ["identity-fake"],
+      "fixtures": ["identity-fake", "image-fake"],
       "seed": [{ "table": "departments", "row": { "id": "sales", "name": "销售", "created_at": 0, "updated_at": 0 } }],
       "steps": [
         {
@@ -908,8 +927,8 @@
           "response": {
             "status": 400,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "116", "etag": "W/\"74-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "error": "invalid", "message": "第 1 列（a）：类型须为 text / integer / decimal / date / datetime / boolean" }
+            "headers": { "cache-control": "private, no-store", "content-length": "124", "etag": "W/\"7c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "第 1 列（a）：类型须为 text / integer / decimal / date / datetime / boolean / image" }
           }
         },
         {
@@ -1673,8 +1692,12 @@
           "response": {
             "status": 400,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "336", "etag": "W/\"150-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
-            "body": { "error": "invalid", "message": "视图描述有 1 处不合格，未保存。每种组件的键、必填、上限见技能 wm-data-views 的 references/view-doc-schema.json", "details": ["第 1 个视图第 1 个组件：不认识的组件类型 html（现有：filter-bar、stat、table、records、bar、line、pie、progress、form）"] }
+            "headers": { "cache-control": "private, no-store", "content-length": "357", "etag": "W/\"165-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "error": "invalid",
+              "message": "视图描述有 1 处不合格，未保存。每种组件的键、必填、上限见技能 wm-data-views 的 references/view-doc-schema.json",
+              "details": ["第 1 个视图第 1 个组件：不认识的组件类型 html（现有：filter-bar、stat、table、records、bar、line、pie、progress、form、dag、gantt、flow）"]
+            }
           }
         },
         {
@@ -2182,12 +2205,12 @@
           "route": "GET /api/bench-views/:bench/render",
           "class": "normal",
           "what": "取数：筛选栏的值经查询串给，没声明的不认",
-          "vary": { "blocks.2.table_context.revision": "random" },
+          "vary": { "blocks.2.table_context.revision": "random", "cursor": "random" },
           "request": { "method": "GET", "path": "/api/bench-views/demo/render?view=overview&p.month=2026-01&p.nope=x", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1526", "etag": "W/\"5f6-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1602", "etag": "W/\"642-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "title": "订单台",
               "version": 1,
@@ -2226,7 +2249,8 @@
                   },
                   "table_context": { "view": "overview", "block": 2, "version": 1, "params": { "month": "2026-01" }, "revision": "<每个实例随机·string·64>" }
                 }
-              ]
+              ],
+              "cursor": "<每个实例随机·string·64>"
             }
           }
         },
@@ -2235,12 +2259,12 @@
           "route": "GET /api/bench-views/:bench/render",
           "class": "normal",
           "what": "不写 view：取第一份",
-          "vary": { "blocks.2.table_context.revision": "random" },
+          "vary": { "blocks.2.table_context.revision": "random", "cursor": "random" },
           "request": { "method": "GET", "path": "/api/bench-views/demo/render", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1485", "etag": "W/\"5cd-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1561", "etag": "W/\"619-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "title": "订单台",
               "version": 1,
@@ -2279,7 +2303,8 @@
                   },
                   "table_context": { "view": "overview", "block": 2, "version": 1, "params": {}, "revision": "<每个实例随机·string·64>" }
                 }
-              ]
+              ],
+              "cursor": "<每个实例随机·string·64>"
             }
           }
         },
@@ -2327,12 +2352,12 @@
           "route": "GET /api/bench-views/:bench/render",
           "class": "normal",
           "what": "筛选值只当文本用：写得不像月份也不报错，只是筛不出东西",
-          "vary": { "blocks.2.table_context.revision": "random" },
+          "vary": { "blocks.2.table_context.revision": "random", "cursor": "random" },
           "request": { "method": "GET", "path": "/api/bench-views/demo/render?view=overview&p.month=2026-13-99x", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1536", "etag": "W/\"600-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1612", "etag": "W/\"64c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "title": "订单台",
               "version": 1,
@@ -2371,7 +2396,8 @@
                   },
                   "table_context": { "view": "overview", "block": 2, "version": 1, "params": { "month": "2026-13-99x" }, "revision": "<每个实例随机·string·64>" }
                 }
-              ]
+              ],
+              "cursor": "<每个实例随机·string·64>"
             }
           }
         },
@@ -4448,6 +4474,296 @@
               "open_disputes": 1
             }
           }
+        },
+        {
+          "id": "rep-stop-anon",
+          "route": "POST /api/bench-views/:bench/reports/:dimension/binding/stop",
+          "class": "unauthorized",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/reports/monthly/binding/stop", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "base": 1, "reason": "合成停用" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "rep-stop-stale",
+          "route": "POST /api/bench-views/:bench/reports/:dimension/binding/stop",
+          "class": "invalid",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/reports/monthly/binding/stop",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "base": 2, "reason": "合成停用" }
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "conflict", "message": "报告绑定已改变" }
+          }
+        },
+        {
+          "id": "rep-stop",
+          "route": "POST /api/bench-views/:bench/reports/:dimension/binding/stop",
+          "class": "normal",
+          "vary": { "binding.created_at": 60000 },
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/reports/monthly/binding/stop",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "base": 1, "reason": "合成停用" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "241", "etag": "W/\"f1-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "binding": {
+                "dimension_id": "monthly",
+                "version": 2,
+                "template_version": 1,
+                "slots": { "orders": { "view": "overview", "block": 2, "params": {}, "columns": { "id": "id", "amount": "amount" } } },
+                "created_by": "user:alpha",
+                "created_at": 1893456000000,
+                "disabled": true
+              }
+            }
+          }
+        },
+        {
+          "id": "img-bench",
+          "route": "POST /api/bench-views",
+          "class": "normal",
+          "what": "图片代取的准备：另建一个台，不动 demo 的视图版本",
+          "vary": { "bench.created_at": 60000 },
+          "request": { "method": "POST", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "slug": "imgdemo", "title": "图片台" } },
+          "response": {
+            "status": 201,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "165", "etag": "W/\"a5-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "bench": { "slug": "imgdemo", "title": "图片台", "created_by": "user:alpha", "created_at": 1893456000000, "workbench_id": null, "department_id": "", "team_host": "", "team": "" } }
+          }
+        },
+        {
+          "id": "img-ds",
+          "route": "PUT /api/bench-views/:bench/datasets/:name",
+          "class": "normal",
+          "what": "数据集带一列 image",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/imgdemo/datasets/pics",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "图片", "key": ["id"], "columns": [{ "name": "id", "type": "integer" }, { "name": "pic", "type": "image" }] }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "94", "etag": "W/\"5e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "name": "pics", "version": 1, "created": true, "unchanged": false, "added": ["id", "pic"], "removed": [] }
+          }
+        },
+        {
+          "id": "img-rows",
+          "route": "POST /api/bench-views/:bench/datasets/:name/rows",
+          "class": "normal",
+          "what": "图片列写图库相对路径、内网完整链接",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/imgdemo/datasets/pics/rows?op=replace",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001", "content-type": "application/json", "idempotency-key": "replay-img-rows-0001" },
+            "text": "[{\"id\":1,\"pic\":\"photos/a.png\"},{\"id\":2,\"pic\":\"photos/page.html\"},{\"id\":3,\"pic\":\"http://127.0.0.1:1/a.png\"}]"
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "dataset": "pics", "op": "replace", "rows": 3, "row_count": 3, "data_bytes": 48 }
+          }
+        },
+        {
+          "id": "img-view",
+          "route": "PUT /api/bench-views/:bench/view",
+          "class": "normal",
+          "what": "视图 pics 显示图片列",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/imgdemo/view",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": {
+              "doc": { "title": "图片台", "views": [{ "key": "pics", "title": "图片", "blocks": [{ "type": "table", "query": { "dataset": "pics", "sort": [{ "col": "id" }] }, "column_labels": { "id": "编号", "pic": "图片" } }] }] },
+              "base": 0,
+              "note": "图片"
+            }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "126", "etag": "W/\"7e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "version": 1, "active_version": 1, "unchanged": false, "sha256": "e09ee0763cb7fe5fbd433691d250505d975eae605804f204a781a69de674e1e1" }
+          }
+        },
+        {
+          "id": "anon-get-bench-image",
+          "route": "GET /api/bench-views/:bench/image",
+          "class": "unauthorized",
+          "what": "没登录：401，不去取图",
+          "request": { "method": "GET", "path": "/api/bench-views/imgdemo/image?u=photos%2Fa.png&view=pics", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "image-admin-token",
+          "route": "GET /api/bench-views/:bench/image",
+          "class": "unauthorized",
+          "what": "管理口令看不了台里的数据：403，不去取图",
+          "request": { "method": "GET", "path": "/api/bench-views/imgdemo/image?u=photos%2Fa.png&view=pics", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "154", "etag": "W/\"9a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_admin_token_denied", "message": "台里是业务数据，管理口令看不了、也改不了；用有管理层授予的账号登录" }
+          }
+        },
+        {
+          "id": "image-unreferenced",
+          "route": "GET /api/bench-views/:bench/image",
+          "class": "unauthorized",
+          "what": "Q9 按引用判：来源视图里没有这条链接，403，不去取图",
+          "request": { "method": "GET", "path": "/api/bench-views/imgdemo/image?u=photos%2Fzzz.png&view=pics", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "image",
+          "route": "GET /api/bench-views/:bench/image",
+          "class": "normal",
+          "what": "来源视图引用了这条图库相对路径：市场代取，回图片字节，带 nosniff 和 sandbox",
+          "request": { "method": "GET", "path": "/api/bench-views/imgdemo/image?u=photos%2Fa.png&view=pics", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "image/png",
+            "headers": { "cache-control": "private, max-age=300", "content-length": "70", "content-security-policy": "default-src 'none'; sandbox", "etag": "W/\"46-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin, Cookie, X-Admin-Token", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "�PNG\r\n\u001a\n\u0000\u0000\u0000\rIHDR\u0000\u0000\u0000\u0001\u0000\u0000\u0000\u0001\b\u0006\u0000\u0000\u0000\u001f\u0015ĉ\u0000\u0000\u0000\rIDATx�c����\u001f\u0000\u0005\u0000\u0002\u0001�ô�\u0000\u0000\u0000\u0000IEND�B`�"
+          }
+        },
+        {
+          "id": "image-not-image",
+          "route": "GET /api/bench-views/:bench/image",
+          "class": "invalid",
+          "what": "图库回的不是图片（text/html）：415",
+          "request": { "method": "GET", "path": "/api/bench-views/imgdemo/image?u=photos%2Fpage.html&view=pics", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 415,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "71", "etag": "W/\"47-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "image_type_unsupported", "message": "只认 PNG、JPEG、WebP" }
+          }
+        },
+        {
+          "id": "image-blocked",
+          "route": "GET /api/bench-views/:bench/image",
+          "class": "invalid",
+          "what": "完整链接指向本机回环（不在图库前缀下）：400，不取",
+          "request": {
+            "method": "GET",
+            "path": "/api/bench-views/imgdemo/image?u=http%3A%2F%2F127.0.0.1%3A1%2Fa.png&view=pics",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "88", "etag": "W/\"58-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "image_address_blocked", "message": "图片地址指向本机或内网，不取" }
+          }
+        },
+        {
+          "id": "image-unknown-bench",
+          "route": "GET /api/bench-views/:bench/image",
+          "class": "invalid",
+          "what": "台没登记：判过权才回 404",
+          "request": { "method": "GET", "path": "/api/bench-views/nope-bench/image?u=photos%2Fa.png&view=pics", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_not_found" }
+          }
+        },
+        {
+          "id": "anon-get-bench-changes",
+          "route": "GET /api/bench-views/:bench/changes",
+          "class": "unauthorized",
+          "what": "没登录：401，不给游标",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/changes", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "changes-admin-token",
+          "route": "GET /api/bench-views/:bench/changes",
+          "class": "unauthorized",
+          "what": "管理口令看不了台里的变化：403",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/changes", "headers": { "x-forwarded-for": "198.51.100.7", "x-admin-token": "replay-synthetic-admin" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "154", "etag": "W/\"9a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_admin_token_denied", "message": "台里是业务数据，管理口令看不了、也改不了；用有管理层授予的账号登录" }
+          }
+        },
+        {
+          "id": "changes",
+          "route": "GET /api/bench-views/:bench/changes",
+          "class": "normal",
+          "what": "有权：回变更游标（实时刷新轮询用）",
+          "vary": { "cursor": "random" },
+          "request": { "method": "GET", "path": "/api/bench-views/demo/changes", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "77", "etag": "W/\"4d-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "cursor": "<每个实例随机·string·64>" }
+          }
+        },
+        {
+          "id": "changes-bad-query",
+          "route": "GET /api/bench-views/:bench/changes",
+          "class": "invalid",
+          "what": "变更游标不收查询参数：400",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/changes?view=overview", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "62", "etag": "W/\"3e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "变更游标不收查询参数" }
+          }
+        },
+        {
+          "id": "changes-unknown-bench",
+          "route": "GET /api/bench-views/:bench/changes",
+          "class": "invalid",
+          "what": "台没登记：判过权才回 404",
+          "request": { "method": "GET", "path": "/api/bench-views/nope-bench/changes", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_not_found" }
+          }
         }
       ]
     },
@@ -4573,13 +4889,13 @@
         {
           "id": "table-render",
           "what": "合成表格HTTP回放准备",
-          "vary": { "blocks.0.table_context.revision": "random" },
+          "vary": { "blocks.0.table_context.revision": "random", "cursor": "random" },
           "request": { "method": "GET", "path": "/api/bench-views/table-replay/render?view=rows", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
           "save": { "table_revision": "blocks.0.table_context.revision" },
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "639", "etag": "W/\"27f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "715", "etag": "W/\"2cb-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "title": "合成表格",
               "version": 1,
@@ -4599,7 +4915,8 @@
                   },
                   "table_context": { "view": "rows", "block": 0, "version": 1, "params": {}, "revision": "<每个实例随机·string·64>" }
                 }
-              ]
+              ],
+              "cursor": "<每个实例随机·string·64>"
             }
           }
         },

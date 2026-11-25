@@ -36,6 +36,7 @@ export type ReportDimensionRouteDeps = {
   adminActor: (req: express.Request) => string;
   /** 浏览器从别的站点发来的 */
   crossOriginDenied: (req: express.Request) => boolean;
+  publicPerson: (req: express.Request) => string | undefined;
 };
 
 const dims = () => svc<ReportDimensionService>('reportDimensions');
@@ -79,6 +80,8 @@ export function registerReportDimensionRoutes(app: HttpService, deps: ReportDime
   /** 认人：本机命令行（属主）、管理员（同源；只是系统管理员的不算）、登录的人（启用的人）。不过就已经写好应答，返回 null */
   async function who(req: express.Request, res: express.Response): Promise<Who | null> {
     res.set('Cache-Control', 'private, no-store');
+    const publicPrincipal = deps.publicPerson(req);
+    if (publicPrincipal) return { actor: { by: publicPrincipal, principal: publicPrincipal }, owner: grants().isOwner(publicPrincipal) };
     if (!browserMarked(req) && rawLoopback(req)) return { actor: { by: 'cli', principal: null }, owner: true };
     if (deps.crossOriginDenied(req)) { res.status(403).json({ error: 'report_dimensions_cross_origin_denied' }); return null; }
     await deps.markAdmin(req);

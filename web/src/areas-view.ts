@@ -67,7 +67,11 @@ export function leadCandidates(principalsBody: unknown, leads: Lead[], self: str
     const id = str(p.id);
     if (!id || p.kind !== 'person' || p.status !== 'active' || taken.has(id)) return [];
     return [{ id, name: personLabel(id, p.display_name) }];
-  }).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'));
+  }).sort((a, b) => a.name.localeCompare(b.name, 'zh-CN')).map((c, _i, all) => {
+    // 同名的人（同一个人的两个账号，或两位同名同事）：名字后面带上登录名，下拉框里分得清，搜登录名也搜得到（#999）
+    const login = c.id.replace(/^[a-z]+:/, '');
+    return all.some((o) => o !== c && o.name === c.name) && login !== c.name ? { ...c, name: `${c.name}（${login}）` } : c;
+  });
 }
 
 /** 建领域的表单：和服务端同样的规则先核一遍（标识：小写字母开头，字母、数字、连字符，最多 48 个字；名字 1～64 个字、不带控制字符；标识不能和已有的重，撤了的也占着） */

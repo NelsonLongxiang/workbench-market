@@ -31,24 +31,39 @@ export const MCP_TOOLS: McpToolDef[] = [
       type: 'object',
       properties: {
         tool: { type: 'string', description: '只取这一个工具的详情：完整说明和参数表 input_schema（工具名来自目录）' },
-        ref: { type: 'string', description: '只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2' },
+        capability: { type: 'string', description: '只取指定领域能力的详情、参数和 REST 片段' },
+        ref: { type: 'string', description: '只查一条申请：access_request 应答里的编号，如 mcp-3、bench-2、area-1' },
         full: { type: 'boolean', description: 'true 时回整份目录，每项带完整说明和参数表（过渡期给老客户端；平时用 tool 按名字取）' },
+        area: { type: 'string', description: '只查会话在一个领域的有效动作（会话审批与当前账户授予的交集）' },
       },
       additionalProperties: false,
     },
   },
   {
+    name: 'invoke', category: 'write', exempt: true,
+    description: '调用已声明的领域能力。先用 access_info 找目标与参数，决定类只会提交待人确认的提案。',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['target', 'args'], properties: {
+      target: { type: 'string' }, args: { type: 'object' },
+    } },
+  },
+  {
     name: 'access_request',
     category: 'write',
     exempt: true,
-    description: '申请把目录里的工具授权给本会话（管理员在「MCP 网关」页批准后立即生效，批准是并入现有授权，不会收走已有工具）。tools 必须是 access_info 目录里的工具名；reason 必填（≤500 字），写清要做什么。同一组工具已有待批申请时返回那条，不重复建；每会话每小时最多 10 条。会话不能自己批准。',
+    description: '申请把目录里的工具授权给本会话（管理员在「MCP 网关」页批准后立即生效，批准是并入现有授权，不会收走已有工具）。tools 必须是 access_info 目录里的工具名；reason 必填（≤500 字），写清要做什么。同一组工具已有待批申请时返回那条，不重复建；每会话每小时最多 10 条。领域接入改填 area 和 actions，须有可信责任人，由属主或本领域负责人审批。不会增加 tools/list 中的工具。会话不能自己批准。',
     inputSchema: {
       type: 'object',
       properties: {
         tools: { type: 'array', items: { type: 'string' }, description: '要申请的工具名（来自 access_info 目录）' },
+        area: { type: 'string', description: '领域接入申请的领域标识，须有可信会话归属' },
+        actions: { type: 'array', items: { type: 'string' }, description: '同一领域要申请的动作，须和 area 一起填写，不与 tools 混写' },
+        report_scope: { type: 'object', additionalProperties: false, required: ['dimension'], properties: {
+          bench: { type: 'string' }, dimension: { type: 'string' },
+        }, description: '台绑定指定 bench 和 dimension；模板发布、复核邀请和维度激活只指定 dimension' },
         reason: { type: 'string', description: '用途说明（必填·≤500 字）' },
       },
-      required: ['tools', 'reason'],
+      required: ['reason'],
+      oneOf: [{ required: ['tools'], not: { anyOf: [{ required: ['area'] }, { required: ['actions'] }] } }, { required: ['area', 'actions'], not: { required: ['tools'] } }],
       additionalProperties: false,
     },
   },

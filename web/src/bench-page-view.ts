@@ -118,3 +118,29 @@ export const ENTRY_TEXT = {
   error: '这会儿打不开',
   errorSub: '稍后再试；一直打不开，请找管理员。',
 } as const;
+
+/* —— 实时刷新的规则（docs/task-graph-step1.md 第五节之六；轮询本身在 web/src/bench-change-poll.ts）——
+ * 200 照常；401、403、404、数据视图未开启：停下并收起旧结果；断网、5xx 等：保留旧图、退避重试 */
+export const POLL_MS = 5000;
+export const BACKOFF_MS = [5000, 10000, 20000, 40000, 60000] as const;
+
+export type PollAction = 'ok' | 'stop' | 'retry';
+/** 一次回答怎么处理（轮询 /changes 和自动刷新的重新取数共用）。present：回答里有游标或结果；200 却没有，按临时失败重试 */
+export function pollAction(status: number, error: string | undefined, present: boolean): PollAction {
+  if (status === 200) return present ? 'ok' : 'retry';
+  if (status === 401 || status === 403 || status === 404 || error === 'bench_views_off') return 'stop';
+  return 'retry';
+}
+/**
+ * 重新取数之后页面怎么办：show 换上新结果；collapse 收起旧结果，显示出错或未开启；
+ * keep 留着旧图，只在自动刷新的后台取数临时失败（断网、5xx、读取期间数据又变了的 409、429）时，由轮询退避后再试。
+ */
+export function afterReload(act: PollAction, background: boolean): 'show' | 'keep' | 'collapse' {
+  if (act === 'ok') return 'show';
+  if (act === 'retry' && background) return 'keep';
+  return 'collapse';
+}
+/** 连续失败 n 次之后，下一次隔多久问 */
+export function nextDelay(failures: number): number {
+  return failures <= 0 ? POLL_MS : BACKOFF_MS[Math.min(failures, BACKOFF_MS.length) - 1];
+}

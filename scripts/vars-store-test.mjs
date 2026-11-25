@@ -148,7 +148,10 @@ async function child() {
   const re = await benchStore(slug1);
   out.m6 = { rows: (await re.varsList('')).length, put: await re.varsImport([{ key: 'z', kind: 'var', value: '1', revision: 1, updated_by: 'cli', owner: '', created_at: T, updated_at: T }]) };
   out.m6.after = await raw(slug1, shape);
-  await raw(slug1, (f) => f.exec("UPDATE bs_meta SET v = '3' WHERE k = 'schema_version'"));
+  await raw(slug1, (f) => {
+    f.function('bench_protocol_v2', { deterministic: true }, () => 1);
+    f.exec("UPDATE bs_meta SET v = '3' WHERE k = 'schema_version'");
+  });
   out.m6.newer = await benchStore(slug1).then(async (s) => { try { await s.varsList(''); return 'opened'; } catch (e) { return e.code; } }, (e) => e.code);
   await closeBenchStores();
   await root.fiber.dispose();
@@ -193,13 +196,13 @@ async function parent() {
   console.log('M5 bench 档写回主库');
   ok('写成之后主库里有一份一样的（值、revision），审计照旧记在主库', r.m5main?.value === '{"n":1}' && r.m5main.revision === 1 && r.m5audit === 'create', { main: r.m5main, audit: r.m5audit });
   console.log('M6 回退安全（台库结构）');
-  // 第 1 版台库的表（main 上的代码建出来的那一套）
-  const V1 = 'bs_changes,bs_dataset_versions,bs_datasets,bs_meta,bs_snapshot_rows,bs_snapshots,bs_view_versions,bs_writes,sqlite_sequence';
+  // 第 2 版台库的固定表。变量表仍需首次写入才创建。
+  const V2 = 'bs_changes,bs_dataset_catalog,bs_dataset_lifecycle,bs_dataset_operations,bs_dataset_versions,bs_meta,bs_report_binding_operations,bs_report_binding_stops,bs_report_bindings,bs_report_claims,bs_report_responses,bs_reports,bs_snapshot_rows,bs_snapshots,bs_view_versions,bs_writes,sqlite_sequence';
   const m = r.m6main;
-  ok('main 档：写变量、读台库里的变量、比对、迁移 dry-run 都不建 bs_vars，版本号是 1，表和原来一样', m?.list === 0 && m.get === null && m.count === 0 && m.digest === 0 && m.shape?.version === '1' && m.shape.tables === V1, m);
-  ok('main 档：关了再开还是版本 1、没有 bs_vars', m?.reopen?.version === '1' && m.reopen.tables === V1, m?.reopen);
-  ok('切到 shadow 第一次写：建了 bs_vars、值写进去了，版本号仍是 1（旧代码照样能开）', r.m6shadow?.version === '1' && r.m6shadow.tables === [...V1.split(','), 'bs_vars'].sort().join(',') && r.m6shadow.value === '"w"', r.m6shadow);
-  ok('没有 bs_vars 的旧库：照常打开、读成空；写一次就建上，版本号不变', r.m6?.rows === 0 && r.m6.put === 1 && r.m6.after?.version === '1' && r.m6.after.tables.includes('bs_vars'), r.m6);
+  ok('main 档：写变量、读台库里的变量、比对、迁移 dry-run 都不建 bs_vars，版本号是 2，保留第 2 版固定表', m?.list === 0 && m.get === null && m.count === 0 && m.digest === 0 && m.shape?.version === '2' && m.shape.tables === V2, m);
+  ok('main 档：关了再开还是版本 2、没有 bs_vars', m?.reopen?.version === '2' && m.reopen.tables === V2, m?.reopen);
+  ok('切到 shadow 第一次写：建了 bs_vars、值写进去了，版本号仍是 2', r.m6shadow?.version === '2' && r.m6shadow.tables === [...V2.split(','), 'bs_vars'].sort().join(',') && r.m6shadow.value === '"w"', r.m6shadow);
+  ok('没有 bs_vars 的旧库：照常打开、读成空；写一次就建上，版本号不变', r.m6?.rows === 0 && r.m6.put === 1 && r.m6.after?.version === '2' && r.m6.after.tables.includes('bs_vars'), r.m6);
   ok('比代码新的（第 3 版）照旧拒绝打开', r.m6?.newer === 'unsupported', r.m6);
   console.log(`vars-store-test: ${pass} passed / ${fail} failed`);
   if (fail) process.exitCode = 1;

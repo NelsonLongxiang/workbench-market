@@ -37,7 +37,7 @@
  *   node scripts/areas-test.mjs
  */
 import { createServer } from 'node:net';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,8 +68,8 @@ async function boot() {
   for (const d of [data, home]) mkdirSync(d, { recursive: true });
   const env = {};
   for (const k of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT', 'TEMP', 'TMP']) if (process.env[k]) env[k] = process.env[k];
-  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', REDIS_URL: '', MARKET_PUBLIC_URL: base, WM_TRUSTED_PROXIES: '127.0.0.1', ADMIN_TOKEN });
-  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
+  Object.assign(env, { HOME: home, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, NODE_ENV: 'test', MCP_GATEWAY: 'on', REDIS_URL: '', MARKET_PUBLIC_URL: base, WM_TRUSTED_PROXIES: '127.0.0.1', WM_EXTENSIONS_DIR: join(HERE, 'fixtures/capability-extensions'), ADMIN_TOKEN });
+  const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', join(HERE, 'fixtures/area-access-identity-preload.mjs'), 'src/index.ts'], { cwd: join(ROOT, 'server'), env, stdio: ['ignore', 'pipe', 'pipe'] });
   children.push(child);
   child.stdout.on('data', (d) => { log += String(d); }); child.stderr.on('data', (d) => { log += String(d); });
   let ready = false;
@@ -720,6 +720,426 @@ try {
     const skip = (m.json?.skipped ?? []).find((x) => x.department === 'Bad_Dept')?.reason;
     const made = (() => { const d = A.db(); try { return Number(d.prepare("SELECT COUNT(*) AS n FROM areas WHERE id = 'Bad_Dept'").get().n); } finally { d.close(); } })();
     check(m.status === 200 && skip === 'id_invalid' && made === 0, 'D11 标识不合领域写法的部门（直接写库的）：迁移记 skipped id_invalid，不建领域', { s: m.status, skip, made });
+  }
+
+  // 第 16 篇第 2 步：合成归属只来自启动夹具，普通会话仍走正式的空归属。
+  {
+    const alpha = 'access-alpha', beta = 'access-beta';
+    const draftLead = async (area, principal) => {
+      await A.cli('POST', '/api/areas', { id: area, name: area });
+      const d = await draftBy(null, principal, 'area-lead', 'area:' + area);
+      await A.cli('POST', '/api/grants/' + d.id + '/submit');
+      const approval = await A.cli('POST', '/api/grants/' + d.id + '/approve');
+      if (approval.status !== 200) throw Error('合成负责人授予未生效：' + JSON.stringify(approval));
+      return d.id;
+    };
+    const leaderGrant = await draftLead(alpha, 'user:leo');
+    await draftLead(beta, 'user:bob');
+    const anotherLead = await draftBy(null, 'user:leo', 'area-lead', 'area:' + beta);
+    await A.cli('POST', '/api/grants/' + anotherLead.id + '/submit');
+    const secondLead = await A.cli('POST', '/api/grants/' + anotherLead.id + '/approve');
+    if (secondLead.status !== 200) throw Error('合成第二条负责人授予未生效：' + JSON.stringify(secondLead));
+    const session = async (name) => {
+      const r = await A.remote('POST', '/api/mcp/sessions', { token: ADMIN_TOKEN, json: { name } });
+      if (!r.json?.token) throw Error('合成会话未创建：' + r.status);
+      return r.json;
+    };
+    // 模拟升级留下的旧会话：创建者不是已确认责任人。
+    const legacyToken = sha('synthetic-legacy-area-access');
+    const seedLegacy = A.db();
+    const { id: legacyId } = seedLegacy.prepare("INSERT INTO mcp_sessions (name, token_sha256, created_by) VALUES ('fixture-area-unbound', ?, 'user:olga') RETURNING id").get(sha(legacyToken));
+    seedLegacy.close();
+    const unbound = { id: legacyId, token: legacyToken };
+    const guest = await session('fixture-area-guest');
+    const leadSession = await session('fixture-area-lead');
+    const callTool = (token, tool, arguments_) => A.remote('POST', '/api/mcp-rest/tools/' + tool, {
+      headers: { authorization: 'Bearer ' + token }, json: arguments_,
+    });
+    const ask = (s, actions, area = alpha) => callTool(s.token, 'access_request', { area, actions, reason: '合成验收' });
+    const request = (r) => r.json?.request ?? r.json?.result?.request;
+    const idOf = (r) => Number(request(r)?.ref?.split('-').at(-1));
+    const accessPath = (area) => '/api/areas/' + area + '/access-requests';
+    const limitPath = '/api/areas/' + alpha + '/access-limits/' + leaderGrant;
+    const decided = (who, id, action = 'approve', area = alpha, headers) => who.go('POST', accessPath(area) + '/' + id + '/' + action, { json: { note: '合成决定' }, headers });
+    const rUnbound = await ask(unbound, ['demo.read']);
+    const probeOtherArea = await ask(unbound, ['demo.read'], 'does-not-exist');
+    check(rUnbound.status === 403 && rUnbound.json?.code === 'area_access_unbound_session' && probeOtherArea.json?.code === rUnbound.json.code,
+      'E1 无归属会话一律拒绝，已知与未知领域的错误一致', { a: rUnbound, b: probeOtherArea });
+    const spoof = await callTool(unbound.token, 'access_request', { area: alpha, actions: ['demo.read'], reason: '合成', principal: 'user:tom' });
+    check(spoof.status === 403 && spoof.json?.code === 'area_access_unbound_session', 'E2 请求体自报归属不取得身份', spoof);
+    const mcpDenied = await A.remote('POST', '/mcp', {
+      headers: { authorization: 'Bearer ' + unbound.token },
+      json: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'access_request', arguments: { area: alpha, actions: ['demo.read'], reason: '合成' } } },
+    });
+    check(mcpDenied.json?.result?.isError === true && mcpDenied.json.result.content[0].text.includes('area_access_unbound_session'),
+      'E12 MCP 与 REST 同样拒绝无归属领域申请', mcpDenied);
+    const malformed = await ask(guest, ['demoXread']);
+    check(malformed.status === 400 && malformed.json?.code === 'area_access_actions_invalid', 'E13 动作必须有实际的点分隔符', malformed);
+    const valid = await ask(guest, ['demo.read']);
+    const duplicate = await ask(guest, ['demo.read', 'demo.read']);
+    const id = idOf(valid);
+    check(valid.status === 200 && id > 0 && request(valid)?.status === 'pending' && id === idOf(duplicate), 'E3 可信会话申请入队，本会话同组去重', { valid, duplicate });
+    const anon = await A.remote('POST', accessPath(alpha) + '/' + id + '/approve', { json: {}, token: ADMIN_TOKEN });
+    const sys = await decided(sam, id);
+    const crossArea = await decided(bob, id);
+    const crossOrigin = await decided(leo, id, 'approve', alpha, { 'sec-fetch-site': 'cross-site', origin: 'https://other.invalid' });
+    check(anon.status === 401 && sys.status === 403 && crossArea.status === 403 && crossOrigin.status === 403,
+      'E4 管理口令、系统管理员、他领域负责人及跨站 cookie 均不能批准', { anon, sys, crossArea, crossOrigin });
+    const visible = await leo.go('GET', accessPath(alpha));
+    const hidden = await bob.go('GET', accessPath(alpha));
+    const oldQueue = await A.remote('GET', '/api/mcp/access-requests', { token: ADMIN_TOKEN });
+    check(visible.status === 200 && visible.json?.requests?.some(r => r.id === id) && hidden.status === 403 && Array.isArray(oldQueue.json) && !oldQueue.json.some(r => r.area_id === alpha),
+      'E5 申请只列给本领域审批人，与旧管理员审批队列隔开', { v: visible.status, h: hidden.status, q: oldQueue.status });
+    const beforeLimit = await decided(leo, id);
+    const otherLimitPath = '/api/areas/' + beta + '/access-limits/' + anotherLead.id;
+    const wrongLimit = await olga.go('PUT', '/api/areas/' + alpha + '/access-limits/' + anotherLead.id, { json: { actions: ['demo.read'] } });
+    const otherLimit = await olga.go('PUT', otherLimitPath, { json: { actions: ['demo.read'] } });
+    const notCovered = await decided(leo, id);
+    check(wrongLimit.status === 404 && wrongLimit.json?.code === 'area_access_grant_missing' && otherLimit.status === 200 &&
+      notCovered.status === 403 && notCovered.json?.code === 'area_access_above_limit',
+      'E16 双领域负责人不能把另一领域的授予或上限用在本领域', { wrongLimit, otherLimit, notCovered });
+    const unauthorizedLimit = await leo.go('PUT', limitPath, { json: { actions: ['demo.read'] } });
+    const wild = await olga.go('PUT', limitPath, { json: { actions: ['demo.*'] } });
+    const limit = await olga.go('PUT', limitPath, { json: { actions: ['demo.read'] } });
+    check(beforeLimit.status === 403 && beforeLimit.json?.code === 'area_access_above_limit' && unauthorizedLimit.status === 403 && wild.status === 400 && limit.status === 200,
+      'E6 没有属主上限默认拒绝，负责人不能自设上限，属主只能列明确动作', { beforeLimit, unauthorizedLimit, wild, limit });
+    const betaRequest = await ask(guest, ['demo.read'], beta);
+    const betaId = idOf(betaRequest);
+    const crossApprove = await decided(leo, betaId, 'approve', alpha);
+    const crossReject = await decided(leo, betaId, 'reject', alpha);
+    const betaPending = await callTool(guest.token, 'access_info', { ref: 'area-' + betaId });
+    check(betaRequest.status === 200 && crossApprove.status === 404 && crossApprove.json?.code === 'area_access_request_missing' &&
+      crossReject.status === 404 && crossReject.json?.code === 'area_access_request_missing' && request(betaPending)?.status === 'pending',
+      'E17 本域批准和驳回均不能处理另一领域的申请编号', { crossApprove, crossReject, betaPending });
+
+    const retired = await olga.go('POST', '/api/areas/' + beta + '/retire', { json: { reason: '合成退役' } });
+    const retiredQueue = await olga.go('GET', accessPath(beta));
+    const retiredApprove = await decided(olga, betaId, 'approve', beta);
+    const retiredLeadApprove = await decided(leo, betaId, 'approve', beta);
+    const retiredPending = await callTool(guest.token, 'access_info', { ref: 'area-' + betaId });
+    check(retired.status === 200 && retired.json?.area?.status === 'retired' && retiredQueue.status === 403 && retiredApprove.status === 403 &&
+      retiredApprove.json?.code === 'area_access_approver_required' && retiredLeadApprove.status === 403 && request(retiredPending)?.status === 'pending',
+      'E18 领域撤销后，属主和原负责人均不能审批，原申请未变', { retired, retiredQueue, retiredApprove, retiredLeadApprove, retiredPending });
+    const retiredAsk = await ask(guest, ['demo.write'], beta);
+    check(retired.json?.area?.status === 'retired' && retiredAsk.status === 403 && retiredAsk.json?.code === 'area_access_unavailable',
+      'E19 可信会话不能向已撤领域提交新申请', retiredAsk);
+    const own = await ask(leadSession, ['demo.read']);
+    const self = await decided(leo, idOf(own));
+    check(self.status === 403 && self.json?.code === 'area_access_self_approval', 'E7 同一责任人自批被拒，即便已获动作上限', self);
+    const mixed = await ask(guest, ['demo.read', 'demo.write']);
+    const above = await decided(leo, idOf(mixed));
+    const rejected = await decided(leo, idOf(mixed), 'reject');
+    check(above.status === 403 && above.json?.code === 'area_access_above_limit' && rejected.status === 200 && request(rejected)?.status === 'rejected',
+      'E8 含超限动作整单不可批准，可驳回', { above, rejected });
+    const decisions = await Promise.all([decided(leo, id), decided(leo, id)]);
+    const [approved, retry] = decisions.sort((a, b) => a.status - b.status);
+    const ownView = await callTool(guest.token, 'access_info', { ref: 'area-' + id });
+    const otherView = await callTool(leadSession.token, 'access_info', { ref: 'area-' + id });
+    const d = A.db();
+    const stored = d.prepare('SELECT status, decided_by, decided_at, limit_id FROM area_access_requests WHERE id = ?').get(id);
+    const sessionGrants = d.prepare('SELECT grants FROM mcp_sessions WHERE id = ?').get(guest.id)?.grants;
+    const creator = d.prepare('SELECT created_by FROM mcp_sessions WHERE id = ?').get(unbound.id)?.created_by;
+    d.close();
+    check(creator === 'user:olga', 'E14 确认为真人创建的真实无归属会话也被拒绝', { creator });
+    check(approved.status === 200 && request(approved)?.status === 'approved' && retry.status === 409 && ownView.status === 200 && request(ownView)?.status === 'approved' && otherView.status === 404,
+      'E9 本域负责人批准，一次提交，回执只给申请会话', { approved, retry, ownView, otherView });
+    check(stored?.status === 'approved' && stored.decided_by === 'user:leo' && stored.decided_at > 0 && stored.limit_id === limit.json?.limit?.id && sessionGrants === '[]',
+      'E10 审批保留决定者及用过的上限版本，旧按工具授予不变', { stored, sessionGrants });
+    const remaining = await ask(guest, ['demo.read']);
+    await olga.go('PUT', limitPath, { json: { actions: [] } });
+    const nowDenied = await decided(leo, idOf(remaining));
+    const ownerApproved = await decided(olga, idOf(remaining));
+    check(nowDenied.status === 403 && ownerApproved.status === 200 && request(ownerApproved)?.status === 'approved', 'E11 审批时按最新上限，属主可代批', { nowDenied, ownerApproved });
+    // 本组用真实归属实现。只在上一阶段覆盖用的两个 fixture 名称上套合成预加载器。
+    const owned = await olga.go('POST', '/api/mcp/sessions', { json: { name: 'new-named-approval', responsible_principal: 'user:olga' } });
+    const noPrincipal = await olga.go('POST', '/api/mcp/sessions', { json: { name: 'new-named-missing' } });
+    const wrongPrincipal = await olga.go('POST', '/api/mcp/sessions', { json: { name: 'new-named-wrong', responsible_principal: 'user:tom' } });
+    const system = await session('new-system-approval');
+    const systemDenied = await ask(system, ['area.read']);
+    const systemProposal = await olga.go('POST', '/api/mcp/sessions/' + system.id + '/responsibility-proposals', { json: { principal: 'user:tom' } });
+    check(owned.status === 201 && noPrincipal.status === 400 && wrongPrincipal.status === 403 && systemDenied.status === 403 && systemProposal.status === 409,
+      'F1 新命名会话显式绑定登录本人，系统会话保持无个人归属且不能申请', { statuses: [owned.status, noPrincipal.status, wrongPrincipal.status, systemDenied.status, systemProposal.status] });
+    const ownedAsk = await ask(owned.json, ['area.read']);
+    const ownedSelf = await decided(olga, idOf(ownedAsk));
+    check(ownedAsk.status === 200 && ownedSelf.status === 403 && ownedSelf.json?.code === 'area_access_self_approval', 'F2 真实绑定的属主也不能本人自批', { ownedAsk, ownedSelf });
+    const propose = (principal) => olga.go('POST', '/api/mcp/sessions/' + unbound.id + '/responsibility-proposals', { json: { principal } });
+    const first = await propose('user:nina');
+    const latest = await propose('user:tom');
+    const confirm = (who, id, headers) => who.go('POST', '/api/mcp/responsibilities/' + id + '/confirm', { json: {}, headers });
+    const mine = await tom.go('GET', '/api/mcp/responsibilities/mine');
+    const other = await nina.go('GET', '/api/mcp/responsibilities/mine');
+    const previous = await confirm(nina, first.json?.id);
+    const impostor = await confirm(olga, latest.json?.id);
+    const crossSite = await confirm(tom, latest.json?.id, { 'sec-fetch-site': 'cross-site', origin: 'https://other.invalid' });
+    const tokenConfirm = await A.remote('POST', '/api/mcp/responsibilities/' + latest.json?.id + '/confirm', { json: {}, token: ADMIN_TOKEN });
+    const stillUnbound = await ask(unbound, ['area.read']);
+    check(first.status === 201 && latest.status === 201 && mine.json?.proposals?.some(p => p.id === latest.json.id) && other.json?.proposals?.length === 0 &&
+      previous.status === 404 && impostor.status === 404 && crossSite.status === 403 && tokenConfirm.status === 401 && stillUnbound.status === 403,
+      'F3 仅当前指定人能看和确认最新提议，管理员、旧提议、跨站和口令均不能代办', { previous, impostor, crossSite, tokenConfirm, stillUnbound });
+    const settled = await Promise.all([confirm(tom, latest.json?.id), confirm(tom, latest.json?.id)]);
+    check(settled.map(r => r.status).sort().join() === '200,404' && settled.some(r => r.json?.responsible_principal === 'user:tom'), 'F4 存量会话本人确认原子落库，只成功一次', settled);
+    const areaGrant = await draftBy(null, 'user:tom', 'area-member', 'area:' + alpha);
+    await A.cli('POST', '/api/grants/' + areaGrant.id + '/submit');
+    const granted = await A.cli('POST', '/api/grants/' + areaGrant.id + '/approve');
+    const scopedAsk = await ask(unbound, ['area.read', 'area.spec-set', 'demo.unregistered']);
+    const ownerDecision = await decided(olga, idOf(scopedAsk));
+    const areaInfo = () => callTool(unbound.token, 'access_info', { area: alpha });
+    const areaMcp = () => A.remote('POST', '/mcp', { headers: { authorization: 'Bearer ' + unbound.token }, json: {
+      jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'access_info', arguments: { area: alpha } },
+    } });
+    const effective = await areaInfo();
+    const rpcEffective = await areaMcp();
+    const rpcActions = (r) => JSON.parse(r.json?.result?.content?.[0]?.text ?? '{}').effective_actions;
+    check(granted.status === 200 && scopedAsk.status === 200 && ownerDecision.status === 200 && effective.json?.effective_actions?.join() === 'area.read' &&
+      rpcActions(rpcEffective)?.join() === 'area.read', 'F5 MCP 和 REST 同取会话批准与本人当前领域授予的交集', { granted, ownerDecision, effective, rpcEffective });
+    const drop = await A.cli('POST', '/api/grants/' + areaGrant.id + '/revoke', { reason: '合成撤权' });
+    const afterGrantRevoke = await areaInfo();
+    const rpcAfterRevoke = await areaMcp();
+    check(drop.status === 200 && afterGrantRevoke.json?.effective_actions?.length === 0 && rpcActions(rpcAfterRevoke)?.length === 0,
+      'F6 撤账户授予后同一令牌在两通道立即失去该领域有效动作', { drop, afterGrantRevoke, rpcAfterRevoke });
+    // 使用本地合成名册和实际签发的令牌，验证改派不继承审批。
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519');
+    const publicDer = publicKey.export({ format: 'der', type: 'spki' });
+    const digest = createHash('sha256').update(publicDer).digest('hex');
+    const host = digest.slice(0, 8), fingerprint = 'sha256:' + digest;
+    const root = 'https://fixture-area-seat.example.test', seatId = 'fixture-seat';
+    const seatTeam = 'fixture-area-seat/canvas/demo', seat = 'fixture-area-seat/a0000001';
+    const rosterTime = new Date().toISOString();
+    const seatRows = A.db();
+    seatRows.prepare("INSERT INTO a2a_peers (id, root_url, zone, public_key, key_fingerprint, status, registered_by, registered_at, updated_at) VALUES (?, ?, ?, ?, ?, 'active', 'test', ?, ?)")
+      .run('peer_' + host, root, 'fixture-area-seat', publicDer.toString('base64'), fingerprint, rosterTime, rosterTime);
+    seatRows.prepare('INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(host, root, fingerprint, 'fixture-area-seat', rosterTime, rosterTime);
+    seatRows.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, '合成席位', 'member', ?)")
+      .run(root, fingerprint, host, seatTeam, seat, seatId, rosterTime);
+    seatRows.close();
+    const assign = principal => {
+      const d = A.db();
+      const now = Date.now();
+      try {
+        d.prepare('UPDATE seat_assignments SET ended_at = ? WHERE host = ? AND seat_id = ? AND ended_at IS NULL').run(now, host, seatId);
+        d.prepare("INSERT INTO seat_assignments (host, team, seat, seat_id, principal_id, assigned_by, assigned_at, peer_root, key_fingerprint) VALUES (?, ?, ?, ?, ?, 'test', ?, ?, ?)")
+          .run(host, seatTeam, seat, seatId, principal, now, root, fingerprint);
+      } finally { d.close(); }
+    };
+    for (const principal of ['user:tom', 'user:nina']) {
+      const g = await draftBy(null, principal, 'area-member', 'area:' + alpha);
+      const submitted = await A.cli('POST', '/api/grants/' + g.id + '/submit');
+      const accepted = await A.cli('POST', '/api/grants/' + g.id + '/approve');
+      if (submitted.status !== 200 || accepted.status !== 200) throw Error('合成席位的账户授予未生效');
+    }
+    assign('user:tom');
+    const exchange = { v: 1, root, host, seat_id: seatId, ts: Date.now(), nonce: 'fixture-seat-ident-1', aud: A.base };
+    const canonical = JSON.stringify(['wm-seat-token/1', exchange.root, exchange.host, exchange.seat_id, exchange.ts, exchange.nonce, exchange.aud]);
+    const issued = await A.remote('POST', '/api/a2a/seat-token', {
+      json: { ...exchange, sig: sign(null, Buffer.from(canonical), privateKey).toString('base64') },
+    });
+    if (issued.status !== 200 || !issued.json?.token) throw Error('合成席位令牌未签发：' + issued.status);
+    const seatSession = issued.json;
+    const lookupSeat = A.db();
+    const seatSubject = lookupSeat.prepare('SELECT session_id FROM a2a_seat_subjects WHERE peer_root = ? AND key_fingerprint = ? AND seat_id = ?')
+      .get(root, fingerprint, seatId);
+    lookupSeat.close();
+    if (!seatSubject) throw Error('合成席位会话未建立');
+    const seatActions = () => callTool(seatSession.token, 'access_info', { area: alpha });
+    const oldApproved = await ask(seatSession, ['area.read']);
+    const oldDecision = await decided(olga, idOf(oldApproved));
+    const oldEffective = await seatActions();
+    const oldPending = await ask(seatSession, ['area.read']);
+    if (oldDecision.status !== 200 || oldEffective.json?.effective_actions?.join() !== 'area.read' || request(oldPending)?.status !== 'pending') {
+      throw Error('合成席位前任的批准及待批准备失败');
+    }
+    assign('user:nina');
+    const beforeNewApproval = await seatActions();
+    const oldAfterReassign = await decided(olga, idOf(oldPending));
+    const newPending = await ask(seatSession, ['area.read']);
+    const newDecision = await decided(olga, idOf(newPending));
+    const afterNewApproval = await seatActions();
+    check(beforeNewApproval.status === 200 && beforeNewApproval.json?.effective_actions?.length === 0 && newDecision.status === 200 &&
+      afterNewApproval.json?.effective_actions?.join() === 'area.read', 'F8 席位新人有本人授予，仍须重新获批才有效', { beforeNewApproval, newDecision, afterNewApproval });
+    check(oldAfterReassign.status === 409 && oldAfterReassign.json?.code === 'area_access_applicant_changed',
+      'F9 改派后不可批准前任的待批申请', oldAfterReassign);
+
+    const pinPending = await ask(seatSession, ['area.read']);
+    const setBoundFingerprint = value => {
+      const d = A.db();
+      try { d.prepare('UPDATE a2a_seat_subjects SET key_fingerprint = ? WHERE session_id = ?').run(value, seatSubject.session_id); }
+      finally { d.close(); }
+    };
+    // 合成过期绑定。用正常登录的审批路径验证归属检查，避免席位令牌自身的校验先行遮住结果。
+    setBoundFingerprint('sha256:' + (digest[0] === '0' ? '1' : '0') + digest.slice(1));
+    const mismatchedPin = await decided(olga, idOf(pinPending));
+    setBoundFingerprint(fingerprint);
+    const restoredPin = await decided(olga, idOf(pinPending));
+    check(mismatchedPin.status === 403 && mismatchedPin.json?.code === 'area_access_unbound_session' && restoredPin.status === 200,
+      'F10 会话绑定与当前名册公钥指纹不符时不可审批，恢复匹配后可审批', { mismatchedPin, restoredPin });
+
+    const ticketGrant = await olga.go('PUT', '/api/mcp/sessions/' + unbound.id + '/grants', { json: { grants: ['skill_file_put'] } });
+    const uploadBytes = 'synthetic-owner-checked-upload';
+    const uploadTicket = () => callTool(unbound.token, 'skill_file_put', { size: Buffer.byteLength(uploadBytes), sha256: sha(uploadBytes) });
+    const putTicket = (path) => fetch(new URL(new URL(path).pathname, A.base), {
+      method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: uploadBytes,
+    });
+    const beforeDisableTicket = await uploadTicket();
+    if (ticketGrant.status !== 200 || beforeDisableTicket.status !== 200 || !beforeDisableTicket.json?.upload_url) {
+      throw Error('绑定会话上传票准备失败');
+    }
+    // 一个实际安装的合成领域经扩展声明、账户授予、接入审批、两通道调用。
+    {
+      const readCap = 'fixture-domain.read', proposeCap = 'fixture-domain.propose';
+      await A.cli('POST', '/api/roles/guest/copy', { id: 'fixture-cap-caller', name: '合成能力调用人' });
+      const role = await A.cli('PUT', '/api/roles/fixture-cap-caller', { permissions: [{ actions: [readCap, proposeCap] }] });
+      const grantCapabilities = async principal => {
+        const draft = await draftBy(null, principal, 'fixture-cap-caller', 'area:' + alpha);
+        const submitted = await A.cli('POST', '/api/grants/' + draft.id + '/submit');
+        const approved = await A.cli('POST', '/api/grants/' + draft.id + '/approve');
+        if (role.status !== 200 || submitted.status !== 200 || approved.status !== 200) {
+          throw Error('能力测试角色或账户授予准备失败：' + JSON.stringify({ role, draft, submitted, approved }));
+        }
+        return draft;
+      };
+      const personGrant = await grantCapabilities('user:tom');
+      await grantCapabilities('user:nina');
+      const bearer = { authorization: 'Bearer ' + unbound.token };
+      const rpcTool = (name, args, headers = bearer) => A.remote('POST', '/mcp', { headers, json: {
+        jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args },
+      } });
+      const invoke = (target, args) => rpcTool('invoke', { target, args });
+      const restCap = (target, json, headers = bearer) => A.remote('POST', '/api/mcp-rest/capabilities/' + target, { headers, json });
+      const rpcResult = r => JSON.parse(r.json?.result?.content?.[0]?.text ?? '{}');
+      const list = await A.remote('POST', '/mcp', { headers: bearer, json: { jsonrpc: '2.0', id: 1, method: 'tools/list' } });
+      const toolNames = list.json?.result?.tools?.map(x => x.name) ?? [];
+      const catalog = await callTool(unbound.token, 'access_info', {});
+      const detail = await callTool(unbound.token, 'access_info', { capability: readCap });
+      check(toolNames.filter(x => x === 'invoke').length === 1 && !toolNames.some(x => x.startsWith('fixture-domain.')) &&
+        catalog.json?.capabilities?.filter(x => x.name.startsWith('fixture-domain.')).length === 2 && catalog.json.capabilities.every(x => !x.granted && !x.input_schema) &&
+        detail.json?.capability?.input_schema?.required?.join() === 'text', 'G1 仅通用工具公开，能力目录和详情分层', { list: toolNames, catalog: catalog.json?.capabilities, detail });
+      const denied = await restCap(readCap, { text: 'x' });
+      const missing = await restCap('fixture-domain.missing', { text: 'x' });
+      const anonymous = await restCap(readCap, { text: 'x' }, {});
+      check(denied.status === 403 && missing.status === 403 && JSON.stringify(denied.json) === JSON.stringify(missing.json) && anonymous.status === 401,
+        'G2 无批准与未登记域同拒，无令牌不能转调', { denied, missing, anonymous });
+      const capAsk = await ask(unbound, [readCap, proposeCap]);
+      const capApprove = await decided(olga, idOf(capAsk));
+      const visible = await callTool(unbound.token, 'access_info', { capability: readCap });
+      const restRead = await restCap(readCap, { text: 'hello' });
+      const mcpRead = await invoke(readCap, { text: 'hello' });
+      check(capApprove.status === 200 && visible.json?.capability?.granted && restRead.status === 200 &&
+        restRead.json?.principal === 'user:tom' && JSON.stringify(restRead.json) === JSON.stringify(rpcResult(mcpRead)),
+        'G3 批准后按实际目标和本人授予走同一个处理器', { capApprove, visible, restRead, mcpRead });
+      const irrelevant = await invoke('area.read', {});
+      const forged = await restCap(readCap, { text: 'x', principal: 'user:olga' });
+      const noText = await restCap(readCap, {});
+      const pending = await invoke(proposeCap, {});
+      const auditDb = A.db();
+      const audit = auditDb.prepare("SELECT tool, channel FROM mcp_calls WHERE method = 'capability/call' AND ok = 1 ORDER BY id").all();
+      auditDb.close();
+      check(irrelevant.json?.result?.isError === true && forged.status === 400 && noText.status === 400 &&
+        rpcResult(pending).status === 'pending' && audit.some(x => x.tool === readCap && x.channel === 'mcp-invoke') &&
+        audit.some(x => x.tool === readCap && x.channel === 'rest') && audit.every(x => x.tool !== 'invoke'),
+        'G4 内部动作与注入字段拒绝，决定只回 pending，审计按真实目标记', { irrelevant, forged, noText, pending, audit });
+      const typed = { text: 'x'.repeat(4096), count: 7, enabled: false };
+      const validTyped = await restCap(readCap, typed);
+      const beforeInvalid = await restCap(readCap, { text: 'calls' });
+      const invalidCases = [
+        ['string object', { ...typed, text: {} }],
+        ['integer array', { ...typed, count: [] }],
+        ['boolean array', { ...typed, enabled: [] }],
+        ['fraction', { ...typed, count: 1.5 }],
+        ['overlong string', { ...typed, text: 'x'.repeat(4097) }],
+      ];
+      const badArgs = [];
+      for (const [label, args] of invalidCases) {
+        const rest = await restCap(readCap, args);
+        const mcp = await invoke(readCap, args);
+        const mcpError = mcp.json?.result;
+        badArgs.push({ label, rest: rest.status, code: rest.json?.code, mcpRejected: mcpError?.isError === true &&
+          mcpError.content?.[0]?.text.endsWith(JSON.stringify({ status: 400, code: 'capability_args_invalid' })) });
+      }
+      const afterInvalid = await restCap(readCap, { text: 'calls' });
+      check(validTyped.status === 200 && validTyped.json?.text?.length === 4096 && validTyped.json?.count === 7 && validTyped.json?.enabled === false &&
+        typeof beforeInvalid.json?.calls === 'number' && afterInvalid.json?.calls === beforeInvalid.json.calls &&
+        badArgs.every(x => x.rest === 400 && x.code === 'capability_args_invalid' && x.mcpRejected),
+        'G6 严格参数类型、整数和长度在两渠道校验，错误不调用处理器', { badArgs, before: beforeInvalid.json, after: afterInvalid.json });
+
+      const restDone = await restCap(proposeCap, { outcome: 'done' });
+      const mcpDone = await invoke(proposeCap, { outcome: 'done' });
+      check(restDone.status === 500 && mcpDone.json?.result?.isError === true,
+        'G7 决定类处理器回非 pending 时两渠道均拒绝', { restDone, mcpDone });
+      const restExtra = await restCap(proposeCap, { outcome: 'extra' });
+      const mcpExtra = await invoke(proposeCap, { outcome: 'extra' });
+      const pendingOnly = value => Object.keys(value ?? {}).sort().join() === 'id,status' && /^p-[1-9][0-9]*$/.test(value.id) && value.status === 'pending';
+      check(restExtra.status === 200 && pendingOnly(restExtra.json) && mcpExtra.json?.result?.isError !== true && pendingOnly(rpcResult(mcpExtra)),
+        'G8 待确认提案在两渠道只投影编号与状态，丢弃处理器额外字段', { restExtra, mcpExtra });
+
+      // 沿用上面以真实名册签发并改派过的令牌，给改派前后两人分别正式批准。
+      const authorizeSeat = async () => {
+        const applied = await ask(seatSession, [readCap]);
+        const approved = await decided(olga, idOf(applied));
+        if (applied.status !== 200 || approved.status !== 200) throw Error('席位引用隔离测试未取得接入批准');
+      };
+      const seatBearer = { authorization: 'Bearer ' + seatSession.token };
+      const readSeatRef = id => A.remote('GET', '/api/mcp-rest/results/' + id, { headers: seatBearer });
+      const readSeatSegment = id => rpcTool('result_read', { id }, seatBearer);
+      await authorizeSeat();
+      const previous = await restCap(readCap, { text: 'large' }, seatBearer);
+      const previousId = previous.json?.result_ref?.id;
+      if (!previousId) throw Error('预期旧责任人通过调用取得大结果引用');
+      const oldRest = await readSeatRef(previousId);
+      const oldMcp = await readSeatSegment(previousId);
+      assign('user:tom');
+      await authorizeSeat();
+      const current = await restCap(readCap, { text: 'large' }, seatBearer);
+      const currentId = current.json?.result_ref?.id;
+      if (!currentId) throw Error('预期新责任人通过调用取得自己的大结果引用');
+      const newRest = await readSeatRef(currentId);
+      const newMcp = await readSeatSegment(currentId);
+      const deniedPreviousRest = await readSeatRef(previousId);
+      const deniedPreviousMcp = await readSeatSegment(previousId);
+      check(oldRest.status === 200 && oldRest.json?.principal === 'user:nina' && rpcResult(oldMcp).id === previousId &&
+        newRest.status === 200 && newRest.json?.principal === 'user:tom' && rpcResult(newMcp).id === currentId &&
+        deniedPreviousRest.status === 403 && deniedPreviousMcp.json?.result?.isError === true,
+        'G9 已获批准的新责任人可读自己的新引用，但 REST 和 result_read 均拒绝其读取前任引用',
+        { old: oldRest.status, current: newRest.status, denied: deniedPreviousRest.status, deniedPreviousMcp });
+      assign('user:nina');
+
+      const big = await restCap(readCap, { text: 'large' });
+      const ref = big.json?.result_ref?.id;
+      const fetchRef = () => A.remote('GET', '/api/mcp-rest/results/' + ref, { headers: bearer });
+      const readRef = await fetchRef();
+      const revokeCap = await A.cli('POST', '/api/grants/' + personGrant.id + '/revoke', { reason: '合成撤回领域能力' });
+      const deniedAfter = await restCap(readCap, { text: 'x' });
+      const deniedMcp = await invoke(readCap, { text: 'x' });
+      const deniedRef = await fetchRef();
+      const deniedSegment = await callTool(unbound.token, 'result_read', { id: ref });
+      check(ref && readRef.json?.data?.length === 350000 && revokeCap.status === 200 && deniedAfter.status === 403 &&
+        deniedMcp.json?.result?.isError === true && deniedRef.status === 403 && deniedSegment.status === 403,
+        'G5 账户撤权即使原批准仍在也拒绝两通道调用和旧大结果引用',
+        { big: big.status, ref, readRef: readRef.status, revokeCap, deniedAfter, deniedMcp, deniedRef, deniedSegment });
+    }
+    const stale = await ask(guest, ['demo.write']);
+    const disabled = await A.cli('POST', '/api/principals/disable', { id: 'user:tom', reason: '合成停用责任人' });
+    const disabledAsk = await ask(guest, ['demo.disable-check']);
+    const boundDisabledRest = await areaInfo();
+    const boundDisabledMcp = await areaMcp();
+    check(boundDisabledRest.status === 401 && boundDisabledMcp.status === 401, 'F7 停用实际责任人立即使两个通道拒绝同一令牌', { boundDisabledRest, boundDisabledMcp });
+    const disabledApprove = await decided(olga, idOf(stale));
+    const disabledUpload = await putTicket(beforeDisableTicket.json.upload_url);
+    const restored = await A.cli('POST', '/api/principals/restore', { id: 'user:tom', reason: '合成恢复责任人' });
+    const restoredView = await callTool(guest.token, 'access_info', { ref: 'area-' + idOf(stale) });
+    const restoredTicket = await uploadTicket();
+    const restoredUpload = restoredTicket.json?.upload_url ? await putTicket(restoredTicket.json.upload_url) : null;
+    check(disabledUpload.status === 403 && restored.status === 200 && restoredUpload?.status === 201,
+      'F11 停用责任人后已签发的上传票拒绝，恢复后新票正常', { blocked: disabledUpload.status, restored: restoredUpload?.status });
+    check(disabled.status === 200 && disabledAsk.status === 401 &&
+      disabledApprove.status === 403 && disabledApprove.json?.code === 'area_access_unbound_session' && restored.status === 200 &&
+      request(restoredView)?.status === 'pending', 'E20 只停用责任人即可阻止申请和批准，恢复责任人后原申请仍待批',
+      { disabled, disabledAsk, disabledApprove, restored, restoredView });
+    const revoked = await A.remote('DELETE', '/api/mcp/sessions/' + guest.id, { token: ADMIN_TOKEN });
+    const afterRevocation = await decided(olga, idOf(stale));
+    const dismissed = await decided(olga, idOf(stale), 'reject');
+    check(revoked.status === 200 && afterRevocation.status === 403 && afterRevocation.json?.code === 'area_access_unbound_session' &&
+      dismissed.status === 200 && request(dismissed)?.status === 'rejected', 'E15 会话吊销后批准失败，待批记录仍可驳回', { revoked, afterRevocation, dismissed });
   }
 
 } catch (e) {

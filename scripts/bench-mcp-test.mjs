@@ -19,6 +19,7 @@
  *   node scripts/bench-mcp-test.mjs --root DIR   测另一棵目录树（变异测试用）
  */
 import { createServer } from 'node:net';
+import { request as httpRequest } from 'node:http';
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -34,6 +35,8 @@ const OUT = join(HERE, '..', 'tmp', `bench-mcp-${process.pid}-${Date.now().toStr
 const PRELOAD = pathToFileURL(join(HERE, 'identity-fake-preload.mjs')).href;
 const ADMIN_TOKEN = 'synthetic-bench-mcp-admin';
 const REMOTE = { 'x-forwarded-for': '192.0.2.61' };
+const PUBLIC_ORIGIN = 'https://market.example.test:9443';
+const PUBLIC_HEADERS = { ...REMOTE, host: new URL(PUBLIC_ORIGIN).host, origin: PUBLIC_ORIGIN, 'sec-fetch-site': 'same-origin' };
 
 let pass = 0, fail = 0;
 const check = (ok, label, detail = '') => { if (ok) pass++; else fail++; console.log(`  ${ok ? '✓' : '✗'} ${label}${ok || !detail ? '' : `（${typeof detail === 'string' ? detail : JSON.stringify(detail)}）`}`); };
@@ -78,10 +81,21 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
     if (raw !== undefined) h['content-type'] = 'application/json';
     else if (body !== undefined) h['content-type'] = 'application/json';
     try {
-      const res = await fetch(base + path, { method, headers: h, body: raw !== undefined ? raw : body === undefined ? undefined : JSON.stringify(body), redirect: 'manual', signal: AbortSignal.timeout(60000) });
-      const text = await res.text();
+      const payload = raw !== undefined ? raw : body === undefined ? undefined : JSON.stringify(body);
+      const signal = AbortSignal.timeout(60000);
+      // fetch 会把 Host 替换成连接地址。反代用例需要保留公共 Host，同时只连接隔离实例。
+      const { status, text } = h.host === undefined
+        ? await fetch(base + path, { method, headers: h, body: payload, redirect: 'manual', signal })
+            .then(async res => ({ status: res.status, text: await res.text() }))
+        : await new Promise((resolve, reject) => {
+            const req = httpRequest(base + path, { method, headers: h, signal }, res => {
+              let text = '';
+              res.setEncoding('utf8').on('data', chunk => { text += chunk; }).on('end', () => resolve({ status: res.statusCode, text })).on('error', reject);
+            });
+            req.on('error', reject).end(payload);
+          });
       let json = null; try { json = JSON.parse(text); } catch { /* 不是 JSON */ }
-      return { status: res.status, text, json };
+      return { status, text, json };
     } catch (e) { return { status: 0, text: String(e?.name ?? e), json: null }; }
   };
   const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => openDb(join(data, 'workbench-market.db')) };
@@ -101,8 +115,11 @@ const listed = async (srv, token) => ((await srv.call('POST', '/mcp', { headers:
 const BENCH_TOOLS = ['dataset_list', 'dataset_query', 'dataset_snapshots', 'view_get', 'view_versions', 'view_diff', 'dataset_define', 'dataset_replace', 'dataset_upsert', 'dataset_append', 'dataset_delete_rows', 'dataset_snapshot', 'dataset_restore', 'view_put', 'view_rollback'];
 
 try {
-  const srv = await boot('on', { WM_BENCH_VIEWS: 'on' });
+  const srv = await boot('on', { WM_BENCH_VIEWS: 'on', MARKET_PUBLIC_URL: PUBLIC_ORIGIN });
   const db = srv.db();
+  const health = await srv.call('GET', '/api/health');
+  const publicOriginRows = health.json?.self_probe?.rows?.filter(row => row.id === 'market.bench-mcp.public-origin-anonymous' || row.id === 'market.bench-mcp.other-origin-anonymous');
+  check(publicOriginRows?.length === 2 && publicOriginRows.every(row => row.verdict === 'pass'), '公共来源已配置时，两项台 MCP 启动自检通过', publicOriginRows);
   for (const s of [SESSIONS.admin, SESSIONS.alpha, SESSIONS.beta]) await srv.call('GET', '/api/auth/viewer', { session: s });
   const same = { origin: `http://${srv.host}`, 'sec-fetch-site': 'same-origin' };
   const who = (session) => ({ headers: { ...REMOTE, ...same }, session });
@@ -190,7 +207,26 @@ try {
   check(r.status === 404, '到别的台上批这条申请：404', r.status);
   r = await srv.call('POST', `/api/bench-views/demo/mcp-requests/${reqId}`, { ...mgr, body: { approve: 'yes' } });
   check(r.status === 400, 'approve 不是布尔：拒', r.status);
-  r = await srv.call('POST', `/api/bench-views/demo/mcp-requests/${reqId}`, { ...mgr, body: { approve: true, note: '可以' } });
+  const decisionPath = `/api/bench-views/demo/mcp-requests/${reqId}`;
+  const decide = (headers, session) => srv.call('POST', decisionPath, { headers, session, body: { approve: true } });
+  for (const [label, headers] of [
+    ['Host 不匹配', { ...PUBLIC_HEADERS, host: 'other.example.test:9443' }],
+    ['协议不匹配', { ...PUBLIC_HEADERS, origin: 'http://market.example.test:9443' }],
+    ['公共端口不匹配', { ...PUBLIC_HEADERS, origin: 'https://market.example.test' }],
+    ['不透明 来源', { ...PUBLIC_HEADERS, origin: 'null' }],
+    ['来源带路径', { ...PUBLIC_HEADERS, origin: PUBLIC_ORIGIN + '/path' }],
+    ['跨站浏览器标记', { ...PUBLIC_HEADERS, 'sec-fetch-site': 'cross-site' }],
+    ['转发头不参与来源信任', { ...PUBLIC_HEADERS, origin: 'https://other.example.test:9443', 'x-forwarded-host': 'market.example.test:9443', 'x-forwarded-proto': 'https' }],
+  ]) {
+    const denial = await decide(headers, SESSIONS.alpha);
+    check(denial.status === 403 && denial.json?.error === 'bench_views_cross_origin_denied', `HTTPS 反代拒绝：${label}`, denial.status);
+  }
+  const anonymous = await decide(PUBLIC_HEADERS);
+  const ungranted = await decide(PUBLIC_HEADERS, SESSIONS.beta);
+  check(anonymous.status === 401 && anonymous.json?.error === 'login_required', '公共来源的匿名请求仍需登录', anonymous.status);
+  check(ungranted.status === 403 && ungranted.json?.error === 'bench_views_forbidden', '公共来源的无权账号仍不能批准', ungranted.status);
+  check(db.prepare('SELECT status FROM bench_mcp_requests WHERE id = ?').get(reqId)?.status === 'pending', '被拒请求没有办理申请');
+  r = await srv.call('POST', decisionPath, { headers: PUBLIC_HEADERS, session: SESSIONS.alpha, body: { approve: true, note: '可以' } });
   check(r.status === 200 && r.json?.status === 'approved' && r.json.granted.join() === 'dataset_list,dataset_query', '管理层批准', r.text.slice(0, 160));
   r = await srv.call('POST', `/api/bench-views/demo/mcp-requests/${reqId}`, { ...mgr, body: { approve: false } });
   check(r.status === 409, '批过的再定一次：冲突', r.status);
@@ -383,7 +419,7 @@ try {
     '只有「拍板」、不能登记台的角色：要顺带开台库的申请批不了（403，申请还在、没开台库）；登记过的台上的照常批得了', { role: [rc.status, ru.status, ra.status, gDec], open: dOpen.status, registered: dReg.status });
   // 条目缺了（改之前就是这样）也照同一个地址批一次，好看出批准这一步本身通不通
   const hvia = hc?.answer_via ?? { method: 'POST', path: `/api/bench-views/wb-${WC}/mcp-requests/${h1.json.request.id}`, answers: { approve: { body: { approve: true, from_attention: true } } } };
-  r = await srv.call(hvia.method, hvia.path, { ...mgr, body: { ...hvia.answers.approve.body, note: '同意' } });
+  r = await srv.call(hvia.method, hvia.path, { headers: PUBLIC_HEADERS, session: SESSIONS.alpha, body: { ...hvia.answers.approve.body, note: '同意' } });
   const opened = db.prepare('SELECT slug, title, workbench_id, created_by FROM bench_views WHERE workbench_id = ?').get(WC);
   check(r.status === 200 && r.json?.status === 'approved' && r.json.granted.join() === 'dataset_list,dataset_query' && r.json.opened_bench?.slug === `wb-${WC}` && r.json.opened_bench.title === '合成卡片甲'
     && opened?.slug === `wb-${WC}` && opened.created_by === 'user:alpha' && db.prepare('SELECT COUNT(*) AS n FROM bench_mcp_grants WHERE bench = ? AND session_id = ?').get(`wb-${WC}`, H.id).n === 2,
@@ -531,6 +567,18 @@ try {
 
   let n = 0; for (let i = 0; i < 12; i++) { const x = await tool(srv, A.token, 'access_request', { tools: [`dataset_list@bench:cap-${i}`], reason: '刷' }); if (x.json?.ok) n++; }
   check(n < 12 && n >= 4, '申请有每小时的上限', n);
+
+  const ownerGrant = await activate({ principal: 'user:root-admin', role: 'owner' });
+  const owner = { headers: PUBLIC_HEADERS, session: SESSIONS.admin };
+  const ownerIdentity = await srv.call('GET', '/api/admin/whoami', owner);
+  const requester = await mk('sess-public-origin');
+  const pending = await tool(srv, requester.token, 'access_request', { tools: ['dataset_list@bench:demo'], reason: 'HTTPS 批准用例' });
+  const ownerPage = await srv.call('GET', '/api/bench-views/demo/mcp-grants', owner);
+  const ownerApprove = await srv.call('POST', `/api/bench-views/demo/mcp-requests/${pending.json?.request?.id}`, { ...owner, body: { approve: true } });
+  check(ownerGrant === 200 && ownerIdentity.json?.admin === true && ownerIdentity.json?.via === 'grant'
+    && ownerPage.json?.can?.decide === true && pending.json?.request?.status === 'pending'
+    && ownerApprove.status === 200 && ownerApprove.json?.status === 'approved',
+  'HTTPS 反代：站内 owner 可以从台的授权页批准合成申请', { grant: ownerGrant, identity: ownerIdentity.status, page: ownerPage.status, approve: ownerApprove.status });
   await srv.stop();
 
   console.log('八、入口关着、网关关着');

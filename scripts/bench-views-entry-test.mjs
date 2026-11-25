@@ -81,7 +81,7 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
       const res = await fetch(base + path, { method, headers: h, body: raw !== undefined ? raw : body === undefined ? undefined : JSON.stringify(body), redirect: 'manual', signal: AbortSignal.timeout(60000) });
       const text = await res.text();
       let json = null; try { json = JSON.parse(text); } catch { /* 不是 JSON */ }
-      return { status: res.status, text, json };
+      return { status: res.status, text, json, headers: Object.fromEntries(res.headers) };
     } catch (e) { return { status: 0, text: String(e?.name ?? e), json: null }; }
   };
   const srv = { name, base, host: new URL(base).host, data, stop, call, log: () => log, db: () => openDb(join(data, 'workbench-market.db')) };
@@ -171,10 +171,10 @@ try {
   const g3 = await activate({ principal: 'user:beta', role: 'member' });
   const ALL_ROUTES = [['GET', ''], ['POST', ''], ['GET', '/demo/datasets'], ['PUT', '/demo/datasets/x'], ['POST', '/demo/datasets/x/rows?op=append'], ['POST', '/demo/query'],
     ['GET', '/demo/datasets/x/snapshots'], ['POST', '/demo/datasets/x/snapshots'], ['POST', '/demo/restore'], ['GET', '/demo/view'], ['PUT', '/demo/view'], ['GET', '/demo/view/versions'],
-    ['GET', '/demo/view/diff?a=1&b=2'], ['POST', '/demo/view/rollback'], ['GET', '/demo/render'], ['POST', '/demo/form'], ['GET', '/demo/log']];
+    ['GET', '/demo/view/diff?a=1&b=2'], ['GET', '/demo/changes'], ['POST', '/demo/view/rollback'], ['GET', '/demo/render'], ['POST', '/demo/form'], ['GET', '/demo/log']];
   const memberGot = [];
   for (const [m, path] of ALL_ROUTES) memberGot.push((await srv.call(m, `/api/bench-views${path}`, { ...nobody, ...(m === 'GET' ? {} : path.includes('/rows') ? { raw: '[]' } : { body: {} }) })).status);
-  check(g3.ok && ALL_ROUTES.length === 17 && memberGot.every((x) => x === 403), '只有普通员工授予（范围「全部」）的人：17 条路由读写全是 403', memberGot.join());
+  check(g3.ok && ALL_ROUTES.length === 18 && memberGot.every((x) => x === 403), '只有普通员工授予（范围「全部」）的人：18 条路由读写全是 403', memberGot.join());
 
   console.log('三之一、带业务写的授予：系统管理员一个人给不出去');
   // 管理口令（只有系统管理员身份）起草一条「部门成员、范围全部」给 strasse 并提交，自己放行不了；停在待放行时 strasse 哪条路由都进不来
@@ -188,7 +188,7 @@ try {
   const tryAll = async () => { const got = []; for (const [m, path] of ALL_ROUTES) got.push((await srv.call(m, `/api/bench-views${path}`, { ...pendingOne, ...(m === 'GET' ? {} : path.includes('/rows') ? { raw: '[]' } : { body: {} }) })).status); return got; };
   const before = await tryAll();
   check(gid !== undefined && submitted.status < 300 && selfApprove.status >= 400 && stateOf() !== 'active' && before.every((x) => x === 403),
-    '管理口令起草、提交了，自己放行不了；停在待放行时被授的人 17 条路由全是 403', { draft: draft.status, submit: submitted.status, approve: selfApprove.status, state: stateOf(), got: before.join() });
+    '管理口令起草、提交了，自己放行不了；停在待放行时被授的人 18 条路由全是 403', { draft: draft.status, submit: submitted.status, approve: selfApprove.status, state: stateOf(), got: before.join() });
   const released = await srv.call('POST', `/api/grants/${gid}/approve`);
   const after = await tryAll();
   check(released.status < 300 && stateOf() === 'active' && after.every((x) => x !== 403 && x !== 401), '属主（本机命令行）放行之后：这个人进得来了（不再是 403）', { approve: released.status, state: stateOf(), got: after.join() });
@@ -283,6 +283,43 @@ try {
   r = await srv.call('GET', '/api/bench-views', mgr);
   check(r.status === 200 && r.json?.benches?.map((x) => x.slug).join() === 'demo' && readdirSync(join(srv.data, 'bench-stores')).filter((f) => f.endsWith('.sqlite')).join() === 'demo.sqlite', '台的清单里只有登记过的那一个；数据目录里也只有它的库', readdirSync(join(srv.data, 'bench-stores')));
 
+  console.log('五之一、变更游标（docs/task-graph-step1.md 第五节之六）');
+  {
+    const cur = async (who = mgr) => srv.call('GET', `${B}/changes`, who);
+    let c = await cur();
+    const c0 = c.json?.cursor;
+    check(c.status === 200 && typeof c0 === 'string' && c0.length >= 16 && Object.keys(c.json).join() === 'cursor' && /private, no-store/.test(c.headers?.['cache-control'] ?? ''), '有权：回一个游标，只有游标、不缓存', { s: c.status, t: c.text.slice(0, 120) });
+    r = await srv.call('GET', `${B}/render?view=overview`, mgr);
+    check(r.status === 200 && r.json?.cursor === c0, '取数回应带同一个游标', { render: r.json?.cursor, changes: c0 });
+    c = await cur();
+    check(c.json?.cursor === c0, '没有改动：游标不变');
+    r = await srv.call('POST', `${B}/datasets/orders/rows?op=upsert`, { ...mgr, raw: JSON.stringify([{ id: 3, day: '2026-02-02', region: '东区', amount: 16 }]) });
+    c = await cur();
+    const c1 = c.json?.cursor;
+    check(r.status === 200 && r.json?.row_count === 5 && c1 !== c0, '同一视图版本、行数不变的 upsert：游标变（普通行写入推进 bs_writes）', { upsert: r.text.slice(0, 80), c0, c1 });
+    r = await srv.call('POST', `${B}/datasets/orders/snapshots`, { ...mgr, body: { note: '游标测试' } });
+    const sid = r.json?.snapshot_id ?? r.json?.id;
+    c = await cur(); const c2 = c.json?.cursor;
+    r = await srv.call('POST', `${B}/restore`, { ...mgr, body: { snapshot_id: sid, note: '游标测试' } });
+    c = await cur();
+    check(r.status === 200 && c.json?.cursor !== c2, '退回快照：游标变', { restore: r.text.slice(0, 80) });
+    const c3 = c.json?.cursor;
+    const v = await srv.call('GET', `${B}/view`, mgr);
+    r = await srv.call('PUT', `${B}/view`, { ...mgr, body: { doc: { ...doc, title: '订单台三版' }, base: v.json.view.active_version, note: '游标测试' } });
+    c = await cur();
+    check(r.status === 200 && c.json?.cursor !== c3, '保存视图（启用版本变）：游标变', r.text.slice(0, 80));
+    c = await srv.call('GET', `${B}/changes?view=overview`, mgr);
+    check(c.status === 400, '不收查询参数', c.status);
+    c = await cur(nobody);
+    check(c.status === 403 && !c.text.includes('cursor'), '台上没有授予：403，不给游标', c.status);
+    c = await srv.call('GET', `${B}/changes`, { headers: REMOTE });
+    check(c.status === 401, '没登录：401', c.status);
+    c = await srv.call('GET', '/api/bench-views/ghost/changes', mgr);
+    check(c.status === 404, '台没登记：判过权才 404', c.status);
+    c = await srv.call('GET', '/api/bench-views/ghost/changes', nobody);
+    check(c.status === 403, '没权限的人问不存在的台：403，不露台在不在', c.status);
+  }
+
   console.log('六、出错的样子');
   r = await srv.call('POST', `${B}/query`, { ...mgr, body: { query: { dataset: 'orders', filter: [{ col: 'id', op: 'constructor', value: 1 }] } } });
   check(r.status === 400 && Object.keys(r.json ?? {}).every((k) => ['error', 'message', 'details'].includes(k)) && !/SQLITE|ds_orders|c_id/.test(r.text), '写法不对：只有代号、说明、细目，不带库的报错原文', r.text.slice(0, 160));
@@ -317,7 +354,9 @@ try {
   check(r.status === 200 && bound[0]?.data?.rows?.[0]?.[bound[0].value] === 37 && bound[1]?.total === 100, '真实 render：指标、进度值与常量目标', r.text.slice(0, 180));
   check(bound[0]?.var_revisions?.completed === 1 && bound[1]?.var_revisions?.target === 1 && !r.text.includes('secret_unused') && !r.text.includes('984321'), '只返回显式选择的数值与 revision，不枚举空间', r.text.slice(0, 160));
   check(bound[2]?.error?.code === 'not_found' && !bound[2]?.data && bound[3]?.error?.code === 'invalid' && !bound[3]?.data && bound[4]?.tone_rules?.[0]?.value === 100, '缺键和坏类型是块错，其他块及阈值正常', r.text.slice(0, 160));
+  const beforeVar = (await srv.call('GET', B + '/changes', mgr)).json?.cursor;
   await putVar('completed', 38, { revision: 1 });
+  check(typeof beforeVar === 'string' && (await srv.call('GET', B + '/changes', mgr)).json?.cursor === beforeVar, '工作台变量变了：游标不变（第 1 步不随变量自动刷新，写明在设计稿）');
   r = await srv.call('GET', B + '/render', mgr);
   check(r.json?.blocks?.[0]?.data?.rows?.[0]?.[r.json.blocks[0].value] === 38 && r.json.blocks[0].var_revisions.completed === 2, '修改原变量后重新 render 读到新值和 revision');
   r = await srv.call('GET', '/api/workbenches/' + wid + '/vars/completed', mgr);
@@ -332,6 +371,91 @@ try {
   r = await srv.call('GET', '/api/bench-views/ghost/render?var=secret_unused', nobody);
   check(r.status === 403, '无权请求先拒绝，不探台或变量', r.status);
 
+  console.log('六之三、任务图 dag（docs/task-graph-step1.md）：保存 → 取数');
+  {
+    r = await srv.call('PUT', `${B}/datasets/tasks`, { ...mgr, body: { title: '任务', key: ['id'], columns: [{ name: 'id', type: 'text', label: '编号' }, { name: 'name', type: 'text', label: '任务' }, { name: 'deps', type: 'text', label: '前置' }, { name: 'role', type: 'text', label: '角色' }, { name: 'st', type: 'text', label: '状态' }, { name: 'pct', type: 'integer', label: '进度' }] } });
+    check(r.status === 200, '任务数据集', r.text.slice(0, 120));
+    const tasks = (n) => Array.from({ length: n }, (_, i) => ({ id: 't' + i, name: '任务' + i, deps: i ? 't' + (i - 1) : null, role: i === 0 ? 'start' : i === n - 1 ? 'end' : null, st: i === 0 ? 'done' : 'todo', pct: i === 0 ? 100 : 0 }));
+    r = await srv.call('POST', `${B}/datasets/tasks/rows?op=replace`, { ...mgr, raw: JSON.stringify(tasks(3)) });
+    check(r.status === 200, '写 3 个任务', r.text.slice(0, 120));
+    const cur = await srv.call('GET', B + '/view', mgr);
+    const dagBase = { type: 'dag', id_col: 'id', label_col: 'name', deps_col: 'deps', role_col: 'role', status_col: 'st', progress_col: 'pct', detail_cols: ['st', 'pct'] };
+    const dagDoc = { title: '任务图', views: [{ key: 'tasks', title: '任务', blocks: [{ ...dagBase, query: { dataset: 'tasks' } }, { ...dagBase, title: '只看待办', query: { dataset: 'tasks', filter: [{ col: 'st', op: 'eq', value: 'todo' }] } }] }] };
+    r = await srv.call('PUT', B + '/view', { ...mgr, body: { doc: dagDoc, base: cur.json.view.active_version, note: '任务图' } });
+    check(r.status === 200, '保存任务图视图', r.text.slice(0, 160));
+    const after = await srv.call('GET', B + '/view', mgr);
+    r = await srv.call('PUT', B + '/view', { ...mgr, body: { doc: { ...dagDoc, views: [{ ...dagDoc.views[0], blocks: [{ ...dagBase, query: { dataset: 'tasks', limit: 10 } }] }] }, base: after.json.view.active_version, note: '应被拒绝' } });
+    check(r.status === 400 && r.text.includes('limit'), '任务图的查询写 limit：保存即拒', r.text.slice(0, 160));
+    r = await srv.call('GET', B + '/render?view=tasks', mgr);
+    const [full, part] = r.json?.blocks ?? [];
+    check(r.status === 200 && full?.type === 'dag' && full.data?.rows?.length === 3 && full.data.truncated === false && full.graph_meta?.filtered === false && full.data.columns.find((c) => c.name === 'deps')?.label === '前置', '取数：全量块回 3 行、没截断、不算筛选、列带说明名', r.text.slice(0, 200));
+    check(part?.graph_meta?.filtered === true && part.data?.rows?.length === 2, '有 filter 的块：标成筛选（部分结果）', part?.graph_meta);
+    await srv.call('POST', `${B}/datasets/tasks/rows?op=replace`, { ...mgr, raw: JSON.stringify(tasks(500)) });
+    r = await srv.call('GET', B + '/render?view=tasks', mgr);
+    check(r.json?.blocks?.[0]?.data?.rows?.length === 500 && r.json.blocks[0].data.truncated === false, '恰好 500 个：全部取回、不算截断', { n: r.json?.blocks?.[0]?.data?.rows?.length, t: r.json?.blocks?.[0]?.data?.truncated });
+    await srv.call('POST', `${B}/datasets/tasks/rows?op=replace`, { ...mgr, raw: JSON.stringify(tasks(501)) });
+    r = await srv.call('GET', B + '/render?view=tasks', mgr);
+    check(r.json?.blocks?.[0]?.data?.rows?.length === 500 && r.json.blocks[0].data.truncated === true, '501 个：只取 500 个、标截断', { n: r.json?.blocks?.[0]?.data?.rows?.length, t: r.json?.blocks?.[0]?.data?.truncated });
+    await srv.call('POST', `${B}/datasets/tasks/rows?op=replace`, { ...mgr, raw: JSON.stringify(tasks(502)) });
+    r = await srv.call('GET', B + '/render?view=tasks', mgr);
+    check(r.json?.blocks?.[0]?.data?.rows?.length === 500 && r.json.blocks[0].data.truncated === true, '502 个：同样只取 500 个、标截断');
+  }
+
+  console.log('六之三之一、甘特图 gantt：保存 → 取数');
+  {
+    r = await srv.call('PUT', `${B}/datasets/plan`, { ...mgr, body: { title: '排期', key: ['id'], columns: [{ name: 'id', type: 'text', label: '编号' }, { name: 'name', type: 'text', label: '任务' }, { name: 'deps', type: 'text', label: '前置' }, { name: 'start', type: 'date', label: '开始', required: true }, { name: 'due', type: 'date', label: '截止', required: true }, { name: 'maybe', type: 'date', label: '大约' }, { name: 'pct', type: 'integer', label: '进度' }] } });
+    check(r.status === 200, '排期数据集', r.text.slice(0, 120));
+    r = await srv.call('POST', `${B}/datasets/plan/rows?op=replace`, { ...mgr, raw: JSON.stringify([{ id: 'a', name: '设计', start: '2026-01-01', due: '2026-01-05', pct: 100 }, { id: 'b', name: '实现', deps: 'a', start: '2026-01-06', due: '2026-01-20', pct: 30 }]) });
+    check(r.status === 200, '写 2 个任务', r.text.slice(0, 120));
+    r = await srv.call('POST', `${B}/datasets/plan/rows?op=append`, { ...mgr, raw: JSON.stringify([{ id: 'c', name: '没日期', start: '2026-01-01' }]) });
+    check(r.status === 400, '截止是必填列：缺了写入即拒（图上不会有缺日期的条）', r.status);
+    const cur = await srv.call('GET', B + '/view', mgr);
+    const g = { type: 'gantt', id_col: 'id', label_col: 'name', start_col: 'start', end_col: 'due', deps_col: 'deps', progress_col: 'pct', query: { dataset: 'plan' } };
+    const doc = { title: '排期', views: [{ key: 'plan', title: '排期', blocks: [g] }] };
+    r = await srv.call('PUT', B + '/view', { ...mgr, body: { doc: { ...doc, views: [{ ...doc.views[0], blocks: [{ ...g, start_col: 'maybe' }] }] }, base: cur.json.view.active_version, note: '应被拒绝' } });
+    check(r.status === 400 && r.text.includes('必填列'), '开始列不是必填列：保存即拒', r.text.slice(0, 200));
+    r = await srv.call('PUT', B + '/view', { ...mgr, body: { doc, base: cur.json.view.active_version, note: '甘特图' } });
+    check(r.status === 200, '保存甘特图视图', r.text.slice(0, 160));
+    r = await srv.call('GET', B + '/render?view=plan', mgr);
+    const blk = r.json?.blocks?.[0];
+    check(r.status === 200 && blk?.type === 'gantt' && blk.data?.rows?.length === 2 && blk.data.truncated === false && blk.graph_meta?.filtered === false && blk.data.columns.find((c) => c.name === 'start')?.label === '开始', '取数：甘特图块回 2 行、不分页不截断、带取数说明、列带说明名', r.text.slice(0, 200));
+    // 甘特图自己的不分页上限：500 个全取、501 和 502 个只取 500 个并标截断（不靠任务图的用例代测）
+    const plans = (n) => Array.from({ length: n }, (_, i) => ({ id: 'p' + i, name: '排期' + i, start: '2026-01-01', due: '2026-01-02', deps: i ? 'p' + (i - 1) : null }));
+    for (const [n, cut] of [[500, false], [501, true], [502, true]]) {
+      await srv.call('POST', `${B}/datasets/plan/rows?op=replace`, { ...mgr, raw: JSON.stringify(plans(n)) });
+      r = await srv.call('GET', B + '/render?view=plan', mgr);
+      const b = r.json?.blocks?.[0];
+      check(b?.type === 'gantt' && b.data?.rows?.length === 500 && b.data.truncated === cut && b.graph_meta?.filtered === false, `甘特图 ${n} 个：只取 500 个，${cut ? '标截断' : '不算截断'}`, { n: b?.data?.rows?.length, t: b?.data?.truncated });
+    }
+  }
+
+  console.log('六之三之二、流程图 flow：保存 → 取数');
+  {
+    r = await srv.call('PUT', `${B}/datasets/flowd`, { ...mgr, body: { title: '流程', key: ['id'], columns: [{ name: 'id', type: 'text', label: '编号' }, { name: 'name', type: 'text', label: '步骤' }, { name: 'deps', type: 'text', label: '前置' }, { name: 'role', type: 'text', label: '角色' }, { name: 'shape', type: 'text', label: '形状' }, { name: 'st', type: 'text', label: '状态' }] } });
+    check(r.status === 200, '流程数据集', r.text.slice(0, 120));
+    // 审核不过退回修改：D → J（判断）→ 否 → F → D 的循环，J → 是 → E 是出口
+    const steps = [{ id: 'S', name: '开始', role: 'start' }, { id: 'D', name: '起草', deps: 'S,F' }, { id: 'J', name: '审核', deps: 'D', shape: 'decision' }, { id: 'F', name: '修改', deps: '?J=否' }, { id: 'E', name: '发布', deps: 'J=是', role: 'end' }];
+    r = await srv.call('POST', `${B}/datasets/flowd/rows?op=replace`, { ...mgr, raw: JSON.stringify(steps) });
+    check(r.status === 200, '写 5 个步骤', r.text.slice(0, 120));
+    const cur = await srv.call('GET', B + '/view', mgr);
+    const f = { type: 'flow', id_col: 'id', label_col: 'name', deps_col: 'deps', role_col: 'role', shape_col: 'shape', status_col: 'st', query: { dataset: 'flowd' } };
+    const doc = { title: '流程', views: [{ key: 'flow', title: '流程', blocks: [f] }] };
+    r = await srv.call('PUT', B + '/view', { ...mgr, body: { doc: { ...doc, views: [{ ...doc.views[0], blocks: [{ ...f, role_col: undefined }] }] }, base: cur.json.view.active_version, note: '应被拒绝' } });
+    check(r.status === 400 && r.text.includes('role_col'), '流程图缺角色列：保存即拒', r.text.slice(0, 200));
+    r = await srv.call('PUT', B + '/view', { ...mgr, body: { doc, base: cur.json.view.active_version, note: '流程图' } });
+    check(r.status === 200, '保存流程图视图', r.text.slice(0, 160));
+    r = await srv.call('GET', B + '/render?view=flow', mgr);
+    const blk = r.json?.blocks?.[0];
+    check(r.status === 200 && blk?.type === 'flow' && blk.data?.rows?.length === 5 && blk.data.truncated === false && blk.graph_meta?.filtered === false && blk.data.columns.find((c) => c.name === 'shape')?.label === '形状', '取数：流程图块回 5 行（含循环）、不分页不截断、带取数说明、列带说明名', r.text.slice(0, 200));
+    const many = (n) => Array.from({ length: n }, (_, i) => ({ id: 'f' + i, name: '步骤' + i, deps: i ? 'f' + (i - 1) : null, role: i === 0 ? 'start' : i === n - 1 ? 'end' : null }));
+    for (const [n, cut] of [[500, false], [501, true], [502, true]]) {
+      await srv.call('POST', `${B}/datasets/flowd/rows?op=replace`, { ...mgr, raw: JSON.stringify(many(n)) });
+      r = await srv.call('GET', B + '/render?view=flow', mgr);
+      const b = r.json?.blocks?.[0];
+      check(b?.type === 'flow' && b.data?.rows?.length === 500 && b.data.truncated === cut && b.graph_meta?.filtered === false, `流程图 ${n} 个：只取 500 个，${cut ? '标截断' : '不算截断'}`, { n: b?.data?.rows?.length, t: b?.data?.truncated });
+    }
+  }
+
   console.log('六之二、最终 HTTP 发布屏障');
   const raceSrv = await boot('publication-race', { WM_BENCH_VIEWS: 'on' });
   await raceSrv.call('GET', '/api/auth/viewer', { session: SESSIONS.alpha });
@@ -344,6 +468,10 @@ try {
   await raceSrv.call('PUT', '/api/bench-views/binding-race/datasets/d', { ...raceWho, body: { columns: [{ name: 'n', type: 'integer', label: '数值' }] } });
   await raceSrv.call('POST', '/api/bench-views/binding-race/datasets/d/rows?op=replace', { ...raceWho, raw: JSON.stringify([{ n: 984321 }]) });
   await raceSrv.call('PUT', '/api/bench-views/binding-race/view', { ...raceWho, body: { base: 0, note: '合成竞态', doc: { title: '合成', views: [{ key: 'v', title: 'v', blocks: [{ type: 'stat', query: { dataset: 'd' }, value: 'n' }] }] } } });
+  const racedChanges = await raceSrv.call('GET', '/api/bench-views/binding-race/changes', raceWho);
+  check(racedChanges.status === 403 && !racedChanges.text.includes('cursor'), '真实 HTTP：变更游标读完、路由发布前微任务改绑，整份响应拒绝、不给游标', { status: racedChanges.status, body: racedChanges.text.slice(0, 160) });
+  const relink = await raceSrv.call('PUT', '/api/bench-views/binding-race/workbench', { ...raceWho, body: { workbench_id: raceCard.json.id, note: '合成竞态复绑' } });
+  check(relink.status === 200, '复绑回原卡片，再测取数的发布屏障', relink.text.slice(0, 120));
   const raced = await raceSrv.call('GET', '/api/bench-views/binding-race/render', raceWho);
   check(raced.status === 403 && !raced.text.includes('984321') && !raced.text.includes('var_revisions'), '真实 HTTP：adapter返回后、路由发布前微任务改绑，整份响应拒绝无数据残留', { status: raced.status, body: raced.text.slice(0, 160) });
 
@@ -351,6 +479,8 @@ try {
   await srv.call('POST', '/api/principals/disable', { body: { id: 'user:alpha', reason: '合成' } });
   r = await srv.call('GET', '/api/bench-views', mgr);
   check(r.status === 401 || r.status === 403, '主体停用之后：进不来', r.status);
+  r = await srv.call('GET', B + '/changes', mgr);
+  check((r.status === 401 || r.status === 403) && !r.text.includes('cursor'), '主体停用之后：变更游标也拿不到', r.status);
 } catch (e) {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {

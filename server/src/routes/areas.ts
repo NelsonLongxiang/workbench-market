@@ -42,6 +42,7 @@ export type AreaRouteDeps = {
   adminActor: (req: express.Request) => string;
   /** 浏览器从别的站点发来的 */
   crossOriginDenied: (req: express.Request) => boolean;
+  publicPerson: (req: express.Request) => string | undefined;
 };
 
 const areas = () => svc<AreaService>('areas');
@@ -75,6 +76,11 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
   /** 认人：本机命令行（属主）、管理员（同源；只是系统管理员的不算）、登录的人（启用的人）。不过就已经写好应答，返回 null */
   async function who(req: express.Request, res: express.Response): Promise<Who | null> {
     res.set('Cache-Control', 'private, no-store');
+    const publicPrincipal = deps.publicPerson(req);
+    if (publicPrincipal) {
+      const owner = grants().isOwner(publicPrincipal);
+      return { actor: { by: publicPrincipal, principal: publicPrincipal }, owner, seesAll: owner || grants().isBusinessSide(publicPrincipal) };
+    }
     if (!browserMarked(req) && rawLoopback(req)) return { actor: { by: 'cli', principal: null }, owner: true, seesAll: true };
     if (deps.crossOriginDenied(req)) { res.status(403).json({ error: 'areas_cross_origin_denied' }); return null; }
     await deps.markAdmin(req);
@@ -176,7 +182,7 @@ export function registerAreaRoutes(app: HttpService, deps: AreaRouteDeps): void 
   app.post('/api/areas/:id/retire', {
     action: 'area.retire', kind: 'decide',
     // 负责人专有的动作（过目放行、改派、批接入）第 1 步只登记、走不到（docs/domains-step1.md 第七节第 8 条）：when 恒为假，先让 area-lead 能引用
-    refine: AREA_LEAD_ACTIONS.map((action) => ({ action, kind: 'decide' as const, why: '负责人专有的动作，第 1 步只登记（恒为假），挂在领域的写路由下', when: () => false })),
+    refine: AREA_LEAD_ACTIONS.filter((action) => action !== 'area.access-approve').map((action) => ({ action, kind: 'decide' as const, why: '负责人专有的动作，第 1 步只登记（恒为假），挂在领域的写路由下', when: () => false })),
   }, route(async (req, res) => {
     const w = await ownerOnly(req, res, 'area.retire');
     if (!w) return;

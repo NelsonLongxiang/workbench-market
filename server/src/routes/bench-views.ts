@@ -23,25 +23,36 @@ import { svc } from '../context.ts';
 import { identity } from '../identity.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import { browserMarked, originIsThisSurface, rawLoopback } from '../surfaces.ts';
-import { judge, scopedVerdict, type JudgedActor } from '../judgment.ts';
-import { ASKED, scopedKind } from '../judgment-builtins.ts';
-import type { Kind } from '../roles.ts';
+import type { JudgedActor } from '../judgment.ts';
+import { everywhere, within, inDept, canBenchAction } from '../services/bench-access.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
 import { tableTarget, tableCsv } from '../bench-table.ts';
 import { benchStore, benchStoreExists, type BenchStore } from '../services/bench-store.ts';
-import { bindBench, linkWorkbench, renameBench, cardTitle, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
-import { relationOf } from '../team-relation.ts';
+import { captureBenchStorageFence, bindBench, linkWorkbench, renameBench, cardTitle, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
 import { checkBenchRequest, decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 import { viaBegin, viaSettle } from '../attention-via.ts';
 import { assertBenchBinding, renderBenchView } from '../services/bench-render.ts';
 import { bindReport, generateReport, listReports, readReport, respondReport, SUBJECT_RE } from '../services/bench-report.ts';
+import { fetchImage, ImageError, viewRefersImage } from '../bench-image.ts';
+import { imageNodesOf } from '../services/report-compile.ts';
+import { createHash } from 'node:crypto';
 
-export type BenchViewsConfig = { on: boolean };
-/** 启动时读一次：WM_BENCH_VIEWS（on / off，缺省 on；不需要时显式 off 关掉）。不合法拒绝启动 */
+export type BenchViewsConfig = { on: boolean; imageGalleryBase: string | null };
+/** 启动时读一次：WM_BENCH_VIEWS（on / off，缺省 on；不需要时显式 off 关掉）；WM_IMAGE_GALLERY_BASE（图库前缀，可不设）。不合法拒绝启动 */
 export function benchViewsConfig(env: NodeJS.ProcessEnv = process.env): BenchViewsConfig {
   const raw = String(env.WM_BENCH_VIEWS ?? '').trim();
   if (raw !== '' && raw !== 'on' && raw !== 'off') throw new Error(`WM_BENCH_VIEWS 只接受 on 或 off，现在是 ${JSON.stringify(raw)}`);
-  return { on: raw !== 'off' };
+  return { on: raw !== 'off', imageGalleryBase: galleryBaseOf(String(env.WM_IMAGE_GALLERY_BASE ?? '').trim()) };
+}
+/** 图库前缀：http(s)，以 / 结尾，不带账号口令、查询串和片段（docs/image-step1.md 第三节）；空就是没配 */
+function galleryBaseOf(raw: string): string | null {
+  if (!raw) return null;
+  let u: URL;
+  try { u = new URL(raw); } catch { throw new Error(`WM_IMAGE_GALLERY_BASE 不是合法的地址：${JSON.stringify(raw)}`); }
+  if ((u.protocol !== 'http:' && u.protocol !== 'https:') || u.username || u.password || u.search || u.hash || !u.pathname.endsWith('/')) {
+    throw new Error(`WM_IMAGE_GALLERY_BASE 要是 http(s) 地址、以 / 结尾、不带账号口令和查询串，现在是 ${JSON.stringify(raw)}`);
+  }
+  return u.href;
 }
 
 /** 带不带尾斜杠都算（路由本身两种都认；不算的话全局解析会先把请求体读掉，路由再报「不是合法的 JSON」，提示误导人）。
@@ -52,6 +63,8 @@ type Handler = (req: express.Request, res: express.Response, next: express.NextF
 export interface BenchViewRouteDeps {
   /** 开关开着没有；关着时每条路由直接回 404 */
   on: boolean;
+  /** 图库前缀（WM_IMAGE_GALLERY_BASE）；没配是 null，格子里的相对路径就取不了 */
+  imageGalleryBase?: string | null;
   wrap: (fn: (req: express.Request, res: express.Response) => Promise<unknown>) => Handler;
   /** 请求带的管理口令有效 */
   adminTokenOk: (req: express.Request) => boolean;
@@ -116,31 +129,17 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
    * 没绑部门的台只有第一档。路由登记的类别（read / write）照实写，只用于动作清单；放不放行不看它。
    */
   // 问判定用的类别不看路由登记的类别（读也按「写」问），都照 judgment-builtins.ts 的 ASKED 取：矩阵照同一张表推，不会各说各的
-  const globalKind = (action: string): Kind => { const a = ASKED[action]; if (!a) throw new Error(`数据视图的动作 ${action} 没有登记问判定的类别（judgment-builtins.ts 的 ASKED）`); return a.global; };
   /** 认人。跨站、管理口令、没登录在这里拒（已经回了应答，返回 null） */
   async function who(req: express.Request, res: express.Response): Promise<JudgedActor | null> {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
-    if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req))) { res.status(403).json({ error: 'bench_views_cross_origin_denied' }); return null; }
+    if (req.headers['sec-fetch-site'] === 'cross-site' || (req.headers.origin && !originIsThisSurface(req, true) && !devOriginOk(req))) { res.status(403).json({ error: 'bench_views_cross_origin_denied' }); return null; }
     const actor = await actorOf(req);
     if (actor.type === 'builtin' && actor.name === 'admin-token') { res.status(403).json({ error: 'bench_views_admin_token_denied', message: '台里是业务数据，管理口令看不了、也改不了；用有管理层授予的账号登录' }); return null; }
     if (actor.type === 'builtin' && actor.name === 'anonymous') { res.status(401).json({ error: 'login_required' }); return null; }
     return actor;
   }
   const idOf = (actor: JudgedActor): string => (actor.type === 'principal' ? actor.id : `builtin:${actor.name}`);
-  const everywhere = (actor: JudgedActor, action: string): boolean => judge({ actor, action, kind: globalKind(action), declared: true }).verdict === 'allow';
-  const inDept = (actor: JudgedActor, action: string, department: string): boolean => {
-    const kind = scopedKind(action);
-    return kind !== null && actor.type === 'principal' && scopedVerdict({ principal: actor.id, action, kind, scope: `dept:${department}` }).verdict === 'allow';
-  };
-  function within(actor: JudgedActor, action: string, bench: BenchEntry | null): boolean {
-    if (actor.type !== 'principal' || !bench || !bench.department_id) return false;
-    if (!inDept(actor, action, bench.department_id)) return false;
-    if (!bench.team || scopedKind(action) === 'decide') return true;
-    if (inDept(actor, 'bench-store.mcp-decide', bench.department_id)) return true;
-    const rel = relationOf({ principal: actor.id }, { team: { host: bench.team_host, team: bench.team } }).relations;
-    return rel.includes('team-lead') || rel.includes('seat-owner');
-  }
   const forbid = (res: express.Response): null => { res.status(403).json({ error: 'bench_views_forbidden' }); return null; };
   /** 放行返回做这件事的人的标识；不放行已经回了应答，返回 null。bench 是这次要碰的台（没登记是 null：只剩第一档，所以没权限的人看不出台存不存在） */
   async function allow(req: express.Request, res: express.Response, action: string, bench: BenchEntry | null = null): Promise<string | null> {
@@ -154,7 +153,7 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     return everywhere(actor, action) || within(actor, action, bench) ? actor : forbid(res);
   }
   /** 这个人能不能在这个台上做这件事（不回应答，只给真假） */
-  const may = (actor: JudgedActor, action: string, bench: BenchEntry | null): boolean => everywhere(actor, action) || within(actor, action, bench);
+  const may = canBenchAction;
   /** 能不能改台名（#905）：PUT /title 拒不拒、入口给不给 can.rename，都只问这一处——页面的按钮和接口不会一个说能一个说不能 */
   const mayRename = (actor: JudgedActor): boolean => everywhere(actor, 'bench-store.bench-link');
 
@@ -185,12 +184,13 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
 
   const rawRows = express.raw({ type: () => true, limit: BENCH_LIMITS.datasetBytes + 1_000_000 });
   /** 一条「在某个台上做一件事」的路由：先判权限，再核台登记过，然后把台库交给 fn */
-  const on = (action: string, fn: (req: express.Request, res: express.Response, s: BenchStore, actor: string) => Promise<unknown>) => wrap(async (req, res) => {
+  const on = (action: string, fn: (req: express.Request, res: express.Response, s: BenchStore, actor: string, fence: ReturnType<typeof captureBenchStorageFence> | undefined) => Promise<unknown>) => wrap(async (req, res) => {
+    const fence = ['bench-store.report-bind', 'bench-store.report-generate'].includes(action) ? captureBenchStorageFence() : undefined;
     const bench = getBench(req.params.bench);
     const actor = await allow(req, res, action, bench);
     if (!actor) return;
     if (!bench) return res.status(404).json({ error: 'bench_not_found' });
-    try { res.json(await fn(req, res, await benchStore(req.params.bench), actor)); } catch (e) { fail(res, e); }
+    try { res.json(await fn(req, res, await benchStore(req.params.bench), actor, fence)); } catch (e) { fail(res, e); }
   });
 
   // —— 台的登记 ——
@@ -311,9 +311,27 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     return { binding: b };
   }));
   app.put('/api/bench-views/:bench/reports/:dimension/binding', { action: 'bench-store.report-bind', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-bind',
-    (req, _res, s, actor) => bindReport(benchOf(req), s, req.params.dimension, req.body, actor, Date.now())));
-  app.post('/api/bench-views/:bench/reports', { action: 'bench-store.report-generate', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-generate', async (req, res, s, actor) => {
-    const out = await generateReport(benchOf(req), s, req.body, actor, Date.now());
+    (req, _res, s, actor, fence) => bindReport(benchOf(req), s, req.params.dimension, req.body, actor, Date.now(), fence!)));
+  app.post('/api/bench-views/:bench/reports/:dimension/binding/stop', { action: 'bench-store.report-bind-stop', kind: 'decide', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    if (!deps.on) return res.status(404).json({ error: 'bench_views_off' });
+    const fence = captureBenchStorageFence();
+    const actor = await who(req, res);
+    if (!actor) return;
+    if (actor.type !== 'principal' || actor.kind !== 'person' || actor.status !== 'active' || !everywhere(actor, 'bench-store.report-bind-stop')) return forbid(res);
+    if (!getBench(req.params.bench)) return res.status(404).json({ error: 'bench_not_found' });
+    try {
+      const dimension = String(req.params.dimension);
+      const base = int(req.body?.base);
+      const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+      if (!/^[a-z][a-z0-9-]{0,47}$/.test(dimension) || !base || !reason || reason.length > 500 || Object.keys(req.body).some(k => !['base', 'reason'].includes(k))) {
+        throw new BenchError('invalid', '停用报告生成需要绑定版本和理由（1～500 字）');
+      }
+      const store = await benchStore(req.params.bench);
+      return res.json({ binding: await store.reportBindingStop(dimension, { base, reason, actor: actor.id, at: Date.now() }, fence) });
+    } catch (err) { fail(res, err); }
+  }));
+  app.post('/api/bench-views/:bench/reports', { action: 'bench-store.report-generate', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-generate', async (req, res, s, actor, fence) => {
+    const out = await generateReport(benchOf(req), s, req.body, actor, Date.now(), fence!, { galleryBase: deps.imageGalleryBase ?? null });
     res.status(201);
     return out;
   }));
@@ -397,6 +415,69 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
       assertBenchBinding(bench); // Last synchronous gate: nothing may await between this and res.json.
       res.json({ ...out, blocks: (out.blocks ?? []).map((b) => (b?.type === 'form' ? { ...b, can_submit: canSubmit } : b)) });
     } catch (e) { fail(res, e); }
+  }));
+  // 变更游标（docs/task-graph-step1.md 第五节之六）：页面可见时轮询它，变了才重新取数。几十字节，不带任何数据。
+  // 顺序照取数：先判 render 权（任何台库读取之前），台没登记判过权才 404，最后同步核绑定再回应。不收任何查询参数。
+  app.get('/api/bench-views/:bench/changes', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const bench = getBench(req.params.bench);
+    const actor = await allowActor(req, res, 'bench-store.render', bench);
+    if (!actor) return;
+    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
+    if (Object.keys(req.query).length) return res.status(400).json({ error: 'invalid', message: '变更游标不收查询参数' });
+    try {
+      const out = await (await benchStore(bench.slug)).changeCursor();
+      assertBenchBinding(bench); // Last synchronous gate: nothing may await between this and res.json.
+      res.json(out); // Cache-Control: private, no-store 由 who() 统一设
+    } catch (e) { fail(res, e); }
+  }));
+  // 图片代取（docs/image-step1.md 第四节）：浏览器不访问图库，由市场取了再给。
+  // 属主 2026-11-23 定 Q9 按引用判：来源是这个台的一份视图（view、version、p.* 照渲染时的写法），读者能读它（render），
+  // 照这组参数渲染出来确实有这条链接（image 列）——三条都满足才放行；任何一条不满足同一个 403，不发外部请求，缓存命中也照判。
+  // 台没登记的，判过第一档权才回 404（没权限的人看不出台存不存在）。
+  // 报告作来源（图片第 1 步 PR C，用例 8）：带 report=<编号> 时，判法同样三条——读者能读这个台的报告（report-read，不要 render）、
+  // 这份报告属于这个台、报告冻结的正文里有一个图片节点就是这条链接；都满足才取。取回的图按冻结的哈希核：不一样回 409 image_changed（页面显示「图片已变」），不给新图。
+  app.get('/api/bench-views/:bench/image', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    const bench = getBench(req.params.bench);
+    const actor = await who(req, res);
+    if (!actor) return;
+    const fromReport = req.query.report !== undefined;
+    if (!may(actor, fromReport ? 'bench-store.report-read' : 'bench-store.render', bench)) return forbid(res);
+    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
+    const ref = typeof req.query.u === 'string' ? req.query.u : '';
+    if (fromReport) {
+      const id = typeof req.query.report === 'string' && /^[1-9][0-9]{0,14}$/.test(req.query.report) ? Number(req.query.report) : 0;
+      let frozenSha: string | null = null;
+      try {
+        const r = id ? await (await benchStore(bench.slug)).reportGet(id) : null;
+        if (r) frozenSha = imageNodesOf((JSON.parse(r.report.body) as { body?: unknown }).body).find((n) => n.src === ref)?.sha256 || null;
+      } catch { frozenSha = null; } // 报告不存在、正文读不出：都当没引用
+      if (!frozenSha) return forbid(res);
+      try {
+        const got = await fetchImage(ref, deps.imageGalleryBase ?? null);
+        if (createHash('sha256').update(got.body).digest('hex') !== frozenSha) return void res.status(409).json({ error: 'image_changed', message: '图片已变' });
+        res.set({ 'Content-Type': got.type, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'private, max-age=300', 'Referrer-Policy': 'no-referrer' });
+        return void res.send(got.body);
+      } catch (e) {
+        if (e instanceof ImageError) return void res.status(e.http).json({ error: e.code, message: e.message });
+        throw e;
+      }
+    }
+    const params: Record<string, string> = {};
+    for (const [k, v] of Object.entries(req.query)) if (k.startsWith('p.') && typeof v === 'string') params[k.slice(2)] = v;
+    let referenced = false;
+    try {
+      const out = await renderBenchView(bench, await benchStore(bench.slug), { view: str(req.query.view), params, version: qint(req.query.version, 'version') });
+      referenced = viewRefersImage(out, ref);
+    } catch { referenced = false; } // 视图不存在、版本不对、参数不合：都当没引用
+    if (!referenced) return forbid(res);
+    try {
+      const got = await fetchImage(ref, deps.imageGalleryBase ?? null);
+      res.set({ 'Content-Type': got.type, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; sandbox", 'Cache-Control': 'private, max-age=300', 'Referrer-Policy': 'no-referrer' });
+      res.send(got.body);
+    } catch (e) {
+      if (e instanceof ImageError) return void res.status(e.http).json({ error: e.code, message: e.message });
+      throw e;
+    }
   }));
   // Table operations reuse the existing render/query authorization; no new grant or binding is introduced.
   app.post('/api/bench-views/:bench/table/export', { action: 'bench-store.render', kind: 'read', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {

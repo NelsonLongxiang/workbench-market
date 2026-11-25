@@ -32,5 +32,20 @@ off();
 m.setAdminToken('x');
 ok('退订后不再收到变更', changes === 2, String(changes));
 
+for (const [code, text] of [['bench_views_cross_origin_denied', '请求来源'], ['bench_views_forbidden', '台的 MCP 授权']]) {
+  globalThis.fetch = async () => Response.json({ error: code }, { status: 403 });
+  const err = await m.apiFetch('/api/bench-views/example/mcp-requests/1').catch((e) => e);
+  ok(`授权卡区分 ${code}，不引导输入管理员口令`, err.message.includes(text) && !err.needAdminToken, err.message);
+}
+globalThis.fetch = async () => Response.json({ error: 'forbidden' }, { status: 403 });
+const adminErr = await m.apiFetch('/api/admin-token').catch((e) => e);
+ok('未分类的管理接口 403 仍提示管理员', adminErr.needAdminToken === true);
+
+for (const broken of [false, true]) {
+  let consumed = false;
+  globalThis.fetch = async () => ({ status: 401, headers: new Headers(), text: async () => { consumed = true; if (broken) throw new Error('synthetic body error'); return '{"error":"mcp_responsibility_person_required"}'; } });
+  const err = await m.apiFetch('/api/mcp/responsibilities/mine').catch((e) => e);
+  ok('401 正文在拒绝前收尾' + (broken ? '（正文读取失败仍拒绝）' : ''), consumed && err.needAdminToken === true, err.message);
+}
 console.log(`admin-token-guard-unit: ${pass} passed / ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

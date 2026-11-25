@@ -11,11 +11,16 @@ import { ProgressBlock } from './Progress';
 import { StatBlock } from './Stat';
 import { TableBlock } from './Table';
 import { NativeTable } from './NativeTable';
+import { DagBlock, type DagBlockProps } from './DagBlock';
+import { GanttBlock, type GanttBlockProps } from './GanttBlock';
+import { BlockFrame } from './Frame';
+import { ImageSourceContext } from './BenchImage';
 import { asTableContext } from '../bench-table-view';
 import { filterBarValue, layoutSpans, snapSpan, valueLabel, withLabelColumns, type BlockData, type BlockError } from './blocks-view';
 
 type Block = { type: string; title?: string; span?: number; data?: BlockData; error?: BlockError; [k: string]: unknown };
-export type ViewResult = { title: string; version: number; view: { key: string; title: string }; params: Record<string, string>; blocks: Block[] };
+/** cursor：变更游标（实时刷新用，见 web/src/bench-change-poll.ts） */
+export type ViewResult = { title: string; version: number; view: { key: string; title: string }; params: Record<string, string>; blocks: Block[]; cursor?: string };
 
 export interface BenchViewProps {
   result: ViewResult | null;
@@ -35,19 +40,24 @@ export interface BenchViewProps {
   /** Only the standalone bench page enables authenticated table download/detail actions. */
   tableBench?: string;
   tableDisabled?: boolean;
+  /** 图片列经哪个台代取（台页面给卡片 id，驾驶舱给引用的台）；不给就画「图片取不到」占位 */
+  imageBench?: string;
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 /** 表单块的 can_submit 是 false 时的说法 */
 export const FORM_DENIED = '你的账号不能在这个台上填表。要填的话，请管理层为你开通这个台的权限。';
-export function BenchView({ result, loading, onParams, onSubmit, formDisabledReason, frame, dense, hideFilters, tableBench, tableDisabled, filterValue }: BenchViewProps) {
+export function BenchView({ result, loading, onParams, onSubmit, formDisabledReason, frame, dense, hideFilters, tableBench, tableDisabled, filterValue, imageBench }: BenchViewProps) {
+  // 图片的来源视图就是这次取数：台、视图、版本、筛选值（服务端按这一组重渲染、核对引用）
+  const imageSource = imageBench && result ? { bench: imageBench, view: result.view.key, version: result.version, params: result.params } : null;
   const blocks = result?.blocks ?? [];
   // 宽度按真正画出来的块排（隐藏的筛选栏不占位）：独占一行又没写 span 的块撑满这一行
-  const KNOWN = new Set(['filter-bar', 'form', 'stat', 'progress', 'table', 'records', 'bar', 'line', 'pie']);
-  const shown = blocks.map((b, i) => ({ b, i })).filter(({ b }) => KNOWN.has(b.type) && !(b.type === 'filter-bar' && hideFilters));
+  // 不认识的组件类型（比如服务端比页面新）也占位，画一块「要新版页面」的说明，不悄悄不画
+  const shown = blocks.map((b, i) => ({ b, i })).filter(({ b }) => !(b.type === 'filter-bar' && hideFilters));
   const laid = layoutSpans(shown.map(({ b }) => b));
   const spanOf = new Map(shown.map(({ i }, k) => [i, laid[k]]));
   return (
+    <ImageSourceContext.Provider value={imageSource}>
     <DashGrid top>
       {blocks.map((b, i) => {
         const common = { frame, title: b.title, span: spanOf.get(i) ?? snapSpan(b.span, b.type), loading, error: b.error ?? null, data: b.data ?? null };
@@ -65,8 +75,19 @@ export function BenchView({ result, loading, onParams, onSubmit, formDisabledRea
         if (b.type === 'bar') return <BarBlock key={i} {...common} x={str(b.x)} y={(b.y as string | string[]) ?? []} series={str(b.series) || undefined} stacked={b.stacked === true} horizontal={b.horizontal === true} toneRules={b.tone_rules} />;
         if (b.type === 'line') return <LineBlock key={i} {...common} x={str(b.x)} y={(b.y as string | string[]) ?? []} series={str(b.series) || undefined} area={b.area === true} />;
         if (b.type === 'pie') return <PieBlock key={i} {...common} label={str(b.label)} value={str(b.value)} donut={b.donut === true} />;
-        return null; // 不认识的组件类型不画（保存视图描述时已经拦过）
+        if (b.type === 'dag') return <DagBlock key={i} {...common} spec={{ id_col: str(b.id_col), label_col: str(b.label_col), deps_col: str(b.deps_col), role_col: str(b.role_col), status_col: str(b.status_col) || undefined,
+          done_values: Array.isArray(b.done_values) ? b.done_values as string[] : undefined, progress_col: str(b.progress_col) || undefined, source_col: str(b.source_col) || undefined, group_col: str(b.group_col) || undefined,
+          detail_cols: Array.isArray(b.detail_cols) ? b.detail_cols as string[] : undefined, direction: b.direction === 'TB' ? 'TB' : 'LR' }} graphMeta={b.graph_meta as DagBlockProps['graphMeta']} valueLabels={b.value_labels} />;
+        if (b.type === 'flow') return <DagBlock key={i} kind="flow" {...common} spec={{ id_col: str(b.id_col), label_col: str(b.label_col), deps_col: str(b.deps_col), role_col: str(b.role_col), status_col: str(b.status_col) || undefined,
+          done_values: Array.isArray(b.done_values) ? b.done_values as string[] : undefined, progress_col: str(b.progress_col) || undefined, source_col: str(b.source_col) || undefined, group_col: str(b.group_col) || undefined,
+          detail_cols: Array.isArray(b.detail_cols) ? b.detail_cols as string[] : undefined, direction: b.direction === 'TB' ? 'TB' : 'LR', shape_col: str(b.shape_col) || undefined }} graphMeta={b.graph_meta as DagBlockProps['graphMeta']} valueLabels={b.value_labels} />;
+        if (b.type === 'gantt') return <GanttBlock key={i} {...common} spec={{ id_col: str(b.id_col), label_col: str(b.label_col), start_col: str(b.start_col), end_col: str(b.end_col), deps_col: str(b.deps_col) || undefined, role_col: str(b.role_col) || undefined,
+          status_col: str(b.status_col) || undefined, done_values: Array.isArray(b.done_values) ? b.done_values as string[] : undefined, progress_col: str(b.progress_col) || undefined, group_col: str(b.group_col) || undefined,
+          detail_cols: Array.isArray(b.detail_cols) ? b.detail_cols as string[] : undefined }} graphMeta={b.graph_meta as GanttBlockProps['graphMeta']} />;
+        // 不认识的组件类型：说一句，不画空白
+        return <BlockFrame key={i} frame={frame} title={b.title} span={common.span} kind="unknown" skipEmpty><div className="wm-bb-truncated" data-testid="block-unknown">这个组件（{String(b.type).slice(0, 32)}）要新版页面才能显示，刷新页面或稍后再试。</div></BlockFrame>;
       })}
     </DashGrid>
+    </ImageSourceContext.Provider>
   );
 }

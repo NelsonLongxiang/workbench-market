@@ -301,7 +301,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: 身份接缝与主体（契约单测·主体服务单测·主体标识规范化（NFKC_Casefold）全部码位对照 Unicode 属性、成批过主体服务·飞书登录与市场会话对抗组（本机假飞书：state 伪造与重放、next 外跳、换令牌失败、用户标识缺失或被篡改、停用注销过期即失效）·离职即时失效对抗组（通讯录事件验签与重放、对账补漏）·假提供方对抗组：缺省/登录门/登录中继/中继加登录门四个实例上的拒绝例与合法对照，停用一个主体各入口立即不认、恢复立即照常·部门读写（登录的人读、管理员写、dept:<部门标识> 只认部门表里有的）·夹具只在测试环境可用·变异测试逐个改坏必须变红；不访问任何外部系统）
         run: |
-          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-source-timeout-test.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/local-accounts-test.mjs && node scripts/session-persistence-test.mjs && node scripts/retired-env-test.mjs && node scripts/local-accounts-create-only-test.mjs && node scripts/local-accounts-signup-guard-test.mjs && node scripts/odoo-offboard-preflight-test.mjs && node scripts/local-login-limits-test.mjs && node scripts/system-admin-boundary-test.mjs && node scripts/areas-test.mjs && node scripts/areas-lead-test.mjs && node scripts/areas-scope-test.mjs && node scripts/report-dimensions-test.mjs && node scripts/dept-write-stop-test.mjs && node scripts/area-task-test.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/access-smoke.mjs && node scripts/access-decision-matrix-test.mjs && node scripts/red-lines-test.mjs && node scripts/teams-smoke.mjs && node scripts/team-node-binding-test.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-snapshot-test.mjs && node scripts/judgment-migration-test.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/judgment-enforce-test.mjs && node scripts/role-presets-test.mjs && node scripts/role-matrix-judgment-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
+          ( node scripts/identity-contract-test.mjs && node scripts/principal-service-test.mjs && node scripts/principal-fold-test.mjs && node scripts/identity-seam-smoke.mjs && node scripts/identity-source-timeout-test.mjs && node scripts/feishu-login-smoke.mjs && node scripts/feishu-offboard-smoke.mjs && node scripts/local-accounts-test.mjs && node scripts/session-persistence-test.mjs && node scripts/retired-env-test.mjs && node scripts/local-accounts-create-only-test.mjs && node scripts/local-accounts-signup-guard-test.mjs && node scripts/odoo-offboard-preflight-test.mjs && node scripts/local-login-limits-test.mjs && node scripts/system-admin-boundary-test.mjs && node scripts/areas-test.mjs && node scripts/areas-lead-test.mjs && node scripts/areas-scope-test.mjs && node scripts/report-dimensions-test.mjs && node scripts/report-governance-proposal-test.mjs && node scripts/dept-write-stop-test.mjs && node scripts/area-task-test.mjs && node scripts/export-reveal-smoke.mjs && node scripts/grants-smoke.mjs && node scripts/departments-smoke.mjs && node scripts/access-smoke.mjs && node scripts/access-decision-matrix-test.mjs && node scripts/red-lines-test.mjs && node scripts/teams-smoke.mjs && node scripts/team-node-binding-test.mjs && node scripts/judgment-compare-smoke.mjs && node scripts/judgment-compare-snapshot-test.mjs && node scripts/judgment-migration-test.mjs && node scripts/judgment-compare-zero-test.mjs && node scripts/judgment-compare-sweep-test.mjs && node scripts/judgment-enforce-test.mjs && node scripts/role-presets-test.mjs && node scripts/role-matrix-judgment-test.mjs && node scripts/custom-roles-smoke.mjs ) > identity-suites.log 2>&1 &
           suites=$!
           set +e
           node scripts/identity-seam-mutation.mjs --jobs 2
@@ -353,6 +353,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/explicit-script-targets-test.mjs
+      - name: 变异运行器自测（评审用的 scripts/mutation-run.mjs：锚点恰好命中、逐条还原并核工作树、进程组停止；夹具只在 tmp/）
+        run: node scripts/mutation-run-test.mjs
+      - name: 轻量工作树依赖复用自测
+        run: node --test scripts/worktree-review-env-test.mjs
       - name: tsc (web)
         run: pnpm --filter web typecheck
       - name: server 语法核（esbuild）
@@ -371,7 +375,7 @@ jobs:
       - name: 台库分道（同一个台固定一道·不同道互不排队·大写入全局一次一件且做完换线程·一道终止不碍别的道·排队上限按各道合计）
         run: node scripts/bench-store-lanes-test.mjs
       - name: 台库按卡片 id 开放（卡片 id 和台标识都认·删卡片要管理层并确认、409 只给规模·删前备份·连带清登记、授予、库文件、驾驶舱面板）与清扫（孤儿库、过期备份、Redis 孤儿键）
-        run: node scripts/bench-card-test.mjs && node scripts/bench-sweep-test.mjs && node scripts/bench-report-test.mjs
+        run: node scripts/bench-card-test.mjs && node scripts/bench-sweep-test.mjs && node scripts/bench-report-test.mjs && node scripts/bench-image-test.mjs
       - name: 库的写锁等待有上限（市场主库、判定比对库：别的进程短暂持写锁时等得到、一直不放时 5 秒前后报错不无限等·台库按这一次的时限取小）
         run: node scripts/db-busy-timeout-test.mjs
       - name: 按时间排序的列表在时间相同时次序固定（SOP 运行列表同一秒的按 id 倒序·成员分配同一毫秒的按 id 正序·反复取次序不变）
@@ -617,7 +621,7 @@ jobs:
       - name: 待属主看板（作者核验：config.owner 只认属主本人·事项只认登记身份·答复只认属主·冒名点名不采信·只授三个工具）
         run: node scripts/owner-pending-unit.mjs && node scripts/owner-pending-board-smoke.mjs && node scripts/attention-ui-unit.mjs && node scripts/work-item-detail-ui-unit.mjs && node scripts/market-ui-unit.mjs && node scripts/home-ui-unit.mjs && node scripts/arrange-ui-unit.mjs && node scripts/review-ui-unit.mjs
       - name: 数据视图组件单测（纯函数——格式、取值说法、按值着色、图表配置、工具契约一致性；单列一步，不和上面那行挤在一起）
-        run: node scripts/bench-blocks-ui-unit.mjs && node scripts/bench-var-bindings-test.mjs && node scripts/bench-view-contract-test.mjs && node scripts/bench-table-test.mjs
+        run: node scripts/bench-blocks-ui-unit.mjs && node scripts/task-graph-unit.mjs && node scripts/bench-var-bindings-test.mjs && node scripts/bench-view-contract-test.mjs && node scripts/bench-table-test.mjs
       - name: 报告模板 P0 编排（正反例、数据完整性、源定义签名、稳定键与冻结值）
         run: node scripts/report-template-p0-test.mjs && node scripts/report-template-p0-store-test.mjs
       - name: 「谁能做什么」页单测（纯函数——授予的状态、范围、期限，待核准，按人排的表，矩阵格子；单列一步）
@@ -657,7 +661,7 @@ jobs:
       - name: 视图台页面单测（入口怎么走·地址里的视图和筛选·表单没交上去的说法）
         run: node scripts/bench-page-unit.mjs
       - name: 报告页单测（地址·按事物分组·并排取哪几份·回应接在谁后面·没成的说法）
-        run: node scripts/report-page-unit.mjs
+        run: node scripts/report-page-unit.mjs && node scripts/report-image-unit.mjs
       - name: 台的 MCP 授权页单测（#904：状态·读写·授予从哪来·驳回要理由·没成的说法·应答不像样不当空·网关页「台上的申请」的行）
         run: node scripts/bench-mcp-page-unit.mjs
       - name: 身份变了以后页面重读单测（纯函数——认人只认 /api/auth/me·不通和 502 不算·合并去抖·世代号；单列一步）

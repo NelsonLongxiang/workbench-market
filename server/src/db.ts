@@ -1045,6 +1045,21 @@ CREATE TABLE IF NOT EXISTS local_accounts (
 `);
 // MCP 会话是谁建的（管理员的留痕写法，user:<名>、odoo:<登录名>、admin-token……）：批准这个会话的访问申请时，建会话的人不能自己批（docs/local-accounts.md 第 5 节）
 addColumnIfMissing('mcp_sessions', "created_by TEXT NOT NULL DEFAULT ''");
+// 第 16 篇第 3 步：保留旧会话的空归属。创建者是审计，不能拿来回填责任人。
+addColumnIfMissing('mcp_sessions', 'responsible_principal TEXT REFERENCES principals (id)');
+addColumnIfMissing('mcp_sessions', 'is_system INTEGER NOT NULL DEFAULT 0 CHECK (is_system IN (0, 1))');
+db.exec(`
+CREATE TABLE IF NOT EXISTS mcp_responsibility_proposals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL REFERENCES mcp_sessions (id),
+  principal_id TEXT NOT NULL REFERENCES principals (id),
+  proposed_by TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  confirmed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_mcp_responsibility_session ON mcp_responsibility_proposals (session_id, id);
+CREATE INDEX IF NOT EXISTS idx_mcp_responsibility_principal ON mcp_responsibility_proposals (principal_id, id);
+`);
 // 站内账号的凭据最后是谁设的（docs/local-accounts.md 第 5 节）：系统管理员建账号、重置密码时记下他（主体）和时刻，本人改了密码就清掉。
 // 放行给业务数据的授予时据此提示放行人「此人凭据由系统管理员设置」，要放行人确认
 for (const [col, ddl] of [['credential_by_system', "TEXT NOT NULL DEFAULT ''"], ['credential_by_system_at', 'INTEGER']] as const) {
@@ -1706,6 +1721,34 @@ if (hasTable('area_events_pr1')) {
     db.exec('COMMIT');
   } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
 }
+// 领域接入的审批与原有按工具申请分开。上限版本与审批留痕可按精确授予复核。
+db.exec(`
+CREATE TABLE IF NOT EXISTS area_access_limits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  grant_id INTEGER NOT NULL REFERENCES grants (id),
+  actions TEXT NOT NULL,
+  set_by TEXT NOT NULL REFERENCES principals (id),
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_area_access_limits_grant ON area_access_limits (grant_id, id);
+CREATE TABLE IF NOT EXISTS area_access_requests (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL REFERENCES mcp_sessions (id),
+  area_id TEXT NOT NULL REFERENCES areas (id),
+  applicant TEXT NOT NULL REFERENCES principals (id),
+  actions TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  created_at INTEGER NOT NULL,
+  decided_by TEXT REFERENCES principals (id),
+  decided_at INTEGER,
+  note TEXT NOT NULL DEFAULT '',
+  limit_id INTEGER REFERENCES area_access_limits (id)
+);
+CREATE INDEX IF NOT EXISTS idx_area_access_requests_area ON area_access_requests (area_id, status, id);
+CREATE INDEX IF NOT EXISTS idx_area_access_requests_session ON area_access_requests (session_id, created_at);
+`);
+addColumnIfMissing('area_access_requests', 'governance_scope TEXT');
 // 报告的维度和模板（docs/report-step1.md 第二节第 1 小节；第 19 篇）。维度属于领域（area_id 空是跨领域的维度），一个维度一串模板版本。
 //   report_dimensions：标识、所属领域、名字、状态（active / retired）、生效指针（active_version）。不删，撤了只读。
 //   report_templates：(维度, 版本) 复合主键；正文是模板 JSON（上限 200 KB，按字节），正文摘要 sha256 和判据部分的摘要 criteria_sha256
@@ -1818,6 +1861,101 @@ CREATE TRIGGER IF NOT EXISTS report_dimension_events_no_delete BEFORE DELETE ON 
 CREATE TRIGGER IF NOT EXISTS report_dimension_events_no_replace BEFORE INSERT ON report_dimension_events WHEN EXISTS (SELECT 1 FROM report_dimension_events WHERE seq = NEW.seq)
   BEGIN SELECT RAISE(ABORT, 'report_dimension_events 只增不改'); END;
 `);
+// 起草责任人的共同作者身份和不可变模板版本一起提交。
+addColumnIfMissing('report_templates', 'draft_author_principal TEXT REFERENCES principals (id)');
+db.exec(`CREATE TRIGGER IF NOT EXISTS report_template_reviews_not_draft_author BEFORE INSERT ON report_template_reviews
+  WHEN EXISTS (SELECT 1 FROM report_templates v JOIN report_templates t ON t.dimension_id = v.dimension_id AND t.criteria_sha256 = v.criteria_sha256
+    WHERE v.dimension_id = NEW.dimension_id AND v.version = NEW.version AND t.draft_author_principal = NEW.reviewed_by_principal)
+  BEGIN SELECT RAISE(ABORT, '相同判据的起草人不能复核'); END;`);
+// 报告治理提案与确认账本（#1016 N1/N4）。输入、归属和对象快照固定，确认中的跨库操作保留原操作号。
+db.exec(`
+CREATE TABLE IF NOT EXISTS report_governance_proposals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL REFERENCES mcp_sessions (id),
+  principal_id TEXT NOT NULL REFERENCES principals (id),
+  op TEXT NOT NULL CHECK (op IN ('bench-bind', 'dimension-create', 'template-publish', 'dimension-activate')),
+  target_key TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_sha256 TEXT NOT NULL,
+  snapshot_sha256 TEXT NOT NULL,
+  frozen TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL CHECK (expires_at > created_at),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirming', 'confirmed', 'rejected', 'withdrawn', 'expired', 'conflict')),
+  operation_id TEXT UNIQUE,
+  confirmed_by TEXT REFERENCES principals (id),
+  confirming_at INTEGER,
+  decided_at INTEGER,
+  reason TEXT,
+  result TEXT,
+  UNIQUE (session_id, op, target_key, idempotency_key),
+  CHECK ((operation_id IS NULL AND confirmed_by IS NULL AND confirming_at IS NULL) OR
+         (operation_id IS NOT NULL AND confirmed_by IS NOT NULL AND confirming_at IS NOT NULL)),
+  CHECK (status NOT IN ('confirming', 'confirmed') OR operation_id IS NOT NULL),
+  CHECK ((status = 'confirmed') = (result IS NOT NULL)),
+  CHECK ((status IN ('pending', 'confirming')) = (decided_at IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_report_governance_pending ON report_governance_proposals (status, expires_at, id);
+CREATE TRIGGER IF NOT EXISTS report_governance_start_pending BEFORE INSERT ON report_governance_proposals
+  WHEN NEW.status <> 'pending' OR NEW.operation_id IS NOT NULL
+  BEGIN SELECT RAISE(ABORT, '报告治理提案只能从待确认开始'); END;
+CREATE TRIGGER IF NOT EXISTS report_governance_no_replace BEFORE INSERT ON report_governance_proposals
+  WHEN EXISTS (SELECT 1 FROM report_governance_proposals p WHERE p.id = NEW.id OR
+    (p.session_id = NEW.session_id AND p.op = NEW.op AND p.target_key = NEW.target_key AND p.idempotency_key = NEW.idempotency_key))
+  BEGIN SELECT RAISE(ABORT, '报告治理提案不可覆盖'); END;
+CREATE TRIGGER IF NOT EXISTS report_governance_transition BEFORE UPDATE ON report_governance_proposals
+  WHEN NEW.id IS NOT OLD.id OR NEW.session_id IS NOT OLD.session_id OR NEW.principal_id IS NOT OLD.principal_id
+    OR NEW.op IS NOT OLD.op OR NEW.target_key IS NOT OLD.target_key OR NEW.idempotency_key IS NOT OLD.idempotency_key
+    OR NEW.request_sha256 IS NOT OLD.request_sha256 OR NEW.snapshot_sha256 IS NOT OLD.snapshot_sha256
+    OR NEW.frozen IS NOT OLD.frozen OR NEW.created_at IS NOT OLD.created_at OR NEW.expires_at IS NOT OLD.expires_at
+    OR (OLD.operation_id IS NOT NULL AND (NEW.operation_id IS NOT OLD.operation_id OR
+       NEW.confirmed_by IS NOT OLD.confirmed_by OR NEW.confirming_at IS NOT OLD.confirming_at))
+    OR NOT ((OLD.status = 'pending' AND NEW.status IN ('confirming', 'rejected', 'withdrawn', 'expired', 'conflict')) OR
+            (OLD.status = 'confirming' AND NEW.status IN ('confirmed', 'conflict')))
+  BEGIN SELECT RAISE(ABORT, '报告治理提案不可改写冻结值或越过确认状态'); END;
+CREATE TABLE IF NOT EXISTS report_governance_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  proposal_id INTEGER NOT NULL,
+  action TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  session_id INTEGER NOT NULL,
+  principal_id TEXT NOT NULL,
+  actor_id TEXT,
+  op TEXT,
+  status TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_report_governance_audit_at ON report_governance_audit (at);
+CREATE TABLE IF NOT EXISTS report_governance_invites (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL REFERENCES mcp_sessions (id),
+  principal_id TEXT NOT NULL REFERENCES principals (id),
+  area_id TEXT NOT NULL,
+  dimension_id TEXT NOT NULL,
+  version INTEGER NOT NULL CHECK (version > 0),
+  body_sha256 TEXT NOT NULL,
+  criteria_sha256 TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_sha256 TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  void_reason TEXT CHECK (void_reason IN ('expired', 'revoked', 'superseded', 'ineligible')),
+  FOREIGN KEY (dimension_id, version) REFERENCES report_templates (dimension_id, version),
+  UNIQUE (session_id, dimension_id, idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS report_governance_invitees (
+  invite_id INTEGER NOT NULL REFERENCES report_governance_invites (id),
+  principal_id TEXT NOT NULL REFERENCES principals (id),
+  PRIMARY KEY (invite_id, principal_id)
+);
+CREATE INDEX IF NOT EXISTS idx_report_governance_invitees_person ON report_governance_invitees (principal_id, invite_id);
+CREATE TRIGGER IF NOT EXISTS report_governance_audit_no_update BEFORE UPDATE ON report_governance_audit
+  BEGIN SELECT RAISE(ABORT, '治理审计不可改写'); END;
+CREATE TRIGGER IF NOT EXISTS report_governance_audit_no_replace BEFORE INSERT ON report_governance_audit
+  WHEN EXISTS (SELECT 1 FROM report_governance_audit WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, '治理审计不可覆盖'); END;
+`);
+
 // 团队与分配（规范 14 第 1 步）。团队、席位是节点名册里的事实（a2a_roster_seats，市场只读）；这三张表是公司的安排，只在市场里。
 //   键和名册一致：团队 (host, team)，host 是节点公钥指纹的前 8 位十六进制（小写）；席位以 (host, seat_id) 为主，seat_id 空的旧节点退回 (host, team, seat)。
 //   teams：团队的登记——认领了没有、挂在哪个部门。没认领的团队不一定有行（名册里出现了、还没人认领）。
@@ -2271,6 +2409,25 @@ CREATE TABLE IF NOT EXISTS bench_mcp_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, id);`);
 
+// 主库鉴权状态变动和围栏推进在同一个事务。跨库提交只写台库。
+db.exec(`CREATE TABLE IF NOT EXISTS bench_storage_fence (id INTEGER PRIMARY KEY CHECK (id = 1), revision INTEGER NOT NULL);
+  INSERT INTO bench_storage_fence (id, revision) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;
+  CREATE TABLE IF NOT EXISTS bench_storage_identities (slug TEXT PRIMARY KEY, identity TEXT NOT NULL UNIQUE);
+  INSERT INTO bench_storage_identities (slug, identity) SELECT slug, lower(hex(randomblob(16))) FROM bench_views WHERE 1 = 1 ON CONFLICT (slug) DO NOTHING;
+  CREATE TRIGGER IF NOT EXISTS bench_storage_identity_insert AFTER INSERT ON bench_views
+  BEGIN INSERT INTO bench_storage_identities (slug, identity) VALUES (NEW.slug, lower(hex(randomblob(16)))); END;
+  CREATE TRIGGER IF NOT EXISTS bench_storage_identity_delete AFTER DELETE ON bench_views
+  BEGIN DELETE FROM bench_storage_identities WHERE slug = OLD.slug; END`);
+for (const table of ['bench_views', 'workbenches', 'principals', 'principal_identities', 'grants', 'custom_roles', 'areas', 'report_dimensions',
+  'report_templates', 'bench_mcp_grants', 'area_access_requests', 'teams', 'seat_assignments', 'team_leads', 'mcp_sessions', 'market_sessions',
+  'a2a_peers', 'a2a_roster_nodes', 'a2a_roster_node_seats']) {
+  for (const operation of ['INSERT', 'UPDATE', 'DELETE']) {
+    const event = table === 'mcp_sessions' && operation === 'UPDATE' ? 'UPDATE OF revoked_at, responsible_principal, grants' : operation;
+    db.exec(`CREATE TRIGGER IF NOT EXISTS fence_${table}_${operation.toLowerCase()} AFTER ${event} ON ${table}
+      BEGIN UPDATE bench_storage_fence SET revision = revision + 1 WHERE id = 1; END`);
+  }
+}
+
 
 // ---------- 只增表的触发器：启动自检（market.db.append-only-guarded）----------
 // 只增表（留痕）在库这一层防改、防删、防覆盖的触发器名单（第一批 #975，加上原来就有的授予、事项、领域、报告几张；第二批 #976；以后加的表接着往这里写）。启动自检逐条核对它们都在，
@@ -2310,6 +2467,9 @@ export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   'work_items_no_delete', 'work_items_no_replace',
   'areas_no_delete', 'areas_no_replace',
   'report_dimensions_no_delete', 'report_dimensions_no_replace',
+  'report_governance_no_replace',
+  'report_governance_audit_no_update',
+  'report_governance_audit_no_replace',
 ];
 /**
  * 启动自检用（market.db.append-only-guarded）。理由只给代号，不带库里的内容。判断都按 SQLite 的错误码（errcode），不看报错的文字。
@@ -2460,9 +2620,9 @@ CREATE TRIGGER IF NOT EXISTS attention_answers_done_kept BEFORE DELETE ON attent
  * 第一次写常量、变量（只有 WM_VARS_STORE 是 shadow、bench 时才会写）才建。旧代码只认识第 1 版的表、不碰多出来的表，
  * 所以 main 档下台库和原来逐字一样，切过 shadow、bench 以后回退到旧代码也照样能开
  */
-export const BENCH_STORE_SCHEMA_VERSION = 1;
+export const BENCH_STORE_SCHEMA_VERSION = 2;
 export type BenchDialect = 'sqlite' | 'postgres';
-export type BenchColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean';
+export type BenchColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean' | 'image';
 
 const benchAutoId = (d: BenchDialect) => (d === 'sqlite' ? 'INTEGER PRIMARY KEY AUTOINCREMENT' : 'BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY');
 /** 数据集的列在库里用什么类型存：日期和时间存成规范化的文本（可排序、两种库一样），布尔存 0/1 */
@@ -2500,6 +2660,39 @@ function benchStoreSchema(d: BenchDialect): string[] {
     `CREATE TABLE IF NOT EXISTS bs_snapshot_rows (snapshot_id ${big} NOT NULL, seq ${big} NOT NULL, row TEXT NOT NULL, PRIMARY KEY (snapshot_id, seq))`,
   ];
 }
+/** 第 2 版：封住旧目录名。旧连接不认识 bench_protocol_v2；已有写事务先于结构迁移提交。 */
+function benchDatasetLifecycleSchema(d: BenchDialect): string[] {
+  const big = d === 'sqlite' ? 'INTEGER' : 'BIGINT';
+  return [
+    'ALTER TABLE bs_datasets RENAME TO bs_dataset_catalog',
+    `CREATE TABLE bs_dataset_lifecycle (
+      name TEXT PRIMARY KEY REFERENCES bs_dataset_catalog(name), dataset_id TEXT NOT NULL UNIQUE,
+      revision ${big} NOT NULL CHECK (revision >= 1), state TEXT NOT NULL CHECK (state IN ('active', 'retired')))`,
+    `CREATE TABLE bs_dataset_operations (
+      operation_id TEXT PRIMARY KEY, generation TEXT NOT NULL, dataset_id TEXT NOT NULL,
+      actor TEXT NOT NULL, action TEXT NOT NULL, context_sha256 TEXT NOT NULL,
+      reason TEXT NOT NULL, at ${big} NOT NULL, receipt TEXT NOT NULL)`,
+    `CREATE TABLE bs_report_binding_stops (
+      dimension_id TEXT NOT NULL, version INTEGER NOT NULL, reason TEXT NOT NULL,
+      actor TEXT NOT NULL, at ${big} NOT NULL, PRIMARY KEY (dimension_id, version))`,
+    ...(d === 'sqlite' ? [
+      'CREATE VIEW bs_datasets AS SELECT * FROM bs_dataset_catalog WHERE bench_protocol_v2() = 0',
+      `CREATE TRIGGER bs_dataset_bump_revision AFTER UPDATE ON bs_dataset_catalog
+        BEGIN UPDATE bs_dataset_lifecycle SET revision = revision + 1 WHERE name = NEW.name; END`,
+      `CREATE TRIGGER bs_active_view_protocol_insert BEFORE INSERT ON bs_meta
+        WHEN NEW.k = 'active_view' BEGIN SELECT bench_protocol_v2(); END`,
+      `CREATE TRIGGER bs_active_view_protocol_update BEFORE UPDATE ON bs_meta
+        WHEN NEW.k = 'active_view' BEGIN SELECT bench_protocol_v2(); END`,
+    ] : []),
+  ];
+}
+
+function benchReportWriteFence(d: BenchDialect): string[] {
+  return d === 'sqlite' ? ['bs_report_bindings', 'bs_reports'].map(table =>
+    `CREATE TRIGGER IF NOT EXISTS ${table}_protocol_insert BEFORE INSERT ON ${table}
+      BEGIN SELECT bench_protocol_v2(); END`) : [];
+}
+
 /** 附加的表（开库不建，第一次写常量、变量时才建）：这张卡片的常量、变量（列和主库的 workbench_vars 一一对应，只是不带 workbench_id；时间是 'YYYY-MM-DD HH:MM:SS' 的文本，由代码生成后当参数传） */
 function benchStoreVarsSchema(): string[] {
   return [
@@ -2578,6 +2771,9 @@ function benchStoreReportSchema(d: BenchDialect): string[] {
  */
 export type BenchSqlKit = {
   dialect: BenchDialect;
+  datasetLifecycleSchema: string[];
+  bindingWriteFence: string[];
+  bindingOperationSchema: string;
   schemaVersion: number;
   /** 附加的表 bs_vars 和它的试读（开库不建、不试；第一次写常量、变量时才建，见 BENCH_STORE_SCHEMA_VERSION） */
   varsSchema: string[];
@@ -2616,10 +2812,13 @@ export type BenchSqlKit = {
   scanGuard: string | null;
 };
 export function benchSqlKit(d: BenchDialect): BenchSqlKit {
-  const types: BenchColumnType[] = ['text', 'integer', 'decimal', 'date', 'datetime', 'boolean'];
+  const types: BenchColumnType[] = ['text', 'integer', 'decimal', 'date', 'datetime', 'boolean', 'image'];
   return {
     dialect: d,
     schemaVersion: BENCH_STORE_SCHEMA_VERSION,
+    datasetLifecycleSchema: benchDatasetLifecycleSchema(d),
+    bindingWriteFence: benchReportWriteFence(d),
+    bindingOperationSchema: 'CREATE TABLE IF NOT EXISTS bs_report_binding_operations (operation_id TEXT PRIMARY KEY, snapshot_sha256 TEXT NOT NULL, dimension_id TEXT NOT NULL, version INTEGER NOT NULL, FOREIGN KEY (dimension_id, version) REFERENCES bs_report_bindings (dimension_id, version))',
     varsSchema: benchStoreVarsSchema(),
     varsProbes: ['SELECT key, kind, value, revision, updated_by, owner, created_at, updated_at FROM bs_vars WHERE 1 = 0'],
     varsExists: d === 'postgres'
@@ -2645,7 +2844,8 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
       : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_report_responses'",
     schema: benchStoreSchema(d),
     probes: [
-      'SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_datasets WHERE 1 = 0',
+      'SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_dataset_catalog WHERE 1 = 0',
+      'SELECT name, dataset_id, revision, state FROM bs_dataset_lifecycle WHERE 1 = 0',
       'SELECT dataset, version, title, columns, key_cols, author, note, at FROM bs_dataset_versions WHERE 1 = 0',
       'SELECT version, content, sha256, author, note, at FROM bs_view_versions WHERE 1 = 0',
       'SELECT id, dataset, dataset_version, reason, row_count, content, content_sha256, author, at FROM bs_snapshots WHERE 1 = 0',

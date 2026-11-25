@@ -13,10 +13,12 @@ import { svc } from '../context.ts';
 import { BenchError } from '../bench-query.ts';
 import { getBench, type BenchEntry } from './bench-registry.ts';
 import type { BenchStore } from './bench-store.ts';
-import type { ReportResponseRow } from './bench-store-core.ts';
+import type { MainStoreFence, ReportResponseRow } from './bench-store-core.ts';
 import type { ReportDimensionService } from './report-dimension.ts';
 import type { GrantService } from './grant.ts';
-import { ReportError, actorKindOf, checkBinding, materialize, prepareInputs, sha256, slotSpecs, type TemplateV2 } from './report-compile.ts';
+import { createHash } from 'node:crypto';
+import { ReportError, actorKindOf, checkBinding, imageNodesOf, materialize, prepareInputs, sha256, slotSpecs, type FrozenBody, type TemplateV2 } from './report-compile.ts';
+import { fetchImage, ImageError } from '../bench-image.ts';
 import type { PrincipalService } from './principal.ts';
 import { scopeView } from '../grant-scope-view.ts';
 
@@ -90,7 +92,7 @@ const onlyKeys = (body: unknown, allowed: string[], what: string): Row => {
 const posInt = (v: unknown): number | undefined => (typeof v === 'number' && Number.isSafeInteger(v) && v >= 1 ? v : undefined);
 
 /** 绑定（照生效的视图描述核块在不在、是不是取数的块）。base 是看到的最新绑定版本，没绑过写 0 */
-export async function bindReport(bench: BenchEntry, s: BenchStore, dimension: unknown, body: unknown, actor: string, now: number) {
+export async function bindReport(bench: BenchEntry, s: BenchStore, dimension: unknown, body: unknown, actor: string, now: number, fence: MainStoreFence) {
   const b = onlyKeys(body, ['base', 'slots'], '{ base, slots }');
   const base = typeof b.base === 'number' && Number.isSafeInteger(b.base) && b.base >= 0 ? b.base : undefined;
   if (base === undefined) throw new BenchError('invalid', 'base 要写成整数：看到的最新绑定版本，没绑过写 0');
@@ -103,11 +105,38 @@ export async function bindReport(bench: BenchEntry, s: BenchStore, dimension: un
     if (!blk) throw new BenchError('invalid', `数据槽 ${name} 绑的视图 ${sb.view} 第 ${sb.block} 个块不存在`);
     if (blk.type === 'form' || blk.type === 'filter-bar' || blk.query === undefined) throw new BenchError('invalid', `数据槽 ${name} 绑的块不是取数的块（${blk.type}）`);
   }
-  return { binding: await s.reportBindingPut(dim.id, { base, template_version: dim.version, slots, actor, at: now }) };
+  const context = await s.reportBindingContext(slots);
+  if (context.view !== (view?.version ?? 0)) throw new BenchError('conflict', '校验绑定期间视图已改变');
+  return { binding: await s.reportBindingPut(dim.id, { base, template_version: dim.version, slots, actor, at: now, context }, fence) };
+}
+
+/** 图片的配置：图库前缀（WM_IMAGE_GALLERY_BASE，没配是 null），冻结时按它把相对路径还原成地址 */
+export type ReportImageConfig = { galleryBase: string | null };
+
+/**
+ * 冻结图片（docs/image-step1.md 用例 8，属主 D5「冻结时只记链接加哈希」）：每个图片节点按链接取一次图（经代取同一处 fetchImage：
+ * 只认公网与图库前缀、限大小限时、对外断开时不取），把图的 sha256 写进节点。正文里只有链接和哈希，不存图。
+ * 取不到就不出报告（没有哈希可冻）：对外断开、忙 503，超时 504，其余 400；details 里是 report_image_unavailable 和代取的错误代号
+ */
+export async function freezeImages(body: FrozenBody, images: ReportImageConfig): Promise<void> {
+  const hashes = new Map<string, string>();
+  for (const n of imageNodesOf(body.body)) {
+    let h = hashes.get(n.src);
+    if (h === undefined) {
+      try {
+        h = createHash('sha256').update((await fetchImage(n.src, images.galleryBase)).body).digest('hex');
+      } catch (e) {
+        if (!(e instanceof ImageError)) throw e;
+        throw new BenchError(e.http === 503 ? 'busy' : e.http === 504 ? 'timeout' : 'invalid', `报告里的图片取不到，冻结不了：${e.message}`, ['report_image_unavailable', e.code]);
+      }
+      hashes.set(n.src, h);
+    }
+    n.sha256 = h;
+  }
 }
 
 /** 生成并冻结一份报告。来源（视图版本、哈希、行数）、产出方由服务端填：请求里写了就拒 */
-export async function generateReport(bench: BenchEntry, s: BenchStore, body: unknown, actor: string, now: number) {
+export async function generateReport(bench: BenchEntry, s: BenchStore, body: unknown, actor: string, now: number, fence: MainStoreFence, images: ReportImageConfig) {
   const b = onlyKeys(body, ['dimension', 'subject', 'inputs', 'claims', 'supersedes'], '{ dimension, subject, inputs, claims, supersedes? }');
   if (typeof b.subject !== 'string' || !SUBJECT_RE.test(b.subject)) throw new BenchError('invalid', 'subject 要写成「种类:标识」，比如 item:123');
   const supersedes = b.supersedes === undefined ? null : posInt(b.supersedes);
@@ -115,18 +144,21 @@ export async function generateReport(bench: BenchEntry, s: BenchStore, body: unk
   const dim = usableDimension(bench, b.dimension);
   const binding = await s.reportBindingGet(dim.id);
   if (!binding) throw new BenchError('conflict', '这个台还没有绑这个维度，先绑再生成');
+  if (binding.disabled) throw new BenchError('conflict', '这个维度的报告生成已停用，先重新绑定');
   if (binding.template_version !== dim.version) throw new BenchError('conflict', `模板已经换到第 ${dim.version} 版，绑定还是照第 ${binding.template_version} 版绑的，先重新绑`);
   const slots = compiled(() => checkBinding(dim.template, binding.slots));
   const inputs = compiled(() => prepareInputs(dim.template, b.inputs));
-  const data = await s.reportSlots(compiled(() => slotSpecs(dim.template, slots, inputs)));
+  const { data, context } = await s.reportSlots(compiled(() => slotSpecs(dim.template, slots, inputs)));
   const frozen = compiled(() => materialize(dim.template, slots, data, inputs, b.claims));
+  await freezeImages(frozen.body, images);
   const text = JSON.stringify(frozen.body);
   const row = {
     dimension_id: dim.id, template_version: dim.version, template_sha256: dim.sha256, binding_version: binding.version, subject: b.subject,
     inputs: JSON.stringify(inputs), body: text, sources: JSON.stringify(frozen.sources), content_sha256: sha256(text),
     producer: actor, producer_kind: kindOf(actor), supersedes, created_at: now,
   };
-  const id = await s.reportInsert(row, frozen.claims.map((c) => ({ claim_key: c.claim_key, kind: c.kind, text: c.text, basis: JSON.stringify(c.basis) })));
+  const id = await s.reportInsert(row, frozen.claims.map((c) => ({ claim_key: c.claim_key, kind: c.kind, text: c.text, basis: JSON.stringify(c.basis) })),
+    { ...context, main: fence });
   return { report: { id, ...row, inputs, body: frozen.body, sources: frozen.sources }, claims: frozen.claims };
 }
 

@@ -75,6 +75,8 @@ const EXPECTED = [
   "POST /api/mcp/access-requests/:id/approve",
   "POST /api/mcp/access-requests/:id/reject",
   "POST /api/mcp/sessions",
+  // 会话归属提议（release/10）：既有 sessions 管理路径下的接口，仍由路由 adminGuard 判权。
+  "POST /api/mcp/sessions/:id/responsibility-proposals",
   "POST /api/tasks/read-grants/revoke",
   "POST /api/vault/entries",
   "POST /api/vault/generate",

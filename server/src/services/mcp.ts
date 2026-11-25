@@ -1,6 +1,19 @@
 /** MCP 网关域（mcp_sessions ×9 + mcp_calls ×2）：SQL 原文自 index.ts 搬入（S1）。 */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
+import { root } from '../root-context.ts';
+import { HttpError } from '../errors.ts';
+import type { PrincipalService } from './principal.ts';
+import { seatOfSubject, seatResponsiblePrincipal } from './seat-tokens.ts';
+
+type SessionRow = { id: number; name: string; grants: string; revoked_at: string; created_by: string; responsible_principal: string | null; is_system: number };
+function eligiblePerson(id: string): boolean {
+  const p = (root.get('principals') as unknown as PrincipalService).get(id);
+  return p?.kind === 'person' && p.status === 'active';
+}
+function responsibilityError(status: number, code: string, message: string): never {
+  throw new HttpError(status, message, { code });
+}
 
 export class McpService extends Service {
   constructor(ctx: any) {
@@ -15,19 +28,28 @@ export class McpService extends Service {
   }
   /** 上传票用票时复核：这个名字的会话还在（没吊销），连同它此刻的 grants */
   sessionActiveByName(name: string) {
-    return db.prepare('SELECT id, name, grants FROM mcp_sessions WHERE name = ? AND revoked_at = ?').get(name, '');
-  }
-  sessionCreateStmt() {
-    return db.prepare('INSERT INTO mcp_sessions (name, token_sha256, grants) VALUES (?, ?, ?)');
+    const row = db.prepare('SELECT id, name, grants FROM mcp_sessions WHERE name = ? AND revoked_at = ?').get(name, '') as
+      Pick<SessionRow, 'id' | 'name' | 'grants'> | undefined;
+    return row && this.sessionOwnerEnabled(row.id) ? row : undefined;
   }
   callInsertStmt() {
     return db.prepare('INSERT INTO mcp_calls (session_name, method, tool, ok, error, duration_ms, args_sha256, channel, seat, claimed_seat, token_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   }
-  sessionCreate(name: string, sha: string, grants: string) {
-    return db.prepare('INSERT INTO mcp_sessions (name, token_sha256, grants) VALUES (?, ?, ?)').run(name, sha, grants);
+  createSession(name: string, sha: string, principal: string | null, by: string) {
+    return this.responsibilityTx(() => {
+      if (principal !== null && !eligiblePerson(principal)) responsibilityError(422, 'mcp_responsible_invalid', '责任人必须是启用的站内个人主体');
+      if (this.sessionByName(name)) responsibilityError(400, 'mcp_session_name_used', '会话名已存在: ' + name);
+      const row = db.prepare('INSERT INTO mcp_sessions (name, token_sha256, created_by, responsible_principal, is_system) VALUES (?, ?, ?, ?, ?) RETURNING id')
+        .get(name, sha, by, principal, Number(principal === null)) as { id: number };
+      return row.id;
+    });
   }
   sessions() {
-    return db.prepare('SELECT id, name, grants, revoked_at, last_used_at, created_at FROM mcp_sessions ORDER BY id DESC').all();
+    return db.prepare(`SELECT id, name, grants, revoked_at, last_used_at, created_at, responsible_principal,
+      CASE WHEN is_system = 1 THEN 'system'
+        WHEN EXISTS (SELECT 1 FROM a2a_seat_subjects s WHERE s.session_id = mcp_sessions.id) THEN 'seat'
+        WHEN responsible_principal IS NOT NULL THEN 'named' ELSE 'legacy' END AS responsibility_kind
+      FROM mcp_sessions ORDER BY id DESC`).all();
   }
   sessionById(id: number) {
     return db.prepare('SELECT id, grants FROM mcp_sessions WHERE id = ?').get(id);  // #379：grants 用于识别会话已持有的旧授权
@@ -66,11 +88,55 @@ export class McpService extends Service {
   }
   // ── 权限自助申请（access_request）与授权审计 ──
   sessionFull(id: number) {
-    return db.prepare('SELECT id, name, grants, revoked_at, created_by FROM mcp_sessions WHERE id = ?').get(id);
+    return db.prepare('SELECT id, name, grants, revoked_at, created_by, responsible_principal, is_system FROM mcp_sessions WHERE id = ?').get(id) as SessionRow | undefined;
   }
-  /** 记下会话是谁建的（建会话的接口建好之后调） */
-  sessionCreatedBy(id: number, by: string) {
-    return db.prepare('UPDATE mcp_sessions SET created_by = ? WHERE id = ?').run(by, id);
+  /** 席位归属经当前名册与市场分配查询，命名会话只认正式绑定。 */
+  areaAccessPrincipal(sessionId: number, now = Date.now()): string | null {
+    const row = this.sessionFull(sessionId);
+    if (!row || row.is_system || row.revoked_at) return null;
+    return seatOfSubject(sessionId) ? seatResponsiblePrincipal(sessionId, now) : row.responsible_principal;
+  }
+  sessionOwnerEnabled(sessionId: number): boolean {
+    const principal = this.areaAccessPrincipal(sessionId);
+    return principal === null || eligiblePerson(principal);
+  }
+
+  private responsibilityTx<T>(fn: () => T): T {
+    this.accessTxBegin();
+    try { const value = fn(); this.accessTxCommit(); return value; }
+    catch (error) { this.accessTxRollback(); throw error; }
+  }
+  private legacySession(sessionId: number) {
+    const row = this.sessionFull(sessionId);
+    if (!row) responsibilityError(404, 'mcp_session_missing', '会话不存在');
+    if (row.responsible_principal || row.is_system || row.revoked_at || seatOfSubject(sessionId)) {
+      responsibilityError(409, 'mcp_responsibility_not_legacy', '只可为未吊销、仍无归属的存量命名会话提出归属');
+    }
+    return row;
+  }
+  proposeResponsibility(sessionId: number, principal: string, by: string, now = Date.now()) {
+    return this.responsibilityTx(() => {
+      this.legacySession(sessionId);
+      if (!eligiblePerson(principal)) responsibilityError(422, 'mcp_responsible_invalid', '责任人必须是启用的站内个人主体');
+      const row = db.prepare('INSERT INTO mcp_responsibility_proposals (session_id, principal_id, proposed_by, created_at) VALUES (?, ?, ?, ?) RETURNING id')
+        .get(sessionId, principal, by, now) as { id: number };
+      return row.id;
+    });
+  }
+  pendingResponsibilities(principal: string) {
+    return db.prepare("SELECT p.id, s.name AS session, p.proposed_by, p.created_at FROM mcp_responsibility_proposals p JOIN mcp_sessions s ON s.id = p.session_id WHERE p.principal_id = ? AND p.confirmed_at IS NULL AND s.responsible_principal IS NULL AND s.is_system = 0 AND s.revoked_at = '' AND p.id = (SELECT MAX(q.id) FROM mcp_responsibility_proposals q WHERE q.session_id = p.session_id) ORDER BY p.id DESC LIMIT 100").all(principal);
+  }
+  confirmResponsibility(id: number, principal: string, now = Date.now()) {
+    return this.responsibilityTx(() => {
+      if (!eligiblePerson(principal)) responsibilityError(403, 'mcp_responsible_invalid', '责任人必须是启用的站内个人主体');
+      const row = db.prepare('SELECT session_id FROM mcp_responsibility_proposals WHERE id = ? AND principal_id = ? AND confirmed_at IS NULL AND id = (SELECT MAX(q.id) FROM mcp_responsibility_proposals q WHERE q.session_id = mcp_responsibility_proposals.session_id)')
+        .get(id, principal) as { session_id: number } | undefined;
+      if (!row) responsibilityError(404, 'mcp_responsibility_missing', '没有这条待你确认的归属提议');
+      this.legacySession(row.session_id);
+      db.prepare('UPDATE mcp_sessions SET responsible_principal = ? WHERE id = ?').run(principal, row.session_id);
+      db.prepare('UPDATE mcp_responsibility_proposals SET confirmed_at = ? WHERE id = ?').run(now, id);
+      return { session_id: row.session_id, responsible_principal: principal };
+    });
   }
   accessRequestsBySession(sessionId: number, limit = 50) {
     return db.prepare('SELECT id, tools, reason, status, note, decided_at, created_at FROM mcp_access_requests WHERE session_id = ? ORDER BY id DESC LIMIT ?').all(sessionId, limit);

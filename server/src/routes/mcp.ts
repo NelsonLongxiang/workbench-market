@@ -19,7 +19,7 @@ import { closeYglUpstreams, yglHomeProblem } from '../mcp-stdio-upstream.ts';
 import type { McpToolDef } from '../mcp-tools.ts';
 import { SEAT_SUBJECT_PREFIX } from '../services/seat-tokens.ts';
 import { isSystemAdminOnly } from '../admin-tier.ts';
-import { actorPrincipal } from '../request-person.ts';
+import { actorPrincipal, requestPerson } from '../request-person.ts';
 
 /** 上游配置（和 index.ts 里的 McpUpstream 同形） */
 type McpUpstream = { prefix: string; url: string; headers?: Record<string, string>; enabled?: boolean; toolCallTimeoutMs?: number; kind?: 'ygl-trees'; ygl_home?: string };
@@ -47,6 +47,7 @@ export interface McpDeps {
   parseToolList: (raw: string) => string[];
   adminActor: (req: express.Request) => string;
   accessRequestId: (req: express.Request) => number;
+  crossOriginDenied: (req: express.Request) => boolean;
 }
 
 export function registerMcpRoutes(app: HttpService, deps: McpDeps): void {
@@ -91,20 +92,32 @@ export function registerMcpRoutes(app: HttpService, deps: McpDeps): void {
   });
 
   // 控制面（全部 X-Admin-Token 常量时间 + Origin 空或同源；MCP 零会话/令牌/授权写工具——人工锁）
-  app.post('/api/mcp/sessions', { action: 'mcp.session-create', kind: 'admin' }, (req, res) => {
-    if (!adminGuard(req, res)) return;
-    const name = typeof req.body?.name === 'string' ? req.body.name.trim().toLowerCase() : '';
-    if (!MCP_SESSION_NAME_RE.test(name)) bad('name 规范：小写字母开头，小写字母/数字/连字符，≤64 字符');
-    // seat- 开头的名字留给席位的授权主体（席位换令牌时自动建，services/seat-tokens.ts），管理员不能建：建了会占住某个席位的主体名
-    if (name.startsWith(SEAT_SUBJECT_PREFIX)) bad(`会话名不能以 ${SEAT_SUBJECT_PREFIX} 开头（留给席位的授权主体）`);
-    const dup = svc<McpService>('mcp').sessionByName(name);
-    if (dup) bad(`会话名已存在: ${name}`);
-    // mcp/ 命名空间独立于 dsh/<id8>（A2A 自报身份不混用；关联靠人登记 a2a_node 字段，仅关联不授权）
-    const token = randomBytes(32).toString('hex');
-    const r = svc<McpService>('mcp').sessionCreateStmt()
-      .run(name, sha256Hex(token), '[]') as unknown as { lastInsertRowid: number | bigint }; // 新会话授权空=默认拒绝
-    svc<McpService>('mcp').sessionCreatedBy(Number(r.lastInsertRowid), adminActor(req)); // 批准这个会话的访问申请时，建会话的人不能自己批
-    res.status(201).json({ ok: true, id: Number(r.lastInsertRowid), name, token, grants: [], note: 'token 仅此一次出现——库存 sha256 无取回接口，请立即分发保管' });
+  app.post('/api/mcp/sessions', { action: 'mcp.session-create', kind: 'admin' }, (req, res, next) => {
+    void createSession().catch(next);
+    async function createSession() {
+      if (!adminGuard(req, res)) return;
+      const name = typeof req.body?.name === 'string' ? req.body.name.trim().toLowerCase() : '';
+      if (!MCP_SESSION_NAME_RE.test(name)) bad('name 规范：小写字母开头，小写字母/数字/连字符，≤64 字符');
+      // seat- 开头的名字留给席位的授权主体（席位换令牌时自动建，services/seat-tokens.ts），管理员不能建：建了会占住某个席位的主体名
+      if (name.startsWith(SEAT_SUBJECT_PREFIX)) bad(`会话名不能以 ${SEAT_SUBJECT_PREFIX} 开头（留给席位的授权主体）`);
+      const by = adminActor(req);
+      const principal = req.body?.responsible_principal;
+      const mode = req.body?.responsibility;
+      if (mode !== undefined && mode !== 'system') bad('responsibility 只接受 system');
+      if (mode === 'system' && principal !== undefined) bad('系统会话不挂个人责任人');
+      if (principal !== undefined) {
+        const who = await requestPerson(req);
+        if (typeof principal !== 'string' || !who.principal || who.principal !== principal || by !== principal) {
+          throw new HttpError(403, '命名会话必须由已登录的管理员为本人建立', { code: 'mcp_responsibility_self_required' });
+        }
+      } else if (mode !== 'system' && by !== 'admin-token') {
+        bad('命名会话须指定本人 responsible_principal。系统会话须明确声明 responsibility: system');
+      }
+      // 保留管理口令的旧自动化调用：无归属参数时是系统会话，无权申请领域接入。
+      const token = randomBytes(32).toString('hex');
+      const id = svc<McpService>('mcp').createSession(name, sha256Hex(token), typeof principal === 'string' ? principal : null, by);
+      res.status(201).json({ ok: true, id, name, token, grants: [], note: 'token 仅此一次出现——库存 sha256 无取回接口，请立即分发保管' });
+    }
   });
 
   app.get('/api/mcp/sessions', { action: 'mcp.sessions', kind: 'admin' }, (req, res) => {
@@ -112,6 +125,28 @@ export function registerMcpRoutes(app: HttpService, deps: McpDeps): void {
     const rows = svc<McpService>('mcp').sessions();
     res.json(rows.map((r: any) => ({ ...r, grants: JSON.parse(r.grants || '[]') })));
   });
+
+  app.post('/api/mcp/sessions/:id/responsibility-proposals', { action: 'mcp.responsibility-propose', kind: 'admin' }, (req, res) => {
+    if (!adminGuard(req, res)) return;
+    const id = accessRequestId(req);
+    if (typeof req.body?.principal !== 'string') bad('请指定提议的个人主体 principal');
+    const proposal = svc<McpService>('mcp').proposeResponsibility(id, req.body.principal, adminActor(req));
+    res.status(201).json({ id: proposal });
+  });
+
+  const responsibilityScope = '登录本人确认其归属提议，不能代他人操作';
+  const asPerson = (run: (req: express.Request, principal: string) => unknown): express.RequestHandler => (req, res, next) => {
+    res.set('Cache-Control', 'private, no-store');
+    if (deps.crossOriginDenied(req)) { res.status(403).json({ error: 'mcp_responsibility_cross_origin' }); return; }
+    void requestPerson(req).then((who) => {
+      if (!who.principal) { res.status(401).json({ error: 'mcp_responsibility_person_required' }); return; }
+      res.json(run(req, who.principal));
+    }).catch(next);
+  };
+  app.get('/api/mcp/responsibilities/mine', { action: 'mcp.responsibility-list', kind: 'read', statusNotVerdict: responsibilityScope },
+    asPerson((_req, principal) => ({ proposals: svc<McpService>('mcp').pendingResponsibilities(principal) })));
+  app.post('/api/mcp/responsibilities/:id/confirm', { action: 'mcp.responsibility-confirm', kind: 'decide', statusNotVerdict: responsibilityScope },
+    asPerson((req, principal) => svc<McpService>('mcp').confirmResponsibility(accessRequestId(req), principal)));
 
   app.delete('/api/mcp/sessions/:id', { action: 'mcp.session-revoke', kind: 'admin' }, (req, res) => {
     if (!adminGuard(req, res)) return;

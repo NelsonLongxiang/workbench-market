@@ -1,4 +1,23 @@
 import type { TableContext } from './bench-table-view';
+
+export function getReportReviewInvitation(id: string, signal: AbortSignal): Promise<Response> {
+  return fetch('/api/report-governance/review-invites/' + encodeURIComponent(id), { signal });
+}
+export function submitReportTemplateReview(dimension: string, version: number, note: string): Promise<Response> {
+  return fetch('/api/report-dimensions/' + encodeURIComponent(dimension) + '/templates/' + version + '/review', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note }),
+  });
+}
+
+/** 报告治理只用站内本人登录，不添加管理口令。 */
+export function getReportGovernanceInbox(after: number, signal?: AbortSignal): Promise<Response> {
+  return fetch('/api/report-governance/inbox?after=' + after, { signal });
+}
+export function decideReportGovernance(id: string, action: 'confirm' | 'reject', digest: string): Promise<Response> {
+  return fetch('/api/report-governance/inbox/' + encodeURIComponent(id) + '/' + action, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(action === 'confirm' ? { snapshot_sha256: digest } : {}),
+  });
+}
 import type { WorkItemListPage } from './work-items-view';
 import { seatAsksMore } from './attention-view';
 import type { Cockpit, ExportPayload, PanelConfig, SopApp, SopDefinition, SopRun, SopRunDetail, SopRunFile, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
@@ -403,6 +422,15 @@ export async function getBenchView(ref: { bench: string; view: string }, params:
   } catch { return { status: 0, body: null }; }
 }
 
+/** 数据视图的变更游标（实时刷新轮询用）：状态码 + 游标；断网当状态码 0 */
+export async function getBenchChanges(bench: string): Promise<{ status: number; cursor: string | null; error?: string }> {
+  try {
+    const r = await fetch(`/api/bench-views/${encodeURIComponent(bench)}/changes`, { credentials: 'same-origin', headers: { Accept: 'application/json' }, cache: 'no-store' });
+    const body = await r.json().catch(() => null) as { cursor?: unknown; error?: string } | null;
+    return { status: r.status, cursor: r.ok && typeof body?.cursor === 'string' ? body.cursor : null, error: typeof body?.error === 'string' ? body.error : undefined };
+  } catch { return { status: 0, cursor: null }; }
+}
+
 /** 数据视图的两个只读入口（往驾驶舱里挂视图时选台、选视图用）：带登录的 cookie，不带管理口令。
  *  返回状态码和应答体（出错时应答体里有 error 代号），让页面给说法；断网当状态码 0 */
 async function benchViewsGet(path: string): Promise<{ status: number; body: unknown }> {
@@ -443,7 +471,7 @@ export type ReportStance = 'agree' | 'dispute' | 'supplement';
 export type ReportListItem = { id: number; dimension_id: string; template_version: number; binding_version: number; subject: string; content_sha256: string; producer: string; producer_kind: 'human' | 'ai'; supersedes: number | null; superseded_by: number | null; created_at: number };
 export type ReportResponse = { id: number; report_id: number; claim_key: string; stance: ReportStance; reason: string; responder: string; responder_kind: 'human' | 'ai'; position: string; supersedes: number | null; created_at: number; mine?: boolean };
 export type ReportClaim = { claim_key: string; kind: string; text: string; basis: { slot: string; key: (string | number | boolean)[] }[]; responses: ReportResponse[]; open_dispute: boolean };
-export type ReportNode = { id: string; type: string; title?: string; content?: string; children?: ReportNode[]; columns?: number[]; component?: string; props?: Record<string, unknown>; data?: { columns: { name: string; type: string; label?: string }[]; rows: Record<string, unknown>[] } };
+export type ReportNode = { id: string; type: string; /** 图片节点：冻结的链接、替代文字、图的 sha256 */ src?: string; alt?: string; sha256?: string; title?: string; content?: string; children?: ReportNode[]; columns?: number[]; component?: string; props?: Record<string, unknown>; data?: { columns: { name: string; type: string; label?: string }[]; rows: Record<string, unknown>[] } };
 export type ReportSource = { slot: string; view: string; block: number; view_version: number; view_sha256: string; rows: number; completeness: string };
 export type ReportRead = {
   report: ReportListItem & { template_sha256: string; inputs: { parameters: Record<string, string>; fields: Record<string, string> }; body: { schema_version: 2; title: string; body: ReportNode[] }; sources: ReportSource[] };

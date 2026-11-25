@@ -21,7 +21,7 @@ import { initializeTaskCenter, taskCenterSteps, taskView, taskListView, taskCent
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
 import { createPortalObservation } from './portal-observation.ts';
-import { allSurfaceServers, browserMarked, originIsThisSurface, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
+import { addressesPublicMarketHttps, allSurfaceServers, browserMarked, originIsThisSurface, publicBusinessConfirmationOrigin, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createReadStream, createWriteStream } from 'node:fs';
@@ -72,6 +72,8 @@ import { registerDepartmentRoutes } from './routes/departments.ts';
 import { registerTeamRoutes } from './routes/teams.ts';
 import { registerRelationRoutes } from './routes/relations.ts';
 import { registerAreaRoutes } from './routes/areas.ts';
+import { registerAreaAccessRoutes } from './routes/area-access.ts';
+import type { AreaAccessService } from './services/area-access.ts';
 import { registerReportDimensionRoutes } from './routes/report-dimensions.ts';
 import { rosterStaleMinutesFromEnv, type TeamService } from './services/team.ts';
 import { proposalTtlDaysFromEnv, rosterGoneHoursFromEnv, type RelationProposalService } from './services/relation-proposal.ts';
@@ -87,7 +89,7 @@ import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './ro
 import { registerKnowledgeRoutes } from './routes/knowledge.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
 import { benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, hasBenchGrant, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
-import { resolveBenchRef } from './services/bench-registry.ts';
+import { captureBenchStorageFence, resolveBenchRef } from './services/bench-registry.ts';
 import { cardDeleterOf, checkCardDeletable, deleteCardWithBench, type CardDeleter } from './bench-card-delete.ts';
 import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
@@ -102,6 +104,10 @@ import { registerAppDataRoutes, appDataReadMode, type AppDataReadMode } from './
 import { registerSopRunFileRoutes } from './routes/sop-run-files.ts';
 import { registerSopRunLifecycleRoutes, sopRunWriteMode, type SopRunWriteMode } from './routes/sop-run-lifecycle.ts';
 import { registerMcpRestRoutes } from './routes/mcp-rest.ts';
+import { registerCapabilityRoutes } from './routes/capabilities.ts';
+import { registerReportGovernanceRoutes } from './routes/report-governance.ts';
+import { governanceCatalog, governanceForbidden, GOVERNANCE_PROPOSE, GOVERNANCE_RESULT, proposeReportGovernance, resultReportGovernance } from './services/report-governance.ts';
+import { capability, capabilityIndex, capabilityBrief, capabilityDetail, capabilityDenied, executeCapability, type CapabilityChannel, type CapabilityDeclaration } from './capabilities.ts';
 import { registerAppsStaticRoutes } from './routes/apps-static.ts';
 import { managementGrantHolders } from './work-item-access.ts';
 import { registerHealthRoutes } from './routes/health.ts';
@@ -359,6 +365,35 @@ if (A2A_FOLLOWUP_RATE === null) {
 const FETCH_STEP_REFUSALS: ReadonlySet<string> = new Set(['unregistered', 'no-card', 'not-derivable', 'bad-sig']);
 const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY, refreshCooldownMs: A2A_CARD_COOLDOWN_MS });
 app.use(sessionRenewal(SESSION_LIFE)); // 一次登录持续保持：带着市场会话来的 /api/ 请求，满一天续一次（session-policy.ts）
+// 只在这些业务确认的写入口接入公共市场。来源验证通过后仍要求会话本人，路由继续判对象与权限。
+const publicBusinessConfirmationPaths = [
+  /^\/api\/relations\/proposals\/[1-9]\d{0,15}\/(approve|reject)$/,
+  /^\/api\/report-dimensions\/[a-z][a-z0-9-]{0,47}\/activate$/,
+  /^\/api\/report-governance\/inbox\/p-[1-9][0-9]{0,14}\/(confirm|reject)$/,
+  /^\/api\/areas\/[a-z][a-z0-9-]{0,47}\/(specs\/activate|access-requests\/[1-9][0-9]{0,11}\/(approve|reject))$/,
+];
+const publicConfirmationPerson = new WeakMap<express.Request, string>();
+app.use(async (req, res, next) => {
+  if (surfaceOf(req) === 'control' && addressesPublicMarketHttps(req)) {
+    res.status(403).json({ error: 'business_confirmation_origin_denied' }); return;
+  }
+  if (req.method !== 'POST' || !publicBusinessConfirmationPaths.some(path => path.test(req.path.toLowerCase()))) return next();
+  const origin = publicBusinessConfirmationOrigin(req);
+  if (origin === 'local') return next();
+  res.set('Cache-Control', 'private, no-store');
+  if (origin === 'denied' || onVaultHost(req)) { res.status(403).json({ error: 'business_confirmation_origin_denied' }); return; }
+  if (req.headers['x-admin-token'] !== undefined || req.headers.authorization !== undefined) {
+    res.status(403).json({ error: 'business_confirmation_person_required' }); return;
+  }
+  const person = await requestPerson(req);
+  if (!person.principal) {
+    res.status(person.hasCredential ? 403 : 401).json({ error: 'business_confirmation_person_required' }); return;
+  }
+  publicConfirmationPerson.set(req, person.principal);
+  next();
+});
+const publicPerson = (req: express.Request): string | undefined => publicConfirmationPerson.get(req);
+
 app.use(loginGate.middleware);
 const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;
 app.use((req, _res, next) => { if (surfaceOf(req) === 'market') portalObserver?.observe(req); next(); });
@@ -399,7 +434,7 @@ app.use((req, res, next) => {
   if (surfaceOf(req) !== 'control' && !onVaultHost(req)) return next();
   // 用 Express 路由同一个 pathname（req.path：已剥查询串、已处理绝对形式 http://x/mcp），再按小写判——路由不区分大小写（/MCP、/A2A/direct 曾漏过；#299 绝对形式）
   const p = req.path.toLowerCase();
-  if (/^\/(go|sop|apps)(\/|$)/.test(p) || p === '/mcp' || p === '/openapi.json' || p.startsWith('/api/mcp-rest/') || p.startsWith('/a2a/')) return res.status(404).type('text').send(surfaceOf(req) === 'control' ? '控制面不提供此路径（请用业务面）\n' : '凭据库域名不提供此路径（请用主域名）\n');
+  if (/^\/(go|sop|apps)(\/|$)/.test(p) || p === '/mcp' || p === '/openapi.json' || p.startsWith('/api/mcp-rest/') || p.startsWith('/api/report-governance/') || p.startsWith('/a2a/')) return res.status(404).type('text').send(surfaceOf(req) === 'control' ? '控制面不提供此路径（请用业务面）\n' : '凭据库域名不提供此路径（请用主域名）\n');
   res.setHeader('content-security-policy', "frame-ancestors 'none'; frame-src 'none'");
   res.setHeader('x-frame-options', 'DENY');
   next();
@@ -509,6 +544,8 @@ const REMOTE_ALLOW_PREFIX = [
   // MCP 工具 REST 开放：与 /mcp 同口径，凭会话令牌在路由内鉴权，不认管理口令
   // 上传票的直传：票本身就是凭据（只能用一次、10 分钟过期），路由内核票、再核发票的会话和授权还在
   /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?|uploads\/[A-Za-z0-9_-]{43})$/,
+  /^\/api\/mcp-rest\/capabilities\/[a-z][a-z0-9-]{0,47}\.[a-z][a-z0-9-]{0,47}$/,
+  /^\/api\/report-governance\/(proposals|inbox\/p-[1-9][0-9]{0,14}\/(confirm|reject))$/,
   // 数据视图的入口（开关关着时每条都回 404）：路由内自己判——先拒管理口令，再经身份服务认人、问判定，只有管理层和范围是「全部」的授予放行。
   // 这道门要的恰恰是管理口令，而这组路由不认管理口令，所以登记在这里
   /^\/api\/bench-views(\/[a-z0-9][a-z0-9-]{0,63}(\/[a-z0-9_/-]{1,160})?)?$/,
@@ -518,6 +555,10 @@ const REMOTE_ALLOW_PREFIX = [
   /^\/api\/knowledge\/project-depts$/,
   // 领域的定规范：持本领域 area-spec 授予的人多半不是管理员。路由内认人、核同源、按对象判（routes/areas.ts 的 specSetter）；只此两条子路径
   /^\/api\/areas\/[a-z][a-z0-9-]{0,47}\/specs(\/activate)?$/,
+  // 只为领域负责人和属主放行这三条路径；路由内强制登录的人、同源及当前范围。
+  /^\/api\/areas\/[a-z][a-z0-9-]{0,47}\/(access-limits\/[1-9][0-9]{0,11}|access-requests\/[1-9][0-9]{0,11}\/(approve|reject))$/,
+  // 归属确认的路由重新认登录本人，不能用管理口令或会话令牌代办。
+  /^\/api\/mcp\/responsibilities\/[1-9][0-9]{0,11}\/confirm$/,
   // 报告维度的定报告维度（建、发版、复核、移指针、撤）：持本领域 area-report 授予的人多半不是管理员。路由内认人、核同源、按对象判
   // （routes/report-dimensions.ts 的 existingSetter；docs/report-step1.md 第四节）；只此几条路径
   /^\/api\/report-dimensions(\/[a-z][a-z0-9-]{0,47}\/(templates(\/[1-9][0-9]{0,8}\/review)?|activate|retire))?$/,
@@ -564,7 +605,7 @@ function announceAllowDiff(): void {
 }
 /** 扩展的业务写面：远程浏览器 POST 该路径不经管理写门（不要口令、不认管理员），由扩展路由自己判身份与同源。
  *  只收 /api/<命名空间>/… 精确路径，命名空间不得是宿主的；进 S3 豁免面快照，变更照常告警与通知 */
-const HOST_API_NAMESPACES = new Set(['a2a', 'admin', 'admin-token', 'apps', 'auth', 'bindings', 'change-requests', 'check-all', 'cockpits', 'content', 'cookies', 'design', 'export', 'health', 'import', 'mcp', 'mcp-rest', 'remote-allow', 'settings', 'skills', 'sop', 'sops', 'stats', 'summary', 'task-center', 'tasks', 'types', 'vault', 'workbench-events', 'workbenches']);
+const HOST_API_NAMESPACES = new Set(['a2a', 'admin', 'admin-token', 'apps', 'auth', 'bindings', 'change-requests', 'check-all', 'cockpits', 'content', 'cookies', 'design', 'export', 'health', 'import', 'mcp', 'mcp-rest', 'report-governance', 'remote-allow', 'settings', 'skills', 'sop', 'sops', 'stats', 'summary', 'task-center', 'tasks', 'types', 'vault', 'workbench-events', 'workbenches']);
 function allowExtensionRemoteWrite(path: string): void {
   const m = /^\/api\/([a-z0-9][a-z0-9-]{0,63})(\/[a-z0-9][a-z0-9-]{0,63}){1,3}$/.exec(path);
   if (!m) throw new Error(`业务写面路径非法（须 /api/<命名空间>/<段>，小写）：${path}`);
@@ -2074,7 +2115,7 @@ function loginUrl(_req: express.Request, returnPath: string): string {
 
 // ---------- 统一待办（omni-inbox · 总工程师设计 9c5557c1c0）：只读聚合；路由在域模块里 ----------
 registerTaskRoutes(http, { wrap, adminGuard, adminHeaderOk, devOriginOk, loginUrl });
-registerBenchViewRoutes(http, { on: BENCH_VIEWS.on, wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
+registerBenchViewRoutes(http, { on: BENCH_VIEWS.on, imageGalleryBase: BENCH_VIEWS.imageGalleryBase, wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
 // 经验库（/knowledge 的接口）：只读；条目按看的人的授予逐条判，管理口令拒（services/knowledge.ts、routes/knowledge.ts）
 registerKnowledgeRoutes(http, { wrap, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), devOriginOk });
 
@@ -2089,9 +2130,10 @@ registerGrantRoutes(http, { markAdmin, adminGuard, adminActor, adminHeaderOk, cr
 { const n = svc<GrantService>('grants').migrationAdminsIgnored(); if (n) console.log(JSON.stringify({ source: 'grants', event: 'migration-admin-ignored', count: n, note: '迁移来的 admin 授予在认管理员时不算；要整批收回用 POST /api/grants/revoke-migration', at: new Date().toISOString() })); }
 registerDepartmentRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 部门：登录的人读、管理员写
 registerTeamRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 团队与分配（规范 14 第 1 步）：登录的人按可见范围读；认领、负责人是管理员，分配是负责人
-registerRelationRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
-registerAreaRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 领域（规范 15）：属主建撤、定规范；属主、管理层看全部
-registerReportDimensionRoutes(http, { markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 报告的维度和模板（第 19 篇）：属主和持本领域 area-report 的人定；登录的人读
+registerRelationRoutes(http, { publicPerson, markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
+registerAreaRoutes(http, { publicPerson, markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 领域（规范 15）：属主建撤、定规范；属主、管理层看全部
+registerAreaAccessRoutes(http, (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)), publicPerson);
+registerReportDimensionRoutes(http, { publicPerson, markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 报告的维度和模板（第 19 篇）：属主和持本领域 area-report 的人定；登录的人读
 registerAccessRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
 registerAttentionRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
 registerWorkItemRoutes(http, { markAdmin, adminGuard, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8d：事项页的时间线
@@ -3453,6 +3495,12 @@ function mcpResultAccess(sess: McpSess | null, id: unknown): { kind: 'ok'; row: 
   if (!sess || typeof id !== 'string' || !MCP_RESULT_ID_RE.test(id)) return { kind: 'missing' };
   const row = svc<McpService>('mcp').resultGet(id, Date.now());
   if (!row || row.session_id !== sess.id) return { kind: 'missing' };
+  if (row.tool.startsWith('capability:')) {
+    const cap = capability(row.tool.slice('capability:'.length));
+    const caller = cap ? capabilityCaller(sess, cap) : null;
+    return caller && row.bench === JSON.stringify([caller.area, caller.principal])
+      ? { kind: 'ok', row } : { kind: 'denied', tool: row.tool.slice('capability:'.length) };
+  }
   if (MCP_EXEMPT_TOOLS.has(row.tool)) return { kind: 'ok', row };
   if (BENCH_TOOL_NAMES.has(row.tool)) {
     const granted = BENCH_VIEWS.on && hasBenchGrant(sess.id, row.bench, row.tool);
@@ -3463,8 +3511,8 @@ function mcpResultAccess(sess: McpSess | null, id: unknown): { kind: 'ok'; row: 
   return { kind: 'ok', row };
 }
 /** 工具调用成功之后：结果大就换成引用。网关关着（没有会话）、result_read 自己、上游报错的结果，照原样回 */
-function mcpByRef(sess: McpSess | null, toolName: string, args: any, out: unknown, origin: string): unknown {
-  if (!sess || toolName === 'result_read') return out;
+function mcpByRef(sess: McpSess | null, toolName: string, args: any, out: unknown, origin: string, capabilityScope?: { area: string; principal: string }): unknown {
+  if (!sess || toolName === 'result_read' || toolName === 'invoke') return out;
   if (out && typeof out === 'object' && (out as any).isError === true) return out;
   const body = JSON.stringify(out ?? null);
   const bytes = Buffer.byteLength(body, 'utf8');
@@ -3472,10 +3520,11 @@ function mcpByRef(sess: McpSess | null, toolName: string, args: any, out: unknow
   const now = Date.now();
   const id = randomBytes(16).toString('base64url');
   const sha256 = createHash('sha256').update(body, 'utf8').digest('hex');
-  const bench = BENCH_TOOL_NAMES.has(toolName) && typeof args?.bench === 'string' ? resolveBenchRef(args.bench) : '';
+  const bench = capabilityScope ? JSON.stringify([capabilityScope.area, capabilityScope.principal])
+    : BENCH_TOOL_NAMES.has(toolName) && typeof args?.bench === 'string' ? resolveBenchRef(args.bench) : '';
   const scope = mcpToolScope(sess, toolName);
   const target = scope !== null && scope !== 'all' ? mcpScopeTarget(toolName, args) : null;
-  svc<McpService>('mcp').resultPut({ id, sessionId: sess.id, tool: toolName, bench, target, sha256, bytes, body, createdAt: now, expiresAt: now + MCP_RESULT_LIMITS.ttl }, MCP_RESULT_KEEP);
+  svc<McpService>('mcp').resultPut({ id, sessionId: sess.id, tool: capabilityScope ? 'capability:' + toolName : toolName, bench, target, sha256, bytes, body, createdAt: now, expiresAt: now + MCP_RESULT_LIMITS.ttl }, MCP_RESULT_KEEP);
   const url = `${origin}${MCP_REST_BASE}/results/${id}`;
   return {
     result_ref: { id, url, sha256, bytes, expires_at: new Date(now + MCP_RESULT_LIMITS.ttl).toISOString() },
@@ -3526,7 +3575,7 @@ function isoOf(v: unknown): string | null {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 }
 /** 申请对会话的编号：通用申请 mcp-N，台的申请 bench-N（两套编号各自从 1 起，不带前缀会撞号） */
-const ACCESS_REF_RE = /^(mcp|bench)-([1-9]\d{0,11})$/;
+const ACCESS_REF_RE = /^(mcp|bench|area)-([1-9]\d{0,11})$/;
 /** 会话看到的申请：不带 decided_by（管理员身份不外露给会话）；时刻统一成 ISO */
 function accessRequestForSession(r: Pick<AccessRequestRow, 'id' | 'tools' | 'reason' | 'status' | 'note' | 'decided_at' | 'created_at'>) {
   return { id: r.id, ref: `mcp-${r.id}`, tools: parseToolList(r.tools), reason: r.reason, status: r.status, note: r.note, decided_at: isoOf(r.decided_at), created_at: isoOf(r.created_at) };
@@ -3566,19 +3615,27 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
     const end = Math.min(total, offset + n);
     return { id: row.id, tool: row.tool, sha256: row.sha256, total_chars: total, offset, text: row.body.slice(offset, end), next_offset: end < total ? end : null };
   }
-  const catalog = await mcpAggregatedTools();
+  if (name === 'access_request' && (args?.area !== undefined || args?.actions !== undefined)) {
+    if (!sess) throw new HttpError(403, '领域申请必须使用有可信归属的会话', { code: 'area_access_unbound_session' });
+    return svc<AreaAccessService>('areaAccess').submit(sess.id, args);
+  }
   if (name === 'access_info') {
-    const given = (['ref', 'tool', 'full'] as const).filter((k) => args?.[k] !== undefined && !(k === 'full' && args.full === false));
+    const given = (['ref', 'tool', 'full', 'area', 'capability'] as const).filter((k) => args?.[k] !== undefined && !(k === 'full' && args.full === false));
     if (given.length > 1) bad(`access_info 的 ${given.join('、')} 一次只能给一个`);
     if (args?.full !== undefined && typeof args.full !== 'boolean') bad('full 写 true 或 false');
+  }
+  if (name === 'access_info' && args?.area !== undefined) {
+    if (!sess) throw new HttpError(403, '领域权限须用有可信归属的会话查询', { code: 'area_access_unbound_session' });
+    return svc<AreaAccessService>('areaAccess').effectiveActions(sess.id, args.area);
   }
   if (name === 'access_info' && args?.ref !== undefined) {
     // 只查一条：只认本会话的；别的会话的和不存在的同一句
     const m = typeof args.ref === 'string' ? ACCESS_REF_RE.exec(args.ref.trim()) : null;
-    if (!m) bad('ref 写成 mcp-<编号>（通用申请）或 bench-<编号>（台的申请），编号见 access_request 的应答');
+    if (!m) bad('ref 写成 mcp-<编号>、bench-<编号> 或 area-<编号>，编号见 access_request 的应答');
     const id = Number(m![2]);
     const notFound = () => bad(`本会话没有这条申请：${args.ref}`);
     if (!sess) notFound();
+    if (m![1] === 'area') return { request: svc<AreaAccessService>('areaAccess').requestForSession(sess!.id, id) };
     if (m![1] === 'mcp') {
       const row = svc<McpService>('mcp').accessRequestById(id) as AccessRequestRow | undefined;
       if (!row || row.session_id !== sess!.id) notFound();
@@ -3588,6 +3645,14 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
     if (!row) notFound();
     return { request: benchRequestForSession(row!) };
   }
+  if (name === 'access_info' && args?.capability !== undefined) {
+    const report = BENCH_VIEWS.on ? governanceCatalog(sess, true).find(cap => cap.name === args.capability) : undefined;
+    if (report) return { capability: report };
+    const cap = capability(args.capability);
+    if (!cap) bad('领域能力未登记，请查看 access_info 目录');
+    return { capability: capabilityDetail(cap!, capabilityCaller(sess, cap!) !== null) };
+  }
+  const catalog = await mcpAggregatedTools();
   if (name === 'access_info') {
     const granted = (t: McpToolDef) => mcpToolGranted(sess, t.name); // 网关关时全部可调
     const benchGrants = sess && BENCH_VIEWS.on ? benchGrantsOf(sess.id) : new Map<string, string[]>();
@@ -3607,6 +3672,10 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
       session: sess?.name ?? null,
       granted_tools: catalog.filter(granted).map((t) => t.name),
       catalog: catalog.map((t) => entry(t, full)),
+      capabilities: [
+        ...capabilityIndex().map(cap => capabilityBrief(cap, capabilityCaller(sess, cap) !== null)),
+        ...(BENCH_VIEWS.on ? governanceCatalog(sess, false) : []),
+      ],
       ...(full ? {} : { how_to_detail: '要某个工具的参数表和完整说明：access_info {tool: "工具名"}（没批的也取得到）' }),
       requests: sess ? (svc<McpService>('mcp').accessRequestsBySession(sess.id) as AccessRequestRow[]).map(accessRequestForSession) : [],
       ...(BENCH_VIEWS.on ? { bench_requests: sess ? benchRequestsOf(sess.id).map(benchRequestForSession) : [], how_to_request_bench: 'access_request {tools: [工具名@bench:台的标识], reason: 用途}：数据视图的工具必须限定到台，读也一样；一次只申请一个台；由台的管理层批准，不经 MCP 网关页' } : {}),
@@ -3693,17 +3762,17 @@ function accessRequestId(req: express.Request): number {
   return id;
 }
 
-registerMcpRoutes(http, { adminGuard, bad, sha256Hex, MCP_UPSTREAM_PREFIX_RE, MCP_SESSION_NAME_RE, MCP_SCOPED_TOOLS, ACCESS_STATUSES, ACCESS_REASON_MAX, upstreamHealth, upstreamToolCache, mcpUpstreams, mcpAggregatedTools, mcpRegisteredNames, resolveGrants, pageLimit, parseToolList, adminActor, accessRequestId });
+registerMcpRoutes(http, { adminGuard, bad, sha256Hex, MCP_UPSTREAM_PREFIX_RE, MCP_SESSION_NAME_RE, MCP_SCOPED_TOOLS, ACCESS_STATUSES, ACCESS_REASON_MAX, upstreamHealth, upstreamToolCache, mcpUpstreams, mcpAggregatedTools, mcpRegisteredNames, resolveGrants, pageLimit, parseToolList, adminActor, accessRequestId, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) });
 
 // ---------- /mcp 与 REST（/api/mcp-rest/*）共用：会话认定、审计、tools/call ----------
-type McpChannel = 'mcp' | 'rest';
+type McpChannel = 'mcp' | CapabilityChannel;
 /** 网关会话认定：只认 Authorization: Bearer <会话令牌>。网关开且令牌无效/缺失/吊销 → 已回 401，返回 undefined；
  *  网关关 → null（匿名可调全部工具，只用于本地开发）。 */
 function mcpGatewaySession(req: express.Request, res: express.Response): McpSess | null | undefined {
   if (!MCP_GATEWAY_ON) return null;
   const m = /^Bearer ([0-9a-f]{64})$/i.exec(String(req.headers.authorization ?? ''));
   const sess = m ? mcpSessionByToken(m[1]) : null;
-  if (!sess) {
+  if (!sess || !svc<McpService>('mcp').sessionOwnerEnabled(sess.id)) {
     if (!isStartupProbeRequest(req)) mcp401Count += 1; // self-probe is not adoption traffic
     res.setHeader('WWW-Authenticate', 'Bearer realm="workbench-market mcp"');
     res.status(401).json({ error: 'unauthorized: valid session token required', hint: '会话与令牌由管理员经 /api/mcp/sessions 创建分发' });
@@ -3744,14 +3813,58 @@ type McpInvokeResult =
   | { kind: 'not_granted' }
   | { kind: 'ok'; out: unknown; upstream: boolean }
   | { kind: 'error'; error: any; upstream: boolean };
+function capabilityCaller(sess: McpSess | null, cap: CapabilityDeclaration) {
+  if (!sess) return null;
+  const mcp = svc<McpService>('mcp');
+  const principal = mcp.areaAccessPrincipal(sess.id);
+  if (!principal) return null;
+  try {
+    const { effective_actions } = svc<AreaAccessService>('areaAccess').effectiveActions(sess.id, cap.area);
+    return effective_actions.includes(cap.name) ? { sessionId: sess.id, principal, area: cap.area } : null;
+  } catch (e) {
+    if (e instanceof HttpError && e.status === 403) return null;
+    throw e;
+  }
+}
+
+async function invokeCapability(sess: McpSess | null, target: unknown, args: unknown, channel: CapabilityChannel, origin: string) {
+  if (target === GOVERNANCE_PROPOSE || target === GOVERNANCE_RESULT) {
+    if (!BENCH_VIEWS.on) governanceForbidden();
+    return target === GOVERNANCE_PROPOSE ? proposeReportGovernance(sess, args, channel) : resultReportGovernance(sess, args, channel);
+  }
+  const cap = capability(target);
+  if (!cap) capabilityDenied();
+  const start = Date.now();
+  try {
+    const caller = capabilityCaller(sess, cap);
+    if (!caller) capabilityDenied();
+    const out = await executeCapability(cap, caller, args);
+    const result = mcpByRef(sess, cap.name, args, out, origin, caller);
+    mcpAudit(sess, channel, 'capability/call', cap.name, true, '', Date.now() - start, args);
+    return result;
+  } catch (e) {
+    mcpAudit(sess, channel, 'capability/call', cap.name, false, e instanceof HttpError ? String(e.status) : 'internal', Date.now() - start, args);
+    throw e;
+  }
+}
+
 /** tools/call 唯一执行链：授权检查 → 免授权工具 / 上游转发 / 本地工具 → 审计。两个渠道各自把结果映射成自己的应答形状。 */
 async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, channel: McpChannel, origin: string, t0 = Date.now()): Promise<McpInvokeResult> {
+  if (toolName === 'invoke') {
+    try {
+      if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length !== 2 || !Object.hasOwn(args, 'target') || !Object.hasOwn(args, 'args')) {
+        throw new HttpError(400, 'invoke 只收 target 和 args');
+      }
+      return { kind: 'ok', out: await invokeCapability(sess, args.target, args.args, channel === 'mcp' ? 'mcp-invoke' : 'rest', origin), upstream: false };
+    } catch (error) { return { kind: 'error', error, upstream: false }; }
+  }
   if (BENCH_TOOL_NAMES.has(toolName)) {
     // 数据视图的工具：授予按「会话 × 台 × 工具」核。入口关着、没有会话、没有授予、台没登记，都按未授权处理
     try {
+      const fence = toolName === 'report_generate' ? captureBenchStorageFence() : undefined;
       const store = await benchToolTarget(BENCH_VIEWS.on, sess ? sess.id : null, toolName, args);
       if (!store) { mcpAudit(sess, channel, 'tools/call', toolName, false, 'not granted: bench scope', Date.now() - t0, args); return { kind: 'not_granted' }; }
-      const out = await runBenchTool(store, toolName, args, `mcp:${sess!.name}`, Date.now());
+      const out = await runBenchTool(store, toolName, args, `mcp:${sess!.name}`, Date.now(), fence, { galleryBase: BENCH_VIEWS.imageGalleryBase });
       mcpAudit(sess, channel, 'tools/call', toolName, true, '', Date.now() - t0, args);
       return { kind: 'ok', out, upstream: false };
     } catch (e: any) {
@@ -3783,6 +3896,14 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
   }
 }
 
+registerCapabilityRoutes(http, { wrap, mcpGatewaySession, mcpPublicOrigin, invokeCapability });
+registerReportGovernanceRoutes(http, { publicPerson, wrap, enabled: BENCH_VIEWS.on,
+  session: req => {
+    const bearer = /^Bearer ([0-9a-f]{64})$/i.exec(String(req.headers.authorization ?? ''));
+    return MCP_GATEWAY_ON && bearer ? mcpSessionByToken(bearer[1]) : null;
+  },
+  crossOriginDenied: req => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)),
+});
 registerMcpProtocolRoutes(http, { mcpGatewaySession, mcpAudit, mcpRestInfo, mcpPublicOrigin, MCP_KNOWN_PROTOCOLS, MCP_PROTOCOL, mcpAggregatedTools, mcpToolGranted, mcpInvokeTool, mcpByRef });
 
 // ---------- MCP 工具的 OpenAPI REST 开放：不说 MCP 协议的客户端用同一个会话令牌按 REST 调同一批工具 ----------

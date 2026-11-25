@@ -62,6 +62,18 @@
 
 存量里有不少不符合上表的地方。那是欠账，只减不增：改到哪个域，顺手把那个域收一点。
 
+## 轻量评审工作树
+
+主仓已有依赖时，可以在同一仓库的干净依赖布局上运行检查：
+
+```bash
+node scripts/worktree-review-env.mjs .worktrees/<任务> -- pnpm check
+```
+
+目标须是已登记的 linked worktree。脚本逐字节核对两边的依赖声明、项目锁和主仓实际虚拟仓锁。它只在目标工作树创建临时模块根，重建包链接、workspace 链接和命令 shim。包文件优先采用文件系统写时复制，缺少该能力时采用独立文件复制。会话状态、缓存和已有模块根不会被复用或覆盖。检查使用工作树内的 pnpm 包装入口，显式传入 verifyDepsBeforeRun=false，并用 config get 核实有效值后才执行。嵌套 pnpm 脚本走同一入口，保留 pnpm 路径保护。准备、运行或清理阶段收到常规取消时，仍回收本次创建的目录。
+
+指定可信的前台检查命令。已安装的 pnpm 可直接用 `pnpm`、`pnpm.js`、`pnpm.cjs` 或 `pnpm.mjs` 执行，也可用解析到这些入口的符号链接。此入口不通过 npm、npx 或 Corepack 临时获取包管理器。检查命令不得绕过包装入口执行安装或指向共享可写路径。锁不一致、目录已存在、链接越界时会拒绝。正式行为测试运行 `node --test scripts/worktree-review-env-test.mjs`。
+
 ## 提交前
 
 ```bash

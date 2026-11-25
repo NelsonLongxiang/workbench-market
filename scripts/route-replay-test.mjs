@@ -55,6 +55,8 @@ const CLOCK_PRELOAD = join(HERE, 'replay-clock-preload.mjs');
 const FIXTURES = {
   // 登录提供方换成假的（scripts/identity-fake-provider.mjs）：认人只看 session_id 的值，不访问任何外部系统
   'identity-fake': { preload: join(HERE, 'identity-fake-preload.mjs'), env: { IDENTITY_SEAM_ROOT: ROOT } },
+  'area-access-identity': { preload: join(HERE, 'fixtures/area-access-identity-preload.mjs'), env: {} },
+  'capability-fixture': { preload: join(HERE, 'fixtures/capability-extensions/fixture-domain/server.mjs'), env: { WM_EXTENSIONS_DIR: join(HERE, 'fixtures/capability-extensions') } },
   // 本机起一个假飞书、建一个放好合成应用凭证的临时凭据库，飞书登录指过去（scripts/feishu-fake-preload.mjs）
   'feishu-fake': { preload: join(HERE, 'feishu-fake-preload.mjs'), env: { IDENTITY_SEAM_ROOT: ROOT } },
   // 本机起一个假 GitHub，预先放好几个仓库，自产台同步指过去（scripts/github-fake-preload.mjs）
@@ -69,6 +71,8 @@ const FIXTURES = {
   'knowledge-fake': { preload: join(HERE, 'knowledge-fake-preload.mjs'), env: {} },
   // 前端构建目录（web/dist）换成占位，内容每次都一样，不看本机有没有真的构建（scripts/web-dist-stub-preload.mjs）
   'web-dist-stub': { preload: join(HERE, 'web-dist-stub-preload.mjs'), env: { WM_REPLAY_ROOT: ROOT } },
+  // 本机回环上的假图库，只给固定字节；WM_IMAGE_GALLERY_BASE 指过去（scripts/image-fake-preload.mjs，docs/image-step1.md）
+  'image-fake': { preload: join(HERE, 'image-fake-preload.mjs'), env: {} },
 };
 /** seed_files 的路径：数据目录下的相对路径，每一段小写字母、数字、点、下划线、连字符，不以点开头（所以没有 .. 也没有隐藏文件） */
 const SEED_FILE_PATH = /^[a-z0-9_-][a-z0-9._-]*(?:\/[a-z0-9_-][a-z0-9._-]*)*$/;
@@ -1035,6 +1039,13 @@ async function selftest() {
   check(shifted.status === 0 && shifted.stdout.trim() === JSON.stringify(['2030-01-01T00:00', '2030-01-01T00:00', true, '1970-01-01T00:00:00.000Z', true, true]), `定时钟：Date.now()、new Date()、Date() 都从给的时刻开始走；带参数的 new Date(x) 照旧 ${shifted.stdout.trim()}${shifted.stderr.trim()}`);
   const refusedOutsideTest = spawnSync(process.execPath, ['--import', pathToFileURL(CLOCK_PRELOAD).href, '-e', 'console.log(1)'], { env: { PATH: process.env.PATH, NODE_ENV: 'production', WM_REPLAY_CLOCK: '2030-01-01T00:00:00Z' }, encoding: 'utf8' });
   const refusedBadClock = spawnSync(process.execPath, ['--import', pathToFileURL(CLOCK_PRELOAD).href, '-e', 'console.log(1)'], { env: { PATH: process.env.PATH, NODE_ENV: 'test' }, encoding: 'utf8' });
+  const clockWait = 'const a=Date.now(); setTimeout(()=>console.log(JSON.stringify({same:Date.now()===a,now:Date.now(),newDate:+new Date(),dateCall:Date()===new Date(a).toString()})),1100)';
+  const clockRun = (mode, nodeEnv = 'test') => spawnSync(process.execPath, ['--import', pathToFileURL(CLOCK_PRELOAD).href, '-e', clockWait], { env: { PATH: process.env.PATH, NODE_ENV: nodeEnv, WM_REPLAY_CLOCK: '2030-01-01T00:00:00Z', ...(mode ? { WM_REPLAY_CLOCK_MODE: mode } : {}) }, encoding: 'utf8' });
+  const fixed = clockRun('fixed'), moving = clockRun(), badMode = clockRun('typo'), fixedProduction = clockRun('fixed', 'production');
+  const f = fixed.status === 0 ? JSON.parse(fixed.stdout) : {}; const m = moving.status === 0 ? JSON.parse(moving.stdout) : {};
+  check(fixed.status === 0 && f.same && f.now === Date.parse('2030-01-01T00:00:00Z') && f.newDate === f.now && f.dateCall, '固定回放时钟：真实定时器跨过一秒，三种当前时间保持场景时刻');
+  check(moving.status === 0 && m.same === false && m.now >= Date.parse('2030-01-01T00:00:01Z'), '缺省回放时钟照旧继续走，不受固定场景影响');
+  check(badMode.status === 1 && fixedProduction.status === 1 && fixedProduction.stdout === '', '固定回放时钟：拼错模式和生产环境均拒绝');
   check(refusedOutsideTest.status === 1 && refusedOutsideTest.stdout === '' && refusedBadClock.status === 1 && refusedBadClock.stdout === '', '定时钟：不是测试环境、或者没给时刻，预加载让进程直接退出，不带着假的时钟起来');
   // 假 GitHub、假 LayerFS：测试环境里起得来、把地址交给进程，commit 号每次一样；别的环境直接退出
   const servicesProbe = `const a = process.env.WM_GITHUB_API, l = process.env.LAYERFS_SERVICE_URL, t = process.env.LAYERFS_SERVICE_TOKEN;

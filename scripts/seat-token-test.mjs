@@ -17,28 +17,63 @@
 import { spawn } from './owned-script-fixture.mjs';
 import { createServer as netServer } from 'node:net';
 import { createHash, generateKeyPairSync, sign as edSign } from 'node:crypto';
-import { mkdirSync, rmSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { once } from 'node:events';
+import { lstatSync, mkdirSync, mkdtempSync, rmSync, rmdirSync } from 'node:fs';
+import { constants as osConstants } from 'node:os';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
+import { instanceStartError } from './lib/self-probe-env.mjs';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const port = async () => { const s = netServer(); await new Promise((r) => s.listen(0, '127.0.0.1', r)); const p = s.address().port; await new Promise((r) => s.close(r)); return p; };
-const DATA = resolve('tmp/seat-token');
-rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
+async function freePort() {
+  const server = netServer();
+  const listening = once(server, 'listening');
+  server.listen(0, '127.0.0.1');
+  await listening;
+  const { port } = server.address();
+  await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  return port;
+}
 
-const PM = await port();
-const BASE = `http://127.0.0.1:${PM}`;
-const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
-  cwd: 'server',
-  env: { ...process.env, DATA_DIR: DATA, PORT: String(PM), WM_CONTROL_PORT: '0', NODE_ENV: 'test', MCP_GATEWAY: 'on', ADMIN_TOKEN: 'seat-admin', MARKET_PUBLIC_URL: BASE, WM_LOGIN_GATE: '', WM_OUTBOUND: 'off' },
-  stdio: ['ignore', 'pipe', 'pipe'],
-});
+const tmp = fileURLToPath(new URL('../tmp', import.meta.url));
+const serverDir = fileURLToPath(new URL('../server', import.meta.url));
+const cancellation = new AbortController();
+const signals = ['SIGINT', 'SIGTERM', 'SIGHUP'];
+let fixture, madeTmp, interrupted;
+let DATA, BASE;
+let child, childClosed, childError;
 let out = '';
-child.stdout.on('data', (d) => { out += d; });
-child.stderr.on('data', (d) => { out += d; });
-async function ready() { const end = Date.now() + 30000; while (Date.now() < end) { try { if ((await fetch(BASE + '/api/health')).status === 200) return true; } catch {} await sleep(250); } return false; }
+function onSignal(signal) {
+  if (interrupted) return;
+  interrupted = signal;
+  cancellation.abort();
+  child?.kill('SIGTERM');
+}
+const fetch = (url, options) => globalThis.fetch(url, { ...options, signal: cancellation.signal });
+async function ready() {
+  const end = Date.now() + 30000;
+  while (Date.now() < end && !childError && child.exitCode === null && child.signalCode === null) {
+    cancellation.signal.throwIfAborted();
+    try { if ((await fetch(BASE + '/api/health')).status === 200) return true; }
+    catch { cancellation.signal.throwIfAborted(); }
+    await sleep(250);
+  }
+  return false;
+}
+async function stopChild() {
+  if (!child) return;
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) {
+    await childClosed;
+    return;
+  }
+  // Wait for close so the instance and its stdio release the fixture before deletion.
+  child.kill('SIGTERM');
+  const deadline = setTimeout(() => child.kill('SIGKILL'), 2500);
+  try { await childClosed; } finally { clearTimeout(deadline); }
+}
 const db = () => { const d = new DatabaseSync(join(DATA, 'workbench-market.db'), { timeout: 5000 }); d.exec('PRAGMA busy_timeout = 5000'); return d; };
 const q = (sql, ...a) => { const d = db(); try { return d.prepare(sql).all(...a); } finally { d.close(); } };
 const run = (sql, ...a) => { const d = db(); try { return d.prepare(sql).run(...a); } finally { d.close(); } };
@@ -76,8 +111,36 @@ const mcp = async (token, method, params, headers = {}) => { const r = await fet
 const REFUSED = JSON.stringify({ error: 'seat_token_refused' });
 
 const A = host('alpha-node'), B = host('beta-node'), C = host('gamma-node'), D = host('delta-node'), E = host('eps-node'), F = host('zeta-node');
+for (const signal of signals) process.on(signal, onSignal);
 try {
-  if (!(await ready())) throw new Error('实例未就绪：' + out.slice(-600));
+  const port = await freePort();
+  cancellation.signal.throwIfAborted();
+  BASE = `http://127.0.0.1:${port}`;
+  madeTmp = mkdirSync(tmp, { recursive: true }) !== undefined;
+  if (!lstatSync(tmp).isDirectory()) throw Error('测试临时根必须是真实目录');
+  fixture = mkdtempSync(join(tmp, 'seat-token-'));
+  DATA = join(fixture, 'data');
+  const home = join(fixture, 'home');
+  const scratch = join(fixture, 'tmp');
+  for (const dir of [DATA, home, scratch]) mkdirSync(dir);
+  const env = {};
+  for (const key of ['SystemRoot', 'WINDIR', 'PATH', 'PATHEXT']) {
+    if (process.env[key]) env[key] = process.env[key];
+  }
+  Object.assign(env, {
+    HOME: home, USERPROFILE: home, TMPDIR: scratch, TMP: scratch, TEMP: scratch,
+    DATA_DIR: DATA, PORT: String(port), WM_CONTROL_PORT: '0', NODE_ENV: 'test',
+    MCP_GATEWAY: 'on', ADMIN_TOKEN: 'seat-admin', MARKET_PUBLIC_URL: BASE,
+    WM_LOGIN_GATE: '', WM_OUTBOUND: 'off', REDIS_URL: '',
+  });
+  child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
+    cwd: serverDir, env, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  childClosed = new Promise((resolve) => child.once('close', resolve));
+  child.on('error', (error) => { childError = error; out += error.message + '\n'; });
+  child.stdout.on('data', (d) => { out += d; });
+  child.stderr.on('data', (d) => { out += d; });
+  if (!(await ready())) throw instanceStartError('实例未就绪', out);
   seedHost(A, [{ seat: 'alpha-node/a0000001', id: 'seat-a1' }, { seat: 'alpha-node/a0000002', id: 'seat-a2' }, { seat: 'alpha-node/a0000003', id: 'seat-a3' }]);
   seedHost(B, [{ seat: 'beta-node/b0000001', id: 'seat-b1' }]);
   seedHost(C, [{ seat: 'gamma-node/c0000001', id: 'seat-c1' }], 'key_changed');
@@ -135,6 +198,28 @@ try {
   ok('拒掉的都没发出令牌（库里只有成功的两张）', q('SELECT COUNT(*) AS c FROM a2a_seat_tokens')[0].c === 2, String(q('SELECT COUNT(*) AS c FROM a2a_seat_tokens')[0].c));
 
   console.log('三、每次调用复核');
+  // 归属从实际尚有效的节点分配取，令牌不缓存责任人。合成分配不需要外部节点或用户。
+  run("INSERT INTO principals (id, id_key, kind) VALUES ('user:seat-first', 'user:seat-first', 'person'), ('user:seat-next', 'user:seat-next', 'person')");
+  run("INSERT INTO areas (id, name, status, created_at, created_by, updated_at, updated_by) VALUES ('seat-area', '合成领域', 'active', 0, 'test', 0, 'test')");
+  const assign = (principal) => run('INSERT INTO seat_assignments (host, team, seat, seat_id, principal_id, assigned_by, assigned_at, peer_root, key_fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    A.fp, 'alpha-node/canvas/demo', 'alpha-node/a0000001', 'seat-a1', principal, 'test', Date.now(), A.root, fullFp(A.pk));
+  const seatApply = () => mcp(tok1, 'tools/call', { name: 'access_request', arguments: { area: 'seat-area', actions: ['area.read'], reason: '合成席位' } });
+  const noOwner = await seatApply();
+  assign('user:seat-first');
+  const firstOwner = await seatApply();
+  run("UPDATE seat_assignments SET ended_at = ? WHERE host = ? AND seat_id = 'seat-a1'", Date.now(), A.fp);
+  assign('user:seat-next');
+  const nextOwner = await seatApply();
+  const records = q("SELECT applicant FROM area_access_requests WHERE area_id = 'seat-area' ORDER BY id").map(r => r.applicant);
+  ok('实际席位令牌无分配时不得申请；分配和改派后同一令牌分别记当前责任人', noOwner.body?.result?.isError === true &&
+    firstOwner.body?.result?.isError !== true && nextOwner.body?.result?.isError !== true && records.join() === 'user:seat-first,user:seat-next', JSON.stringify(records));
+  const oldSeatApplication = q("SELECT id FROM area_access_requests WHERE area_id = 'seat-area' AND applicant = 'user:seat-first'")[0]?.id;
+  const oldReceipt = await mcp(tok1, 'tools/call', { name: 'access_info', arguments: { ref: 'area-' + oldSeatApplication } });
+  ok('席位改派后原申请只属于原责任人，当前令牌不能看', oldReceipt.body?.result?.isError === true &&
+    oldReceipt.body.result.content[0].text.includes('area_access_request_missing'));
+  run("UPDATE principals SET status = 'disabled' WHERE id = 'user:seat-next'");
+  ok('停用席位当前责任人立即拒绝已发令牌', (await mcp(tok1, 'tools/list', {})).status === 401);
+  run("UPDATE principals SET status = 'active' WHERE id = 'user:seat-next'");
   run("DELETE FROM a2a_roster_node_seats WHERE host = ? AND seat_id = 'seat-a1'", A.fp);
   m = await mcp(tok1, 'tools/list', {});
   ok('名册撤掉席位 → 已发的令牌下一次调用 401', m.status === 401, String(m.status));
@@ -304,7 +389,16 @@ try {
 } catch (e) {
   ok('运行', false, String(e?.stack ?? e));
 } finally {
-  child.kill();
+  try {
+    await stopChild();
+    if (fixture) rmSync(fixture, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    if (madeTmp) {
+      try { rmdirSync(tmp); }
+      catch (error) { if (!['ENOENT', 'ENOTEMPTY', 'EEXIST'].includes(error.code)) throw error; }
+    }
+  } finally {
+    for (const signal of signals) process.off(signal, onSignal);
+  }
 }
 console.log(`\n${pass} 过 / ${fail} 败`);
-process.exit(fail ? 1 : 0);
+process.exitCode = interrupted ? 128 + osConstants.signals[interrupted] : Number(fail > 0);

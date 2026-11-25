@@ -28,6 +28,8 @@
  */
 import { createHash, createPublicKey, generateKeyPairSync, randomBytes, verify as edVerify, type KeyObject } from 'node:crypto';
 import { db } from '../db.ts';
+import { root } from '../root-context.ts';
+import type { TeamService } from './team.ts';
 import { sqlTime } from './a2a-replies.ts';
 import { claimSignatureOnce } from './a2a-receipts.ts';
 // 公钥完整指纹和对端登记表（a2a_peers.key_fingerprint）同一个算法、同一个写法（sha256:<十六进制全长>）
@@ -195,6 +197,16 @@ export function seatTokenSession(tokenSha256: string, now = Date.now()): { id: n
   let grants: string[] = [];
   try { const g = JSON.parse(s.grants || '[]'); if (Array.isArray(g)) grants = g.filter((x) => typeof x === 'string'); } catch { grants = []; }
   return { id: Number(s.id), name: s.name, grants, seat: `${t.host}:${t.seat_id}`, tokenRef: tokenRef(tokenSha256) };
+}
+
+/** 只从现行的经核验名册与市场的有效分配取责任人。旧节点或失效名册不参与。 */
+export function seatResponsiblePrincipal(sessionId: number, now: number): string | null {
+  const bound = db.prepare('SELECT host, seat_id, key_fingerprint, peer_root FROM a2a_seat_subjects WHERE session_id = ?').get(sessionId) as
+    { host: string; seat_id: string; key_fingerprint: string; peer_root: string } | undefined;
+  if (!bound) return null;
+  const live = liveSeat(bound.host, bound.seat_id, bound.peer_root);
+  if (!live || keyFingerprint(live.publicKey) !== bound.key_fingerprint) return null;
+  return (root.get('teams') as unknown as TeamService).ownerAt({ host: bound.host, seat_id: bound.seat_id, team: '', seat: '' }, now);
 }
 
 /** 这个会话是不是席位的授权主体（管理员页、审计用） */

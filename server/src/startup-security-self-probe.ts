@@ -2,6 +2,7 @@
 import { randomBytes } from 'node:crypto';
 import { request, type IncomingMessage, type Server } from 'node:http';
 import type { RequestHandler } from 'express';
+import { marketPublicOrigin } from './surfaces.ts';
 
 const internalRequests = new WeakSet<IncomingMessage>();
 export const isStartupProbeRequest = (req: IncomingMessage): boolean => internalRequests.has(req);
@@ -86,6 +87,9 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
   async function execute({ market, control, gatewayOn, nodeEnv, loginGate = 'off', appDataRead = 'enforce', sopRunWrite = 'enforce', benchViews = false, portalForward, portalSessionStrip, outbound, sessionSeal, sessionRenewal, sessionLegacyTtl = false, appendOnly }: Options): Promise<State> {
     const [m, c] = await Promise.all([listener(market), listener(control)]);
     if (c) c.surface = 'control';
+    const publicOrigin = marketPublicOrigin();
+    const benchDecision = { target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/mcp-requests/0', body: '{}' };
+    const publicHeaders = publicOrigin ? { ...REMOTE_ANON, host: new URL(publicOrigin).host, 'sec-fetch-site': 'same-origin' } : null;
     const table = [
       { id: 'market.mcp.initialize', target: m, surface: 'market', method: 'POST', path: '/mcp', body: '{"jsonrpc":"2.0","id":1,"method":"initialize"}', status: 401, bearer: true, mcp: true },
       { id: 'market.mcp.tools-list', target: m, surface: 'market', method: 'POST', path: '/mcp', body: '{"jsonrpc":"2.0","id":2,"method":"tools/list"}', status: 401, mcp: true },
@@ -132,6 +136,15 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 定规范经写请求总门放行、路由内认人（持 area-spec 的人多半不是管理员）：远程匿名来必须 401
       { id: 'market.areas.anonymous-spec-set', target: m, surface: 'market', method: 'POST', path: '/api/areas/wm-self-probe/specs', body: '{"body":"x"}', origin: true, headers: REMOTE_ANON, status: 401 },
       { id: 'market.areas.anonymous-read', target: m, surface: 'market', method: 'GET', path: '/api/areas', headers: REMOTE_ANON, status: 401 },
+      { id: 'market.area-access.anonymous-approve', target: m, surface: 'market', method: 'POST', path: '/api/areas/wm-self-probe/access-requests/1/approve', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
+      ...(publicOrigin?.startsWith('https://') && publicHeaders ? [
+        { id: 'market.relations.public-origin-approve-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/relations/proposals/1/approve', body: '{}', headers: { ...publicHeaders, origin: publicOrigin }, status: 401 },
+        { id: 'market.report-dimensions.public-origin-activate-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/report-dimensions/wm-self-probe/activate', body: '{}', headers: { ...publicHeaders, origin: publicOrigin }, status: 401 },
+        { id: 'market.areas.public-origin-activate-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/areas/wm-self-probe/specs/activate', body: '{}', headers: { ...publicHeaders, origin: publicOrigin }, status: 401 },
+        { id: 'market.area-access.public-origin-approve-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/areas/wm-self-probe/access-requests/1/approve', body: '{}', headers: { ...publicHeaders, origin: publicOrigin }, status: 401 },
+        ...(benchViews ? [{ id: 'market.report-governance.public-origin-confirm-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/report-governance/inbox/p-1/confirm', body: '{}', headers: { ...publicHeaders, origin: publicOrigin }, status: 401 }] : []),
+      ] : []),
+      { id: 'market.mcp-responsibility.anonymous-confirm', target: m, surface: 'market', method: 'POST', path: '/api/mcp/responsibilities/1/confirm', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
       // 报告维度（docs/report-step1.md 第四节）：定报告维度经写请求总门放行、路由内认人（持 area-report 的人多半不是管理员），远程匿名来必须 401；
       // 建维度、发模板两条都看（认人在查维度之前，门坏了会回 400 或 404，也不会建出东西）；读也要先登录
       { id: 'market.report-dimensions.anonymous-create', target: m, surface: 'market', method: 'POST', path: '/api/report-dimensions', body: '{"id":"wm-self-probe","title":"x"}', origin: true, headers: REMOTE_ANON, status: 401 },
@@ -142,14 +155,26 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       { id: 'market.departments.write-closed', target: m, surface: 'market', method: 'DELETE', path: '/api/departments/wm-self-probe', status: 410 },
       // 数据视图的入口（WM_BENCH_VIEWS=on 才有这三行；关着时整组路由回 404，由 scripts/bench-views-entry-test.mjs 看）：
       // 远程匿名读不到台的清单、也登记不了台（登录门开不开都是 401：登录门先拦，或者路由自己认不出人）
+      ...(benchViews && publicHeaders && publicOrigin ? [
+        { ...benchDecision, id: 'market.bench-mcp.public-origin-anonymous', headers: { ...publicHeaders, origin: publicOrigin }, status: 401 },
+        { ...benchDecision, id: 'market.bench-mcp.other-origin-anonymous', headers: { ...publicHeaders, origin: 'null' }, status: loginGate === 'enforce' ? 401 : 403 },
+      ] : []),
       ...(benchViews ? [
         { id: 'market.bench-views.anonymous-read', target: m, surface: 'market' as const, method: 'GET', path: '/api/bench-views', headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.var-render-anonymous', target: m, surface: 'market' as const, method: 'GET', path: '/api/bench-views/wm-self-probe/render?var=wm-self-probe', headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.table-export-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/table/export', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
+        // 图片代取以报告作来源（docs/image-step1.md 用例 8，PR C）：远程匿名带 report= 也认不出人，401，不判报告、不外发
+        { id: 'market.bench-views.report-image-anonymous', target: m, surface: 'market' as const, method: 'GET', path: '/api/bench-views/wm-self-probe/image?u=photos%2Fwm-self-probe.png&report=1', headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.table-row-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/table/row', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
         // 报告（docs/report-step1.md，报告第 1 步 PR B）：远程匿名生成不了报告（路由自己认不出人，401）
         { id: 'market.bench-views.report-generate-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/reports', body: '{}', origin: true, headers: REMOTE_ANON, status: 401 },
         { id: 'market.bench-views.anonymous-write', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views', body: '{"slug":"wm-self-probe","title":"x"}', headers: REMOTE_ANON, status: 401 },
+        { id: 'market.bench-views.anonymous-stop-report', target: m, surface: 'market' as const, method: 'POST', path: '/api/bench-views/wm-self-probe/reports/probe/binding/stop', body: '{}', headers: REMOTE_ANON, status: 401 },
+        { id: 'market.report-governance.anonymous-confirm', target: m, surface: 'market' as const, method: 'POST', path: '/api/report-governance/inbox/p-1/confirm', body: '{}', headers: REMOTE_ANON, status: 401 },
+        { id: 'market.report-governance.anonymous-dimension-propose', target: m, surface: 'market' as const, method: 'POST', path: '/api/report-governance/proposals', body: '{"op":"dimension-create","args":{"area":"probe","id":"probe","title":"probe"},"idempotency_key":"probe"}', headers: REMOTE_ANON, status: 403 },
+        { id: 'market.report-governance.anonymous-template-publish', target: m, surface: 'market' as const, method: 'POST', path: '/api/report-governance/proposals', body: '{"op":"template-publish","args":{"dimension":"probe"},"idempotency_key":"probe"}', headers: REMOTE_ANON, status: 403 },
+        { id: 'market.report-governance.anonymous-dimension-activate', target: m, surface: 'market' as const, method: 'POST', path: '/api/report-governance/proposals', body: '{"op":"dimension-activate","args":{"dimension":"probe","version":1,"body_sha256":"0000000000000000000000000000000000000000000000000000000000000000","criteria_sha256":"0000000000000000000000000000000000000000000000000000000000000000","expected_active_version":null,"review_version":1},"idempotency_key":"probe"}', headers: REMOTE_ANON, status: 403 },
+        { id: 'market.report-governance.anonymous-open-review-invite', target: m, surface: 'market' as const, method: 'GET', path: '/api/report-governance/review-invites/i-1', headers: REMOTE_ANON, status: 401 },
       ] : []),
       // 授予管理面：远程匿名列不出授予（GET 不经写请求总门，拒的是路由自己的管理门；登录门开着时登录门先拦 401）
       // L19：授予的读对登录的人放开（只看自己能放行的），远程匿名仍然读不到（没登录 401）
@@ -182,6 +207,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 大结果的引用（GET /api/mcp-rest/results/<编号>）只给建它的会话：远程匿名拿一个编出来的编号来，必须 401、取不到任何东西。
       // 网关关着（本机开发）时没有会话可认，这一行不跑
       ...(gatewayOn ? [{ id: 'market.mcp-rest.result-ref-anonymous', target: m, surface: 'market' as const, method: 'GET', path: `/api/mcp-rest/results/${'A'.repeat(22)}`, headers: REMOTE_ANON, status: 401 }] : []),
+      ...(gatewayOn ? [{ id: 'market.capability.anonymous-invoke', target: m, surface: 'market' as const, method: 'POST', path: '/api/mcp-rest/capabilities/probe.read', body: '{}', headers: REMOTE_ANON, status: 401 }] : []),
       { id: 'market.mcp-rest.ticket-upload-forged', target: m, surface: 'market', method: 'PUT', path: `/api/mcp-rest/uploads/${'A'.repeat(43)}`, body: '{}', headers: REMOTE_ANON, status: 404 },
       { id: 'market.a2a-seat-token.forged', target: m, surface: 'market', method: 'POST', path: '/api/a2a/seat-token', body: `{"v":1,"root":"https://wm-self-probe.invalid","host":"00000000","seat_id":"wm-self-probe","ts":1,"nonce":"wm-self-probe-nonce-0000","aud":"https://wm-self-probe.invalid","sig":"${'A'.repeat(86)}=="}`, headers: REMOTE_ANON, status: 401 },
       { id: 'market.login-flow.unsigned-event', target: m, surface: 'market', method: 'POST', path: '/login/feishu/events', body: '{"schema":"2.0"}', headers: REMOTE_ANON, status: 401 },

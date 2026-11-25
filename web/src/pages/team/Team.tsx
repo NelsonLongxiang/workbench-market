@@ -1,12 +1,12 @@
 /**
- * 「团队」页（规范 14 第一、二、五、十节；骨架和密度照产品化原型 3fbfd0b 的 #/team：按部门分块、成员卡片）。
+ * 「团队」页（规范 14 第一、二、五、十节；骨架和密度照产品化原型 3fbfd0b 的 #/team：团队与成员卡片）。
  *
  * 数据只来自 GET /api/teams：服务端已经按看的人裁好（部门 → 团队 → 成员；待认领的单列，只给管理员）。页面只渲染，
  * 不自己拼部门、名册、分配，也不自己判谁能做什么。判断逻辑（整形、说法、校验）在 team-view.ts。
  *
  * 操作：
  *   · 管理员（应答里有「待认领的团队」这一栏）：把待认领的团队挂到部门、顺带指定一位负责人。
- *     部门正在换成领域（领域第 1 步，统筹 11-20）：这一页不再建部门，建领域在侧栏「领域」页；旧部门照旧读、照旧显示。
+ *     部门正在换成领域（领域第 1 步，统筹 11-20）：这一页不再建部门，建领域在「领域」页；旧部门仅在兼容操作和历史提议中显示。
  *     关系确认制（#638）：不是属主、管理层的人认领、指定负责人，服务端只记成提议（202）——页面说「已提出，等〈谁〉确认」，
  *     那一项标「待确认」，不当成已生效；按钮照服务端的 can（claim / propose_claim、add_lead / propose_lead）出现。确认、撤回不在这一版。
  *   · 成员分配（规范 14 第二节）：团队上 can_assign 为真的人（负责人、管理层；服务端判），在成员卡上
@@ -26,7 +26,7 @@ import { addTeamLead, approveRelationProposal, assignTeamSeat, attentionChanged,
 import RelTime from '../../components/RelTime';
 import { subscribeAdminToken } from '../../admin-token';
 import {
-  actionProblem, approvedNotice, needsMigration, ASSIGN_BY_TEXT, assignDoneText, assigneeOptions, assignOps, deptLeadText, leadPendingGrantText, reassignHintText, unassignConfirmText, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, outcomeLabel, outcomeReasonText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
+  actionProblem, approvedNotice, needsMigration, ASSIGN_BY_TEXT, assignDoneText, assigneeOptions, assignOps, claimedTeams, leadPendingGrantText, reassignHintText, unassignConfirmText, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, outcomeLabel, outcomeReasonText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
   teamCounts, teamStatusLabel, teamTitle, teamsOf,
 } from '../../team-view';
 import type { Department, KnownNames, Member, Proposal, SourceResult, Team as TeamT, TeamsCan, Tone } from '../../team-view';
@@ -106,7 +106,7 @@ function MemberCard({ m, chief, t, onDone }: { m: Member; chief?: boolean; t?: T
           {mode === 'reassign' && <p className="wm-team-hint" data-testid="team-reassign-hint">{reassignHintText(holder)}</p>}
           {options.length > 0
             ? <Select placeholder={mode === 'reassign' ? '改派给谁' : '分给谁'} value={to} onChange={setTo} options={options} showSearch optionFilterProp="label" data-testid="team-assign-to" className="wm-team-assign-select" />
-            : <span className="wm-team-hint" data-testid="team-assign-nobody">{mode === 'reassign' ? '部门里没有别的人可以改派。' : '部门里还没有可以分的人，先把人加进部门。'}</span>}
+            : <span className="wm-team-hint" data-testid="team-assign-nobody">{mode === 'reassign' ? '目前没有其他可改派的人。' : '目前没有可分配的人。'}</span>}
           {err && <Alert className="wm-team-err" type="warning" showIcon message={err} data-testid="team-assign-err" />}
         </div>
       </Modal>
@@ -135,7 +135,7 @@ function TeamBlock({ t, nameOf, onDone, admin }: { t: TeamT; nameOf: (id: string
       <div className="wm-team-head">
         <div className="wm-team-head-top"><b>{teamTitle(t)}</b><Tag color={TAG[s.tone]} className="wm-team-st">{s.text}</Tag></div>
         <div className="wm-team-head-meta">
-          <span>负责人：{leads.length ? leads.map((l) => l.name + (l.viaDepartment ? '（部门负责人）' : '')).join('、') : '没有在职的负责人'}</span>
+          <span>负责人：{leads.length ? leads.map((l) => l.name + (l.viaDepartment ? '（沿用原部门负责人）' : '')).join('、') : '没有在职的负责人'}</span>
           {leadPending && <span data-testid="team-lead-pending-grant">{leadPending}</span>}
           <span>总工：{t.router ? memberLabel(t.router) : '名册里没有总工'}</span>
           <span>{n.members} 个成员 · 在办 {n.active} 件</span>
@@ -194,9 +194,9 @@ function ClaimCard({ t, depts, people, can, onDone, onNotice }: { t: TeamT; dept
       {stale && <div className="wm-team-stale" data-testid="team-roster-stale">{stale}</div>}
       {pending ? (
         <div className="wm-team-pending" data-testid="team-claim-pending">挂到{depts.find((d) => d.id === pending.department)?.name ?? pending.department ?? '部门'}：{pendingText(pending)}</div>
-      ) : !canClaim ? null : depts.length === 0 ? <div className="wm-team-none" data-testid="team-claim-nodept">还没有部门可挂。部门正在换成领域，建领域到<Link to="/areas">「领域」</Link>页。</div> : (
+      ) : !canClaim ? null : depts.length === 0 ? <div className="wm-team-none" data-testid="team-claim-nodept">当前没有可用于认领的原部门。领域及负责人可在<Link to="/areas">「领域」</Link>页管理。</div> : (
         <div className="wm-team-claim-form">
-          <Select size="small" placeholder="挂到哪个部门" value={dept} onChange={setDept} options={depts.map((d) => ({ value: d.id, label: d.lead ? `${d.name}（负责人 ${personName(d.lead)}${d.lead.pending ? '，待属主放行权限' : ''}）` : d.name }))} data-testid="team-claim-dept" className="wm-team-select" />
+          <Select size="small" placeholder="现有部门（兼容认领）" value={dept} onChange={setDept} options={depts.map((d) => ({ value: d.id, label: d.lead ? `${d.name}（负责人 ${personName(d.lead)}${d.lead.pending ? '，待属主放行权限' : ''}）` : d.name }))} data-testid="team-claim-dept" className="wm-team-select" />
           {canLead && <Select size="small" allowClear placeholder={can && !can.add_lead ? '另外提议负责人（可不选）' : '另外指定负责人（可不选）'} value={lead} onChange={setLead} options={people.map((p) => ({ value: p.id, label: p.name }))} showSearch optionFilterProp="label" data-testid="team-claim-lead" className="wm-team-select" />}
           <Button size="small" type="primary" disabled={!dept} loading={busy} onClick={submit} data-testid="team-claim" autoInsertSpace={false}>{claimText}</Button>
         </div>
@@ -309,34 +309,31 @@ export default function Team() {
   const admin = isAdminView(t);
 
   const problem = sourceProblem('团队', src.teams);
-  const empty = problem || loading ? null : emptyText(t, depts, admin);
+  const teams = claimedTeams(t);
+  const empty = problem || loading ? null : emptyText(t, admin);
 
   return (
     <WmPage wide loading={loading}>
-      <p className="wm-team-intro">每个部门有负责的人，部门下面挂着 AI 团队。团队的负责人直接对接它的总工；成员可以分配给某位员工直接用，没分配的是团队公用，由总工分派。</p>
+      <p className="wm-team-intro"><Link to="/areas">查看领域与负责人</Link></p>
       {problem && <Alert className="wm-team-alert" type={problem.type} showIcon message={problem.text} />}
       {notice && <Alert className="wm-team-alert wm-team-note" type="info" showIcon closable onClose={() => setNotice(null)} data-testid="team-notice"
         message={typeof notice === 'string' ? notice : notice.text}
         action={typeof notice === 'string' ? undefined : <Link to={notice.link} data-testid="team-notice-link">{notice.linkText}</Link>} />}
       {!loading && proposals.length > 0 && <ProposalsSection list={proposals} names={names} onDone={reload} onNotice={setNotice} />}
       {empty && (
-        <Empty className="wm-team-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span data-testid="team-empty">{empty}</span>}>
-          {admin && depts !== null && depts.length === 0 && <Link to="/areas" data-testid="team-to-areas">去「领域」页 →</Link>}
-        </Empty>
+        <Empty className="wm-team-empty" image={Empty.PRESENTED_IMAGE_SIMPLE} description={<span data-testid="team-empty">{empty}</span>} />
       )}
-      {t.departments.length > 0 && (
-        <div className="wm-team-depts">{t.departments.map((d) => (
-          <section key={d.id} className="wm-team-dept" data-testid="team-dept" data-id={d.id}>
-            <div className="wm-team-dept-head"><h3>{d.name}</h3><span className="wm-team-cap" data-testid="team-dept-lead">{deptLeadText(d.lead)}</span>
-              {d.pending_lead && <span className="wm-team-pending" data-testid="team-dept-lead-pending">负责人待确认：{d.pending_lead.principal ? nameOf(d.pending_lead.principal) : '（没写是谁）'}，{pendingText(d.pending_lead)}</span>}</div>
-            <div className="wm-team-cap wm-team-dept-n">{d.teams.length} 个团队</div>
-            {d.teams.map((x) => <TeamBlock key={`${x.host}-${x.team}`} t={x} nameOf={nameOf} onDone={reload} admin={admin} />)}
-          </section>
-        ))}</div>
+      {teams.length > 0 && (
+        <section aria-labelledby="claimed-teams-title" data-testid="claimed-teams">
+          <div className="wm-team-sec"><h3 id="claimed-teams-title">已认领的团队</h3></div>
+          <div className="wm-team-grid">
+            {teams.map((x) => <TeamBlock key={JSON.stringify([x.host, x.team])} t={x} nameOf={nameOf} onDone={reload} admin={admin} />)}
+          </div>
+        </section>
       )}
       {admin && (t.unclaimed?.length ?? 0) > 0 && (
         <section className="wm-team-unclaimed">
-          <div className="wm-team-sec"><h3>待认领的团队</h3><span className="wm-team-n">{t.unclaimed!.length}</span><span className="wm-team-cap">只有管理员看得到。挂到部门之后，部门负责人就是团队的负责人，部门里的人才能往这个团队安排事情。</span></div>
+          <div className="wm-team-sec"><h3>待认领的团队</h3><span className="wm-team-n">{t.unclaimed!.length}</span><span className="wm-team-cap">认领暂沿用现有部门。</span></div>
           <div className="wm-team-claims">{t.unclaimed!.map((x) => <ClaimCard key={`${x.host}-${x.team}`} t={x} depts={depts ?? []} people={people} can={t.can} onDone={reload} onNotice={setNotice} />)}</div>
         </section>
       )}

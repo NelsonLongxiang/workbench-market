@@ -15,7 +15,10 @@ import { api } from '../api';
 interface McpUpstreamRow { prefix: string; url: string; enabled: boolean; reachable?: boolean | null; tools?: number; last_error?: string; last_ok_at?: string }
 interface McpSession {
   id: number; name: string; grants: string[]; revoked_at: string; last_used_at: string; created_at: string;
+  responsible_principal: string | null;
+  responsibility_kind: 'named' | 'legacy' | 'seat' | 'system';
 }
+interface ResponsibilityProposal { id: number; session: string; proposed_by: string }
 interface AccessRequest {
   id: number; session_id: number; session_name: string | null; session_revoked: boolean; tools: string[]; reason: string;
   status: 'pending' | 'approved' | 'rejected'; decided_by: string; decided_at: string; note: string; created_at: string;
@@ -58,6 +61,25 @@ export default function McpGateways() {
   const [loading, setLoading] = useState(false);
   const [callsLoading, setCallsLoading] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newSystem, setNewSystem] = useState(false);
+  const [proposals, setProposals] = useState<ResponsibilityProposal[]>([]);
+  const [confirming, setConfirming] = useState<number | null>(null);
+  const [proposingFor, setProposingFor] = useState<McpSession | null>(null);
+  const [proposedPerson, setProposedPerson] = useState('');
+  const [responsibilityError, setResponsibilityError] = useState('');
+  const refreshProposals = useCallback(async () => {
+    try {
+      const r = await apiFetch('/api/mcp/responsibilities/mine');
+      if (r.status === 401) { setProposals([]); setResponsibilityError(''); return; }
+      if (!r.ok) throw new Error('归属提议加载失败');
+      setProposals((await r.json()).proposals);
+      setResponsibilityError('');
+    } catch (error) {
+      setProposals([]);
+      setResponsibilityError((error as Error).message);
+    }
+  }, []);
+  useEffect(() => { void refreshProposals(); }, [refreshProposals]);
   const [grantsOf, setGrantsOf] = useState<McpSession | null>(null);
   const [grantSel, setGrantSel] = useState<string[]>([]);
   const [regTools, setRegTools] = useState<string[]>([]); // #grant-ux：活注册表（修硬编码 15 时代旧清单→未知名 400 根因）
@@ -142,7 +164,9 @@ export default function McpGateways() {
     try {
       const r = await apiFetch('/api/mcp/sessions', {
         method: 'POST',
-        body: JSON.stringify({ name: newName }),
+        body: JSON.stringify(newSystem || !adminLogin()
+          ? { name: newName, responsibility: 'system' }
+          : { name: newName, responsible_principal: adminLogin() }),
       });
       const b = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error((b as { error?: string }).error || `HTTP ${r.status}`);
@@ -168,6 +192,32 @@ export default function McpGateways() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const confirmResponsibility = async (id: number) => {
+    setConfirming(id);
+    try {
+      const r = await apiFetch('/api/mcp/responsibilities/' + id + '/confirm', { method: 'POST', body: '{}' });
+      if (!r.ok) throw new Error((await r.json()).error || '无法确认归属');
+      await refreshProposals();
+      if (adminActive()) reload();
+      message.success('会话归属已确认');
+    } catch (error) {
+      message.error((error as Error).message);
+      await refreshProposals();
+    } finally { setConfirming(null); }
+  };
+  const proposeResponsibility = async () => {
+    if (!proposingFor || !proposedPerson.trim()) return;
+    try {
+      const r = await apiFetch('/api/mcp/sessions/' + proposingFor.id + '/responsibility-proposals', {
+        method: 'POST', body: JSON.stringify({ principal: proposedPerson.trim() }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || '无法提出归属');
+      setProposingFor(null);
+      message.success('归属提议已提交，等待本人确认');
+      void refreshProposals();
+    } catch (error) { message.error((error as Error).message); }
   };
 
   const revoke = async (id: number) => {
@@ -256,6 +306,8 @@ export default function McpGateways() {
   const sessCols: ProColumns<McpSession>[] = [
     { title: '状态', dataIndex: 'revoked_at', width: 90, fixed: 'left', render: (_, s) => (s.revoked_at ? <Tag color="error">已吊销</Tag> : <Tag color="success">有效</Tag>) },
     { title: '会话', dataIndex: 'name', render: (_, s) => <Typography.Text className="wm-mono" strong>{s.name}</Typography.Text> },
+    { title: '责任人', dataIndex: 'responsible_principal', render: (_, s) => s.responsible_principal ||
+      ({ legacy: '待绑定', seat: '按当前席位分配', system: '系统会话', named: '—' }[s.responsibility_kind]) },
     { title: '授权工具', dataIndex: 'grants', width: 110, render: (_, s) => (s.grants.length ? <Tag color="success">{s.grants.length} 个</Tag> : <Tag color="error">默认拒绝</Tag>) },
     { title: '最近使用', dataIndex: 'last_used_at', width: 120, render: (_, s) => <RelTime value={s.last_used_at || null} /> },
     {
@@ -263,6 +315,7 @@ export default function McpGateways() {
       render: (_, s) => s.revoked_at ? <Typography.Text type="secondary" className="wm-caption">留审计</Typography.Text> : (
         <Space>
           <Button size="small" onClick={() => { setGrantsOf(s); setGrantSel(s.grants); }}>grants</Button>
+          {s.responsibility_kind === 'legacy' && <Button size="small" onClick={() => { setProposingFor(s); setProposedPerson(''); }}>提议归属</Button>}
           <Popconfirm title={`吊销 ${s.name}？令牌即时失效。`} onConfirm={() => revoke(s.id)}>
             <Button size="small" danger>吊销</Button>
           </Popconfirm>
@@ -312,7 +365,7 @@ export default function McpGateways() {
     { title: '结果', dataIndex: 'ok', width: 70, fixed: 'left', render: (_, c) => (c.ok ? <Tag color="success">成功</Tag> : <Tag color="error">失败</Tag>) },
     { title: '工具', dataIndex: 'tool', width: 160, render: (_, c) => <Typography.Text className="wm-mono wm-caption">{c.tool || '—'}</Typography.Text> },
     { title: '会话', dataIndex: 'session_name', width: 120, render: (_, c) => <Typography.Text className="wm-mono wm-caption">{c.session_name}</Typography.Text> },
-    { title: '渠道', dataIndex: 'channel', width: 70, render: (_, c) => <Tag>{c.channel === 'rest' ? 'REST' : 'MCP'}</Tag> },
+    { title: '渠道', dataIndex: 'channel', width: 70, render: (_, c) => <Tag>{c.channel === 'rest' ? 'REST' : c.channel === 'mcp-invoke' ? 'MCP 调用' : 'MCP'}</Tag> },
     { title: '方法', dataIndex: 'method', width: 100, render: (_, c) => <Typography.Text className="wm-mono wm-caption">{c.method}</Typography.Text> },
     { title: '耗时', dataIndex: 'duration_ms', width: 80, align: 'right', render: (_, c) => <Typography.Text className="wm-num">{c.duration_ms}ms</Typography.Text> },
     { title: '错误', dataIndex: 'error', ellipsis: true, render: (_, c) => <Typography.Text type="secondary" className="wm-caption">{c.error || '—'}</Typography.Text> },
@@ -321,6 +374,24 @@ export default function McpGateways() {
 
   return (
     <WmPage subTitle="会话 · 令牌 · 授权 · 权限申请 · 审计（默认拒绝）">
+      {responsibilityError && <Typography.Paragraph type="danger">{responsibilityError}</Typography.Paragraph>}
+      {proposals.length > 0 && (
+        <Space direction="vertical" className="wm-mb-4">
+          <Typography.Title level={5}>待我确认的会话归属</Typography.Title>
+          {proposals.map(p => (
+            <Space key={p.id}>
+              <Typography.Text>{p.session} · 由 {p.proposed_by} 提议</Typography.Text>
+              <Popconfirm title="确认担任这个会话的责任人？" onConfirm={() => confirmResponsibility(p.id)}>
+                <Button loading={confirming === p.id}>确认归属</Button>
+              </Popconfirm>
+            </Space>
+          ))}
+        </Space>
+      )}
+      <Modal title="提议会话责任人" open={!!proposingFor} onCancel={() => setProposingFor(null)} onOk={proposeResponsibility}
+        okButtonProps={{ disabled: !proposedPerson.trim() }}>
+        <Input aria-label="站内个人主体" placeholder="例如 user:alex" value={proposedPerson} onChange={e => setProposedPerson(e.target.value)} />
+      </Modal>
       <AlsoInAttention what="待批的权限申请" />
       <Typography.Paragraph type="secondary" className="wm-caption">
         令牌只经创建响应出现一次（库存 sha256）；新会话授权为空=默认拒绝；吊销即时生效。
@@ -354,7 +425,9 @@ export default function McpGateways() {
           onChange={(e) => setNewName(e.target.value)}
           className="wm-mono wm-text-body"
         />
-        <Button type="primary" onClick={createSession} loading={loading} disabled={!active || !newName}>创建会话</Button>
+        {adminLogin() && <Select value={newSystem ? 'system' : 'self'} onChange={value => setNewSystem(value === 'system')}
+          options={[{ value: 'self', label: '本人负责' }, { value: 'system', label: '系统会话' }]} aria-label="新会话归属" />}
+        <Button type="primary" onClick={createSession} loading={loading} disabled={!active || !newName}>{newSystem || !adminLogin() ? '创建系统会话' : '创建会话'}</Button>
       </Space.Compact>
 
       <Tabs

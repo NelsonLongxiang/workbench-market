@@ -4,7 +4,7 @@
  *  的逐行校验、幂等键、上限；快照与退回；查询描述（筛选、分组、聚合、排序、参数、截断）和注入形态的名字与取值；
  *  视图描述的核对、版本、并发保存不覆盖、回退只移指针、差异；一个台的读写排队；台与台隔离；标识不能逃出目录；关掉重开数据还在；
  *  库比代码新时拒绝打开；备份副本。 */
-import { mkdirSync, mkdtempSync, rmSync, existsSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, existsSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { DatabaseSync } from 'node:sqlite';
@@ -25,7 +25,8 @@ const DATA = mkdtempSync(resolve('tmp/bench-store-smoke-'));
 process.env.DATA_DIR = DATA;
 const { benchStore, benchStoreExists, closeBenchStores, removeBenchStore, onBenchChange, configureBenchRuntime, benchRuntimeStats, stopBenchWorkerAbruptly } = await import('../server/src/services/bench-store.ts');
 const { BENCH_LIMITS, planQuery } = await import('../server/src/bench-query.ts');
-const { BenchHost } = await import('../server/src/services/bench-store-core.ts');
+const { BenchHost, stageBenchRecovery } = await import('../server/src/services/bench-store-core.ts');
+const { captureBenchStorageFence } = await import('../server/src/services/bench-registry.ts');
 const { benchSqlKit, db } = await import('../server/src/db.ts');
 const { validateViewDoc, diffJson } = await import('../server/src/bench-views.ts');
 
@@ -388,6 +389,7 @@ try {
   ok('I6 关掉重开：数据、生效版本、历史都还在', (await s2.query({ dataset: 'runs' })).rows.length === 4 && (await s2.getView()).version === 4 && (await s2.viewVersions()).length === 4);
   await closeBenchStores();
   const raw = new DatabaseSync(join(DATA, 'bench-stores', 'demo.sqlite'));
+  raw.function('bench_protocol_v2', { deterministic: true }, () => 1);
   raw.prepare("UPDATE bs_meta SET v = '999' WHERE k = 'schema_version'").run();
   raw.close();
   e = await refused(() => benchStore('demo'));
@@ -726,6 +728,127 @@ try {
   e = await refused(() => oldHost.store('o'));
   ok('L5 结构对不上的旧库文件：写明结构不符、不打开，不是「内部错误」', e?.code === 'unsupported' && /结构.*不符/.test(e.message), e);
   await oldHost.closeAll();
+
+  {
+    console.log('数据集退役与报告提交围栏');
+    const kit = benchSqlKit('sqlite');
+    const lifecycleRoot = join(DATA, 'lifecycle-tests');
+    mkdirSync(lifecycleRoot);
+    const authorityFile = join(DATA, 'workbench-market.db');
+    const lifecycleHost = new BenchHost(lifecycleRoot, kit, {}, authorityFile);
+    const ledger = join(lifecycleRoot, 'lifecycle.sqlite');
+    db.prepare("INSERT INTO bench_views (slug, title, created_by, created_at) VALUES ('lifecycle', '临时', 'tester', 1)").run();
+    // v1 连接保持打开，数据库在同一文件上升级。
+    const legacy = new DatabaseSync(ledger);
+    for (const sql of kit.schema) legacy.exec(sql);
+    legacy.exec("INSERT INTO bs_meta VALUES ('schema_version','1'); CREATE TABLE ds_alpha (rid INTEGER PRIMARY KEY AUTOINCREMENT, c_n INTEGER); INSERT INTO ds_alpha(c_n) VALUES (1)");
+    legacy.prepare('INSERT INTO bs_datasets VALUES (?, ?, 1, ?, ?, 1, 8, 1, 1, ?)')
+      .run('alpha', 'Alpha', JSON.stringify([{ name: 'n', type: 'integer', label: 'n', required: false }]), '[]', 'tester');
+    const oldSelect = legacy.prepare('SELECT name FROM bs_datasets');
+    ok('F1 v1 句柄确实能读原目录', oldSelect.get()?.name === 'alpha');
+    const life = await lifecycleHost.store('lifecycle');
+    const start = await life.datasetFence('alpha');
+    let oldDenied = false, oldPublishDenied = false;
+    try { oldSelect.all(); } catch (err) { oldDenied = /no such function: bench_protocol_v2/.test(err.message); }
+    try { legacy.exec("INSERT INTO bs_report_bindings VALUES ('legacy',1,1,'{}','old',1)"); }
+    catch (err) { oldPublishDenied = /no such function: bench_protocol_v2/.test(err.message); }
+    ok('F1 升级保留 v1 原数据，并在存储层挡已有旧句柄读目录及发布绑定', start.state === 'active' &&
+      start.revision === 1 && (await life.query({ dataset: 'alpha' })).rows[0]?.n === 1 && oldDenied && oldPublishDenied);
+    const context = (expected, operationId, action = 'retire') => ({ expected, operationId, action, reason: '合成退役操作', ...ctx() });
+    const doTransition = (input, fence = captureBenchStorageFence()) => life.datasetLifecycle(input, fence);
+    await life.append('alpha', [{ n: 2 }], ctx());
+    const changed = await life.datasetFence('alpha');
+    const staleData = await refused(() => doTransition(context(start, 'stale-data-1')));
+    ok('F2 数据写入同事务推进修订，旧确认拒绝', changed.id === start.id && changed.revision > start.revision && staleData?.code === 'conflict', staleData);
+    const oldMain = captureBenchStorageFence();
+    db.prepare("UPDATE bench_views SET title = '新名称' WHERE slug = 'lifecycle'").run();
+    const staleMain = await refused(() => doTransition(context(changed, 'stale-main-1'), oldMain));
+    ok('F3 主库变更在写事务内复核，旧权限快照拒绝', staleMain?.code === 'conflict' && /主库授权已改变/.test(staleMain.message), staleMain);
+    const first = context(changed, 'retire-alpha-1');
+    const other = new Worker(new URL('../server/src/services/bench-store-worker.ts', import.meta.url), { workerData: { root: lifecycleRoot, kit, primaryPath: authorityFile } });
+    let raceRetire;
+    try {
+      const contender = new Promise((resolve, reject) => {
+        other.once('error', reject);
+        other.once('message', reply => reply.ok ? resolve(reply.value) : reject(Error(JSON.stringify(reply.error))));
+        other.postMessage({ id: 1, slug: 'lifecycle', method: 'datasetLifecycle', args: [first, captureBenchStorageFence()], budgetMs: 30000 });
+      });
+      raceRetire = await Promise.all([doTransition(first), contender]);
+    } finally { await other.terminate(); }
+    const reuse = await refused(() => doTransition({ ...first, reason: '异上下文' }));
+    const parked = legacy.prepare("SELECT COUNT(*) AS n FROM retired_ds_alpha").get().n;
+    const listed = (await life.datasets()).some(x => x.name === 'alpha');
+    const badDefine = await refused(() => life.defineDataset({ name: 'alpha', columns: [{ name: 'n', type: 'integer' }] }, ctx()));
+    const badRead = await refused(() => life.query({ dataset: 'alpha' }));
+    ok('F4 同号并发只提交一次，异上下文冲突，退役不删行也不放出原名称', JSON.stringify(raceRetire[0]) === JSON.stringify(raceRetire[1]) &&
+      legacy.prepare('SELECT COUNT(*) AS n FROM bs_dataset_operations').get().n === 1 && reuse?.code === 'conflict' && parked === 2 && !listed &&
+      badDefine?.code === 'conflict' && badRead !== null, { reuse, badDefine, badRead });
+    const secondary = await life.defineDataset({ name: 'beta', columns: [{ name: 'n', type: 'integer' }] }, ctx());
+    await life.append('beta', [{ n: 5 }], ctx());
+    const betaView = dataset => ({ title: '视图', views: [{ key: 'source', title: '源', blocks: [{ type: 'table', query: { dataset }, column_labels: { n: '数字' } }] }] });
+    await life.putView(betaView('beta'), ctx({ base: 0, note: '初版' }));
+    const slots = { slot: { view: 'source', block: 0 } };
+    const bindingCtx = await life.reportBindingContext(slots);
+    await life.putView({ ...betaView('beta'), title: '编辑' }, ctx({ base: 1, note: '编辑' }));
+    await life.rollbackView(1, ctx({ base: 2, note: '回退' }));
+    const oldBinding = await refused(() => life.reportBindingPut('test-report', { base: 0, template_version: 1, slots, actor: 'tester', at: clock, context: bindingCtx }, captureBenchStorageFence()));
+    ok('F7a 视图版本回到同一编号，旧绑定上下文仍拒绝', oldBinding?.code === 'conflict', oldBinding);
+    if (!oldBinding) throw Error('F7a 旧上下文错误产生了绑定');
+    const bindingOperation = { id: '11111111-2222-4333-8444-555555555555', snapshotSha256: 'a'.repeat(64) };
+    const bindingInput = { base: 0, template_version: 1, slots, actor: 'tester', at: clock, context: await life.reportBindingContext(slots), operation: bindingOperation };
+    const liveBinding = await life.reportBindingPut('test-report', bindingInput, captureBenchStorageFence());
+    const repeated = await life.reportBindingPut('test-report', bindingInput, captureBenchStorageFence())
+      .catch(error => ({ code: error.code, message: error.message }));
+    const bindingReceipt = await life.reportBindingReceipt('test-report', bindingOperation);
+    const mismatched = await refused(() => life.reportBindingReceipt('test-report', { ...bindingOperation, snapshotSha256: 'b'.repeat(64) }));
+    ok('F8 报告绑定操作号和新版本一并提交，重放不追加版本，异摘要对账拒绝', liveBinding.version === 1 && repeated.version === 1 &&
+      bindingReceipt?.version === 1 && mismatched?.code === 'conflict' && (await life.reportBindingGet('test-report')).version === 1, { repeated, bindingReceipt, mismatched });
+    const beta = await life.datasetFence('beta');
+    const referenced = await refused(() => doTransition(context(beta, 'retire-beta-1')));
+    ok('F7b 现行视图引用会阻断退役，状态保持 active', referenced?.code === 'conflict' && (await life.datasetFence('beta')).state === 'active', referenced);
+    if (!referenced) throw Error('F7b 活引用错误进入退役');
+    const changedFilter = betaView('beta');
+    changedFilter.views[0].blocks[0].query.filter = [{ col: 'n', op: '>=', value: 0 }];
+    const switchSource = await refused(() => life.putView(changedFilter, ctx({ base: 1, note: '合成换查询' })));
+    ok('F7c 同数据集的槽查询变化也须先停用或改绑', switchSource?.code === 'conflict', switchSource);
+    const selected = await life.reportSlots([{ slot: 'slot', view: 'source', block: 0, params: {}, limit: 10 }]);
+    const publication = { dimension_id: 'test-report', template_version: 1, template_sha256: 'synthetic', binding_version: liveBinding.version,
+      subject: 'item:1', inputs: '{}', body: '{}', sources: '[]', content_sha256: 'synthetic', producer: 'tester', producer_kind: 'human', supersedes: null, created_at: clock };
+    await life.reportInsert(publication, [], { ...selected.context, main: captureBenchStorageFence() });
+    const stopped = await life.reportBindingStop('test-report', { base: 1, reason: '合成停用', actor: 'tester', at: clock }, captureBenchStorageFence());
+    const late = await refused(() => life.reportInsert(publication, [], { ...selected.context, main: captureBenchStorageFence() }));
+    ok('F7d 停用挡住在途首次发布，冻结报告仍可读', secondary.created && stopped.version === 2 && stopped.disabled && late?.code === 'conflict' && (await life.reportList({})).length === 1,
+      { stopped, late });
+
+    const backup = join(DATA, 'lifecycle-backed-up.sqlite');
+    await life.backupTo(backup);
+    const retired = await life.datasetFence('alpha');
+    const revived = await doTransition(context(retired, 'restore-alpha-1', 'restore'));
+    const oldReceipt = await doTransition(first);
+    const fresh = await life.datasetFence('alpha');
+    const badAba = await refused(() => doTransition(context(changed, 'old-context-aba')));
+    ok('F5 恢复保留同一数据集身份，旧回执不冒充当前状态，旧上下文不能 ABA 重放', revived.id === start.id && revived.state === 'active' &&
+      oldReceipt.state === 'retired' && fresh.state === 'active' && fresh.revision > retired.revision && badAba?.code === 'conflict' &&
+      (await life.query({ dataset: 'alpha' })).rows.length === 2, { fresh, badAba });
+    const staged = join(DATA, 'lifecycle-staged.sqlite'), stagedAgain = join(DATA, 'lifecycle-staged-again.sqlite');
+    const target = { slug: 'lifecycle', identity: db.prepare("SELECT identity FROM bench_storage_identities WHERE slug = 'lifecycle'").get().identity };
+    const wrongIdentity = await refused(() => stageBenchRecovery(backup, staged, { ...target, identity: '0'.repeat(32) }, kit));
+    const generation = stageBenchRecovery(backup, staged, target, kit);
+    const generationAgain = stageBenchRecovery(backup, stagedAgain, target, kit);
+    ok('F6 相同备份每次暂存都生成不同恢复代次，不改备份', wrongIdentity?.code === 'unsupported' && generation !== generationAgain && generation !== retired.generation);
+    legacy.close();
+    await lifecycleHost.closeAll();
+    const beforeImport = ledger + '.before-test-import';
+    renameSync(ledger, beforeImport);
+    renameSync(staged, ledger);
+    const imported = await lifecycleHost.store('lifecycle');
+    const importedContext = await imported.datasetFence('alpha');
+    const oldGeneration = await refused(() => imported.datasetLifecycle(first, captureBenchStorageFence()));
+    ok('F6 恢复备份保留退役数据与审计但旧代次的操作号无效', importedContext.id === start.id && importedContext.state === 'retired' &&
+      importedContext.generation === generation && oldGeneration?.code === 'conflict', oldGeneration);
+    await lifecycleHost.closeAll();
+
+  }
 
   // 原始字节：和给数组是同一回事
   const rawHost = new BenchHost(join(DATA, 'raw'), benchSqlKit('sqlite'), { writeBytes: 2_000 });

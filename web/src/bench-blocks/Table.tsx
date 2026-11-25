@@ -8,6 +8,7 @@ import type { ColumnsType } from 'antd/es/table';
 import RelTime from '../components/RelTime';
 import { seatLabel, who } from '../people';
 import { BlockFrame, type BlockFrameProps } from './Frame';
+import { BenchImage } from './BenchImage';
 import { cellKind, cellText, nowrapWidth, tableHead, type BlockColumn } from './blocks-view';
 
 type Row = Record<string, unknown>;
@@ -45,6 +46,7 @@ export function TableBlock({ columns, pageSize = 10, onRowClick, rowActions, sta
       title: head, dataIndex: c.name, key: c.name, align: kind === 'number' ? 'right' : 'left', ellipsis: kind === 'text',
       width, className: [kind === 'number' ? 'wm-num' : '', width ? 'wm-bb-nowrap' : ''].filter(Boolean).join(' ') || undefined,
       render: (v: unknown) => {
+        if (kind === 'image') return <BenchImage value={v} size="cell" />;
         if (kind === 'time') return <RelTime value={typeof v === 'string' ? v : null} />;
         if (kind === 'person') return who(v) || '-';
         if (kind === 'seat') return seatLabel(who(v)) || '-';

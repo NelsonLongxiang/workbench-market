@@ -4,9 +4,9 @@
  *
  * 数据的形状就是台库查询的应答：{ columns, rows, truncated }。驾驶舱用这些组件时，把自己的数据转成这个形状递进来。
  */
-export type BlockColType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean';
+export type BlockColType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean' | 'image';
 /** 表格里这一列按什么画；不给就按列的类型推（数字 → number，时间 → time，其余 → text） */
-export type CellKind = 'text' | 'number' | 'time' | 'date' | 'bool' | 'person' | 'seat' | 'status';
+export type CellKind = 'text' | 'number' | 'time' | 'date' | 'bool' | 'person' | 'seat' | 'status' | 'image';
 export type BlockColumn = { name: string; type: BlockColType; label?: string; role?: string; display?: CellKind };
 export type BlockData = { columns: BlockColumn[]; rows: Record<string, unknown>[]; truncated?: boolean };
 export type BlockError = { code: string; message?: string };
@@ -43,7 +43,23 @@ export function cellKind(col: BlockColumn): CellKind {
   if (col.type === 'datetime') return 'time';
   if (col.type === 'date') return 'date';
   if (col.type === 'boolean') return 'bool';
+  if (col.type === 'image') return 'image';
   return 'text';
+}
+
+/**
+ * 图片列（docs/image-step1.md 第五节、用例 9）：浏览器不直接访问图片链接，一律经市场的代取地址。
+ * 代取按引用判（Q9）：地址里带上来源视图——就是这次取数用的台、视图、版本和筛选值，服务端照这组参数重渲染这份视图、核对图片列里确实有这条链接。
+ */
+export type ImageSource = { bench: string; view: string; version?: number; params?: Record<string, string> };
+export function imageSrc(ref: unknown, src: ImageSource | null | undefined): string | null {
+  if (typeof ref !== 'string' || ref === '' || !src || !src.bench || !src.view) return null;
+  const q = new URLSearchParams();
+  q.set('u', ref);
+  q.set('view', src.view);
+  if (typeof src.version === 'number' && Number.isInteger(src.version) && src.version > 0) q.set('version', String(src.version));
+  for (const [k, v] of Object.entries(src.params ?? {})) if (typeof v === 'string' && v !== '') q.set(`p.${k}`, v);
+  return `/api/bench-views/${encodeURIComponent(src.bench)}/image?${q.toString()}`;
 }
 
 /** 格子里的文字（人、席位、状态、时间由组件自己画，这里给不出的返回原文） */
@@ -234,6 +250,8 @@ export function layoutSpans(blocks: { type: string; span?: unknown }[]): (3 | 4 
  */
 export function nowrapWidth(kind: CellKind, title: string, values: string[]): number | undefined {
   if (kind === 'text' || kind === 'person' || kind === 'seat') return undefined;
+  // 图片列：缩略图 48px 见方，列宽按表头和缩略图里大的那个给
+  if (kind === 'image') return Math.min(240, Math.max(80, [...title].length * 15 + 32));
   const units = (s: string) => [...s].reduce((n, ch) => n + (/[\u2E80-\uFFFF]/.test(ch) ? 2 : 1), 0);
   const longest = Math.max(units(title), kind === 'time' ? 10 : 0, ...values.map(units));
   return Math.min(240, Math.max(64, Math.ceil(longest * 7.5) + 32));
@@ -243,7 +261,7 @@ export function nowrapWidth(kind: CellKind, title: string, values: string[]): nu
 export function snapSpan(span: unknown, type: string): 3 | 4 | 6 | 12 {
   if (typeof span === 'number') return span <= 3 ? 3 : span <= 4 ? 4 : span <= 6 ? 6 : 12;
   if (type === 'stat' || type === 'progress') return 3;
-  if (type === 'table' || type === 'records' || type === 'filter-bar') return 12;
+  if (type === 'table' || type === 'records' || type === 'filter-bar' || type === 'dag' || type === 'gantt' || type === 'flow') return 12;
   return 6;
 }
 
@@ -263,7 +281,8 @@ export function safeLink(v: unknown): { href: string; host: string } | null {
   return { href: u.href, host: u.hostname };
 }
 
-export type RecordField = { name: string; label: string; text: string; empty: boolean };
+/** image：图片列的原值（格子里的链接）；有它时卡片上画缩略图，不画 text */
+export type RecordField = { name: string; label: string; text: string; empty: boolean; image?: string };
 export type RecordBadge = { text: string; tone: 'success' | 'warning' | 'danger' | 'default'; undefinedValue: boolean };
 export type RecordLink = { label: string; href: string; host: string } | { label: string; invalid: true };
 export type RecordCard = { key: string; title: string; badges: RecordBadge[]; date: string | null; fields: RecordField[]; details: RecordField[]; links: RecordLink[] };
@@ -290,6 +309,7 @@ export function recordCards(data: BlockData | null | undefined, spec: RecordsSpe
     const hit = valueLabel(spec.value_labels, name, v);
     const empty = v === null || v === undefined || v === '';
     const kind = c ? cellKind(c) : 'text';
+    if (kind === 'image') return { name, label: label(name), text: empty ? '—' : '图片', empty, ...(empty || typeof v !== 'string' ? {} : { image: v }) };
     const text = empty ? (kind === 'date' || kind === 'time' ? '未填' : '—') : hit ? hit.text : kind === 'date' || kind === 'time' ? fmtDate(v, kind) : cellText(v, kind === 'status' ? 'text' : kind);
     return { name, label: label(name), text, empty };
   };

@@ -292,16 +292,15 @@ export function rosterStaleText(t: Pick<Team, 'roster_at' | 'roster_stale' | 'ro
   return `名册已 ${span}没更新`;
 }
 
-/** 页面整体是空的时候怎么说 */
-export function emptyText(t: Teams, departments: Department[] | null, admin: boolean): string | null {
-  const anyTeam = t.departments.some((d) => d.teams.length > 0) || (t.unclaimed?.length ?? 0) > 0;
-  if (departments !== null && departments.length === 0) {
-    return admin
-      ? '还没有部门。部门正在换成领域：建领域在侧栏的「领域」页，这一页不再建部门。'
-      : '还没有部门，团队要等管理员先建部门、认领之后才会出现在这里。';
-  }
-  if (!anyTeam) return admin ? '还没有团队。节点报上名册之后，团队会先出现在「待认领的团队」里。' : '还没有你能看到的团队。你所在部门的团队、你负责的团队、分给你的 AI 员工所在的团队会出现在这里。';
-  return null;
+/** 团队页只展示服务端已按当前用户裁剪的团队，旧部门分组仅作传输格式。 */
+export function claimedTeams(t: Teams): Team[] {
+  return t.departments.flatMap(group => group.teams);
+}
+
+/** 页面没有可显示的团队时的提示。 */
+export function emptyText(t: Teams, admin: boolean): string | null {
+  if (claimedTeams(t).length || t.unclaimed?.length) return null;
+  return admin ? '还没有团队。节点报上名册之后，团队会先出现在「待认领的团队」里。' : '还没有你能看到的团队。';
 }
 
 /** 读不到时怎么说（what 是这一块叫什么）；读到了返回 null */

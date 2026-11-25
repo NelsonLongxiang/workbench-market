@@ -26,8 +26,8 @@ if (outboundOff()) {
   const gate = await verifyOutboundGate();
   if (!gate.ok) throw new Error(`台库的工作线程里出站闸没装上（${gate.reason}），拒绝运行`);
 }
-const { root, kit } = workerData as { root: string; kit: BenchSqlKit };
-const host = new BenchHost(root, kit);
+const { root, kit, primaryPath } = workerData as { root: string; kit: BenchSqlKit; primaryPath: string };
+const host = new BenchHost(root, kit, {}, primaryPath);
 
 /** 错误过线程：只带代号、说明和细目；原始的错（库的报错原文）缩成一行文字，给市场进程记日志用，不对外 */
 function wire(e: unknown): BenchWireError {

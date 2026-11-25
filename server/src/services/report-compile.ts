@@ -6,10 +6,12 @@
  *   · 绑定只说「数据槽对应本台哪份视图的哪个块、参数和列怎么对应」；数据来源的视图版本、视图描述的 sha256、行数由台库填（ReportSlotData），
  *     不再收调用方给的「夹具证据」（P0 文档写明那些不是生产授权）；
  *   · 论断（第三节）随报告一起核、一起冻结：类别、条数照模板；依据（basis）指的数据槽、行要在这份报告里；
- *   · 图片节点这一步不收：素材怎么授权还没定（P0 文档「尚未证明」那一条），遇到就拒。
+ *   · 图片节点（docs/image-step1.md 第五节、用例 8；图片第 1 步 PR C）：src 引用一个 image 类型的参数、一个文字字段或数据行里一个 image 列，
+ *     冻结时只记链接加哈希（属主 D5）。这里是纯函数，只核写法、解析出链接；哈希由 services/bench-report.ts 取图后填（imageNodesOf）。
  * 网页那份 P0 照旧留着做打印试验（前端没有引用服务端代码的路子），服务端以这一份为准。
  */
 import { createHash } from 'node:crypto';
+import { imageRefOk } from '../bench-query.ts';
 import type { ReportSlotData } from './bench-store-core.ts';
 
 export type Ref = { ref: { scope: 'parameter' | 'field' | 'row'; name: string } };
@@ -17,7 +19,7 @@ type SlotCol = { name: string; type: string; label: string; nullable?: boolean }
 type Slot = { columns: SlotCol[]; key?: string[]; max_rows: number; completeness: 'all' | 'summary' };
 type Node = {
   id: string; type: string; title?: unknown; content?: unknown; children?: Node[]; items?: Node[]; columns?: number[];
-  data?: string; row_key?: string[]; max_items?: number; component?: string; props?: Record<string, unknown>;
+  data?: string; row_key?: string[]; max_items?: number; component?: string; props?: Record<string, unknown>; src?: unknown; alt?: unknown;
 };
 export type TemplateV2 = {
   schema_version: 2; title: string; parameters: Record<string, { type: string; required: boolean }>; fields: Record<string, { required: boolean; max_length: number }>;
@@ -32,7 +34,11 @@ export type FrozenClaim = { claim_key: string; kind: string; text: string; basis
 export type SourceMeta = { slot: string; view: string; block: number; view_version: number; view_sha256: string; rows: number; completeness: string };
 type BlockColumn = { name: string; type: string; label: string };
 type BlockData = { columns: BlockColumn[]; rows: Record<string, unknown>[]; truncated: false };
-export type ResolvedNode = { id: string; type: string; title?: string; content?: string; children?: ResolvedNode[]; columns?: number[]; component?: string; props?: Record<string, unknown>; data?: BlockData };
+export type ResolvedNode = { id: string; type: string; title?: string; content?: string; children?: ResolvedNode[]; columns?: number[]; component?: string; props?: Record<string, unknown>; data?: BlockData; src?: string; alt?: string; sha256?: string };
+/** 冻结的图片节点：链接（格子或输入里的原值）、替代文字、取到的图的 sha256（冻结时由 bench-report.ts 填） */
+export type ImageNode = ResolvedNode & { type: 'image'; src: string; alt: string; sha256: string };
+/** 一份报告最多这么多个图片节点（展开 repeat 之后算）：冻结时每张都要取一次 */
+export const IMAGE_NODES_MAX = 20;
 export type FrozenBody = { schema_version: 2; title: string; inputs: Inputs; body: ResolvedNode[] };
 
 /** 拒收：code 是对外的错误代号（路由前面加 report_），path 说是哪一处 */
@@ -48,7 +54,9 @@ const ID_RE = /^[a-z][a-z0-9_-]{0,47}$/;
 const id = (v: unknown, path: string): string => typeof v === 'string' && ID_RE.test(v) ? v : fail('invalid_id', path);
 const text = (v: unknown, path: string, max = 10000): string => typeof v === 'string' && v.length <= max ? v : fail('invalid_text', path);
 const bounded = (v: unknown, min: number, max: number, path: string) => Number.isInteger(v) && Number(v) >= min && Number(v) <= max ? Number(v) : fail('invalid_limit', path);
-const TYPES = ['text', 'integer', 'decimal', 'date', 'datetime', 'boolean'];
+const TYPES = ['text', 'integer', 'decimal', 'date', 'datetime', 'boolean', 'image'];
+/** 模板参数的类型：月份（筛选用），图片（image 节点的来源，值是图片链接） */
+const PARAM_TYPES = ['month', 'image'];
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const jsonCopy = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 export const sha256 = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
@@ -81,9 +89,10 @@ export function prepareInputs(t: TemplateV2, input: unknown): Inputs {
   keys(fields, Object.keys(t.fields), '/inputs/fields');
   for (const [name, def] of Object.entries(t.parameters)) {
     id(name, '/parameters/' + name); keys(def, ['type', 'required'], '/parameters/' + name);
-    if (def.type !== 'month' || typeof def.required !== 'boolean') fail('invalid_parameter', '/parameters/' + name);
+    if (!PARAM_TYPES.includes(def.type) || typeof def.required !== 'boolean') fail('invalid_parameter', '/parameters/' + name);
     const v = params[name];
     if (v === undefined && !def.required) continue;
+    if (def.type === 'image') { if (typeof v !== 'string' || !imageRefOk(v)) fail('invalid_image_ref', '/inputs/parameters/' + name); continue; }
     if (typeof v !== 'string' || !MONTH_RE.test(v)) fail('invalid_month', '/inputs/parameters/' + name);
   }
   for (const [name, def] of Object.entries(t.fields)) {
@@ -112,6 +121,47 @@ function renderText(v: unknown, path: string, input: Inputs, row?: Record<string
     if (!['string', 'number', 'boolean'].includes(typeof value)) return fail('invalid_reference_value', path);
     return String(value);
   }).join('');
+}
+
+/**
+ * image 节点的来源 → 图片链接。src 只能是一个引用（不能拼字）：
+ *   · parameter：模板里声明成 image 类型的参数（month 类型的不行）；
+ *   · field：文字字段，值要是合规的图片链接；
+ *   · row：repeat 里当前那一行的一列，这一列在槽里要是 image 类型。
+ * 引用的东西不是图片（参数、列的类型不对）报 image_source_type；值不是合规链接报 invalid_image_ref；没有值报 missing_reference
+ */
+function imageSource(t: TemplateV2, v: unknown, path: string, input: Inputs, row?: { values: Record<string, unknown>; columns: BlockColumn[] }): string {
+  if (!obj(v) || !obj(v.ref)) return fail('invalid_reference', path);
+  keys(v, ['ref'], path); keys(v.ref, ['scope', 'name'], path);
+  const { scope, name } = v.ref as { scope: unknown; name: unknown };
+  if (typeof name !== 'string') return fail('invalid_reference', path);
+  let value: unknown;
+  if (scope === 'parameter') {
+    if (!own(t.parameters, name)) return fail('missing_reference', path + '/' + name);
+    if (t.parameters[name].type !== 'image') return fail('image_source_type', path);
+    value = own(input.parameters, name) ? input.parameters[name] : undefined;
+  } else if (scope === 'field') {
+    if (!own(t.fields, name)) return fail('missing_reference', path + '/' + name);
+    value = own(input.fields, name) ? input.fields[name] : undefined;
+  } else if (scope === 'row' && row) {
+    const c = row.columns.find((x) => x.name === name);
+    if (!c) return fail('missing_reference', path + '/' + name);
+    if (c.type !== 'image') return fail('image_source_type', path);
+    value = row.values[name];
+  } else return fail('missing_reference', path + '/' + name);
+  if (value === null || value === undefined || value === '') return fail('missing_reference', path + '/' + name);
+  if (typeof value !== 'string' || !imageRefOk(value)) return fail('invalid_image_ref', path);
+  return value;
+}
+/** 替代文字：1～200 个字符、不全是空白、不带控制字符 */
+const altText = (v: unknown, path: string): string => (typeof v === 'string' && v.trim() !== '' && v.length <= 200 && !/[\u0000-\u001f\u007f]/.test(v) ? v : fail('invalid_alt', path));
+
+/** 冻结正文里的全部图片节点（按出现顺序，含 section、grid、repeat 展开后的子节点） */
+export function imageNodesOf(nodes: ResolvedNode[] | unknown): ImageNode[] {
+  const out: ImageNode[] = [];
+  const walk = (ns: unknown) => { if (!Array.isArray(ns)) return; for (const n of ns as ResolvedNode[]) { if (n && n.type === 'image' && typeof n.src === 'string') out.push(n as ImageNode); walk(n?.children); } };
+  walk(nodes);
+  return out;
 }
 
 /**
@@ -175,7 +225,8 @@ export function materialize(t: TemplateV2, b: Binding, data: ReportSlotData[], i
       return Object.fromEntries(slot.columns.map((c) => {
         const srcName = sb.columns[c.name]; const v = own(r, srcName) ? r[srcName] : undefined;
         if ((v === null || v === undefined) && c.nullable) return [c.name, null];
-        const valid = c.type === 'integer' ? Number.isSafeInteger(v) : c.type === 'decimal' ? typeof v === 'number' && Number.isFinite(v) : c.type === 'boolean' ? typeof v === 'boolean' : typeof v === 'string' && v.length <= 10000;
+        const valid = c.type === 'integer' ? Number.isSafeInteger(v) : c.type === 'decimal' ? typeof v === 'number' && Number.isFinite(v) : c.type === 'boolean' ? typeof v === 'boolean'
+          : c.type === 'image' ? typeof v === 'string' && imageRefOk(v) : typeof v === 'string' && v.length <= 10000;
         if (!valid) return fail('invalid_cell', '/slots/' + name + '/rows/' + ri + '/' + c.name);
         return [c.name, v];
       }));
@@ -192,16 +243,15 @@ export function materialize(t: TemplateV2, b: Binding, data: ReportSlotData[], i
     sources.push({ slot: name, view: d.view, block: d.block, view_version: d.view_version, view_sha256: d.view_sha256, rows: rows.length, completeness: slot.completeness });
   }
 
-  const nodeIds = new Set<string>(); let expanded = 0;
+  const nodeIds = new Set<string>(); let expanded = 0, images = 0;
   const allowedByType: Record<string, string[]> = {
     cover: ['title', 'content'], section: ['title', 'children'], text: ['content'], grid: ['columns', 'items'],
-    repeat: ['data', 'row_key', 'max_items', 'children'], 'data-view': ['component', 'data', 'props'], 'page-break': [],
+    repeat: ['data', 'row_key', 'max_items', 'children'], 'data-view': ['component', 'data', 'props'], 'page-break': [], image: ['src', 'alt'],
   };
   const validateNodes = (nodes: unknown, depth = 0) => {
     if (!Array.isArray(nodes) || depth > 6) fail('node_depth', '/body');
     if (nodes.length > 300) fail('node_limit', '/body');
     for (const n of nodes as Node[]) {
-      // 图片节点这一步不收（素材授权还没定）
       if (!obj(n) || typeof n.type !== 'string' || !own(allowedByType, n.type)) fail('unsupported_node', '/body');
       id(n.id, '/body/id'); if (nodeIds.has(n.id) || nodeIds.size >= 300) fail('node_id_or_limit', '/body/' + n.id); nodeIds.add(n.id);
       keys(n, ['id', 'type', ...allowedByType[n.type]], '/body/' + n.id);
@@ -210,24 +260,29 @@ export function materialize(t: TemplateV2, b: Binding, data: ReportSlotData[], i
     }
   };
   validateNodes(t.body);
-  const renderNodes = (nodes: Node[], suffix = '', row?: Record<string, unknown>): ResolvedNode[] => nodes.flatMap((n) => {
+  const renderNodes = (nodes: Node[], suffix = '', row?: Record<string, unknown>, rowCols?: BlockColumn[]): ResolvedNode[] => nodes.flatMap((n) => {
     if (++expanded > 1000) return fail('expanded_limit', '/body');
     const path = '/body/' + n.id, base = { id: n.id + suffix, type: n.type };
     if (n.type === 'repeat') {
       const d = slotData[n.data ?? ''], contract = slots[n.data ?? ''];
       if (!d || !Array.isArray(n.row_key) || JSON.stringify(n.row_key) !== JSON.stringify(contract.key)) return fail('invalid_repeat_key', path);
       const max = bounded(n.max_items, 1, 100, path + '/max_items'); if (d.rows.length > max) return fail('repeat_limit', path);
-      return d.rows.flatMap((r) => renderNodes(n.children ?? [], suffix + '/' + encodeURIComponent(JSON.stringify(n.row_key?.map((k) => r[k]))), r));
+      return d.rows.flatMap((r) => renderNodes(n.children ?? [], suffix + '/' + encodeURIComponent(JSON.stringify(n.row_key?.map((k) => r[k]))), r, d.columns));
     }
     if (n.type === 'cover') return [{ ...base, title: renderText(n.title, path + '/title', input, row), content: n.content ? renderText(n.content, path + '/content', input, row) : '' }];
     if (n.type === 'text') return [{ ...base, content: renderText(n.content, path + '/content', input, row) }];
-    if (n.type === 'section') return [{ ...base, title: renderText(n.title, path + '/title', input, row), children: renderNodes(n.children ?? [], suffix, row) }];
+    if (n.type === 'section') return [{ ...base, title: renderText(n.title, path + '/title', input, row), children: renderNodes(n.children ?? [], suffix, row, rowCols) }];
+    if (n.type === 'image') {
+      if (++images > IMAGE_NODES_MAX) return fail('image_limit', path);
+      const src = imageSource(t, n.src, path + '/src', input, row && rowCols ? { values: row, columns: rowCols } : undefined);
+      return [{ ...base, src, alt: altText(n.alt, path + '/alt'), sha256: '' }];
+    }
     if (n.type === 'grid') {
       const cols = n.columns, items = n.items;
       if (!Array.isArray(cols) || !Array.isArray(items) || cols.length !== items.length || items.length < 1 || items.length > 4 || cols.some((x) => !Number.isInteger(x) || x < 1 || x > 12) || cols.reduce((a, b2) => a + b2, 0) !== 12) return fail('invalid_grid', path);
       if (!['12', '6-6', '4-4-4', '3-3-3-3'].includes(cols.join('-'))) return fail('grid_ratio_unsupported', path);
       if (items.some((x) => !['text', 'data-view'].includes(x.type) || x.component === 'table')) return fail('grid_split_unsupported', path);
-      return [{ ...base, columns: [...cols], children: renderNodes(items, suffix, row) }];
+      return [{ ...base, columns: [...cols], children: renderNodes(items, suffix, row, rowCols) }];
     }
     if (n.type === 'data-view') {
       const d = slotData[n.data ?? '']; if (!d || !obj(n.props)) return fail('missing_slot', path);
