@@ -653,6 +653,54 @@ try {
       check(byFormerReviewer.status === 201 && staleReview.status === 409 && staleReview.json?.error === 'report_template_unreviewed' &&
         ninaGrant.status === 200 && newReview.status === 200 && activated.json?.dimension?.active_version === 3,
         'RGP4 同判据复核人后来成为作者，历史复核不能激活，独立人复核后恢复', { byFormerReviewer, staleReview, newReview, activated });
+
+      const inviteRequest = await A.remote('POST', '/api/mcp-rest/tools/access_request', { headers, json: {
+        area: 'zeta', actions: ['report.governance-review-invite'], report_scope: { dimension: 'governance-register' }, reason: '合成复核邀请',
+      } });
+      const inviteApproval = await olga.go('POST', '/api/areas/zeta/access-requests/' + inviteRequest.json?.request?.ref?.slice(5) + '/approve', { json: {} });
+      const publishManual = min => rex.go('POST', '/api/report-dimensions/governance-register/templates', { json: {
+        body: tpl({ claims: [{ kind: 'conclusion', label: '结论', min, max: 6 }] }),
+      } });
+      const target = (await publishManual(2)).json?.template;
+      const inviteArgs = { dimension: 'governance-register', version: target?.version, body_sha256: target?.sha256,
+        criteria_sha256: target?.criteria_sha256, invitees: ['user:nina', 'user:olga'] };
+      const invokeInvite = (key, extra = {}) => A.remote('POST', '/api/report-governance/proposals', { headers, json: {
+        op: 'review-invite', idempotency_key: key, args: { ...inviteArgs, ...extra },
+      } });
+      const beforeInvite = counts(A);
+      const author = await invokeInvite('invite-author', { invitees: ['user:rex', 'user:nina'] });
+      const noGrant = await invokeInvite('invite-no-grant', { invitees: ['user:tom'] });
+      const wrongHash = await invokeInvite('invite-hash', { body_sha256: '0'.repeat(64) });
+      const createdInvite = await invokeInvite('invite-one');
+      const identical = await invokeInvite('invite-one', { invitees: ['user:olga', 'user:nina'] });
+      const altered = await invokeInvite('invite-one', { invitees: ['user:nina'] });
+      const invitePath = '/api/report-governance/review-invites/' + createdInvite.json?.id;
+      const agentResult = () => A.remote('GET', '/api/report-governance/proposals/' + createdInvite.json?.id, { headers });
+      const resultInvite = await agentResult();
+      const rejectedConfirm = await confirm(rex, createdInvite.json?.id, 'a'.repeat(64));
+      const inviteCount = db.prepare('SELECT COUNT(*) AS n FROM report_governance_invites').get().n;
+      const peopleCount = db.prepare('SELECT COUNT(*) AS n FROM report_governance_invitees').get().n;
+      check(inviteApproval.status === 200 && author.status === 400 && same(author.json, noGrant.json) && wrongHash.status === 409 &&
+        createdInvite.status === 202 && /^i-[1-9]/.test(createdInvite.json?.id) && same(createdInvite.json, identical.json) && altered.status === 409 &&
+        resultInvite.json?.kind === 'invite' && resultInvite.json?.status === 'active' && !('invitees' in resultInvite.json) && rejectedConfirm.status === 403 &&
+        same(beforeInvite, counts(A)) && inviteCount === 1 && peopleCount === 2,
+        'RGI1 精确复核邀请整组验资格，同号不重发，结果不泄露邀请人且不能当提案确认', { inviteApproval, author, noGrant, wrongHash, createdInvite, altered, resultInvite, rejectedConfirm, inviteCount, peopleCount });
+      const invited = await nina.go('GET', invitePath);
+      const uninvited = await ria.go('GET', invitePath);
+      const inboxInvite = await nina.go('GET', '/api/attention');
+      const robot = await A.remote('GET', invitePath, { headers });
+      check(invited.status === 200 && invited.json?.template?.sha256 === target.sha256 && uninvited.status === 403 && robot.status === 403 &&
+        inboxInvite.json?.items?.filter(x => x.source === 'report-review-invitations' && x.source_id === createdInvite.json.id).length === 1,
+        'RGI2 站内待办只发指定人一次，打开重新判权查看精确版本', { invited, uninvited, robot, inbox: inboxInvite.status });
+      const revokedInvitee = await A.cli('POST', '/api/grants/' + ninaGrant.id + '/revoke', { reason: '合成：复核人失权' });
+      const vanished = await nina.go('GET', invitePath);
+      const voided = await agentResult();
+      const other = await invokeInvite('invite-other', { invitees: ['user:olga'] });
+      const newer = await publishManual(3);
+      const supersededInvite = await A.remote('GET', '/api/report-governance/proposals/' + other.json?.id, { headers });
+      check(revokedInvitee.status === 200 && vanished.status === 403 && voided.json?.status === 'void' && voided.json?.reason === 'ineligible' &&
+        other.status === 202 && newer.status === 201 && supersededInvite.json?.reason === 'superseded',
+        'RGI3 复核人失权与不同判据新版本都会令邀请作废', { revokedInvitee, vanished, voided, other, newer: newer.status, supersededInvite });
     } finally { db.close(); }
   }
   // 公网 Host 与 Origin 用真实 HTTP 发给本机隔离监听；控制面使用独立端口。

@@ -17,3 +17,5 @@ description: 工作台市场报告治理。使用通用调用或 REST 提出绑�
 把 `{ op, args, idempotency_key }` 交给 `invoke`，目标为 `report.governance-propose`。也可用同一会话令牌 POST `/api/report-governance/proposals`。绑定参数取自当前生效模板、视图和绑定，包含台标识、维度标识、模板/视图版本与 SHA-256、绑定基版和逐槽映射。同一键和相同参数返回同一提案编号。
 
 提议后由有权人在站内「等你拍板」核对冻结内容并确认。会话可用 `report.governance-result { "id": "p-编号" }` 或 GET `/api/report-governance/proposals/p-编号` 查询。收到冲突时重新读对象再提；未授权时检查台与维度的接入及当前本人授予。不要提交身份、授予、任意路由或数据行。
+
+请人复核用 `review-invite`，单独申请该维度的 `report.governance-review-invite`。参数为 `dimension`、`version`、`body_sha256`、`criteria_sha256`、`invitees`（1～5 位有权非作者）。同键重放不会重复产生站内待办。返回的 `i-` 编号可用 `report.governance-result` 查询。复核本人从站内待办查看精确版本并提交复核。

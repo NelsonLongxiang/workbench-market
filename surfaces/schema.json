@@ -749,6 +749,25 @@
       "op TEXT",
       "status TEXT NOT NULL"
     ],
+    "report_governance_invitees": [
+      "invite_id INTEGER NOT NULL PK",
+      "principal_id TEXT NOT NULL PK"
+    ],
+    "report_governance_invites": [
+      "id INTEGER PK",
+      "session_id INTEGER NOT NULL",
+      "principal_id TEXT NOT NULL",
+      "area_id TEXT NOT NULL",
+      "dimension_id TEXT NOT NULL",
+      "version INTEGER NOT NULL",
+      "body_sha256 TEXT NOT NULL",
+      "criteria_sha256 TEXT NOT NULL",
+      "idempotency_key TEXT NOT NULL",
+      "request_sha256 TEXT NOT NULL",
+      "created_at INTEGER NOT NULL",
+      "expires_at INTEGER NOT NULL",
+      "void_reason TEXT"
+    ],
     "report_governance_proposals": [
       "id INTEGER PK",
       "session_id INTEGER NOT NULL",
@@ -1349,6 +1368,7 @@
     "idx_relation_proposals_status ON relation_proposals: CREATE INDEX idx_relation_proposals_status ON relation_proposals (status, id)",
     "idx_report_dimension_events_dim ON report_dimension_events: CREATE INDEX idx_report_dimension_events_dim ON report_dimension_events (dimension_id, seq)",
     "idx_report_governance_audit_at ON report_governance_audit: CREATE INDEX idx_report_governance_audit_at ON report_governance_audit (at)",
+    "idx_report_governance_invitees_person ON report_governance_invitees: CREATE INDEX idx_report_governance_invitees_person ON report_governance_invitees (principal_id, invite_id)",
     "idx_report_governance_pending ON report_governance_proposals: CREATE INDEX idx_report_governance_pending ON report_governance_proposals (status, expires_at, id)",
     "idx_sdr_skill ON skill_digest_reports: CREATE INDEX idx_sdr_skill ON skill_digest_reports (skill_id, version)",
     "idx_seat_assign_active_handle ON seat_assignments: CREATE UNIQUE INDEX idx_seat_assign_active_handle ON seat_assignments (host, team, seat) WHERE ended_at IS NULL AND seat_id = ''",

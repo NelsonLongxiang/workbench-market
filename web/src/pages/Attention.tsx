@@ -10,6 +10,8 @@ import DecisionCard from '../components/DecisionCard';
 import { ATTENTION_CHANGED, canRememberKnowledge, getAttention } from '../api';
 import RecentAnswers from '../components/RecentAnswers';
 import ReportGovernanceInbox from '../components/ReportGovernanceInbox';
+import ReportReviewInvitation from '../components/ReportReviewInvitation';
+import { useSearchParams } from 'react-router-dom';
 import { SEAT_ASKS_MORE, answerChoices, groupCards, isStuck, stuckTotal, type AttentionItem, type Category } from '../attention-view';
 import { decideLine } from '../home-view';
 
@@ -19,6 +21,8 @@ const CATS: { key: Category; label: string }[] = [
 ];
 
 export default function Attention() {
+  const [params] = useSearchParams();
+  const inviteId = params.get('report-review');
   const admin = useSyncExternalStore(subscribeAdminToken, adminActive);
   const [items, setItems] = useState<AttentionItem[] | null>(null);
   const [status, setStatus] = useState(0);
@@ -56,6 +60,7 @@ export default function Attention() {
 
   return <WmPage title="等你拍板">
     <div className="wm-home">
+      {inviteId && <ReportReviewInvitation key={inviteId} id={inviteId} />}
       <Typography.Paragraph type="secondary" className="wm-home-sum" data-testid="attention-summary">
         {items === null ? '正在读……' : failed ? (status === 401 ? '请先登录。' : '这会儿读不到等你拍板的事，稍后再试。') : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length, stuckTotal(stuckCount, all.stuck.length))}
       </Typography.Paragraph>

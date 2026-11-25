@@ -1,5 +1,14 @@
 import type { TableContext } from './bench-table-view';
 
+export function getReportReviewInvitation(id: string, signal: AbortSignal): Promise<Response> {
+  return fetch('/api/report-governance/review-invites/' + encodeURIComponent(id), { signal });
+}
+export function submitReportTemplateReview(dimension: string, version: number, note: string): Promise<Response> {
+  return fetch('/api/report-dimensions/' + encodeURIComponent(dimension) + '/templates/' + version + '/review', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ note }),
+  });
+}
+
 /** 报告治理只用站内本人登录，不添加管理口令。 */
 export function getReportGovernanceInbox(after: number, signal?: AbortSignal): Promise<Response> {
   return fetch('/api/report-governance/inbox?after=' + after, { signal });

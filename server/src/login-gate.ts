@@ -266,7 +266,7 @@ export function createLoginGate(deps: LoginGateDeps) {
     if (p === '/mcp') return true; // 网关 Bearer 会话认证；enforce 时网关强制开
     // #385 MCP 工具的 REST 开放：路由内只认网关会话令牌（mcpGatewaySession，无效 401），同 /mcp 不走浏览器登录
     if ((get && p === '/openapi.json') || p.startsWith('/api/mcp-rest/')) return true;
-    if (/^\/api\/report-governance\/proposals(?:\/p-[1-9][0-9]{0,14})?$/.test(p)) return true;
+    if (/^\/api\/report-governance\/proposals(?:\/[pi]-[1-9][0-9]{0,14})?$/.test(p)) return true;
     if (get && (p === '/api/health' || p === '/api/health/ready' || p === '/login' || p === '/api/auth/me' || p === '/.well-known/agent-card.json')) return true;
     if (m === 'POST' && (p === '/api/auth/login' || p === '/api/auth/logout')) return true;
     if (get && /^\/login\/[a-z0-9][a-z0-9-]{0,31}(\/callback)?$/.test(p)) return true; // 登录方式的发起和回调（还没有身份才要登录）；路由里核 state

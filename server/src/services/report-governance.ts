@@ -1,5 +1,7 @@
 /** 首个报告治理操作：提案只冻结作用域和目标，业务写入只经真人的确认。 */
+import { createHash } from 'node:crypto';
 import { svc } from '../context.ts';
+import { db as main } from '../db.ts';
 import { HttpError } from '../errors.ts';
 import { BenchError } from '../bench-query.ts';
 import { canBenchAction } from './bench-access.ts';
@@ -7,13 +9,13 @@ import { captureBenchStorageFence, getBench, type BenchEntry } from './bench-reg
 import { benchStore, benchStoreExists } from './bench-store.ts';
 import { compiled, usableDimension } from './bench-report.ts';
 import { checkBinding, type Binding } from './report-compile.ts';
-import { REPORT_BIND_ACCESS, REPORT_CREATE_ACCESS, REPORT_PUBLISH_ACCESS, type AreaAccessService } from './area-access.ts';
+import { REPORT_BIND_ACCESS, REPORT_CREATE_ACCESS, REPORT_PUBLISH_ACCESS, REPORT_REVIEW_INVITE_ACCESS, type AreaAccessService } from './area-access.ts';
 import type { AreaService } from './area.ts';
 import type { GrantService } from './grant.ts';
 import { type ReportDimensionService, normalizeDimensionTitle } from './report-dimension.ts';
 import type { McpService } from './mcp.ts';
 import type { PrincipalService } from './principal.ts';
-import { canonicalGovernanceJson, projectProposal, type Json, type Proposal, type ProposalInput, type ReportGovernanceProposalService } from './report-governance-proposal.ts';
+import { canonicalGovernanceJson, projectProposal, PROPOSAL_TTL, type Json, type Proposal, type ProposalInput, type ReportGovernanceProposalService } from './report-governance-proposal.ts';
 
 export const GOVERNANCE_PROPOSE = 'report.governance-propose';
 export const GOVERNANCE_RESULT = 'report.governance-result';
@@ -78,15 +80,16 @@ function dimensionCreateAllowed(sessionId: number, principal: string, area: stri
 }
 function templatePublishAllowed(sessionId: number, principal: string, area: string, dimension: string): boolean {
   return mcp().areaAccessPrincipal(sessionId) === principal && maySetDimension(principal, area) &&
-    approvals().hasReportPublishApproval(sessionId, principal, area, dimension);
+    approvals().hasReportDimensionApproval(sessionId, principal, area, dimension, REPORT_PUBLISH_ACCESS);
 }
 export function governanceCatalog(session: Session, details: boolean) {
   const principal = session ? mcp().areaAccessPrincipal(session.id) : null;
   const scopes = session && principal ? approvals().reportBindApprovals(session.id, principal)
     .filter(scope => sourceAllowed(session.id, principal, scope.bench, scope.dimension, scope.area)) : [];
   const createAreas = session && principal ? approvals().reportCreateAreas(session.id, principal).filter(area => maySetDimension(principal, area)) : [];
-  const publishScopes = session && principal ? approvals().reportPublishApprovals(session.id, principal).filter(scope => maySetDimension(principal, scope.area)) : [];
-  const granted = scopes.length > 0 || createAreas.length > 0 || publishScopes.length > 0;
+  const publishScopes = session && principal ? approvals().reportDimensionApprovals(session.id, principal, REPORT_PUBLISH_ACCESS).filter(scope => maySetDimension(principal, scope.area)) : [];
+  const inviteScopes = session && principal ? approvals().reportDimensionApprovals(session.id, principal, REPORT_REVIEW_INVITE_ACCESS).filter(scope => maySetDimension(principal, scope.area)) : [];
+  const granted = scopes.length > 0 || createAreas.length > 0 || publishScopes.length > 0 || inviteScopes.length > 0;
   const propose = { name: GOVERNANCE_PROPOSE, description: '提出报告治理请求，由站内有权的人确认', area: '按目标台和维度', kind: 'decide', granted };
   const result = { name: GOVERNANCE_RESULT, description: '查询本会话提出的报告治理请求', area: '按原目标台和维度', kind: 'read', granted };
   if (!details) return [propose, result];
@@ -96,12 +99,14 @@ export function governanceCatalog(session: Session, details: boolean) {
       'template-publish': { args: { dimension: 'string', body: 'object', body_sha256: 'sha256', criteria_sha256: 'sha256',
         expected_kind: ['criteria', 'layout'], expected_latest_version: 'integer', note: 'string' },
         activation: { action: REPORT_PUBLISH_ACCESS, report_scope: ['dimension'] }, scopes: publishScopes },
+      'review-invite': { args: { dimension: 'string', version: 'integer', body_sha256: 'sha256', criteria_sha256: 'sha256', invitees: '1–5 人的主体标识' },
+        activation: { action: REPORT_REVIEW_INVITE_ACCESS, report_scope: ['dimension'] }, scopes: inviteScopes },
       'bench-bind': { args: { bench: 'string', dimension: 'string', template_version: 'integer', template_sha256: 'sha256',
       base: 'integer', view_version: 'integer', view_sha256: 'sha256', slots: 'object' } } },
     openapi: { method: 'POST', path: '/api/report-governance/proposals', required: ['op', 'args', 'idempotency_key'] },
     errors: { report_governance_forbidden: '需要有可信责任人的会话，并已获该台和维度范围的批准及本人授予',
       report_governance_target_changed: '重新读取绑定、模板和视图后重提' } },
-  { ...result, skill: 'wm-report-governance', scopes, dimension_create_areas: createAreas, template_publish_scopes: publishScopes, openapi: { method: 'GET', path: '/api/report-governance/proposals/{id}', required: ['id'] } }];
+  { ...result, skill: 'wm-report-governance', scopes, dimension_create_areas: createAreas, template_publish_scopes: publishScopes, review_invite_scopes: inviteScopes, openapi: { method: 'GET', path: '/api/report-governance/proposals/{id}', required: ['id'] } }];
 }
 function scopeOf(p: Proposal): FrozenBinding['scope'] {
   return (JSON.parse(p.frozen) as FrozenBinding).scope;
@@ -201,11 +206,92 @@ function proposeTemplate(sessionId: number, principal: string, body: Record<stri
   return { id: 'p-' + row.id, status: 'pending' as const };
 }
 
+type InviteReason = 'expired' | 'revoked' | 'superseded' | 'ineligible';
+type ReviewInvite = { id: number; dimension_id: string; area_id: string; version: number; body_sha256: string; criteria_sha256: string;
+  session_id: number; principal_id: string; request_sha256: string; created_at: number; expires_at: number; void_reason: InviteReason | null };
+
+function txInvite<T>(run: () => T): T {
+  main.exec('BEGIN IMMEDIATE');
+  try { const result = run(); main.exec('COMMIT'); return result; }
+  catch (error) { main.exec('ROLLBACK'); throw error; }
+}
+function inviteAllowed(sessionId: number, principal: string, area: string, dimension: string): boolean {
+  return mcp().areaAccessPrincipal(sessionId) === principal && maySetDimension(principal, area) &&
+    approvals().hasReportDimensionApproval(sessionId, principal, area, dimension, REPORT_REVIEW_INVITE_ACCESS);
+}
+function canReview(principal: string, invite: Pick<ReviewInvite, 'dimension_id' | 'area_id' | 'criteria_sha256'>): boolean {
+  return maySetDimension(principal, invite.area_id) && dimensions().mayReviewInvitation(invite.dimension_id, invite.criteria_sha256, principal);
+}
+function supersededCriteria(dimension: string, version: number, digest: string): boolean {
+  return Boolean(main.prepare('SELECT 1 FROM report_templates WHERE dimension_id = ? AND version > ? AND criteria_sha256 <> ? LIMIT 1')
+    .get(dimension, version, digest));
+}
+function inviteStatus(row: ReviewInvite, now: number): InviteReason | null {
+  if (row.void_reason) return row.void_reason;
+  if (row.expires_at <= now) return 'expired';
+  if (!inviteAllowed(row.session_id, row.principal_id, row.area_id, row.dimension_id)) return 'revoked';
+  if (supersededCriteria(row.dimension_id, row.version, row.criteria_sha256)) return 'superseded';
+  const people = main.prepare('SELECT principal_id FROM report_governance_invitees WHERE invite_id = ?').all(row.id) as { principal_id: string }[];
+  return people.length > 0 && people.every(p => canReview(p.principal_id, row)) ? null : 'ineligible';
+}
+function updateInviteStatus(row: ReviewInvite, now: number): InviteReason | null {
+  const reason = inviteStatus(row, now);
+  if (reason && !row.void_reason) main.prepare('UPDATE report_governance_invites SET void_reason = ? WHERE id = ? AND void_reason IS NULL').run(reason, row.id);
+  return reason;
+}
+function auditInvite(row: ReviewInvite, action: string, channel: Channel, now: number, reason: InviteReason | null) {
+  main.prepare('INSERT INTO report_governance_audit (at, proposal_id, action, channel, session_id, principal_id, op, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(now, -row.id, action, channel, row.session_id, row.principal_id, action === GOVERNANCE_PROPOSE ? 'review-invite' : null, reason ? 'void' : 'active');
+}
+function inviteView(row: ReviewInvite, reason: InviteReason | null) {
+  return { id: 'i-' + row.id, kind: 'invite', status: reason ? 'void' : 'active', ...(reason ? { reason } : {}), expires_at: row.expires_at };
+}
+function proposeReviewInvite(sessionId: number, principal: string, body: Record<string, unknown>, channel: Channel) {
+  const raw = record(body.args);
+  const dimension = raw?.dimension;
+  if (typeof dimension !== 'string' || !ID.test(dimension)) return governanceForbidden();
+  const area = dimensions().get(dimension)?.area_id;
+  if (!area || !inviteAllowed(sessionId, principal, area, dimension)) return governanceForbidden();
+  const { version, body_sha256, criteria_sha256, invitees } = exact(raw, ['dimension', 'version', 'body_sha256', 'criteria_sha256', 'invitees']);
+  const key = body.idempotency_key;
+  if (typeof key !== 'string' || !/^[a-zA-Z0-9_.:-]{1,128}$/.test(key) || typeof version !== 'number' || !Number.isSafeInteger(version) || version < 1 ||
+      typeof body_sha256 !== 'string' || !SHA.test(body_sha256) || typeof criteria_sha256 !== 'string' || !SHA.test(criteria_sha256) ||
+      !Array.isArray(invitees) || invitees.length < 1 || invitees.length > 5 || new Set(invitees).size !== invitees.length ||
+      invitees.some(id => typeof id !== 'string' || !/^[^\s]{1,256}$/.test(id))) return invalid('邀请须钉定版本、两个摘要和 1～5 位不同的复核人');
+  const people = (invitees as string[]).slice().sort();
+  const digest = createHash('sha256').update(JSON.stringify([version, body_sha256, criteria_sha256, people])).digest('hex');
+  return txInvite(() => {
+    if (!inviteAllowed(sessionId, principal, area, dimension)) return governanceForbidden();
+    const now = Date.now();
+    const prior = main.prepare('SELECT * FROM report_governance_invites WHERE session_id = ? AND dimension_id = ? AND idempotency_key = ?').get(sessionId, dimension, key) as ReviewInvite | undefined;
+    if (prior) {
+      if (prior.principal_id !== principal) return governanceForbidden();
+      if (prior.request_sha256 !== digest) return changed('幂等键已经用于不同的复核邀请');
+      const reason = updateInviteStatus(prior, now);
+      auditInvite(prior, GOVERNANCE_PROPOSE, channel, now, reason);
+      return inviteView(prior, reason);
+    }
+    const template = dimensions().template(dimension, version);
+    if (!template || template.sha256 !== body_sha256 || template.criteria_sha256 !== criteria_sha256 ||
+        supersededCriteria(dimension, version, criteria_sha256)) return changed('复核目标的版本或摘要已改变');
+    if (!people.every(person => canReview(person, { area_id: area, dimension_id: dimension, criteria_sha256 }))) {
+      return invalid('被邀请人里有人不符合复核条件');
+    }
+    const row = main.prepare('INSERT INTO report_governance_invites (session_id, principal_id, area_id, dimension_id, version, body_sha256, criteria_sha256, idempotency_key, request_sha256, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *')
+      .get(sessionId, principal, area, dimension, version, body_sha256, criteria_sha256, key, digest, now, now + PROPOSAL_TTL) as ReviewInvite;
+    const to = main.prepare('INSERT INTO report_governance_invitees (invite_id, principal_id) VALUES (?, ?)');
+    for (const person of people) to.run(row.id, person);
+    auditInvite(row, GOVERNANCE_PROPOSE, channel, now, null);
+    return inviteView(row, null);
+  });
+}
+
 export async function proposeReportGovernance(session: Session, input: unknown, channel: Channel) {
   const principal = activePrincipal(session);
   const body = exact(input, ['op', 'args', 'idempotency_key']);
   if (body.op === 'dimension-create') return proposeDimension(session!.id, principal, body, channel);
   if (body.op === 'template-publish') return proposeTemplate(session!.id, principal, body, channel);
+  if (body.op === 'review-invite') return proposeReviewInvite(session!.id, principal, body, channel);
   if (body.op !== 'bench-bind') return governanceForbidden();
   const raw = record(body.args);
   const benchId = raw?.bench, dimension = raw?.dimension;
@@ -241,8 +327,39 @@ export function proposalId(id: unknown): number {
 export function resultReportGovernance(session: Session, input: unknown, channel: Channel) {
   const principal = activePrincipal(session);
   const args = exact(input, ['id']);
+  if (typeof args.id === 'string' && /^i-[1-9][0-9]{0,14}$/.test(args.id)) {
+    const id = Number(args.id.slice(2));
+    return txInvite(() => {
+      const row = main.prepare('SELECT * FROM report_governance_invites WHERE id = ?').get(id) as ReviewInvite | undefined;
+      if (!row || row.session_id !== session!.id || row.principal_id !== principal || !inviteAllowed(session!.id, principal, row.area_id, row.dimension_id)) return governanceForbidden();
+      const now = Date.now();
+      const reason = updateInviteStatus(row, now);
+      auditInvite(row, GOVERNANCE_RESULT, channel, now, reason);
+      return inviteView(row, reason);
+    });
+  }
   return ledger().result(proposalId(args.id), session!.id, principal, channel, Date.now(), allowsProposalSource);
 }
+export function reviewInvitationsFor(principal: string) {
+  return txInvite(() => {
+    const rows = main.prepare('SELECT i.* FROM report_governance_invitees p JOIN report_governance_invites i ON i.id = p.invite_id WHERE p.principal_id = ? AND i.void_reason IS NULL ORDER BY i.id DESC LIMIT 200')
+      .all(principal) as ReviewInvite[];
+    const now = Date.now();
+    return rows.filter(row => !updateInviteStatus(row, now) && !dimensions().template(row.dimension_id, row.version)?.review)
+      .map(row => ({ id: 'i-' + row.id, dimension: row.dimension_id, version: row.version, created_at: row.created_at }));
+  });
+}
+export function openReviewInvitation(principal: string, id: unknown) {
+  if (typeof id !== 'string' || !/^i-[1-9][0-9]{0,14}$/.test(id)) return null;
+  return txInvite(() => {
+    const row = main.prepare('SELECT i.* FROM report_governance_invitees p JOIN report_governance_invites i ON i.id = p.invite_id WHERE p.principal_id = ? AND i.id = ?')
+      .get(principal, Number(id.slice(2))) as ReviewInvite | undefined;
+    if (!row || updateInviteStatus(row, Date.now())) return null;
+    const template = dimensions().template(row.dimension_id, row.version);
+    return template ? { dimension: row.dimension_id, template } : null;
+  });
+}
+
 /** 提案列表只在人有权确认时带冻结内容。 */
 export function governanceInbox(principal: string, after: number) {
   const page = ledger().pendingPage(after, p => mayConfirm(principal, p));

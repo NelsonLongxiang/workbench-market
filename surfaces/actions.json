@@ -313,6 +313,7 @@
       "POST /api/mcp-rest/capabilities/:target  -> mcp-rest.capability-call  write  （状态码不代表授权：按会话责任人和指定领域能力判定）",
       "POST /api/report-governance/proposals  -> report.governance-propose  decide  （状态码不代表授权：认会话和当前责任人，再以该人授予和操作的精确作用域交集判权）",
       "GET /api/report-governance/proposals/:id  -> report.governance-result  read  （状态码不代表授权：认会话和当前责任人，再以该人授予和操作的精确作用域交集判权）",
+      "GET /api/report-governance/review-invites/:id  -> report.governance-invite-read  read  （状态码不代表授权：按登录的启用自然人和本台权限确认，不接受管理口令或会话代办）",
       "GET /api/report-governance/inbox  -> report.governance-inbox  read  （状态码不代表授权：按登录的启用自然人和本台权限确认，不接受管理口令或会话代办）",
       "POST /api/report-governance/inbox/:id/confirm  -> report.governance-confirm  decide  （状态码不代表授权：按登录的启用自然人和本台权限确认，不接受管理口令或会话代办）",
       "POST /api/report-governance/inbox/:id/reject  -> report.governance-reject  decide  （状态码不代表授权：按登录的启用自然人和本台权限确认，不接受管理口令或会话代办）",
