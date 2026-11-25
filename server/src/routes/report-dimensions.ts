@@ -28,6 +28,7 @@ import type { PrincipalService } from '../services/principal.ts';
 import type { GrantService } from '../services/grant.ts';
 import { DIMENSION_ID_RE, type DimensionActor, type DimensionRefusal, type ReportDimensionService } from '../services/report-dimension.ts';
 import { AREA_ID_RE } from '../services/area.ts';
+import { personalTokenAuditName, personalTokenOf } from './owner-personal-tokens.ts';
 
 export type ReportDimensionRouteDeps = {
   markAdmin: (req: express.Request) => Promise<void>;
@@ -80,6 +81,8 @@ export function registerReportDimensionRoutes(app: HttpService, deps: ReportDime
   /** 认人：本机命令行（属主）、管理员（同源；只是系统管理员的不算）、登录的人（启用的人）。不过就已经写好应答，返回 null */
   async function who(req: express.Request, res: express.Response): Promise<Who | null> {
     res.set('Cache-Control', 'private, no-store');
+    const token = personalTokenOf(req);
+    if (token) return { actor: { by: personalTokenAuditName(token), principal: token.principal }, owner: grants().isOwner(token.principal) };
     const publicPrincipal = deps.publicPerson(req);
     if (publicPrincipal) return { actor: { by: publicPrincipal, principal: publicPrincipal }, owner: grants().isOwner(publicPrincipal) };
     if (!browserMarked(req) && rawLoopback(req)) return { actor: { by: 'cli', principal: null }, owner: true };

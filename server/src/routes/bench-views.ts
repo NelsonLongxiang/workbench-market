@@ -30,6 +30,7 @@ import { tableTarget, tableCsv } from '../bench-table.ts';
 import { benchStore, benchStoreExists, type BenchStore } from '../services/bench-store.ts';
 import { captureBenchStorageFence, bindBench, linkWorkbench, renameBench, cardTitle, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
 import { checkBenchRequest, decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
+import { personalTokenAuditName, personalTokenOf } from './owner-personal-tokens.ts';
 import { viaBegin, viaSettle } from '../attention-via.ts';
 import { assertBenchBinding, renderBenchView } from '../services/bench-render.ts';
 import { bindReport, generateReport, listReports, readReport, respondReport, SUBJECT_RE } from '../services/bench-report.ts';
@@ -88,7 +89,7 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   // 路径里的台可以写卡片 id（纯数字）或台标识：一进来就换成台标识，下面一律按台标识认（docs/data-views.md 第十三节）
   const wrap: BenchViewRouteDeps['wrap'] = (fn) => wrapInner(async (req, res) => {
     if (!deps.on) return res.status(404).json({ error: 'bench_views_off' });
-    if (typeof req.params?.bench === 'string') req.params.bench = resolveBenchRef(req.params.bench);
+    if (typeof req.params?.bench === 'string') req.params.bench = personalTokenOf(req)?.authorizedBench ?? resolveBenchRef(req.params.bench);
     return fn(req, res);
   });
   const principals = () => svc<PrincipalService>('principals');
@@ -102,6 +103,11 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
   };
   /** 这个请求是谁发的。#591 合并后换成 judgment-compare.ts 的 actorResolver（先后和它一样，一处不差） */
   async function actorOf(req: express.Request): Promise<JudgedActor> {
+    const token = personalTokenOf(req);
+    if (token) {
+      const p = principals().get(token.principal);
+      return p ? { type: 'principal', id: p.id, kind: p.kind, status: p.status, owner: p.owner } : { type: 'builtin', name: 'anonymous' };
+    }
     if (adminTokenOk(req)) return { type: 'builtin', name: 'admin-token' };
     const cookie = String(req.headers.cookie ?? '');
     if (cookie) {
@@ -180,7 +186,11 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     if (typeof v === 'string' && /^\d{1,9}$/.test(v)) return Number(v);
     throw new BenchError('invalid', `${name} 要写成整数`);
   };
-  const ctxOf = (req: express.Request, actor: string, note?: unknown) => ({ actor, at: Date.now(), idemKey: str(req.headers['idempotency-key']), note: str(note) });
+  const auditActor = (req: express.Request, actor: string) => {
+    const token = personalTokenOf(req);
+    return token ? personalTokenAuditName(token) : actor;
+  };
+  const ctxOf = (req: express.Request, actor: string, note?: unknown) => ({ actor: auditActor(req, actor), at: Date.now(), idemKey: str(req.headers['idempotency-key']), note: str(note) });
 
   const rawRows = express.raw({ type: () => true, limit: BENCH_LIMITS.datasetBytes + 1_000_000 });
   /** 一条「在某个台上做一件事」的路由：先判权限，再核台登记过，然后把台库交给 fn */
@@ -311,7 +321,7 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     return { binding: b };
   }));
   app.put('/api/bench-views/:bench/reports/:dimension/binding', { action: 'bench-store.report-bind', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-bind',
-    (req, _res, s, actor, fence) => bindReport(benchOf(req), s, req.params.dimension, req.body, actor, Date.now(), fence!)));
+    (req, _res, s, actor, fence) => bindReport(benchOf(req), s, req.params.dimension, req.body, auditActor(req, actor), Date.now(), fence!)));
   app.post('/api/bench-views/:bench/reports/:dimension/binding/stop', { action: 'bench-store.report-bind-stop', kind: 'decide', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
     if (!deps.on) return res.status(404).json({ error: 'bench_views_off' });
     const fence = captureBenchStorageFence();
@@ -552,7 +562,7 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     const card = bench ? null : unopenedCard(req.params.bench);
     const judged = await allowActor(req, res, 'bench-store.mcp-decide', bench);
     if (!judged) return;
-    const actor = idOf(judged);
+    const actor = auditActor(req, idOf(judged));
     if (!bench && !card) return res.status(404).json({ error: 'bench_not_found' });
     const slug = bench ? bench.slug : cardSlug(card!.workbench_id);
     try {
