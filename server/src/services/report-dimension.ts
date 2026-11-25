@@ -35,6 +35,9 @@ export type TemplateMeta = {
   review: { reviewed_by: string; reviewed_at: number; note: string } | null; active: boolean;
 };
 export type TemplateFull = TemplateMeta & { body: unknown };
+type PublicationExpectation = { latestVersion: number; criteriaSha256: string; kind: TemplateKind; draftAuthor: string };
+type TemplatePreview = { text: string; bodySha256: string; criteriaSha256: string; kind: TemplateKind; latestVersion: number };
+type CriteriaAuthor = { version: number; created_by: string; created_by_principal: string | null; draft_author_principal: string | null };
 export type DimensionRefusal = { ok: false; http: 400 | 403 | 404 | 409; code: string; message: string };
 /** 做这一步的人：by 是留痕写法（cli、admin-token、user:<名> …），principal 是对到的主体（对不到为 null） */
 export type DimensionActor = { by: string; principal: string | null };
@@ -223,27 +226,44 @@ export class ReportDimensionService extends Service {
   }
 
   /** 发一版模板（不自动生效）。sha256 是调用方带来核对的（可空），核的是这里存下的正文（JSON.stringify 的结果） */
-  addTemplate(id: string, input: { body: unknown; note: string; sha256: string | null }, actor: DimensionActor, now: number): { ok: true; template: TemplateMeta } | DimensionRefusal {
+  previewTemplate(id: string, input: { body: unknown; note: string; sha256: string | null }, draftAuthor?: string, publisher?: string):
+    { ok: true; preview: TemplatePreview } | DimensionRefusal {
     const problem = templateProblem(input.body);
     if (problem) return refuse(400, 'report_template_invalid', problem);
     const text = JSON.stringify(input.body);
     const bytes = Buffer.byteLength(text, 'utf8');
-    if (bytes > TEMPLATE_MAX_BYTES) return refuse(400, 'report_template_too_large', `模板最多 200 KB（现在 ${bytes} 字节）`);
-    if (input.note.length > NOTE_MAX || /[\x00-\x1f\x7f]/.test(input.note)) return refuse(400, 'report_template_note_invalid', `说明最多 ${NOTE_MAX} 个字符，不带控制字符`);
-    const digest = sha256(text);
-    if (input.sha256 !== null && (!SHA256_RE.test(input.sha256) || input.sha256 !== digest)) return refuse(400, 'report_template_sha256_mismatch', 'sha256 和模板正文对不上');
+    if (bytes > TEMPLATE_MAX_BYTES) return refuse(400, 'report_template_too_large', '模板最多 200 KB（现在 ' + bytes + ' 字节）');
+    if (input.note.length > NOTE_MAX || /[\x00-\x1f\x7f]/.test(input.note)) return refuse(400, 'report_template_note_invalid', '说明最多 ' + NOTE_MAX + ' 个字符，不带控制字符');
+    const bodySha256 = sha256(text);
+    if (input.sha256 !== null && (!SHA256_RE.test(input.sha256) || input.sha256 !== bodySha256)) return refuse(400, 'report_template_sha256_mismatch', 'sha256 和模板正文对不上');
+    const d = this.get(id);
+    if (!d) return refuse(404, 'report_dimension_missing', '维度 ' + id + ' 不存在');
+    if (d.status === 'retired') return refuse(409, 'report_dimension_retired', '维度 ' + id + ' 已经撤了，只读');
+    const last = db.prepare('SELECT version FROM report_templates WHERE dimension_id = ? ORDER BY version DESC LIMIT 1').get(id) as { version: number } | undefined;
+    const criteriaSha256 = criteriaDigest(input.body as Record<string, unknown>);
+    const kind = this.criteriaReviewed(id, criteriaSha256, draftAuthor, publisher) ? 'layout' : 'criteria';
+    return { ok: true, preview: { text, bodySha256, criteriaSha256, kind, latestVersion: Number(last?.version ?? 0) } };
+  }
+
+  addTemplate(id: string, input: { body: unknown; note: string; sha256: string | null }, actor: DimensionActor, now: number, expected?: PublicationExpectation): { ok: true; template: TemplateMeta } | DimensionRefusal {
     return tx(() => {
-      const d = this.get(id);
-      if (!d) return refuse(404, 'report_dimension_missing', `维度 ${id} 不存在`);
-      if (d.status === 'retired') return refuse(409, 'report_dimension_retired', `维度 ${id} 已经撤了，只读`);
-      const last = db.prepare('SELECT version FROM report_templates WHERE dimension_id = ? ORDER BY version DESC LIMIT 1').get(id) as { version: number } | undefined;
-      const version = Number(last?.version ?? 0) + 1;
-      const criteria = criteriaDigest(input.body as Record<string, unknown>);
-      const kind: TemplateKind = this.criteriaReviewed(id, criteria) ? 'layout' : 'criteria';
+      if (expected && (!identifiedPerson(actor.principal) || !identifiedPerson(expected.draftAuthor))) {
+        return refuse(403, 'report_template_author_unidentified', '发版与起草须能对到启用的自然人');
+      }
+      const candidate = this.previewTemplate(id, input, expected?.draftAuthor, actor.principal ?? undefined);
+      if (!candidate.ok) return candidate;
+      const { text, bodySha256: digest, criteriaSha256: criteria, kind, latestVersion } = candidate.preview;
+      if (expected && (expected.latestVersion !== latestVersion || expected.criteriaSha256 !== criteria || expected.kind !== kind)) {
+        return refuse(409, 'report_template_frozen_changed', '模板基版或判据分类已改变');
+      }
+      const version = latestVersion + 1;
       // 判据类版本要作者以外的人复核；作者认不出是谁（本机命令行、只带管理口令）就判不了「是不是本人」，所以认不出的人不能发判据类版本（统筹 11-21 裁定）
       if (kind === 'criteria' && !actor.principal) return refuse(403, 'report_template_author_unidentified', '这一版改了判据（第一版也算），要作者以外的人复核；本机命令行、管理口令认不出是谁，发判据类版本请用站内账号');
-      db.prepare('INSERT INTO report_templates (dimension_id, version, body, sha256, criteria_sha256, kind, note, created_at, created_by, created_by_principal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(id, version, text, digest, criteria, kind, input.note, now, actor.by.slice(0, 256), actor.principal);
+      if (this.criteriaAuthors(id, criteria).some(row => row.draft_author_principal !== null) && !identifiedPerson(actor.principal)) {
+        return refuse(403, 'report_template_author_unidentified', '治理模板发版须能对到启用的自然人');
+      }
+      db.prepare('INSERT INTO report_templates (dimension_id, version, body, sha256, criteria_sha256, kind, note, created_at, created_by, created_by_principal, draft_author_principal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(id, version, text, digest, criteria, kind, input.note, now, actor.by.slice(0, 256), actor.principal, expected?.draftAuthor ?? null);
       db.prepare('UPDATE report_dimensions SET updated_at = ?, updated_by = ? WHERE id = ?').run(now, actor.by.slice(0, 256), id);
       this.event(id, 'template-add', version, actor, now, `${kind} ${input.note}`.trim());
       return { ok: true as const, template: this.templates(id).find((t) => t.version === version)! };
@@ -265,8 +285,12 @@ export class ReportDimensionService extends Service {
       if (!identifiedPerson(actor.principal)) return refuse(403, 'report_template_reviewer_unidentified', '复核要认得出是谁：请用站内账号复核（本机命令行、管理口令不能复核）');
       // 复核按判据内容生效（判据一样的版本都算复核过），所以本人也按判据内容认：这个维度里判据和这一版一样的任何一版，作者是复核人，就算本人
       // （#926 独立验收 E1：不然自己发的判据可以借别人只改标题的那一版，自己复核后生效）
-      const self = db.prepare('SELECT version FROM report_templates WHERE dimension_id = ? AND criteria_sha256 = ? AND (created_by = ? OR (created_by_principal IS NOT NULL AND created_by_principal = ?)) ORDER BY CASE WHEN version = ? THEN 0 ELSE 1 END, version LIMIT 1')
-        .get(id, t.criteria_sha256, actor.by.slice(0, 256), actor.principal, version);
+      const authors = this.criteriaAuthors(id, t.criteria_sha256);
+      const matching = authors.filter(row => row.created_by === actor.by.slice(0, 256) || this.authorPrincipals(row).includes(actor.principal!));
+      const self = matching.find(row => row.version === version) ?? matching[0];
+      if (authors.some(row => row.draft_author_principal !== null) && !this.authorsIdentified(authors)) {
+        return refuse(403, 'report_template_author_unidentified', '模板判据的作者身份未核实');
+      }
       // 说清是哪一版让他算作者：判据一样的版本里有他发的，不一定是被复核的这一版（#926 验收建议）
       if (self) {
         const mine = Number((self as { version: number }).version);
@@ -282,10 +306,38 @@ export class ReportDimensionService extends Service {
     });
   }
 
-  /** 这个维度有没有复核过的版本，判据摘要等于 criteria */
-  private criteriaReviewed(id: string, criteria: string): boolean {
-    return !!db.prepare('SELECT 1 FROM report_templates t JOIN report_template_reviews r ON r.dimension_id = t.dimension_id AND r.version = t.version WHERE t.dimension_id = ? AND t.criteria_sha256 = ?')
-      .get(id, criteria);
+  private criteriaAuthors(id: string, criteria: string): CriteriaAuthor[] {
+    return db.prepare('SELECT version, created_by, created_by_principal, draft_author_principal FROM report_templates WHERE dimension_id = ? AND criteria_sha256 = ? ORDER BY version')
+      .all(id, criteria) as CriteriaAuthor[];
+  }
+
+  private authorPrincipals(row: CriteriaAuthor): string[] {
+    const principals = svc<PrincipalService>('principals');
+    // 现有身份服务把外部身份对到稳定主体。保留历史作者，同时纳入仍可核验的旧外部身份归属。
+    const colon = row.created_by.indexOf(':');
+    const bound = colon > 0 ? principals.principalOf(row.created_by.slice(0, colon), row.created_by.slice(colon + 1)) : null;
+    return [row.created_by_principal, row.draft_author_principal, bound].filter((value): value is string => !!value);
+  }
+
+  private authorsIdentified(authors: CriteriaAuthor[]): boolean {
+    const principals = svc<PrincipalService>('principals');
+    return authors.every(row => {
+      const ids = this.authorPrincipals(row);
+      return ids.length > 0 && ids.every(id => principals.get(id)?.kind === 'person');
+    });
+  }
+
+  /** 复用同判据的人审。经过治理发布的作者集合包含起草人与发布人。 */
+  private criteriaReviewed(id: string, criteria: string, draft?: string, publisher?: string): boolean {
+    const reviewers = db.prepare('SELECT r.reviewed_by_principal FROM report_templates t JOIN report_template_reviews r ON r.dimension_id = t.dimension_id AND r.version = t.version WHERE t.dimension_id = ? AND t.criteria_sha256 = ?')
+      .all(id, criteria) as { reviewed_by_principal: string | null }[];
+    if (reviewers.length === 0) return false;
+    const authors = this.criteriaAuthors(id, criteria);
+    // Preserve manual-only history. Governed publications require identifiable authors and a currently independent reviewer.
+    if (!draft && !authors.some(row => row.draft_author_principal !== null)) return true;
+    if (!this.authorsIdentified(authors)) return false;
+    const known = new Set([...authors.flatMap(row => this.authorPrincipals(row)), draft, publisher]);
+    return reviewers.some(row => identifiedPerson(row.reviewed_by_principal) && !known.has(row.reviewed_by_principal!));
   }
 
   /**

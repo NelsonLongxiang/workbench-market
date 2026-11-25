@@ -572,6 +572,61 @@ try {
       const hidden = await A.remote('GET', '/api/report-governance/proposals/' + staleFrozen.id, { headers });
       check(revoked.status === 200 && denied.json?.status === 'conflict' && denied.json?.reason === 'authorization_changed' && none.status === 404 && hidden.status === 403,
         'RGD4 确认时重验发起人当前领域授予，失权不登记也不再返回结果', { revoked, denied, none, hidden });
+
+      const restored = await cliGrant('user:ria', 'area-report', 'area:zeta');
+      const publishAccess = await A.remote('POST', '/api/mcp-rest/tools/access_request', { headers, json: {
+        area: 'zeta', actions: ['report.governance-template-publish'], report_scope: { dimension: 'governance-register' }, reason: '合成治理发布',
+      } });
+      const publishApproval = await olga.go('POST', '/api/areas/zeta/access-requests/' + publishAccess.json?.request?.ref?.slice(5) + '/approve', { json: {} });
+      const reference = await rex.go('GET', '/api/report-dimensions/ops/templates/1');
+      const body = tpl({ title: '合成：发布的模板' });
+      const criteria = reference.json?.template?.criteria_sha256;
+      const input = { dimension: 'governance-register', body, body_sha256: sha(JSON.stringify(body)), criteria_sha256: criteria,
+        expected_kind: 'criteria', expected_latest_version: 0, note: '合成稿' };
+      const publish = (key, extra = {}) => A.remote('POST', '/api/report-governance/proposals', { headers, json: {
+        op: 'template-publish', idempotency_key: key, args: { ...input, ...extra },
+      } });
+      const beforePublish = counts(A);
+      const targetDenied = await publish('wrong-dimension', { dimension: 'ops' });
+      const targetMissing = await publish('missing-dimension', { dimension: 'unknown-governance' });
+      const digestDenied = await publish('wrong-template-hash', { body_sha256: '0'.repeat(64) });
+      const criteriaDenied = await publish('wrong-criteria-hash', { criteria_sha256: '0'.repeat(64) });
+      const kindDenied = await publish('wrong-kind', { expected_kind: 'layout' });
+      const publishPending = await publish('template-publish');
+      const publishDuplicate = await publish('template-publish');
+      const racePending = await publish('template-publish-race');
+      check(restored.status === 200 && publishApproval.status === 200 && targetDenied.status === 403 && same(targetDenied.json, targetMissing.json) &&
+        [digestDenied, criteriaDenied, kindDenied].every(r => r.status === 409) && publishPending.status === 202 &&
+        publishPending.json?.id === publishDuplicate.json?.id && racePending.status === 202 && same(beforePublish, counts(A)),
+        'RGP1 发版须有精确维度批准；摘要、分类和版本匹配时只提案，不发版', { publishAccess, publishApproval, targetDenied, targetMissing, digestDenied, criteriaDenied, kindDenied, publishPending, racePending });
+      const publishFrozen = await inbox(publishPending.json?.id);
+      const publishRace = await inbox(racePending.json?.id);
+      if (!publishFrozen || !publishRace) throw Error('发版提案未冻结：' + JSON.stringify(publishPending));
+      const published = await confirm(rex, publishFrozen.id, publishFrozen.snapshot_sha256);
+      const publishedAgain = await confirm(rex, publishFrozen.id, publishFrozen.snapshot_sha256);
+      const superseded = await confirm(rex, publishRace.id, publishRace.snapshot_sha256);
+      const version = await rex.go('GET', '/api/report-dimensions/governance-register/templates/1');
+      const row = db.prepare("SELECT body, created_by_principal, draft_author_principal FROM report_templates WHERE dimension_id = 'governance-register' AND version = 1").get();
+      check(published.json?.status === 'confirmed' && published.json?.result?.version === 1 && same(publishedAgain.json, published.json) &&
+        superseded.json?.status === 'conflict' && version.json?.template?.sha256 === input.body_sha256 && version.json?.template?.active === false &&
+        row?.body === JSON.stringify(body) && row.created_by_principal === 'user:rex' && row.draft_author_principal === 'user:ria' && counts(A).tpls === beforePublish.tpls + 1,
+        'RGP2 同事务发不可变版、正文摘要和归属，基版漂移冲突，生效指针不动', { published, superseded, version, row });
+      const newManual = await rex.go('POST', '/api/report-dimensions/governance-register/templates', { json: { body: tpl({ title: '合成：只改版式' }) } });
+      const draftReview = await ria.go('POST', '/api/report-dimensions/governance-register/templates/2/review', { json: {} });
+      const rawReview = sqlThrows(A, "INSERT INTO report_template_reviews (dimension_id, version, reviewed_by, reviewed_by_principal, reviewed_at) VALUES ('governance-register', 2, 'user:ria', 'user:ria', 1)");
+      const independent = await olga.go('POST', '/api/report-dimensions/governance-register/templates/2/review', { json: {} });
+      const activateReviewed = await rex.go('POST', '/api/report-dimensions/governance-register/activate', { json: { version: 1 } });
+      check(newManual.status === 201 && draftReview.status === 403 && draftReview.json?.error === 'report_template_self_review' && rawReview &&
+        independent.status === 200 && activateReviewed.status === 200,
+        'RGP3 起草共同作者经存量人工入口跨版本复核仍拒，独立复核可复用同判据', { newManual, draftReview, rawReview, independent, activateReviewed });
+      const byFormerReviewer = await olga.go('POST', '/api/report-dimensions/governance-register/templates', { json: { body: tpl({ title: '合成：复核者也成了作者' }) } });
+      const staleReview = await rex.go('POST', '/api/report-dimensions/governance-register/activate', { json: { version: 3 } });
+      const ninaGrant = await cliGrant('user:nina', 'area-report', 'area:zeta');
+      const newReview = await nina.go('POST', '/api/report-dimensions/governance-register/templates/3/review', { json: {} });
+      const activated = await rex.go('POST', '/api/report-dimensions/governance-register/activate', { json: { version: 3 } });
+      check(byFormerReviewer.status === 201 && staleReview.status === 409 && staleReview.json?.error === 'report_template_unreviewed' &&
+        ninaGrant.status === 200 && newReview.status === 200 && activated.json?.dimension?.active_version === 3,
+        'RGP4 同判据复核人后来成为作者，历史复核不能激活，独立人复核后恢复', { byFormerReviewer, staleReview, newReview, activated });
     } finally { db.close(); }
   }
 } catch (e) {

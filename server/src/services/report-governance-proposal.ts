@@ -142,7 +142,8 @@ export class ReportGovernanceProposalService extends Service {
         return proposal;
       }
       const snapshot = canonicalGovernanceJson(capture());
-      if (Buffer.byteLength(snapshot) > 300000) return fail(400, 'report_governance_snapshot_too_large', '治理提案超出大小限制');
+      const snapshotLimit = input.scope.op === 'template-publish' ? 420000 : 300000;
+      if (Buffer.byteLength(snapshot) > snapshotLimit) return fail(400, 'report_governance_snapshot_too_large', '治理提案超出大小限制');
       const row = db.prepare('INSERT INTO report_governance_proposals (session_id, principal_id, op, target_key, idempotency_key, request_sha256, snapshot_sha256, frozen, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *')
         .get(input.sessionId, input.principal, input.scope.op, scopeKey(input.scope), input.idempotencyKey, sha(canonicalGovernanceJson(input.args)), sha(snapshot), snapshot, now, now + PROPOSAL_TTL) as Proposal;
       this.audit(row, 'report.governance-propose', input.channel, null, now);

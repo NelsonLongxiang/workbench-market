@@ -1861,6 +1861,12 @@ CREATE TRIGGER IF NOT EXISTS report_dimension_events_no_delete BEFORE DELETE ON 
 CREATE TRIGGER IF NOT EXISTS report_dimension_events_no_replace BEFORE INSERT ON report_dimension_events WHEN EXISTS (SELECT 1 FROM report_dimension_events WHERE seq = NEW.seq)
   BEGIN SELECT RAISE(ABORT, 'report_dimension_events 只增不改'); END;
 `);
+// 起草责任人的共同作者身份和不可变模板版本一起提交。
+addColumnIfMissing('report_templates', 'draft_author_principal TEXT REFERENCES principals (id)');
+db.exec(`CREATE TRIGGER IF NOT EXISTS report_template_reviews_not_draft_author BEFORE INSERT ON report_template_reviews
+  WHEN EXISTS (SELECT 1 FROM report_templates v JOIN report_templates t ON t.dimension_id = v.dimension_id AND t.criteria_sha256 = v.criteria_sha256
+    WHERE v.dimension_id = NEW.dimension_id AND v.version = NEW.version AND t.draft_author_principal = NEW.reviewed_by_principal)
+  BEGIN SELECT RAISE(ABORT, '相同判据的起草人不能复核'); END;`);
 // 报告治理提案与确认账本（#1016 N1/N4）。输入、归属和对象快照固定，确认中的跨库操作保留原操作号。
 db.exec(`
 CREATE TABLE IF NOT EXISTS report_governance_proposals (
