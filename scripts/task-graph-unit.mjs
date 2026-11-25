@@ -156,11 +156,11 @@ console.log('布局与等价表格');
 console.log('页面组件源码');
 {
   const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-  const dag = read('../web/src/bench-blocks/DagBlock.tsx'), bv = read('../web/src/bench-blocks/BenchView.tsx'), lite = read('../web/src/bench-blocks/echarts-lite.ts');
+  const dag = read('../web/src/bench-blocks/DagBlock.tsx'), bv = read('../web/src/bench-blocks/jr/render-block.tsx'), lite = read('../web/src/bench-blocks/echarts-lite.ts');
   ok('DagBlock 不写内联样式、不写死颜色（颜色只取 DESIGN_TOKENS）', !/style=\{\{/.test(dag) && !/#[0-9A-Fa-f]{3,6}\b|rgba?\(/.test(dag) && /DESIGN_TOKENS/.test(dag));
   ok('图和等价表格两种模式；画不出（有环）时给说明；有部分结果说明和诊断', /'graph' \| 'table'/.test(dag) && /data-testid="dag-cycle"/.test(dag) && /data-testid="dag-partial"/.test(dag) && /data-testid="dag-table"/.test(dag));
   ok('键盘：任务清单可 Tab 聚焦、回车看详情；表格行可聚焦、回车看详情', /<nav className="wm-dag-keys"/.test(dag) && /onKeyDown: \(e\) => \{ if \(e\.key === 'Enter'\) pickNode/.test(dag) && /tabIndex: 0/.test(dag));
-  ok('BenchView 认 dag；不认识的组件画「要新版页面」，不再静默不画', /b\.type === 'dag'\) return <DagBlock/.test(bv) && /data-testid="block-unknown"/.test(bv) && !/return null; \/\/ 不认识/.test(bv));
+  ok('视图块分派认 dag；不认识的组件画「要新版页面」，不再静默不画', /b\.type === 'dag'\) return <DagBlock/.test(bv) && /data-testid="block-unknown"/.test(bv) && !/return null; \/\/ 不认识/.test(bv));
   ok('画布绑定悬停、离开和节点点击，并把边及节点高亮交给图表', [
     "c.on('mouseover', (p) => callbacks.current.onHover(nodeId(p)))",
     "c.on('mouseout', () => callbacks.current.onHover(null))",
@@ -230,12 +230,12 @@ console.log('甘特图');
   const ar2 = g.ganttArrowShape(item({ index: 0 }), item({ index: 2 }), 'opt', api, TOK, { dim: true, selected: true });
   ok('可选依赖画虚线；选中的用主色；不在链上的变淡', Array.isArray(kid(ar2, 'arrow-line').style.lineDash) && kid(ar2, 'arrow-line').style.stroke === 'BAR' && g.ganttArrowShape(item({ index: 0 }), item({ index: 2 }), 'req', api, TOK, { dim: true, selected: false }).children[0].style.opacity === 0.15);
   const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-  const gb = read('../web/src/bench-blocks/GanttBlock.tsx'), bv = read('../web/src/bench-blocks/BenchView.tsx'), lite = read('../web/src/bench-blocks/echarts-lite.ts');
+  const gb = read('../web/src/bench-blocks/GanttBlock.tsx'), bv = read('../web/src/bench-blocks/jr/render-block.tsx'), lite = read('../web/src/bench-blocks/echarts-lite.ts');
   ok('GanttBlock 不写内联样式、不写死颜色（颜色只取 DESIGN_TOKENS）', !/style=\{\{/.test(gb) && !/#[0-9A-Fa-f]{3,6}\b|rgba?\(/.test(gb) && /DESIGN_TOKENS/.test(gb));
   ok('画法与更新都走纯函数：配置来自 ganttChartOption，初次与每次更新都经 applyGanttOption（不直接 setOption）', /ganttChartOption\(lay, \{/.test(gb) && /applyGanttOption\(c as never, callbacks\.current\.option\)/.test(gb) && /if \(chart\.current\) applyGanttOption\(chart\.current, option\)/.test(gb) && !/\.setOption\(/.test(gb));
   ok('点条看详情；悬停高亮链', /c\.on\('click', \(p\) => \{ const id = barId\(p\); if \(id !== null\) callbacks\.current\.onPick\(id\); \}\)/.test(gb) && /c\.on\('mouseover', \(p\) => callbacks\.current\.onHover\(barId\(p\)\)\)/.test(gb));
   ok('等价表格（含开始、截止、过期）；坏日期提示；键盘遍历', /data-testid="gantt-table"/.test(gb) && /title: '开始', dataIndex: 'start'/.test(gb) && /title: '过期', dataIndex: 'overdue'/.test(gb) && /data-testid="gantt-bad-dates"/.test(gb) && /<nav className="wm-dag-keys"/.test(gb) && /onKeyDown: \(e\) => \{ if \(e\.key === 'Enter'\) pickNode\(r\.id\); \}/.test(gb));
-  ok('BenchView 认 gantt；图表库多注册自定义系列、标线、数据缩放', /b\.type === 'gantt'\) return <GanttBlock/.test(bv) && /CustomChart/.test(lite) && /MarkLineComponent/.test(lite) && /DataZoomComponent/.test(lite));
+  ok('视图块分派认 gantt；图表库多注册自定义系列、标线、数据缩放', /b\.type === 'gantt'\) return <GanttBlock/.test(bv) && /CustomChart/.test(lite) && /MarkLineComponent/.test(lite) && /DataZoomComponent/.test(lite));
 }
 
 console.log('甘特图：图表配置与纵向可视范围');
@@ -309,8 +309,8 @@ console.log('流程图');
   const took = Date.now() - t0;
   ok('访问次数超上限：报「依赖太复杂」，不出完成率和还差几个，且一定终止（不卡住）', heavy.diagnostics.some((d) => d.code === 'too-complex') && heavy.summary.rate === null && heavy.summary.remaining === null && /太复杂/.test(heavy.summary.note ?? '') && took < 10000, { codes: heavy.diagnostics.map((d) => d.code), rate: heavy.summary.rate, took });
   const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-  const dagSrc = read('../web/src/bench-blocks/DagBlock.tsx'), bvSrc = read('../web/src/bench-blocks/BenchView.tsx');
-  ok('DagBlock 按 kind 建图（流程图不挡图），形状走 nodeSymbol；BenchView 认 flow 并传 shape_col', /buildGraph\(rows, \{ \.\.\.spec, kind \}/.test(dagSrc) && /kind = 'dag'/.test(dagSrc) && /symbol: nodeSymbol\(n, spec\.shape_col\)/.test(dagSrc) && /b\.type === 'flow'\) return <DagBlock key=\{i\} kind="flow"/.test(bvSrc) && /shape_col: str\(b\.shape_col\)/.test(bvSrc));
+  const dagSrc = read('../web/src/bench-blocks/DagBlock.tsx'), bvSrc = read('../web/src/bench-blocks/jr/render-block.tsx');
+  ok('DagBlock 按 kind 建图（流程图不挡图），形状走 nodeSymbol；视图块分派认 flow 并传 shape_col', /buildGraph\(rows, \{ \.\.\.spec, kind \}/.test(dagSrc) && /kind = 'dag'/.test(dagSrc) && /symbol: nodeSymbol\(n, spec\.shape_col\)/.test(dagSrc) && /b\.type === 'flow'\) return <DagBlock key=\{i\} kind="flow"/.test(bvSrc) && /shape_col: str\(b\.shape_col\)/.test(bvSrc));
 }
 
 console.log(`\ntask-graph-unit: ${pass} passed / ${fail} failed`);

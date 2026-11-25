@@ -11,6 +11,25 @@ import { validateViewDoc, dagGraphMeta, BLOCK_TYPES, BLOCK_CONTRACT, VIEW_DOC_CO
 import { BENCH_TOOL_DEFS, VIEW_DOC_SCHEMA } from '../server/src/bench-mcp-tools.ts';
 import { readFileSync } from 'node:fs';
 import { render } from './gen-view-doc-schema.mjs';
+import { BLOCK_TYPE_LIST } from '../web/src/bench-blocks/jr/block-types.ts';
+import { viewResultToSpec } from '../web/src/bench-blocks/jr/to-spec.ts';
+
+assert.deepEqual([...BLOCK_TYPE_LIST], [...BLOCK_TYPES], '渲染注册表与服务端组件清单一致');
+const data = { $state: '/secret', rows: [{ $template: 'literal' }] };
+const spec = viewResultToSpec({ blocks: [
+  { type: 'filter-bar' }, { type: 'table', data, table_context: { view: 'private' }, can_submit: false },
+  { type: 'BenchGrid', title: '不认识的类型' },
+] }, true);
+assert.deepEqual(spec, { root: 'grid', elements: {
+  grid: { type: 'BenchGrid', props: {}, children: ['b1', 'b2'] },
+  b1: { type: 'table', props: { index: 1 }, children: [] },
+  b2: { type: 'UnknownBlock', props: { index: 2 }, children: [] },
+} }, '转换只传稳定序号，隐藏筛选不重新编号、取数与陌生类型不进解释器');
+const graphTypes = ['dag', 'gantt', 'flow'];
+const graphSpec = viewResultToSpec({ blocks: graphTypes.map((type) => ({ type, shape_col: 'kind' })) });
+assert.deepEqual(graphSpec.elements.grid.children.map((id) => graphSpec.elements[id]),
+  graphTypes.map((type, index) => ({ type, props: { index }, children: [] })), '三种任务图保留原来的类型和序号');
+assert.deepEqual(viewResultToSpec(null).elements.grid.children, [], '空结果保留空网格');
 
 // 一、契约自洽
 assert.deepEqual(Object.keys(BLOCK_CONTRACT), [...BLOCK_TYPES]);
