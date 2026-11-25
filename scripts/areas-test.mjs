@@ -464,6 +464,80 @@ try {
       'OSL4 自授兼任在提交和放行时重核有效属主，撤掉属主后仅有管理员不能继续', { temporaryOwner, forSubmit, forApprove, moved, revoke, submitAfter, approveAfter, readAfter });
   }
 
+  // 单独走 SQLite，避免服务层先拒绝而掩盖触发器退化。
+  {
+    const sql = A.db();
+    try {
+      sql.exec('BEGIN IMMEDIATE');
+      const insertPrincipal = sql.prepare('INSERT INTO principals (id, id_key, kind, owner) VALUES (?, ?, ?, ?)');
+      const insertDraft = sql.prepare('INSERT INTO grants (principal_id, role, scope, reason, created_by, created_by_principal, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+      const submit = sql.prepare("UPDATE grants SET status = 'pending' WHERE id = ?");
+      const approve = sql.prepare("UPDATE grants SET status = 'active', approved_by = ?, approved_by_principal = ? WHERE id = ?");
+      const read = sql.prepare('SELECT status, created_by_principal, approved_by_principal FROM grants WHERE id = ?');
+      const grantCountFor = sql.prepare('SELECT count(*) AS total FROM grants WHERE principal_id = ?');
+      const draft = (principal, role, scope, { actor = null, expires = null } = {}) => {
+        const now = Date.now();
+        return insertDraft.run(principal, role, scope, '合成触发器测试', actor ?? 'cli', actor, expires, now, now).lastInsertRowid;
+      };
+      const assign = (principal, role = 'owner', scope = '*', expires = null) => {
+        const id = draft(principal, role, scope, { expires });
+        submit.run(id);
+        approve.run('cli', null, id);
+        return id;
+      };
+      const people = new Map(['owner', 'revoked', 'expired', 'disabled', 'admin', 'member', 'scoped'].map(key => [key, 'user:sql-' + key]));
+      for (const id of people.values()) insertPrincipal.run(id, id, 'person', '');
+      const owner = people.get('owner');
+      const seat = 'seat:sql-owner';
+      insertPrincipal.run(seat, seat, 'seat', owner);
+      assign(owner);
+      assign(seat);
+      const revoked = assign(people.get('revoked'));
+      sql.prepare("UPDATE grants SET status = 'revoked' WHERE id = ?").run(revoked);
+      assign(people.get('disabled'));
+      sql.prepare("UPDATE principals SET status = 'disabled' WHERE id = ?").run(people.get('disabled'));
+      assign(people.get('admin'), 'admin');
+      assign(people.get('member'), 'member');
+      assign(people.get('scoped'), 'owner', 'area:zeta');
+      const expiry = Date.now() + 1000;
+      assign(people.get('expired'), 'owner', '*', expiry);
+      await sleep(Math.max(0, expiry - Date.now() + 25));
+      const area = 'area:zeta';
+      const allowed = draft(owner, 'area-lead', area, { actor: owner });
+      check(read.get(allowed)?.created_by_principal === owner, 'OSL5 SQLite 起草允许启用自然人持有效全局 owner 自授 area-lead');
+      submit.run(allowed);
+      approve.run(owner, owner, allowed);
+      const active = read.get(allowed);
+      check(active?.status === 'active' && active.approved_by_principal === owner, 'OSL6 SQLite 放行允许同一有效属主保留真实主体');
+
+      const refusals = [
+        ...['area-member', 'area-spec', 'area-report', 'member', 'admin', 'owner', 'lead-helper'].map(role => ['其他角色 ' + role, owner, role, area]),
+        ['错误范围 *', owner, 'area-lead', '*'],
+        ...['revoked', 'expired', 'disabled', 'admin', 'member', 'scoped'].map(key => [key, people.get(key), 'area-lead', area]),
+        ['非人主体', seat, 'area-lead', area],
+      ];
+      function rejectedBy(operation, message) {
+        try { operation(); } catch (error) { return error.errcode === 1811 && error.message === message; }
+        return false;
+      }
+      for (const [label, principal, role, scope] of refusals) {
+        const countBefore = grantCountFor.get(principal).total;
+        const refusedDraft = rejectedBy(() => draft(principal, role, scope, { actor: principal }), '不能给自己授予');
+        check(refusedDraft && grantCountFor.get(principal).total === countBefore, 'OSL7 SQLite 起草拒绝：' + label);
+        // 由另一主体先起草，独立命中放行守卫。拒绝后仍应保留 pending，且未写放行人。
+        const id = draft(principal, role, scope);
+        submit.run(id);
+        const refusedApproval = rejectedBy(() => approve.run(principal, principal, id), '不能放行授给自己的');
+        const remaining = read.get(id);
+        check(refusedApproval && remaining?.status === 'pending' && remaining.approved_by_principal === null,
+          'OSL8 SQLite 放行拒绝：' + label);
+      }
+    } finally {
+      if (sql.isTransaction) sql.exec('ROLLBACK');
+      sql.close();
+    }
+  }
+
   // ---- B3 定规范、负责人：按权限覆盖判，只有属主起草、放行 ----
   {
     const before = grantCount();
