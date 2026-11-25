@@ -18,7 +18,9 @@ export const REPORT_BIND_ACCESS = 'report.governance-bench-bind';
 export const REPORT_CREATE_ACCESS = 'report.governance-dimension-create';
 export const REPORT_PUBLISH_ACCESS = 'report.governance-template-publish';
 export const REPORT_REVIEW_INVITE_ACCESS = 'report.governance-review-invite';
-type ReportDimensionAccess = typeof REPORT_PUBLISH_ACCESS | typeof REPORT_REVIEW_INVITE_ACCESS;
+export const REPORT_ACTIVATE_ACCESS = 'report.governance-dimension-activate';
+const REPORT_DIMENSION_ACCESS = [REPORT_PUBLISH_ACCESS, REPORT_REVIEW_INVITE_ACCESS, REPORT_ACTIVATE_ACCESS] as const;
+export type ReportDimensionAccess = typeof REPORT_DIMENSION_ACCESS[number];
 export type ReportBindGrantScope = { bench: string; dimension: string };
 const benchName = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const actionName = /^[a-z][a-z0-9-]{0,47}\.[a-z][a-z0-9-]{0,47}$/;
@@ -94,10 +96,10 @@ function reportBindScopeView(encoded: string): ReportBindGrantScope {
 }
 function reportDimensionScope(raw: unknown): { dimension: string } {
   if (!raw || typeof raw !== 'object' || Object.keys(raw).length !== 1 || !Object.hasOwn(raw, 'dimension')) {
-    return reject(400, 'area_access_report_scope_invalid', '发版接入须指定单一维度');
+    return reject(400, 'area_access_report_scope_invalid', '报告维度接入须指定单一维度');
   }
   const { dimension } = raw as Record<string, unknown>;
-  if (typeof dimension !== 'string' || !AREA_ID_RE.test(dimension)) return reject(400, 'area_access_report_scope_invalid', '发版接入须指定合法维度');
+  if (typeof dimension !== 'string' || !AREA_ID_RE.test(dimension)) return reject(400, 'area_access_report_scope_invalid', '报告维度接入须指定合法维度');
   return { dimension };
 }
 function reportDimensionScopeKey(area: string, dimension: string): string | null {
@@ -158,7 +160,7 @@ export class AreaAccessService extends Service {
         if (selected.length !== 1) reject(400, 'area_access_report_scope_invalid', '报告绑定操作须单独申请');
         scope = reportBindScopeKey(area, reportBindScope(input.report_scope));
         if (!scope) reject(403, 'area_access_unavailable', '这个领域当前不接受此台的接入申请');
-      } else if ((selected.includes(REPORT_PUBLISH_ACCESS) || selected.includes(REPORT_REVIEW_INVITE_ACCESS))) {
+      } else if (REPORT_DIMENSION_ACCESS.some(action => selected.includes(action))) {
         if (selected.length !== 1) reject(400, 'area_access_report_scope_invalid', '报告维度操作须单独申请');
         scope = reportDimensionScopeKey(area, reportDimensionScope(input.report_scope).dimension);
         if (!scope) reject(403, 'area_access_unavailable', '这个领域当前不接受此维度的接入申请');

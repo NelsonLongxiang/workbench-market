@@ -24,7 +24,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10877", "etag": "W/\"2a7d-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "11061", "etag": "W/\"2b35-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -78,6 +78,7 @@
                   { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-governance.anonymous-dimension-propose", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-template-publish", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.report-governance.anonymous-dimension-activate", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-open-review-invite", "surface": "market", "method": "GET", "path": "/api/report-governance/review-invites/i-1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
@@ -123,7 +124,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10332", "etag": "W/\"285c-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10516", "etag": "W/\"2914-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -177,6 +178,7 @@
                   { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-governance.anonymous-dimension-propose", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-template-publish", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.report-governance.anonymous-dimension-activate", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-open-review-invite", "surface": "market", "method": "GET", "path": "/api/report-governance/review-invites/i-1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
@@ -213,7 +215,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10877", "etag": "W/\"2a7d-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "11061", "etag": "W/\"2b35-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -267,6 +269,7 @@
                   { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-governance.anonymous-dimension-propose", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-template-publish", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.report-governance.anonymous-dimension-activate", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-open-review-invite", "surface": "market", "method": "GET", "path": "/api/report-governance/review-invites/i-1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
@@ -312,7 +315,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "11176", "etag": "W/\"2ba8-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "11360", "etag": "W/\"2c60-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -367,6 +370,7 @@
                   { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-governance.anonymous-dimension-propose", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-template-publish", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.report-governance.anonymous-dimension-activate", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-open-review-invite", "surface": "market", "method": "GET", "path": "/api/report-governance/review-invites/i-1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
@@ -414,7 +418,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10447", "etag": "W/\"28cf-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10631", "etag": "W/\"2987-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -469,6 +473,7 @@
                   { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-governance.anonymous-dimension-propose", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-template-publish", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.report-governance.anonymous-dimension-activate", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-open-review-invite", "surface": "market", "method": "GET", "path": "/api/report-governance/review-invites/i-1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
@@ -513,7 +518,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10877", "etag": "W/\"2a7d-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "11061", "etag": "W/\"2b35-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -567,6 +572,7 @@
                   { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-governance.anonymous-dimension-propose", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-template-publish", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.report-governance.anonymous-dimension-activate", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-open-review-invite", "surface": "market", "method": "GET", "path": "/api/report-governance/review-invites/i-1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
@@ -610,7 +616,7 @@
           "response": {
             "status": 503,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10355", "etag": "W/\"2873-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10539", "etag": "W/\"292b-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": false,
               "service": "workbench-market-server",
@@ -664,6 +670,7 @@
                   { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-governance.anonymous-dimension-propose", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-template-publish", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.report-governance.anonymous-dimension-activate", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-open-review-invite", "surface": "market", "method": "GET", "path": "/api/report-governance/review-invites/i-1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
@@ -701,7 +708,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10899", "etag": "W/\"2a93-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "11083", "etag": "W/\"2b4b-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -755,6 +762,7 @@
                   { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-governance.anonymous-dimension-propose", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-template-publish", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.report-governance.anonymous-dimension-activate", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-open-review-invite", "surface": "market", "method": "GET", "path": "/api/report-governance/review-invites/i-1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
@@ -808,7 +816,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "11726", "etag": "W/\"2dce-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "11910", "etag": "W/\"2e86-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -862,6 +870,7 @@
                   { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-governance.anonymous-dimension-propose", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-template-publish", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.report-governance.anonymous-dimension-activate", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-open-review-invite", "surface": "market", "method": "GET", "path": "/api/report-governance/review-invites/i-1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
@@ -913,7 +922,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "11166", "etag": "W/\"2b9e-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "11350", "etag": "W/\"2c56-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -967,6 +976,7 @@
                   { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.report-governance.anonymous-dimension-propose", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-template-publish", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
+                  { "id": "market.report-governance.anonymous-dimension-activate", "surface": "market", "method": "POST", "path": "/api/report-governance/proposals", "verdict": "pass", "status": 403, "reason": null },
                   { "id": "market.report-governance.anonymous-open-review-invite", "surface": "market", "method": "GET", "path": "/api/report-governance/review-invites/i-1", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },

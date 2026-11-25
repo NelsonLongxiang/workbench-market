@@ -654,6 +654,60 @@ try {
         ninaGrant.status === 200 && newReview.status === 200 && activated.json?.dimension?.active_version === 3,
         'RGP4 同判据复核人后来成为作者，历史复核不能激活，独立人复核后恢复', { byFormerReviewer, staleReview, newReview, activated });
 
+      {
+        const dimensionId = 'governance-register';
+        const dimensionPath = '/api/report-dimensions/' + dimensionId;
+        const activateRequest = (key, changes = {}) => A.remote('POST', '/api/report-governance/proposals', { headers, json: {
+          op: 'dimension-activate', idempotency_key: key, args: { dimension: dimensionId, version: 1,
+            body_sha256: input.body_sha256, criteria_sha256: criteria, expected_active_version: 3, review_version: 3, ...changes },
+        } });
+        const beforeActivate = await activateRequest('activate-before-approval');
+        const activationAccess = await A.remote('POST', '/api/mcp-rest/tools/access_request', { headers, json: {
+          area: 'zeta', actions: ['report.governance-dimension-activate'], report_scope: { dimension: dimensionId }, reason: '合成治理回退',
+        } });
+        const access = await olga.go('POST', '/api/areas/zeta/access-requests/' + activationAccess.json?.request?.ref?.slice(5) + '/approve', { json: {} });
+        const start = counts(A);
+        const wrongDimension = await activateRequest('activate-wrong-dimension', { dimension: 'governance-racing' });
+        const wrongActivationHash = await activateRequest('activate-bad-target', { body_sha256: '0'.repeat(64) });
+        const wrongReview = await activateRequest('activate-bad-review', { review_version: 2 });
+        const good = await activateRequest('activate-exact-review');
+        const repeat = await activateRequest('activate-exact-review');
+        const frozenActivation = await inbox(good.json?.id);
+        if (!frozenActivation) throw Error('激活提案冻结失败：' + JSON.stringify({ beforeActivate, activationAccess, access, good }));
+        const pinned = frozenActivation.frozen.snapshot;
+        const beforeConfirm = await rex.go('GET', dimensionPath);
+        const noPermission = await tom.go('POST', '/api/report-governance/inbox/' + frozenActivation.id + '/confirm', { json: { snapshot_sha256: frozenActivation.snapshot_sha256 } });
+        const done = await confirm(rex, frozenActivation.id, frozenActivation.snapshot_sha256);
+        const doneAgain = await confirm(rex, frozenActivation.id, frozenActivation.snapshot_sha256);
+        const back = await rex.go('GET', dimensionPath);
+        check(beforeActivate.status === 403 && access.status === 200 && wrongDimension.status === 403 && wrongActivationHash.status === 409 && wrongReview.status === 409 &&
+          good.status === 202 && same(good.json, repeat.json) && pinned.active?.version === 3 && pinned.target.version === 1 && pinned.review.version === 3 &&
+          pinned.review.principal === 'user:nina' && pinned.target.body_sha256 === input.body_sha256 && beforeConfirm.json?.dimension?.active_version === 3 &&
+          noPermission.status === 403 && done.json?.status === 'confirmed' && done.json?.result?.version === 1 && same(doneAgain.json, done.json) &&
+          back.json?.dimension?.active_version === 1 && counts(A).tpls === start.tpls && counts(A).reviews === start.reviews,
+          'RGA1 精确操作批准与本人共同核对旧版复核，确认原子回退指针，同号重放不添版本和复核', { beforeActivate, access, wrongDimension, wrongActivationHash, wrongReview, good, pinned, noPermission, done, back });
+        await rex.go('POST', dimensionPath + '/activate', { json: { version: 3 } });
+        const race = await activateRequest('activate-current-pointer');
+        const staleReviewRef = await activateRequest('activate-review-changed', { expected_active_version: 1 });
+        const manual = await rex.go('POST', dimensionPath + '/activate', { json: { version: 1 } });
+        const raceFrozen = await inbox(race.json?.id);
+        const activationStaleReview = await activateRequest('activate-review-after-move', { expected_active_version: 1 });
+        const staleFrozen = await inbox(activationStaleReview.json?.id);
+        if (!raceFrozen || !staleFrozen) throw Error('激活竞态正控失败');
+        const raceOutcome = await confirm(rex, raceFrozen.id, raceFrozen.snapshot_sha256);
+        // 旧版复核人发布相同判据成为作者。另一个人的有效复核不能替换冻结的那一条。
+        const ere = await A.person('ere', 'review-reset-ere-1', '192.0.2.176');
+        const validAlternative = await cliGrant('user:ere', 'area-report', 'area:zeta');
+        const alternateReview = await ere.go('POST', dimensionPath + '/templates/1/review', { json: {} });
+        const authorNow = await nina.go('POST', dimensionPath + '/templates', { json: { body: tpl({ title: '合成：激活前复核人成为作者' }) } });
+        const staleOutcome = await confirm(rex, staleFrozen.id, staleFrozen.snapshot_sha256);
+        const unchanged = await rex.go('GET', dimensionPath);
+        check(staleReviewRef.status === 409 && manual.status === 200 && raceOutcome.json?.status === 'conflict' && raceOutcome.json?.reason === 'target_changed' &&
+          validAlternative.status === 200 && alternateReview.status === 200 && authorNow.status === 201 &&
+          staleOutcome.json?.status === 'conflict' && staleOutcome.json?.reason === 'target_changed' && unchanged.json?.dimension?.active_version === 1,
+          'RGA2 生效指针并发变化或指定复核人成为作者时冲突，别的有效复核不能代换', { staleReviewRef, manual, raceOutcome, validAlternative, alternateReview, authorNow, staleOutcome, unchanged });
+      }
+
       const inviteRequest = await A.remote('POST', '/api/mcp-rest/tools/access_request', { headers, json: {
         area: 'zeta', actions: ['report.governance-review-invite'], report_scope: { dimension: 'governance-register' }, reason: '合成复核邀请',
       } });

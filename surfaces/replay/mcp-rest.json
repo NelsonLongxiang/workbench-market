@@ -117,7 +117,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "34262", "etag": "W/\"85d6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "34277", "etag": "W/\"85e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -483,7 +483,7 @@
                                 "additionalProperties": false,
                                 "required": ["dimension"],
                                 "properties": { "bench": { "type": "string" }, "dimension": { "type": "string" } },
-                                "description": "台绑定指定 bench 和 dimension；模板发布及复核邀请只指定 dimension"
+                                "description": "台绑定指定 bench 和 dimension；模板发布、复核邀请和维度激活只指定 dimension"
                               },
                               "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" }
                             },
@@ -789,7 +789,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "14619", "etag": "W/\"391b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "14634", "etag": "W/\"392a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-none）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -878,7 +878,7 @@
                                 "additionalProperties": false,
                                 "required": ["dimension"],
                                 "properties": { "bench": { "type": "string" }, "dimension": { "type": "string" } },
-                                "description": "台绑定指定 bench 和 dimension；模板发布及复核邀请只指定 dimension"
+                                "description": "台绑定指定 bench 和 dimension；模板发布、复核邀请和维度激活只指定 dimension"
                               },
                               "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" }
                             },
@@ -1051,7 +1051,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "34262", "etag": "W/\"85d6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "34277", "etag": "W/\"85e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -1417,7 +1417,7 @@
                                 "additionalProperties": false,
                                 "required": ["dimension"],
                                 "properties": { "bench": { "type": "string" }, "dimension": { "type": "string" } },
-                                "description": "台绑定指定 bench 和 dimension；模板发布及复核邀请只指定 dimension"
+                                "description": "台绑定指定 bench 和 dimension；模板发布、复核邀请和维度激活只指定 dimension"
                               },
                               "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" }
                             },
@@ -3083,7 +3083,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "68728", "etag": "W/\"10c78-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "68743", "etag": "W/\"10c87-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -3449,7 +3449,7 @@
                                 "additionalProperties": false,
                                 "required": ["dimension"],
                                 "properties": { "bench": { "type": "string" }, "dimension": { "type": "string" } },
-                                "description": "台绑定指定 bench 和 dimension；模板发布及复核邀请只指定 dimension"
+                                "description": "台绑定指定 bench 和 dimension；模板发布、复核邀请和维度激活只指定 dimension"
                               },
                               "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" }
                             },
@@ -4591,7 +4591,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "34262", "etag": "W/\"85d6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "34277", "etag": "W/\"85e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -4957,7 +4957,7 @@
                                 "additionalProperties": false,
                                 "required": ["dimension"],
                                 "properties": { "bench": { "type": "string" }, "dimension": { "type": "string" } },
-                                "description": "台绑定指定 bench 和 dimension；模板发布及复核邀请只指定 dimension"
+                                "description": "台绑定指定 bench 和 dimension；模板发布、复核邀请和维度激活只指定 dimension"
                               },
                               "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" }
                             },

@@ -21,10 +21,14 @@ type Proposal = ProposalSummary & ({
   op: 'template-publish';
   frozen: { scope: { area: string; dimension: string }; args: { body_json: string; note: string };
     snapshot: { latest_version: number; kind: 'layout' | 'criteria'; body_sha256: string; criteria_sha256: string } };
+} | {
+  op: 'dimension-activate';
+  frozen: { scope: { area: string; dimension: string }; snapshot: { active: { version: number } | null; target: { version: number }; review: { version: number } } };
 });
 const actionText = {
   'bench-bind': { confirm: '确认绑定', question: '确认更新该台的报告绑定？', done: '报告绑定已更新。' },
   'dimension-create': { confirm: '确认登记', question: '确认登记该报告维度？', done: '报告维度已登记。' },
+  'dimension-activate': { confirm: '确认生效', question: '确认将生效指针移到这个模板版本？', done: '报告维度的生效版本已更新。' },
   'template-publish': { confirm: '确认发版', question: '确认发布这个模板版本？', done: '报告模板已发布，生效版本保持原样。' },
 };
 
@@ -69,6 +73,7 @@ export default function ReportGovernanceInbox() {
     {rows.map(row => <Card key={row.id} title={(row.op === 'bench-bind' ? row.frozen.scope.bench : row.frozen.scope.area) + ' · ' + row.frozen.scope.dimension}>
       <Typography.Paragraph>{row.op === 'dimension-create' ? <>登记「{row.frozen.args.title}」维度，尚无生效模板</> :
         row.op === 'template-publish' ? <>从第 {row.frozen.snapshot.latest_version} 版发布{row.frozen.snapshot.kind === 'criteria' ? '判据' : '版式'}更新，生效指针保持原样</> :
+        row.op === 'dimension-activate' ? <>当前生效：{row.frozen.snapshot.active ? '第 ' + row.frozen.snapshot.active.version + ' 版' : '无'} · 目标第 {row.frozen.snapshot.target.version} 版 · 复核来自第 {row.frozen.snapshot.review.version} 版</> :
         <>绑定基版 {row.frozen.args.base} · 模板第 {row.frozen.args.template_version} 版 · 视图第 {row.frozen.args.view_version} 版</>}</Typography.Paragraph>
       <Typography.Text type="secondary">{row.id} · {row.status === 'confirming' ? '确认中' : '待确认'} · 截止 {new Date(row.expires_at).toLocaleString()}</Typography.Text>
       {row.op === 'bench-bind' && <ul>{Object.entries(row.frozen.args.slots).map(([name, slot]) => <li key={name}>{name} → {slot.view} 第 {slot.block + 1} 个块</li>)}</ul>}
