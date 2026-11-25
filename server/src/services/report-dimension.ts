@@ -337,9 +337,9 @@ export class ReportDimensionService extends Service {
     });
   }
 
-  /** 判据一样的版本里有没有属主豁免记录（属主 2026-11-25）。 */
-  private ownerExempted(id: string, criteria: string): boolean {
-    return !!db.prepare('SELECT 1 FROM report_template_owner_exemptions WHERE dimension_id = ? AND criteria_sha256 = ?').get(id, criteria);
+  /** 这一版有没有属主豁免记录（属主 2026-11-25）。只用来决定要不要再记一行；记过不等于以后谁都能借它免复核 */
+  private ownerExempted(id: string, version: number): boolean {
+    return !!db.prepare('SELECT 1 FROM report_template_owner_exemptions WHERE dimension_id = ? AND version = ?').get(id, version);
   }
 
   /**
@@ -408,11 +408,15 @@ export class ReportDimensionService extends Service {
       if (criteriaDigest(t.body as Record<string, unknown>) !== t.criteria_sha256) return refuse(409, 'report_template_criteria_mismatch', `第 ${version} 版存下的判据摘要和正文对不上，不能生效`);
       // 属主 2026-11-25 裁定：属主本人发的判据、由属主本人激活，不用作者以外的人复核；记一行豁免（只增不改）并在激活留痕里写明。
       // 其他人照旧要作者以外的复核；判据一样的版本里只要有别人发的，就不算属主本人发的。
+      // 豁免不是可以复用的复核：每次没有真复核的激活都重新核「现在激活的是属主本人、判据一样的每一版都只由他发」，
+      // 每次都在留痕里写明裁定；豁免行只记在这一版上，同版本记过就不再记（#1057 非作者评审 B1）。
       let ruling = '';
-      if (!this.criteriaReviewed(id, t.criteria_sha256) && !this.ownerExempted(id, t.criteria_sha256)) {
+      if (!this.criteriaReviewed(id, t.criteria_sha256)) {
         if (!this.ownerSelfPublished(id, t.criteria_sha256, actor)) return refuse(409, 'report_template_unreviewed', `第 ${version} 版的判据没有被作者以外的人复核过，复核过才能生效`);
-        db.prepare('INSERT INTO report_template_owner_exemptions (dimension_id, version, criteria_sha256, owner_principal, at, ruling) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(id, version, t.criteria_sha256, actor.principal, now, OWNER_SELF_ACTIVATE_RULING);
+        if (!this.ownerExempted(id, version)) {
+          db.prepare('INSERT INTO report_template_owner_exemptions (dimension_id, version, criteria_sha256, owner_principal, at, ruling) VALUES (?, ?, ?, ?, ?, ?)')
+            .run(id, version, t.criteria_sha256, actor.principal, now, OWNER_SELF_ACTIVATE_RULING);
+        }
         ruling = OWNER_SELF_ACTIVATE_RULING;
       }
       db.prepare('UPDATE report_dimensions SET active_version = ?, updated_at = ?, updated_by = ? WHERE id = ?').run(version, now, actor.by.slice(0, 256), id);

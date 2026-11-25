@@ -1869,7 +1869,8 @@ db.exec(`CREATE TRIGGER IF NOT EXISTS report_template_reviews_not_draft_author B
   BEGIN SELECT RAISE(ABORT, '相同判据的起草人不能复核'); END;`);
 // 属主本人发的判据免复核（属主 2026-11-25 裁定「不需要审，直接操作即可」）：属主本人发、属主本人激活时，记一行豁免代替作者以外的复核。
 //   只增不改；只能记在作者（发版人和起草人）就是这位属主的那一版上，判据摘要也要对得上——是不是属主由服务按授予判（库里判不了有效期），
-//   这里守住「只能给自己发的那一版免」。生效指针的触发器改成：判据要么有作者以外的人复核过，要么有这样一行豁免。
+//   这里守住「只能给自己发的那一版免」。生效指针的触发器改成：判据要么有作者以外的人复核过，要么要生效的正是记了豁免的那一版
+//   （按版本对，不按判据摘要：同判据别人发的版本借不到；#1057 非作者评审 B1）。
 db.exec(`
 CREATE TABLE IF NOT EXISTS report_template_owner_exemptions (
   dimension_id TEXT NOT NULL,
@@ -1898,7 +1899,7 @@ CREATE TRIGGER report_dimensions_active_reviewed BEFORE UPDATE OF active_version
    AND NOT EXISTS (SELECT 1 FROM report_templates a JOIN report_templates t ON t.dimension_id = a.dimension_id AND t.criteria_sha256 = a.criteria_sha256
      JOIN report_template_reviews r ON r.dimension_id = t.dimension_id AND r.version = t.version
      WHERE a.dimension_id = NEW.id AND a.version = NEW.active_version)
-   AND NOT EXISTS (SELECT 1 FROM report_templates a JOIN report_template_owner_exemptions e ON e.dimension_id = a.dimension_id AND e.criteria_sha256 = a.criteria_sha256
+   AND NOT EXISTS (SELECT 1 FROM report_templates a JOIN report_template_owner_exemptions e ON e.dimension_id = a.dimension_id AND e.version = a.version AND e.criteria_sha256 = a.criteria_sha256
      WHERE a.dimension_id = NEW.id AND a.version = NEW.active_version)
   BEGIN SELECT RAISE(ABORT, '生效的模板版本，判据要和某个作者以外的人复核过的版本一样，或者是属主本人发版并激活'); END;
 `);

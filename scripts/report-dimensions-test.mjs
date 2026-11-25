@@ -527,6 +527,34 @@ try {
       { mixed: err(mixed), selfReview: err(selfReview), db1 });
   }
 
+  // ---- R5p 历史豁免不能当通行证（#1057 非作者评审 B1）：豁免已经记过以后，每次激活仍重核当前激活人与判据作者集合，每次都写明裁定；库里按版本对，同判据别人发的版本借不到 ----
+  {
+    const err = (r) => `${r.status}:${r.json?.error ?? ''}`;
+    const exemptions = () => { const d = A.db(); try { return d.prepare("SELECT version FROM report_template_owner_exemptions WHERE dimension_id = 'owner-self' ORDER BY version").all().map((x) => x.version); } finally { d.close(); } };
+    const lastActivate = () => { const d = A.db(); try { return d.prepare("SELECT actor_principal, detail FROM report_dimension_events WHERE dimension_id = 'owner-self' AND kind = 'activate' ORDER BY seq DESC LIMIT 1").get() ?? null; } finally { d.close(); } };
+    // 属主本人再激活一次自己那一版：照旧 200，留痕再写一次裁定，豁免行不重复记
+    const again = await olga.go('POST', '/api/report-dimensions/owner-self/activate', { json: { version: 1 } });
+    const againEvent = lastActivate();
+    // 豁免已经有了：不是属主的人、本机命令行照旧 409
+    const rexAfter = await rex.go('POST', '/api/report-dimensions/owner-self/activate', { json: { version: 1 } });
+    const cliAfter = await A.cli('POST', '/api/report-dimensions/owner-self/activate', { version: 1 });
+    // 别人在同一维度发一版判据一样的（只改标题）：判据作者混了别人，属主激活哪一版都 409
+    const v2 = await rex.go('POST', '/api/report-dimensions/owner-self/templates', { json: { body: tpl({ title: '只改标题' }) } });
+    const ownerV2 = await olga.go('POST', '/api/report-dimensions/owner-self/activate', { json: { version: 2 } });
+    const ownerV1 = await olga.go('POST', '/api/report-dimensions/owner-self/activate', { json: { version: 1 } });
+    // 库这一层：豁免只记在第 1 版，指针直接写到同判据的第 2 版拒
+    const ptrV2 = sqlThrows(A, "UPDATE report_dimensions SET active_version = 2 WHERE id = 'owner-self'");
+    const active = (await olga.go('GET', '/api/report-dimensions/owner-self')).json?.dimension?.active_version;
+    check(again.status === 200 && /2026-11-25 裁定免复核/.test(againEvent?.detail ?? '') && againEvent?.actor_principal === 'user:olga'
+        && err(rexAfter) === '409:report_template_unreviewed' && cliAfter.status === 409
+        && v2.status === 201,
+      'R5p 豁免记过以后属主本人再激活：200，留痕再写一次裁定；别人激活 409、本机命令行激活 409',
+      { again: err(again), againEvent, rexAfter: err(rexAfter), cliAfter: cliAfter.status, v2: v2.status });
+    check(err(ownerV2) === '409:report_template_unreviewed' && err(ownerV1) === '409:report_template_unreviewed' && ptrV2 && active === 1 && JSON.stringify(exemptions()) === '[1]',
+      'R5p 同判据混进别人发的版本后，属主激活第 2 版、再激活自己的第 1 版都 409；库里指针写到第 2 版拒（豁免按版本对）；生效的仍是第 1 版，豁免只有第 1 版一行',
+      { ownerV2: err(ownerV2), ownerV1: err(ownerV1), ptrV2, active, exemptions: exemptions() });
+  }
+
   // ---- R6 读、匿名、跨站 ----
   {
     const reads = {
