@@ -437,7 +437,8 @@ try {
       'R5b 显式只读授予可取指定模板版，无其他工具权，非法版本拒绝');
     const denied = await Promise.all(tools.flatMap(name => [
       call(noGrant, name, args), call(genSeat, name, { ...args, bench: 'synth-orders-other' }),
-      call(genSeat, name, { ...args, dimension: 'zdim' }), call(genSeat, name, { ...args, dimension: 'missing' }),
+      call(genSeat, name, { ...args, dimension: 'zdim' }), call(genSeat, name, { ...args, dimension: 'pending' }),
+      call(genSeat, name, { ...args, dimension: 'missing' }),
     ]));
     check(denied.every(r => r.rpcCode === -32601 && r.data === undefined),
       'R5c 无授予、越台、未绑定维度与未知维度均按 not_granted 返回，不暴露对象');
