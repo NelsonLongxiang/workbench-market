@@ -138,6 +138,36 @@ export function ensureView(view: string, createSql: string): 'created' | 'replac
   } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
 }
 
+/** 触发器现在的定义（建它的那句 SQL 原文，去掉首尾空白和结尾的分号）；没有这个触发器是 null */
+export function triggerSql(trigger: string): string | null {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(schemaIdent(trigger)) as { sql: unknown } | undefined;
+  return row ? normSql(String(row.sql ?? '')) : null;
+}
+/**
+ * 启动时改写一个触发器的定义：和 ensureView 一样，在 BEGIN IMMEDIATE 里比现有定义，一样就跳过，不一样（或者还没有）才 DROP + CREATE。
+ * 原来无条件 DROP TRIGGER IF EXISTS、再 CREATE TRIGGER，分两步提交：多个进程同时启动一个旧库、按「删、删、建、建」交错时，
+ * 后建的那个报 trigger already exists，进程起不来（#1057 合入前 db-startup-race-test 撞到 19/20）。
+ * createSql 要以 `CREATE TRIGGER <trigger> ` 开头。返回这一次做了什么（测试用）。
+ */
+export function ensureTrigger(trigger: string, createSql: string): 'created' | 'replaced' | 'unchanged' {
+  const want = normSql(createSql);
+  if (!want.startsWith(`CREATE TRIGGER ${schemaIdent(trigger)} `)) throw new Error(`[db] 触发器 ${trigger} 的定义要以 CREATE TRIGGER ${trigger} 开头`);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const cur = triggerSql(trigger);
+    let did: 'created' | 'replaced' | 'unchanged' = 'unchanged';
+    if (cur !== want) {
+      testPause();
+      db.exec(`DROP TRIGGER IF EXISTS ${trigger}`);
+      testPause();
+      db.exec(want);
+      did = cur === null ? 'created' : 'replaced';
+    }
+    db.exec('COMMIT');
+    return did;
+  } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
+}
+
 /**
  * 缺这一列才补，多个进程同时启动（升级一个旧库）也只补一次：先看一眼，有了直接返回、不开事务；没有才开 BEGIN IMMEDIATE，
  * 在事务里再核一次再补。原来的「查了没有就补」在事务外核，两个进程都看到缺列时，后补的那个报 duplicate column，进程起不来。
@@ -1073,11 +1103,11 @@ for (const [col, ddl] of [['bound_by_system', "TEXT NOT NULL DEFAULT ''"], ['bou
 // 阶段六 6b：授予（谁有哪个角色）。角色本身是声明（server/src/roles.ts），这里只放数据。
 //   grants：主体、角色、范围、期限、理由、起草人、放行人、状态。状态只有五种，只能往前走：
 //     draft 草稿 → pending 待核 → active 生效 → revoked 撤销 或 expired 过期；草稿和待核也可以直接撤销（作废、驳回）。
-//     规则写在库里，不靠页面：不能给自己授予（起草人、放行人都不能是被授予的主体）；放行人只在待核→生效那一步写；
+//     规则写在库里：自授只给有效属主兼任领域负责人；放行人只在待核→生效那一步写；
 //     生效时没过期；过期只能在到期之后；主体、角色、范围、期限、理由、起草人建好就不能改；不删除。
 //     管理员级的授予只有属主能放行、不是人的主体要有在职的责任人、决定类权限不给不是人的主体：这几条要看角色声明，在服务里判。
 //   grant_events：每一步一行（起草、提交、放行、撤销、过期），只增不改。
-db.exec(`
+const grantsTable = `
 CREATE TABLE IF NOT EXISTS grants (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   principal_id TEXT NOT NULL CHECK (principal_id GLOB '?*:?*'),
@@ -1092,10 +1122,58 @@ CREATE TABLE IF NOT EXISTS grants (
   approved_by_principal TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
-  CHECK (created_by_principal IS NULL OR created_by_principal <> principal_id),
-  CHECK (approved_by_principal IS NULL OR approved_by_principal <> principal_id),
+  source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','migration')),
   CHECK (status NOT IN ('active','expired') OR approved_by IS NOT NULL)
 );
+`;
+const ownerSelfAreaLead = `NEW.role = 'area-lead' AND NEW.scope GLOB 'area:?*' AND EXISTS (
+    SELECT 1 FROM grants AS held JOIN principals AS person ON person.id = held.principal_id
+    WHERE held.principal_id = NEW.principal_id AND person.kind = 'person' AND person.status = 'active'
+      AND held.role = 'owner' AND held.scope = '*' AND held.status = 'active'
+      AND (held.expires_at IS NULL OR held.expires_at > CAST(unixepoch('subsec') * 1000 AS INTEGER))
+  )`;
+const grantSelfGuards = `
+CREATE TRIGGER IF NOT EXISTS grants_self_draft BEFORE INSERT ON grants
+  WHEN NEW.created_by_principal = NEW.principal_id AND NOT (${ownerSelfAreaLead})
+  BEGIN SELECT RAISE(ABORT, '不能给自己授予'); END;
+CREATE TRIGGER IF NOT EXISTS grants_self_approve BEFORE UPDATE OF approved_by_principal ON grants
+  WHEN NEW.approved_by_principal = NEW.principal_id AND NEW.approved_by_principal IS NOT OLD.approved_by_principal AND NOT (${ownerSelfAreaLead})
+  BEGIN SELECT RAISE(ABORT, '不能放行授给自己的'); END;
+`;
+
+// 旧库上的表级 CHECK 不能修改。只重建 grants，保留主键、高水位、附属对象和外部表对 grants 的引用。
+const grantsHasLegacySelfChecks = () => {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'grants'").get() as { sql: string } | undefined;
+  return row?.sql.includes('created_by_principal <> principal_id') === true;
+};
+if (grantsHasLegacySelfChecks()) {
+  const foreignKeys = (db.prepare('PRAGMA foreign_keys').get() as { foreign_keys: number }).foreign_keys;
+  const legacyAlter = (db.prepare('PRAGMA legacy_alter_table').get() as { legacy_alter_table: number }).legacy_alter_table;
+  db.exec('PRAGMA foreign_keys = OFF; PRAGMA legacy_alter_table = ON;');
+  try {
+    migrateOnce(grantsHasLegacySelfChecks, () => {
+      const attached = db.prepare("SELECT sql FROM sqlite_master WHERE tbl_name = 'grants' AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type, name").all() as { sql: string }[];
+      const sequence = db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'grants'").get() as { seq: number } | undefined;
+      const columns = tableColumns('grants').map(c => schemaIdent(c.name)).join(', ');
+      db.exec('ALTER TABLE grants RENAME TO grants_before_owner_area_lead');
+      db.exec(grantsTable);
+      db.exec(`INSERT INTO grants (${columns}) SELECT ${columns} FROM grants_before_owner_area_lead`);
+      db.exec('DROP TABLE grants_before_owner_area_lead');
+      if (sequence) {
+        db.prepare("DELETE FROM sqlite_sequence WHERE name = 'grants'").run();
+        db.prepare("INSERT INTO sqlite_sequence (name, seq) VALUES ('grants', ?)").run(sequence.seq);
+      }
+      for (const object of attached) db.exec(object.sql);
+      db.exec(grantSelfGuards);
+    });
+  } finally {
+    db.exec(`PRAGMA legacy_alter_table = ${legacyAlter}; PRAGMA foreign_keys = ${foreignKeys};`);
+  }
+}
+
+db.exec(grantsTable);
+db.exec(grantSelfGuards);
+db.exec(`
 CREATE INDEX IF NOT EXISTS idx_grants_principal ON grants (principal_id, status);
 CREATE TRIGGER IF NOT EXISTS grants_start_draft BEFORE INSERT ON grants WHEN NEW.status <> 'draft' OR NEW.approved_by IS NOT NULL OR NEW.approved_by_principal IS NOT NULL
   BEGIN SELECT RAISE(ABORT, '授予一律从草稿开始'); END;
@@ -1867,6 +1945,43 @@ db.exec(`CREATE TRIGGER IF NOT EXISTS report_template_reviews_not_draft_author B
   WHEN EXISTS (SELECT 1 FROM report_templates v JOIN report_templates t ON t.dimension_id = v.dimension_id AND t.criteria_sha256 = v.criteria_sha256
     WHERE v.dimension_id = NEW.dimension_id AND v.version = NEW.version AND t.draft_author_principal = NEW.reviewed_by_principal)
   BEGIN SELECT RAISE(ABORT, '相同判据的起草人不能复核'); END;`);
+// 属主本人发的判据免复核（属主 2026-11-25 裁定「不需要审，直接操作即可」）：属主本人发、属主本人激活时，记一行豁免代替作者以外的复核。
+//   只增不改；只能记在作者（发版人和起草人）就是这位属主的那一版上，判据摘要也要对得上——是不是属主由服务按授予判（库里判不了有效期），
+//   这里守住「只能给自己发的那一版免」。生效指针的触发器改成：判据要么有作者以外的人复核过，要么要生效的正是记了豁免的那一版
+//   （按版本对，不按判据摘要：同判据别人发的版本借不到；#1057 非作者评审 B1）。
+db.exec(`
+CREATE TABLE IF NOT EXISTS report_template_owner_exemptions (
+  dimension_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  criteria_sha256 TEXT NOT NULL CHECK (length(criteria_sha256) = 64),
+  owner_principal TEXT NOT NULL CHECK (owner_principal <> ''),
+  at INTEGER NOT NULL,
+  ruling TEXT NOT NULL CHECK (ruling <> ''),
+  PRIMARY KEY (dimension_id, version)
+);
+CREATE TRIGGER IF NOT EXISTS report_template_owner_exemptions_own_version BEFORE INSERT ON report_template_owner_exemptions
+  WHEN NOT EXISTS (SELECT 1 FROM report_templates t WHERE t.dimension_id = NEW.dimension_id AND t.version = NEW.version
+    AND t.criteria_sha256 = NEW.criteria_sha256 AND t.created_by_principal = NEW.owner_principal
+    AND (t.draft_author_principal IS NULL OR t.draft_author_principal = NEW.owner_principal))
+  BEGIN SELECT RAISE(ABORT, '属主豁免只能记在属主本人发的那一版上（判据摘要和作者都要对得上）'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_owner_exemptions_no_update BEFORE UPDATE ON report_template_owner_exemptions
+  BEGIN SELECT RAISE(ABORT, '属主豁免记录建好不能改'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_owner_exemptions_no_delete BEFORE DELETE ON report_template_owner_exemptions
+  BEGIN SELECT RAISE(ABORT, '属主豁免记录不能删'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_owner_exemptions_no_replace BEFORE INSERT ON report_template_owner_exemptions
+  WHEN EXISTS (SELECT 1 FROM report_template_owner_exemptions WHERE dimension_id = NEW.dimension_id AND version = NEW.version)
+  BEGIN SELECT RAISE(ABORT, '属主豁免记录不能覆盖'); END;
+`);
+/** 生效指针的守卫按版本认属主豁免（#1057）。旧库上要把 #1046 建的旧定义换掉：经 ensureTrigger 在事务里比了再换，多个进程同时启动也不撞 */
+export const REPORT_DIMENSIONS_ACTIVE_REVIEWED_SQL = `CREATE TRIGGER report_dimensions_active_reviewed BEFORE UPDATE OF active_version ON report_dimensions
+  WHEN NEW.active_version IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM report_templates a JOIN report_templates t ON t.dimension_id = a.dimension_id AND t.criteria_sha256 = a.criteria_sha256
+     JOIN report_template_reviews r ON r.dimension_id = t.dimension_id AND r.version = t.version
+     WHERE a.dimension_id = NEW.id AND a.version = NEW.active_version)
+   AND NOT EXISTS (SELECT 1 FROM report_templates a JOIN report_template_owner_exemptions e ON e.dimension_id = a.dimension_id AND e.version = a.version AND e.criteria_sha256 = a.criteria_sha256
+     WHERE a.dimension_id = NEW.id AND a.version = NEW.active_version)
+  BEGIN SELECT RAISE(ABORT, '生效的模板版本，判据要和某个作者以外的人复核过的版本一样，或者是属主本人发版并激活'); END`;
+export const reportDimensionsActiveReviewedSetup = ensureTrigger('report_dimensions_active_reviewed', REPORT_DIMENSIONS_ACTIVE_REVIEWED_SQL);
 // 报告治理提案与确认账本（#1016 N1/N4）。输入、归属和对象快照固定，确认中的跨库操作保留原操作号。
 db.exec(`
 CREATE TABLE IF NOT EXISTS report_governance_proposals (
@@ -2445,6 +2560,7 @@ export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   'report_templates_no_update', 'report_templates_no_delete', 'report_templates_no_replace',
   'report_template_reviews_no_update', 'report_template_reviews_no_delete', 'report_template_reviews_no_replace',
   'report_dimension_events_no_update', 'report_dimension_events_no_delete', 'report_dimension_events_no_replace',
+  'report_template_owner_exemptions_no_update', 'report_template_owner_exemptions_no_delete', 'report_template_owner_exemptions_no_replace',
   // 第二批（#976 裁定）
   'bench_bind_audit_no_update', 'bench_bind_audit_no_delete', 'bench_bind_audit_no_replace',
   'bench_mcp_audit_no_update', 'bench_mcp_audit_no_delete', 'bench_mcp_audit_no_replace',

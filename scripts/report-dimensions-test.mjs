@@ -112,7 +112,12 @@ async function boot(publicMarket = false) {
   const remote = (method, path, { json, token, headers = {} } = {}) => fetch(new URL(path, base), {
     method, headers: { 'x-real-ip': '198.51.100.9', ...(token ? { 'x-admin-token': token } : {}), ...(json === undefined ? {} : { 'content-type': 'application/json' }), ...headers },
     body: json === undefined ? undefined : JSON.stringify(json),
-  }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
+  }).then(async (r) => {
+    const text = await r.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* 非 JSON 应答 */ }
+    return { status: r.status, json, text };
+  });
   const grant = async (principal, role) => { const d = await cli('POST', '/api/grants', { principal, role, scope: '*', reason: '合成' }); const id = d.json?.grant?.id; await cli('POST', `/api/grants/${id}/submit`); const a = await cli('POST', `/api/grants/${id}/approve`); return { id, status: a.status }; };
   const person = async (username, pw, ip) => { const t = (await cli('POST', '/api/local-accounts', { username })).json?.temp_password ?? ''; return login(username, t, pw, ip); };
   const db = () => new DatabaseSync(join(data, 'workbench-market.db'), { timeout: BUSY_MS });
@@ -487,6 +492,74 @@ try {
       { danG: danG.status, dis: dis.status, sess: sess.status, r: `${r.status}:${r.json?.error ?? ''}` });
   }
 
+  // ---- R5o 属主本人发版并激活免作者以外复核（属主 2026-11-25 裁定）：只放开属主本人的、只放开 activate；其他人、命令行、混了别人版本的照旧 409 ----
+  {
+    const err = (r) => `${r.status}:${r.json?.error ?? ''}`;
+    await olga.go('POST', '/api/report-dimensions', { json: { id: 'owner-self', title: '属主自发', area: 'zeta' } });
+    const v1 = await olga.go('POST', '/api/report-dimensions/owner-self/templates', { json: { body: tpl(), note: '属主发的' } });
+    const byRex = await rex.go('POST', '/api/report-dimensions/owner-self/activate', { json: { version: 1 } });            // 不是属主：照旧要复核
+    const byCli = await A.cli('POST', '/api/report-dimensions/owner-self/activate', { version: 1 });                        // 命令行认不出人：照旧要复核
+    const byOwner = await olga.go('POST', '/api/report-dimensions/owner-self/activate', { json: { version: 1 } });
+    const d = A.db();
+    let exemption = null, event = null;
+    try {
+      exemption = d.prepare("SELECT owner_principal, ruling, criteria_sha256 FROM report_template_owner_exemptions WHERE dimension_id = 'owner-self' AND version = 1").get() ?? null;
+      event = d.prepare("SELECT actor_principal, detail FROM report_dimension_events WHERE dimension_id = 'owner-self' AND kind = 'activate' ORDER BY seq DESC LIMIT 1").get() ?? null;
+    } finally { d.close(); }
+    check(v1.status === 201 && err(byRex) === '409:report_template_unreviewed' && byCli.status === 409 && byOwner.status === 200 && byOwner.json?.dimension?.active_version === 1
+        && exemption?.owner_principal === 'user:olga' && exemption?.criteria_sha256 === v1.json?.template?.criteria_sha256 && /属主本人发版并激活/.test(exemption?.ruling ?? '')
+        && event?.actor_principal === 'user:olga' && /2026-11-25 裁定免复核/.test(event?.detail ?? ''),
+      'R5o 属主本人发的判据，属主本人激活 200，记一行豁免并在激活留痕写明裁定；别人激活 409、本机命令行激活 409',
+      { v1: v1.status, byRex: err(byRex), byCli: byCli.status, byOwner: err(byOwner), exemption, event });
+    // 判据一样的版本里有别人发的（rex 只改标题再发），就不算属主本人发的：属主激活自己那一版照旧 409（借道 R5h 的 borrow 维度，那里有人复核过之后才 200，这里另起一个）
+    await olga.go('POST', '/api/report-dimensions', { json: { id: 'owner-mixed', title: '混了别人', area: 'zeta' } });
+    await olga.go('POST', '/api/report-dimensions/owner-mixed/templates', { json: { body: tpl() } });
+    await rex.go('POST', '/api/report-dimensions/owner-mixed/templates', { json: { body: tpl({ title: '只改标题' }) } });
+    const mixed = await olga.go('POST', '/api/report-dimensions/owner-mixed/activate', { json: { version: 1 } });
+    // 复核接口不放开：属主复核自己那一版照旧 403
+    const selfReview = await olga.go('POST', '/api/report-dimensions/owner-self/templates/1/review', { json: {} });
+    // 库这一层：豁免只能记在作者就是这个主体的那一版上；记在 rex 发的那一版上（主体写成 olga）拒；改、删、覆盖都拒；没有复核也没有豁免的版本仍不能生效
+    const db1 = [
+      ['豁免记在别人发的版本上（写库）', sqlThrows(A, "INSERT INTO report_template_owner_exemptions (dimension_id, version, criteria_sha256, owner_principal, at, ruling) SELECT 'owner-mixed', 2, criteria_sha256, 'user:olga', 1, 'x' FROM report_templates WHERE dimension_id = 'owner-mixed' AND version = 2")],
+      ['豁免判据摘要对不上（写库）', sqlThrows(A, "INSERT INTO report_template_owner_exemptions (dimension_id, version, criteria_sha256, owner_principal, at, ruling) VALUES ('owner-mixed', 1, ?, 'user:olga', 1, 'x')", 'd'.repeat(64))],
+      ['改豁免', sqlThrows(A, "UPDATE report_template_owner_exemptions SET ruling = 'x' WHERE dimension_id = 'owner-self'")],
+      ['删豁免', sqlThrows(A, "DELETE FROM report_template_owner_exemptions WHERE dimension_id = 'owner-self'")],
+      ['同版本再记豁免', sqlThrows(A, "INSERT INTO report_template_owner_exemptions (dimension_id, version, criteria_sha256, owner_principal, at, ruling) SELECT 'owner-self', 1, criteria_sha256, 'user:olga', 2, 'x' FROM report_templates WHERE dimension_id = 'owner-self' AND version = 1")],
+      ['指针指没复核也没豁免的判据类（写库）', sqlThrows(A, "UPDATE report_dimensions SET active_version = 1 WHERE id = 'owner-mixed'")],
+    ];
+    check(err(mixed) === '409:report_template_unreviewed' && err(selfReview) === '403:report_template_self_review' && db1.every(([, x]) => x),
+      'R5o 判据一样的版本里有别人发的，属主激活照旧 409；复核接口不放开（属主复核自己 403）；库里豁免只能记在本人发、摘要对得上的那一版，不改不删不覆盖，没复核也没豁免的仍不能生效',
+      { mixed: err(mixed), selfReview: err(selfReview), db1 });
+  }
+
+  // ---- R5p 历史豁免不能当通行证（#1057 非作者评审 B1）：豁免已经记过以后，每次激活仍重核当前激活人与判据作者集合，每次都写明裁定；库里按版本对，同判据别人发的版本借不到 ----
+  {
+    const err = (r) => `${r.status}:${r.json?.error ?? ''}`;
+    const exemptions = () => { const d = A.db(); try { return d.prepare("SELECT version FROM report_template_owner_exemptions WHERE dimension_id = 'owner-self' ORDER BY version").all().map((x) => x.version); } finally { d.close(); } };
+    const lastActivate = () => { const d = A.db(); try { return d.prepare("SELECT actor_principal, detail FROM report_dimension_events WHERE dimension_id = 'owner-self' AND kind = 'activate' ORDER BY seq DESC LIMIT 1").get() ?? null; } finally { d.close(); } };
+    // 属主本人再激活一次自己那一版：照旧 200，留痕再写一次裁定，豁免行不重复记
+    const again = await olga.go('POST', '/api/report-dimensions/owner-self/activate', { json: { version: 1 } });
+    const againEvent = lastActivate();
+    // 豁免已经有了：不是属主的人、本机命令行照旧 409
+    const rexAfter = await rex.go('POST', '/api/report-dimensions/owner-self/activate', { json: { version: 1 } });
+    const cliAfter = await A.cli('POST', '/api/report-dimensions/owner-self/activate', { version: 1 });
+    // 别人在同一维度发一版判据一样的（只改标题）：判据作者混了别人，属主激活哪一版都 409
+    const v2 = await rex.go('POST', '/api/report-dimensions/owner-self/templates', { json: { body: tpl({ title: '只改标题' }) } });
+    const ownerV2 = await olga.go('POST', '/api/report-dimensions/owner-self/activate', { json: { version: 2 } });
+    const ownerV1 = await olga.go('POST', '/api/report-dimensions/owner-self/activate', { json: { version: 1 } });
+    // 库这一层：豁免只记在第 1 版，指针直接写到同判据的第 2 版拒
+    const ptrV2 = sqlThrows(A, "UPDATE report_dimensions SET active_version = 2 WHERE id = 'owner-self'");
+    const active = (await olga.go('GET', '/api/report-dimensions/owner-self')).json?.dimension?.active_version;
+    check(again.status === 200 && /2026-11-25 裁定免复核/.test(againEvent?.detail ?? '') && againEvent?.actor_principal === 'user:olga'
+        && err(rexAfter) === '409:report_template_unreviewed' && cliAfter.status === 409
+        && v2.status === 201,
+      'R5p 豁免记过以后属主本人再激活：200，留痕再写一次裁定；别人激活 409、本机命令行激活 409',
+      { again: err(again), againEvent, rexAfter: err(rexAfter), cliAfter: cliAfter.status, v2: v2.status });
+    check(err(ownerV2) === '409:report_template_unreviewed' && err(ownerV1) === '409:report_template_unreviewed' && ptrV2 && active === 1 && JSON.stringify(exemptions()) === '[1]',
+      'R5p 同判据混进别人发的版本后，属主激活第 2 版、再激活自己的第 1 版都 409；库里指针写到第 2 版拒（豁免按版本对）；生效的仍是第 1 版，豁免只有第 1 版一行',
+      { ownerV2: err(ownerV2), ownerV1: err(ownerV1), ptrV2, active, exemptions: exemptions() });
+  }
+
   // ---- R6 读、匿名、跨站 ----
   {
     const reads = {
@@ -662,6 +735,12 @@ try {
             body_sha256: input.body_sha256, criteria_sha256: criteria, expected_active_version: 3, review_version: 3, ...changes },
         } });
         const beforeActivate = await activateRequest('activate-before-approval');
+        const badArgs = { version: 0 };
+        const invalidBeforeApproval = await activateRequest('activate-invalid-before-approval', badArgs);
+        check(beforeActivate.status === 403 && beforeActivate.json?.code === 'report_governance_forbidden' &&
+          invalidBeforeApproval.status === 403 && invalidBeforeApproval.json?.code === 'report_governance_forbidden' &&
+          typeof beforeActivate.text === 'string' && beforeActivate.text.length > 0 && invalidBeforeApproval.text === beforeActivate.text,
+          'RGA3 未取得精确激活批准时，非法参数也先返回同一个 403', { beforeActivate, invalidBeforeApproval });
         const activationAccess = await A.remote('POST', '/api/mcp-rest/tools/access_request', { headers, json: {
           area: 'zeta', actions: ['report.governance-dimension-activate'], report_scope: { dimension: dimensionId }, reason: '合成治理回退',
         } });
@@ -669,12 +748,23 @@ try {
         const start = counts(A);
         const wrongDimension = await activateRequest('activate-wrong-dimension', { dimension: 'governance-racing' });
         const wrongActivationHash = await activateRequest('activate-bad-target', { body_sha256: '0'.repeat(64) });
+        const invalidAfterApproval = await activateRequest('activate-invalid-after-approval', badArgs);
+        const wrongCriteria = await activateRequest('activate-bad-criteria', { criteria_sha256: '0'.repeat(64) });
+        check(access.status === 200 && invalidAfterApproval.status === 400 &&
+          wrongCriteria.status === 409 && wrongCriteria.json?.code === 'report_governance_target_changed',
+          'RGA4 获准后参数结构不合返 400，唯请求判据摘要与目标不符返 409', { access, invalidAfterApproval, wrongCriteria });
         const wrongReview = await activateRequest('activate-bad-review', { review_version: 2 });
         const good = await activateRequest('activate-exact-review');
         const repeat = await activateRequest('activate-exact-review');
         const frozenActivation = await inbox(good.json?.id);
         if (!frozenActivation) throw Error('激活提案冻结失败：' + JSON.stringify({ beforeActivate, activationAccess, access, good }));
         const pinned = frozenActivation.frozen.snapshot;
+        const recordedReview = newReview.json?.template?.review;
+        check(newReview.status === 200 && recordedReview?.reviewed_by === 'user:nina' &&
+          Number.isSafeInteger(recordedReview?.reviewed_at) && recordedReview.reviewed_at > 0 &&
+          pinned.review.version === newReview.json.template.version && pinned.review.principal === recordedReview.reviewed_by &&
+          pinned.review.at === recordedReview.reviewed_at,
+          'RGA5 冻结的复核版本、主体和时点等于人工复核入口实存的记录', { recordedReview, pinnedReview: pinned.review });
         const beforeConfirm = await rex.go('GET', dimensionPath);
         const noPermission = await tom.go('POST', '/api/report-governance/inbox/' + frozenActivation.id + '/confirm', { json: { snapshot_sha256: frozenActivation.snapshot_sha256 } });
         const done = await confirm(rex, frozenActivation.id, frozenActivation.snapshot_sha256);
