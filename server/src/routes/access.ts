@@ -28,7 +28,7 @@ import { type Kind } from '../roles.ts';
 import type { AreaService } from '../services/area.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import type { Actor, GrantService } from '../services/grant.ts';
-import type { SetupWizardService, WizardAssignments } from '../services/setup-wizard.ts';
+import type { SetupWizardService } from '../services/setup-wizard.ts';
 import { relationsSummaryOf } from '../team-relation.ts';
 
 export type AccessRouteDeps = {
@@ -174,10 +174,8 @@ export function registerAccessRoutes(app: HttpService, deps: AccessRouteDeps): v
     // 部门已停写（docs/domains-step1.md 第六节、用例 17）：不再收部门负责人，带了（非空）就拒，什么都不落
     if (!Array.isArray(deptLeads) || deptLeads.length) throw new HttpError(400, '部门已停写，向导不再收 dept_leads；领域负责人在领域里指定', { code: 'dept_leads_closed' });
     if (!Array.isArray(management) || management.length > 200 || !management.every((x) => typeof x === 'string' && PRINCIPAL_RE.test(x))) throw new HttpError(400, 'assignments.management 要是主体标识的数组', { code: 'assignments_invalid' });
-    if (!Array.isArray(deptLeads) || deptLeads.length > 200 || !deptLeads.every((x) => x && typeof x === 'object' && typeof (x as { principal?: unknown }).principal === 'string' && PRINCIPAL_RE.test((x as { principal: string }).principal)
-      && typeof (x as { department?: unknown }).department === 'string' && /^[a-z][a-z0-9-]{0,47}$/.test((x as { department: string }).department))) throw new HttpError(400, 'assignments.dept_leads 要是 { principal, department } 的数组', { code: 'assignments_invalid' });
-    if (b.shape === 'small' && (management.length || deptLeads.length)) throw new HttpError(400, 'small 不带 assignments（只给每个人普通员工）', { code: 'assignments_invalid' });
-    const out = wizard().run(b.shape, { management: management as string[], dept_leads: deptLeads as WizardAssignments['dept_leads'] }, actor, Date.now());
+    if (b.shape === 'small' && management.length) throw new HttpError(400, 'small 不带 assignments（只给每个人普通员工）', { code: 'assignments_invalid' });
+    const out = wizard().run(b.shape, { management: management as string[] }, actor, Date.now());
     console.log(JSON.stringify({ source: 'setup-wizard', event: 'run', run: out.run, shape: b.shape, created: out.created.length, skipped: out.skipped.length, by: actor.by, at: new Date().toISOString() }));
     res.status(201).json(out);
   }));

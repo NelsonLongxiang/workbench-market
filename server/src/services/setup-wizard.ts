@@ -2,12 +2,11 @@
  * 首次安装向导（角色预设 ②）：按组织的形态生成一批草稿授予，属主一次放行。Cordis 服务 `setupWizard`。
  *
  *   · small（只有属主和同事）：现有的每个启用的人都给普通员工（member，范围 *）。
- *   · standard：assignments 指定谁是管理层（management，*）、谁是哪个部门的负责人（dept-lead，dept:<部门>）；
- *     其余启用的人给普通员工。
- * 草稿照常经授予服务起草（自授、范围、部门存在、期限这些规则一条不少）；起草被拒的记进 skipped 并写明原因，不中断整批。
+ *   · standard：assignments 指定谁是管理层（management，*），其余启用的人给普通员工。
+ * 草稿照常经授予服务起草（自授、范围、期限这些规则一条不少）；起草被拒的记进 skipped 并写明原因，不中断整批。
  * 可重复跑：同一主体、角色、范围已经有草稿、待核或生效的授予就跳过（already）。
  * 放行：属主（本机命令行，或持生效 owner 授予的人）一次把这一批里还在草稿、待核的提交并放行。
- *   这一批里放行了的部门负责人授予（dept-lead，dept:<部门>），部门还没有负责人的，顺带把负责人设上：属主本人的动作，
+ *   只有停写前已生成的批次可能带部门负责人授予。放行时，部门还没有负责人的，顺带把负责人设上：属主本人的动作，
  *   就是对这个关系的确认（规范 14「关系由谁说了算」：部门负责人只有属主能定）。部门已经有负责人的不动。
  * 「这条是向导建的」记在 setup_wizard_grants 里（grants 的来源列只认 manual、migration），读授予时推出来源 wizard。
  */
@@ -19,7 +18,7 @@ import type { Actor, GrantService } from './grant.ts';
 import type { DepartmentService } from './department.ts';
 
 export type WizardShape = 'small' | 'standard';
-export type WizardAssignments = { management?: string[]; dept_leads?: { principal: string; department: string }[] };
+export type WizardAssignments = { management?: string[] };
 export type WizardTarget = { principal: string; role: string; scope: string };
 export type WizardRun = {
   id: number; shape: WizardShape; created_by: string; created_at: number; approved_by: string | null; approved_at: number | null;
@@ -45,7 +44,6 @@ export class SetupWizardService extends Service {
     const out: WizardTarget[] = [];
     const special = new Set<string>();
     for (const p of a.management ?? []) { out.push({ principal: p, role: 'management', scope: '*' }); special.add(p); }
-    for (const d of a.dept_leads ?? []) { out.push({ principal: d.principal, role: 'dept-lead', scope: `dept:${d.department}` }); special.add(d.principal); }
     for (const p of people) if (!special.has(p)) out.push({ principal: p, role: 'member', scope: '*' });
     return out;
   }
