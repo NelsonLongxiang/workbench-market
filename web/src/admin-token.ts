@@ -107,6 +107,8 @@ export async function apiFetch(url: string, init: RequestInit = {}): Promise<Res
     throw new Error('需要登录：正在前往登录页');
   }
   if ((r.status === 401 || r.status === 403) && url.startsWith('/api/')) {
+    // 拒绝仍按原来的身份门处理；先读完正文，让浏览器结束这次网络请求。
+    if (r.status === 401) await r.text().catch(() => undefined);
     if (r.status === 403) {
       const body = await r.json().catch(() => null);
       const originError = crossOriginError(body);
