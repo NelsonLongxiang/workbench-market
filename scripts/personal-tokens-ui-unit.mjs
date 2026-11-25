@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** 设置页「个人令牌」（#1063）的纯函数单测（web/src/personal-tokens-view.ts），加上原文不落地、不带管理口令的源码检查。数据都是合成的。 */
 import { readFileSync } from 'node:fs';
+import { PERSONAL_TOKENS_PATH, personalTokenPath } from '../web/src/personal-tokens-api.ts';
 import { FALLBACK_SCOPES, ONE_TIME_NOTE, actionProblem, benchesLabel, draftProblem, expiryLabel, issueBody, issuedOf, lastUsedLabel, listProblem, maxDaysOf, newDraft, scopesLabel, scopesOf, stateTag, tagLabel, tokenRowOf, tokenState, tokensOf } from '../web/src/personal-tokens-view.ts';
 
 let pass = 0, fail = 0;
@@ -12,7 +13,7 @@ const row = (id, more = {}) => ({ id, name: '令牌' + id, scopes: ['bench:read'
 ok('一行：形状对才收；原文、哈希即使给了也不留', J(Object.keys(tokenRowOf(row('a', { token: 'wmu_secret', hash: 'x' })))) === J(['id', 'name', 'scopes', 'benches', 'tag', 'createdAt', 'expiresAt', 'lastUsedAt', 'revokedAt']) && tokenRowOf({ id: 'a' }) === null && tokenRowOf(null) === null);
 ok('台：all 表示全部，数组表示选中的；别的形状不收', tokenRowOf(row('a', { benches: 'all' })).benches === 'all' && tokenRowOf(row('a', { benches: '' })) === null && tokenRowOf(row('a', { benches: [1] })) === null);
 ok('辨认标记只认短字母数字尾巴', tagLabel(tokenRowOf(row('a'))) === 'wmu_…ab12' && tagLabel(tokenRowOf(row('a', { prefix: 'wmu_whole-secret-value' }))) === '');
-const list = tokensOf({ tokens: [row('old', { created_at: NOW - 9 * DAY }), row('rev', { revoked_at: NOW - DAY }), row('exp', { expires_at: NOW - 1 }), row('new'), { bad: 1 }] }, NOW);
+const list = tokensOf({ personal_tokens: [row('old', { created_at: NOW - 9 * DAY }), row('rev', { revoked_at: NOW - DAY }), row('exp', { expires_at: NOW - 1 }), row('new'), { bad: 1 }] }, NOW);
 ok('清单：可用在前（新签在上）、过期次之、撤销最后；坏行跳过', J(list.map((t) => t.id)) === '["new","old","exp","rev"]' && tokensOf(null, NOW).length === 0);
 ok('状态：可用、已过期、已撤销（撤销优先于过期）', J(list.map((t) => tokenState(t, NOW))) === '["active","active","expired","revoked"]' && tokenState(tokenRowOf(row('x', { revoked_at: 1, expires_at: 0 })), NOW) === 'revoked' && stateTag(list[0], NOW).text === '可用' && stateTag(list[3], NOW).tone === 'default');
 ok('期限：还剩几天向上取整；过期、撤销各说各的', /到期（还剩 25 天）$/.test(expiryLabel(list[0], NOW)) && / 已过期$/.test(expiryLabel(list[2], NOW)) && / 撤销$/.test(expiryLabel(list[3], NOW)));
@@ -26,9 +27,14 @@ ok('新表单：缺省 30 天，名字作用域台都空', J(newDraft()) === J({
 ok('表单核对：名字、作用域、台、天数逐项说；都好是 null', draftProblem(d({ name: '  ' }), 90).includes('名字') && draftProblem(d({ name: '字'.repeat(65) }), 90).includes('名字') && draftProblem(d({ scopes: [] }), 90).includes('能做的事')
   && draftProblem(d({ benches: [] }), 90).includes('台') && draftProblem(d({ benches: 'all' }), 90) === null && draftProblem(d({ days: 91 }), 90).includes('90') && draftProblem(d({ days: 1.5 }), 90) !== null && draftProblem(d({}), 90) === null);
 ok('签发请求体：名字去空白、作用域和台去重排序、天数原样', J(issueBody(d({ name: ' 甲 ', scopes: ['view', 'bench:read', 'view'], benches: ['z', 'a', 'z'], days: 7 }))) === J({ name: '甲', scopes: ['bench:read', 'view'], benches: ['a', 'z'], expires_in_days: 7 }));
-ok('签发应答：只认 wmu_ 开头够长的原文；没有原文当没签成', issuedOf({ token: 'wmu_' + 'a'.repeat(32), row: row('n') }).row.id === 'n' && issuedOf({ token: 'short' }) === null && issuedOf({ row: row('n') }) === null);
+ok('签发应答：只认 wmu_ 开头够长的原文；没有原文当没签成', issuedOf({ token: 'wmu_' + 'a'.repeat(32), personal_token: row('n') }).row.id === 'n' && issuedOf({ token: 'short' }) === null && issuedOf({ personal_token: row('n') }) === null && issuedOf({ token: 'wmu_' + 'a'.repeat(32), row: row('n') }).row === null);
 ok('清单读不到：401 请先登录、403 只有属主、404 还没上线、别的稍后再试；读到了没有问题', listProblem({ status: 401 }).text.includes('请先登录') && listProblem({ status: 403 }).text.includes('属主') && listProblem({ status: 404 }).type === 'info' && listProblem({ status: 500 }).text.includes('稍后') && listProblem({ status: 200 }) === null && listProblem(null) === null);
 ok('操作没办成：服务端中文句子照说（缺哪项作用域），代号不露；断网、401、403 各有说法', actionProblem({ status: 403, body: { error: 'scope_missing', message: '缺少作用域：批授权' } }) === '缺少作用域：批授权' && actionProblem({ status: 403, body: { error: 'forbidden' } }) === '你的账号现在不能做这一步。' && actionProblem({ status: 0, body: null }).includes('连不上') && actionProblem({ status: 200 }) === null);
+ok('契约：作用域兜底正好是五项枚举', J(FALLBACK_SCOPES.map((s) => s.key)) === J(['bench:read', 'bench:write', 'view', 'grants', 'report-dimensions']));
+ok('契约：清单读 personal_tokens，旧的 tokens 键不认', tokensOf({ tokens: [row('x')] }, NOW).length === 0 && tokensOf({ personal_tokens: [row('x')] }, NOW).length === 1);
+ok('契约：路径 /api/owner/personal-tokens，撤销按 id 编码拼路径', PERSONAL_TOKENS_PATH === '/api/owner/personal-tokens' && personalTokenPath('a/b c') === '/api/owner/personal-tokens/a%2Fb%20c');
+ok('契约：撤销 204 算办成', actionProblem({ status: 204, body: null }) === null);
+ok('表单核对：空名字直接说名字（不靠下一项兜住）', draftProblem({ name: '', scopes: [], benches: [], days: 30 }, 90).includes('名字'));
 ok('只显示一次的说明写明了离开就没了、怎么存', ONE_TIME_NOTE.includes('只显示这一次') && ONE_TIME_NOTE.includes('0600'));
 
 // 源码检查：原文不落地、不带管理口令、不进地址

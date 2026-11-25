@@ -1,5 +1,6 @@
 /** 设置页「个人令牌」（#1063）的纯函数：清单怎么读、状态和期限怎么说、签发表单怎么核、出错怎么说。不碰 React、不碰网络。
- *  字段名随 personal-tokens-api.ts 的契约走（PROVISIONAL）。 */
+ *  外层（personal_tokens / token + personal_token）、作用域五项、毫秒时间、缺省 30 天按开发席契约；
+ *  单条令牌里的字段名（id、created_at、expires_at、last_used_at、revoked_at、prefix）与「全部台」写法、有效期上限仍 PROVISIONAL，等后端分支核对。 */
 import type { SourceResult } from './personal-tokens-api';
 
 export type BenchChoice = 'all' | string[];
@@ -10,7 +11,7 @@ export interface TokenDraft { name: string; scopes: string[]; benches: BenchChoi
 const DAY = 86400000;
 export const DEFAULT_DAYS = 30;
 export const NAME_MAX = 64;
-/** 服务端不给作用域清单时的兜底（#1063 设计里的五项），说法不露代号 */
+/** 作用域：契约枚举的五项（服务端若另给带说明的清单则用服务端的），说法不露代号 */
 export const FALLBACK_SCOPES: ScopeDef[] = [
   { key: 'bench:read', label: '读台数据', description: '查询台里的数据' },
   { key: 'bench:write', label: '写台数据', description: '定义数据集、写入行' },
@@ -47,7 +48,7 @@ export function stateTag(t: TokenRow, now: number): { text: string; tone: 'succe
 
 /** 清单：可用的在前（新签的在上），再是过期的，最后是撤销的 */
 export function tokensOf(body: unknown, now: number): TokenRow[] {
-  const raw = body && typeof body === 'object' ? (body as { tokens?: unknown }).tokens : null;
+  const raw = body && typeof body === 'object' ? (body as { personal_tokens?: unknown }).personal_tokens : null;
   const rows = (Array.isArray(raw) ? raw : []).map(tokenRowOf).filter((x): x is TokenRow => !!x);
   const rank: Record<TokenState, number> = { active: 0, expired: 1, revoked: 2 };
   return rows.sort((a, b) => rank[tokenState(a, now)] - rank[tokenState(b, now)] || b.createdAt - a.createdAt);
@@ -103,9 +104,9 @@ export function issueBody(d: TokenDraft): { name: string; scopes: string[]; benc
 }
 /** 签发应答：原文只取这一次；没有原文当没签成 */
 export function issuedOf(body: unknown): { token: string; row: TokenRow | null } | null {
-  const o = body && typeof body === 'object' ? (body as { token?: unknown; row?: unknown }) : null;
-  if (!o || typeof o.token !== 'string' || !/^wmu_[A-Za-z0-9_-]{16,}$/.test(o.token)) return null;
-  return { token: o.token, row: tokenRowOf(o.row) };
+  const o = body && typeof body === 'object' ? (body as { token?: unknown; personal_token?: unknown }) : null;
+  if (!o || typeof o.token !== 'string' || !/^wmu_[A-Za-z0-9_-]{8,}$/.test(o.token)) return null;
+  return { token: o.token, row: tokenRowOf(o.personal_token) };
 }
 
 export function listProblem(r: SourceResult | null): { type: 'warning' | 'info'; text: string } | null {
