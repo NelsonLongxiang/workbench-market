@@ -2,7 +2,7 @@
 /** 报告页（/use/<卡片 id>/reports，报告第 1 步 PR D）的纯函数单测（web/src/report-page-view.ts）：地址、分组、并排取哪几份、回应接在谁后面、错误说法。数据都是合成的。 */
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { REPORT_IMAGE_TEXT, reportImageSrc, reportImageState, STANCE_TEXT, UNNAMED, actorKindText, basisText, gateText, nameOr, positionText, sourceText, groupBySubject, headsOf, kindLabel, myHead, replacedIds, reportError, reportRoute, respondProblem, stanceText } from '../web/src/report-page-view.ts';
+import { REPORT_IMAGE_TEXT, loadReportImage, reportImageSrc, reportImageState, STANCE_TEXT, UNNAMED, actorKindText, basisText, gateText, nameOr, positionText, sourceText, groupBySubject, headsOf, kindLabel, myHead, replacedIds, reportError, reportRoute, respondProblem, stanceText } from '../web/src/report-page-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -136,9 +136,40 @@ ok('源码检查自证（#965 统筹补）：下标写法 d[\'dimension_id\']、
     && REPORT_IMAGE_TEXT.changed === '图片已变' && REPORT_IMAGE_TEXT.missing === '图片取不到');
   const page = readFileSync(new URL('../web/src/pages/BenchReports.tsx', import.meta.url), 'utf8');
   const comp = page.slice(page.indexOf('function ReportImage'), page.indexOf('/** 台页面顶栏'));
-  ok('源码：正文按 image 节点画 ReportImage，地址取 reportImageSrc、状态取 reportImageState；显示的是取到的那份（blob），不写链接原文、不写内联样式和写死的颜色',
-    /n\.type === 'image'\) return <ReportImage/.test(page) && /reportImageSrc\(img\.bench, img\.report, node\.src\)/.test(comp) && /reportImageState\(r\.status\)/.test(comp)
+  ok('源码：正文按 image 节点画 ReportImage，地址取 reportImageSrc、取图与状态经 loadReportImage；显示的是取到的那份（blob），不写链接原文、不写内联样式和写死的颜色',
+    /n\.type === 'image'\) return <ReportImage/.test(page) && /reportImageSrc\(img\.bench, img\.report, node\.src\)/.test(comp) && /loadReportImage\(/.test(comp)
     && /URL\.createObjectURL/.test(comp) && !/\{node\.src\}/.test(comp) && !/style=\{\{/.test(comp) && !/#[0-9A-Fa-f]{3,6}\b|rgba?\(/.test(comp));
+}
+
+// #1033 评审 B1：取图的每一步失败都闭合成「图片取不到」，不留在加载中、不产生未处理的拒绝（合成响应，不起浏览器）
+{
+  let unhandled = 0;
+  const onUnhandled = () => { unhandled++; };
+  process.on('unhandledRejection', onUnhandled);
+  const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' });
+  const res = (status, body = async () => blob) => async () => ({ status, blob: body });
+  const urls = [];
+  const toUrl = (b) => { urls.push(b); return 'blob:synthetic/' + urls.length; };
+  const got = {
+    fetchRejects: await loadReportImage('/x', async () => { throw new TypeError('synthetic network down'); }, toUrl),
+    bodyRejects: await loadReportImage('/x', res(200, async () => { throw new TypeError('synthetic body interrupted'); }), toUrl),
+    urlThrows: await loadReportImage('/x', res(200), () => { throw new Error('synthetic createObjectURL failed'); }),
+    ok: await loadReportImage('/x', res(200), toUrl),
+    changed: await loadReportImage('/x', res(409), toUrl),
+    forbidden: await loadReportImage('/x', res(403), toUrl),
+    noSrc: await loadReportImage(null, res(200), toUrl),
+  };
+  await new Promise((r) => setTimeout(r, 20));
+  process.off('unhandledRejection', onUnhandled);
+  ok('图片取一次的各条路：请求失败、200 之后读 body 失败、建 blob 地址失败都「图片取不到」；200 显示 blob 地址；409「图片已变」；403、没有地址「图片取不到」；全程没有未处理的拒绝',
+    got.fetchRejects.phase === 'missing' && got.bodyRejects.phase === 'missing' && got.urlThrows.phase === 'missing'
+    && got.ok.phase === 'shown' && got.ok.url === 'blob:synthetic/1' && got.changed.phase === 'changed' && got.forbidden.phase === 'missing' && got.noSrc.phase === 'missing' && unhandled === 0,
+    J({ got, unhandled }));
+  const page = readFileSync(new URL('../web/src/pages/BenchReports.tsx', import.meta.url), 'utf8');
+  const comp = page.slice(page.indexOf('function ReportImage'), page.indexOf('/** 台页面顶栏'));
+  ok('源码：ReportImage 只经 loadReportImage 取图（自己不读 r.blob()、不写 then 的第二个回调），卸载后取到的 blob 地址要收回',
+    /loadReportImage\(src, \(u\) => fetch\(u, \{ credentials: 'same-origin' \}\), \(b\) => URL\.createObjectURL\(b\)\)/.test(comp) && !/\.blob\(\)/.test(comp) && !/\}, \(\) => \{ if \(live\)/.test(comp)
+    && /if \(!live\) \{ if \(out\.phase === 'shown'\) URL\.revokeObjectURL\(out\.url\)/.test(comp));
 }
 
 console.log(`\nreport-page-unit: ${pass} 过 / ${fail} 败`);

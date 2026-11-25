@@ -126,3 +126,21 @@ export function reportImageSrc(bench: string, reportId: number, ref: unknown): s
 export type ReportImageState = 'ok' | 'changed' | 'missing';
 export const reportImageState = (status: number): ReportImageState => (status === 200 ? 'ok' : status === 409 ? 'changed' : 'missing');
 export const REPORT_IMAGE_TEXT: Record<Exclude<ReportImageState, 'ok'>, string> = { changed: '图片已变', missing: '图片取不到' };
+
+/** 报告里一张图取完的结果：显示（blob 地址）、「图片已变」、「图片取不到」 */
+export type ReportImageLoad = { phase: 'shown'; url: string } | { phase: Exclude<ReportImageState, 'ok'> };
+/**
+ * 取一张报告图并闭合所有失败（#1033 评审 B1）：请求本身失败、200 之后读 body 失败、建 blob 地址失败，都落到「图片取不到」，
+ * 本函数从不拒绝，组件拿到结果只管画。get、toUrl 由组件传 fetch 和 URL.createObjectURL（单测传合成的）
+ */
+export async function loadReportImage(src: string | null, get: (u: string) => Promise<{ status: number; blob: () => Promise<Blob> }>, toUrl: (b: Blob) => string): Promise<ReportImageLoad> {
+  if (!src) return { phase: 'missing' };
+  try {
+    const r = await get(src);
+    const st = reportImageState(r.status);
+    if (st !== 'ok') return { phase: st };
+    return { phase: 'shown', url: toUrl(await r.blob()) };
+  } catch {
+    return { phase: 'missing' };
+  }
+}

@@ -10,7 +10,7 @@ import { getBenchEntry, getBenchReport, listBenchReports, respondBenchReport, ty
 import { entryOutcome } from '../bench-page-view';
 import { fmtNumber } from '../bench-blocks/blocks-view';
 import { BarBlock } from '../bench-blocks/Chart';
-import { REPORT_IMAGE_TEXT, actorKindText, basisText, gateText, groupBySubject, headsOf, kindLabel, myHead, nameOr, positionText, replacedIds, reportError, reportImageSrc, reportImageState, reportRoute, respondProblem, sourceText, stanceText, timeText, type ReportImageState } from '../report-page-view';
+import { REPORT_IMAGE_TEXT, loadReportImage, actorKindText, basisText, gateText, groupBySubject, headsOf, kindLabel, myHead, nameOr, positionText, replacedIds, reportError, reportImageSrc, reportImageState, reportRoute, respondProblem, sourceText, stanceText, timeText, type ReportImageLoad } from '../report-page-view';
 
 type Load<T> = { phase: 'loading' } | { phase: 'ok'; data: T } | { phase: 'error'; text: string };
 
@@ -269,17 +269,16 @@ function Nodes({ nodes, level, img }: { nodes: ReportNode[]; level: number; img:
  */
 function ReportImage({ node, img }: { node: ReportNode; img: ImgFrom }) {
   const src = reportImageSrc(img.bench, img.report, node.src);
-  const [s, setS] = useState<{ phase: 'loading' } | { phase: 'shown'; url: string } | { phase: Exclude<ReportImageState, 'ok'> }>({ phase: 'loading' });
+  const [s, setS] = useState<{ phase: 'loading' } | ReportImageLoad>({ phase: 'loading' });
   useEffect(() => {
-    if (!src) { setS({ phase: 'missing' }); return; }
     let live = true, url = '';
     setS({ phase: 'loading' });
-    void fetch(src, { credentials: 'same-origin' }).then(async (r) => {
-      const st = reportImageState(r.status);
-      if (st !== 'ok') { if (live) setS({ phase: st }); return; }
-      const made = URL.createObjectURL(await r.blob());
-      if (live) { url = made; setS({ phase: 'shown', url: made }); } else URL.revokeObjectURL(made);
-    }, () => { if (live) setS({ phase: 'missing' }); });
+    // loadReportImage 从不拒绝：请求、读 body、建 blob 地址任一失败都给「图片取不到」（报告图片 PR 评审 B1）
+    void loadReportImage(src, (u) => fetch(u, { credentials: 'same-origin' }), (b) => URL.createObjectURL(b)).then((out) => {
+      if (!live) { if (out.phase === 'shown') URL.revokeObjectURL(out.url); return; }
+      if (out.phase === 'shown') url = out.url;
+      setS(out);
+    });
     return () => { live = false; if (url) URL.revokeObjectURL(url); };
   }, [src]);
   const alt = node.alt ?? '';
