@@ -594,6 +594,7 @@
         },
         {
           "id": "invite-review",
+          "vary": { "expires_at": 1000 },
           "request": {
             "method": "POST",
             "path": "/api/report-governance/proposals",
@@ -605,7 +606,7 @@
             "status": 202,
             "type": "application/json; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-length": "73", "etag": "W/\"49-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
-            "body": { "id": "i-1", "kind": "invite", "status": "active", "expires_at": 1894060800654 }
+            "body": { "id": "i-1", "kind": "invite", "status": "active", "expires_at": 1894060800000 }
           }
         },
         {
