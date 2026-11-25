@@ -209,6 +209,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/bench-mcp-ui-browser.mjs
+      - name: 设置页「个人令牌」真实闭环（#1063：属主签发·原文只显示一次·不进存储与地址·不带管理口令·刷新后看不到·名字重复照说·撤销后 401·非属主只见说明；个人令牌接口不截）
+        env:
+          PYTHON: python
+        run: node scripts/personal-tokens-browser.mjs
       - name: 原生表格完整导出与来源详情（合成真实接口、实际浏览器下载、4833与1650全匹配、撤权与跨源拒绝）
         env:
           PYTHON: python
