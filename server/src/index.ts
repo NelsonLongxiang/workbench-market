@@ -75,6 +75,7 @@ import { registerAreaRoutes } from './routes/areas.ts';
 import { registerAreaAccessRoutes } from './routes/area-access.ts';
 import type { AreaAccessService } from './services/area-access.ts';
 import { registerReportDimensionRoutes } from './routes/report-dimensions.ts';
+import { personalTokenAdmission, personalTokenOf, registerPersonalTokenRoutes } from './routes/owner-personal-tokens.ts';
 import { rosterStaleMinutesFromEnv, type TeamService } from './services/team.ts';
 import { proposalTtlDaysFromEnv, rosterGoneHoursFromEnv, type RelationProposalService } from './services/relation-proposal.ts';
 import { registerAccessRoutes } from './routes/access.ts';
@@ -169,7 +170,7 @@ let judgmentEnforce: EnforceConfig = { domains: null };
   let cfg: ReturnType<typeof compareConfig>;
   try { cfg = compareConfig(); } catch (e) { console.error(`[judgment] 拒绝启动：${(e as Error).message}`); process.exit(1); }
   const compareDeps = { adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), skip: isStartupProbeRequest, facts: () => ({ adminTokenSet: adminTokenFromEnv() || dbAdminTokenSet() }) };
-  const actorOf = actorResolver(compareDeps);
+  const actorOf = actorResolver({ ...compareDeps, requestPrincipal: (req) => personalTokenOf(req)?.principal });
   mountJudgmentCompare(app, cfg, compareDeps, actorOf);
   // 阶段六 6d：判定切换的开关（WM_JUDGMENT_ENFORCE，缺省空 = 不切）。要在注册任何路由之前装门；写法不对、比对没开：拒绝启动
   let enforce: EnforceConfig;
@@ -364,6 +365,7 @@ if (A2A_FOLLOWUP_RATE === null) {
 /** 取卡或验签这一步的失败：只有调用方在绑定上登记了取卡地址时才可能区分，对外不能露出来 */
 const FETCH_STEP_REFUSALS: ReadonlySet<string> = new Set(['unregistered', 'no-card', 'not-derivable', 'bad-sig']);
 const directSig = createDirectSigVerifier({ audiences: () => [marketPublicUrl()], bodyMode: A2A_DIRECT_SIG_BODY, refreshCooldownMs: A2A_CARD_COOLDOWN_MS });
+app.use(personalTokenAdmission(onVaultHost));
 app.use(sessionRenewal(SESSION_LIFE)); // 一次登录持续保持：带着市场会话来的 /api/ 请求，满一天续一次（session-policy.ts）
 // 只在这些业务确认的写入口接入公共市场。来源验证通过后仍要求会话本人，路由继续判对象与权限。
 const publicBusinessConfirmationPaths = [
@@ -377,7 +379,7 @@ app.use(async (req, res, next) => {
   if (surfaceOf(req) === 'control' && addressesPublicMarketHttps(req)) {
     res.status(403).json({ error: 'business_confirmation_origin_denied' }); return;
   }
-  if (req.method !== 'POST' || !publicBusinessConfirmationPaths.some(path => path.test(req.path.toLowerCase()))) return next();
+  if (personalTokenOf(req) || req.method !== 'POST' || !publicBusinessConfirmationPaths.some(path => path.test(req.path.toLowerCase()))) return next();
   const origin = publicBusinessConfirmationOrigin(req);
   if (origin === 'local') return next();
   res.set('Cache-Control', 'private, no-store');
@@ -394,7 +396,7 @@ app.use(async (req, res, next) => {
 });
 const publicPerson = (req: express.Request): string | undefined => publicConfirmationPerson.get(req);
 
-app.use(loginGate.middleware);
+app.use((req, res, next) => personalTokenOf(req) ? next() : loginGate.middleware(req, res, next));
 const portalObserver = process.env.WM_PORTAL_OBSERVE === '1' ? createPortalObservation(db, id => !!svc<WorkbenchService>('workbench').exists(id)) : null;
 app.use((req, _res, next) => { if (surfaceOf(req) === 'market') portalObserver?.observe(req); next(); });
 // 内容查看面（WM_CONTENT_PORT 等）只能凭 Odoo 会话认人，随 Odoo 一起下线（2026-11-17）：整块删掉，设了只在启动时告警（见 warnOffboardedOdoo）
@@ -509,6 +511,7 @@ app.use(endpointStatsMiddleware());
 // 对远程浏览器开放（业务侧同事裸开 Runner 页提交 403 即本缺口）；精确到业务子路径：
 // assign（派单指派）是控制面不豁免；/api/sops/* 控制面照旧收口（smoke 判据④⑤护栏钉死）。
 const REMOTE_ALLOW_PREFIX = [
+  /^[/]api[/]owner[/]personal-tokens(?:[/][0-9a-f-]{36})?$/, // 自带同源属主登录门
   /^\/api\/apps\/[a-z0-9-]{1,64}\/(data|files)(\/|$)/,
   /^\/api\/sop\/runs(\/\d+(\/(finish|files|files\/refs))?)?$/, // files/refs：引用已有文件，路由内与上传同一道写门，另逐条核源 run 读授权
   // 工作台事件 v1：接单节点回写决定（凭投递里的 reply token 鉴权，不认口令；只此一条子路径）
@@ -2133,6 +2136,7 @@ registerTeamRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, cro
 registerRelationRoutes(http, { publicPerson, markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 关系的提议（规范 14「关系由谁说了算」）：负责人、团队认领要属主或业务侧确认
 registerAreaRoutes(http, { publicPerson, markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 领域（规范 15）：属主建撤、定规范；属主、管理层看全部
 registerAreaAccessRoutes(http, (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)), publicPerson);
+registerPersonalTokenRoutes(http, onVaultHost);
 registerReportDimensionRoutes(http, { publicPerson, markAdmin, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 报告的维度和模板（第 19 篇）：属主和持本领域 area-report 的人定；登录的人读
 registerAccessRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminActor, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 角色预设 ②：以某人的身份看、红线清单、首次安装向导
 registerAttentionRoutes(http, { markAdmin, adminGuard, adminHeaderOk, adminTokenOk: (req) => adminTokenCheck(req.headers['x-admin-token'] as string | undefined), varsAuthorizeRead: workbenchVars.authorizeRead, crossOriginDenied: (req) => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)) }); // 阶段八 8c：「关注」的读
