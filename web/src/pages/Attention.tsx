@@ -9,6 +9,7 @@ import WmPage from '../components/WmPage';
 import DecisionCard from '../components/DecisionCard';
 import { ATTENTION_CHANGED, canRememberKnowledge, getAttention } from '../api';
 import RecentAnswers from '../components/RecentAnswers';
+import ReportGovernanceInbox from '../components/ReportGovernanceInbox';
 import { SEAT_ASKS_MORE, answerChoices, groupCards, isStuck, stuckTotal, type AttentionItem, type Category } from '../attention-view';
 import { decideLine } from '../home-view';
 
@@ -79,6 +80,7 @@ export default function Attention() {
         <div className="wm-sub-h">要到别处处理的<span className="wm-sec-n">{shown.elsewhere.length}</span></div>
         <div className="wm-decisions" data-testid="attention-elsewhere">{shown.elsewhere.map(card)}</div>
       </>}
+      {(cat === 'all' || cat === 'review') && <ReportGovernanceInbox />}
       {canRemember && <RecentAnswers />}
     </div>
   </WmPage>;

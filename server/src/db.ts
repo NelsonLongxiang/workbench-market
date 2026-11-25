@@ -1748,6 +1748,7 @@ CREATE TABLE IF NOT EXISTS area_access_requests (
 CREATE INDEX IF NOT EXISTS idx_area_access_requests_area ON area_access_requests (area_id, status, id);
 CREATE INDEX IF NOT EXISTS idx_area_access_requests_session ON area_access_requests (session_id, created_at);
 `);
+addColumnIfMissing('area_access_requests', 'governance_scope TEXT');
 // 报告的维度和模板（docs/report-step1.md 第二节第 1 小节；第 19 篇）。维度属于领域（area_id 空是跨领域的维度），一个维度一串模板版本。
 //   report_dimensions：标识、所属领域、名字、状态（active / retired）、生效指针（active_version）。不删，撤了只读。
 //   report_templates：(维度, 版本) 复合主键；正文是模板 JSON（上限 200 KB，按字节），正文摘要 sha256 和判据部分的摘要 criteria_sha256
@@ -1860,6 +1861,72 @@ CREATE TRIGGER IF NOT EXISTS report_dimension_events_no_delete BEFORE DELETE ON 
 CREATE TRIGGER IF NOT EXISTS report_dimension_events_no_replace BEFORE INSERT ON report_dimension_events WHEN EXISTS (SELECT 1 FROM report_dimension_events WHERE seq = NEW.seq)
   BEGIN SELECT RAISE(ABORT, 'report_dimension_events 只增不改'); END;
 `);
+// 报告治理提案与确认账本（#1016 N1/N4）。输入、归属和对象快照固定，确认中的跨库操作保留原操作号。
+db.exec(`
+CREATE TABLE IF NOT EXISTS report_governance_proposals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id INTEGER NOT NULL REFERENCES mcp_sessions (id),
+  principal_id TEXT NOT NULL REFERENCES principals (id),
+  op TEXT NOT NULL CHECK (op IN ('bench-bind', 'dimension-create', 'template-publish', 'dimension-activate')),
+  target_key TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL,
+  request_sha256 TEXT NOT NULL,
+  snapshot_sha256 TEXT NOT NULL,
+  frozen TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL CHECK (expires_at > created_at),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirming', 'confirmed', 'rejected', 'withdrawn', 'expired', 'conflict')),
+  operation_id TEXT UNIQUE,
+  confirmed_by TEXT REFERENCES principals (id),
+  confirming_at INTEGER,
+  decided_at INTEGER,
+  reason TEXT,
+  result TEXT,
+  UNIQUE (session_id, op, target_key, idempotency_key),
+  CHECK ((operation_id IS NULL AND confirmed_by IS NULL AND confirming_at IS NULL) OR
+         (operation_id IS NOT NULL AND confirmed_by IS NOT NULL AND confirming_at IS NOT NULL)),
+  CHECK (status NOT IN ('confirming', 'confirmed') OR operation_id IS NOT NULL),
+  CHECK ((status = 'confirmed') = (result IS NOT NULL)),
+  CHECK ((status IN ('pending', 'confirming')) = (decided_at IS NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_report_governance_pending ON report_governance_proposals (status, expires_at, id);
+CREATE TRIGGER IF NOT EXISTS report_governance_start_pending BEFORE INSERT ON report_governance_proposals
+  WHEN NEW.status <> 'pending' OR NEW.operation_id IS NOT NULL
+  BEGIN SELECT RAISE(ABORT, '报告治理提案只能从待确认开始'); END;
+CREATE TRIGGER IF NOT EXISTS report_governance_no_replace BEFORE INSERT ON report_governance_proposals
+  WHEN EXISTS (SELECT 1 FROM report_governance_proposals p WHERE p.id = NEW.id OR
+    (p.session_id = NEW.session_id AND p.op = NEW.op AND p.target_key = NEW.target_key AND p.idempotency_key = NEW.idempotency_key))
+  BEGIN SELECT RAISE(ABORT, '报告治理提案不可覆盖'); END;
+CREATE TRIGGER IF NOT EXISTS report_governance_transition BEFORE UPDATE ON report_governance_proposals
+  WHEN NEW.id IS NOT OLD.id OR NEW.session_id IS NOT OLD.session_id OR NEW.principal_id IS NOT OLD.principal_id
+    OR NEW.op IS NOT OLD.op OR NEW.target_key IS NOT OLD.target_key OR NEW.idempotency_key IS NOT OLD.idempotency_key
+    OR NEW.request_sha256 IS NOT OLD.request_sha256 OR NEW.snapshot_sha256 IS NOT OLD.snapshot_sha256
+    OR NEW.frozen IS NOT OLD.frozen OR NEW.created_at IS NOT OLD.created_at OR NEW.expires_at IS NOT OLD.expires_at
+    OR (OLD.operation_id IS NOT NULL AND (NEW.operation_id IS NOT OLD.operation_id OR
+       NEW.confirmed_by IS NOT OLD.confirmed_by OR NEW.confirming_at IS NOT OLD.confirming_at))
+    OR NOT ((OLD.status = 'pending' AND NEW.status IN ('confirming', 'rejected', 'withdrawn', 'expired', 'conflict')) OR
+            (OLD.status = 'confirming' AND NEW.status IN ('confirmed', 'conflict')))
+  BEGIN SELECT RAISE(ABORT, '报告治理提案不可改写冻结值或越过确认状态'); END;
+CREATE TABLE IF NOT EXISTS report_governance_audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at INTEGER NOT NULL,
+  proposal_id INTEGER NOT NULL,
+  action TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  session_id INTEGER NOT NULL,
+  principal_id TEXT NOT NULL,
+  actor_id TEXT,
+  op TEXT,
+  status TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_report_governance_audit_at ON report_governance_audit (at);
+CREATE TRIGGER IF NOT EXISTS report_governance_audit_no_update BEFORE UPDATE ON report_governance_audit
+  BEGIN SELECT RAISE(ABORT, '治理审计不可改写'); END;
+CREATE TRIGGER IF NOT EXISTS report_governance_audit_no_replace BEFORE INSERT ON report_governance_audit
+  WHEN EXISTS (SELECT 1 FROM report_governance_audit WHERE id = NEW.id)
+  BEGIN SELECT RAISE(ABORT, '治理审计不可覆盖'); END;
+`);
+
 // 团队与分配（规范 14 第 1 步）。团队、席位是节点名册里的事实（a2a_roster_seats，市场只读）；这三张表是公司的安排，只在市场里。
 //   键和名册一致：团队 (host, team)，host 是节点公钥指纹的前 8 位十六进制（小写）；席位以 (host, seat_id) 为主，seat_id 空的旧节点退回 (host, team, seat)。
 //   teams：团队的登记——认领了没有、挂在哪个部门。没认领的团队不一定有行（名册里出现了、还没人认领）。
@@ -2323,7 +2390,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS bench_storage_fence (id INTEGER PRIMARY KEY 
   CREATE TRIGGER IF NOT EXISTS bench_storage_identity_delete AFTER DELETE ON bench_views
   BEGIN DELETE FROM bench_storage_identities WHERE slug = OLD.slug; END`);
 for (const table of ['bench_views', 'workbenches', 'principals', 'principal_identities', 'grants', 'custom_roles', 'areas', 'report_dimensions',
-  'report_templates', 'bench_mcp_grants', 'teams', 'seat_assignments', 'team_leads', 'mcp_sessions', 'market_sessions',
+  'report_templates', 'bench_mcp_grants', 'area_access_requests', 'teams', 'seat_assignments', 'team_leads', 'mcp_sessions', 'market_sessions',
   'a2a_peers', 'a2a_roster_nodes', 'a2a_roster_node_seats']) {
   for (const operation of ['INSERT', 'UPDATE', 'DELETE']) {
     const event = table === 'mcp_sessions' && operation === 'UPDATE' ? 'UPDATE OF revoked_at, responsible_principal, grants' : operation;
@@ -2674,6 +2741,7 @@ export type BenchSqlKit = {
   dialect: BenchDialect;
   datasetLifecycleSchema: string[];
   bindingWriteFence: string[];
+  bindingOperationSchema: string;
   schemaVersion: number;
   /** 附加的表 bs_vars 和它的试读（开库不建、不试；第一次写常量、变量时才建，见 BENCH_STORE_SCHEMA_VERSION） */
   varsSchema: string[];
@@ -2718,6 +2786,7 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
     schemaVersion: BENCH_STORE_SCHEMA_VERSION,
     datasetLifecycleSchema: benchDatasetLifecycleSchema(d),
     bindingWriteFence: benchReportWriteFence(d),
+    bindingOperationSchema: 'CREATE TABLE IF NOT EXISTS bs_report_binding_operations (operation_id TEXT PRIMARY KEY, snapshot_sha256 TEXT NOT NULL, dimension_id TEXT NOT NULL, version INTEGER NOT NULL, FOREIGN KEY (dimension_id, version) REFERENCES bs_report_bindings (dimension_id, version))',
     varsSchema: benchStoreVarsSchema(),
     varsProbes: ['SELECT key, kind, value, revision, updated_by, owner, created_at, updated_at FROM bs_vars WHERE 1 = 0'],
     varsExists: d === 'postgres'

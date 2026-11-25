@@ -23,14 +23,12 @@ import { svc } from '../context.ts';
 import { identity } from '../identity.ts';
 import type { PrincipalService } from '../services/principal.ts';
 import { browserMarked, originIsThisSurface, rawLoopback } from '../surfaces.ts';
-import { judge, scopedVerdict, type JudgedActor } from '../judgment.ts';
-import { ASKED, scopedKind } from '../judgment-builtins.ts';
-import type { Kind } from '../roles.ts';
+import type { JudgedActor } from '../judgment.ts';
+import { everywhere, within, inDept, canBenchAction } from '../services/bench-access.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
 import { tableTarget, tableCsv } from '../bench-table.ts';
 import { benchStore, benchStoreExists, type BenchStore } from '../services/bench-store.ts';
 import { captureBenchStorageFence, bindBench, linkWorkbench, renameBench, cardTitle, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
-import { relationOf } from '../team-relation.ts';
 import { checkBenchRequest, decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 import { viaBegin, viaSettle } from '../attention-via.ts';
 import { assertBenchBinding, renderBenchView } from '../services/bench-render.ts';
@@ -129,7 +127,6 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
    * 没绑部门的台只有第一档。路由登记的类别（read / write）照实写，只用于动作清单；放不放行不看它。
    */
   // 问判定用的类别不看路由登记的类别（读也按「写」问），都照 judgment-builtins.ts 的 ASKED 取：矩阵照同一张表推，不会各说各的
-  const globalKind = (action: string): Kind => { const a = ASKED[action]; if (!a) throw new Error(`数据视图的动作 ${action} 没有登记问判定的类别（judgment-builtins.ts 的 ASKED）`); return a.global; };
   /** 认人。跨站、管理口令、没登录在这里拒（已经回了应答，返回 null） */
   async function who(req: express.Request, res: express.Response): Promise<JudgedActor | null> {
     res.set('Cache-Control', 'private, no-store');
@@ -141,19 +138,6 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     return actor;
   }
   const idOf = (actor: JudgedActor): string => (actor.type === 'principal' ? actor.id : `builtin:${actor.name}`);
-  const everywhere = (actor: JudgedActor, action: string): boolean => judge({ actor, action, kind: globalKind(action), declared: true }).verdict === 'allow';
-  const inDept = (actor: JudgedActor, action: string, department: string): boolean => {
-    const kind = scopedKind(action);
-    return kind !== null && actor.type === 'principal' && scopedVerdict({ principal: actor.id, action, kind, scope: `dept:${department}` }).verdict === 'allow';
-  };
-  function within(actor: JudgedActor, action: string, bench: BenchEntry | null): boolean {
-    if (actor.type !== 'principal' || !bench || !bench.department_id) return false;
-    if (!inDept(actor, action, bench.department_id)) return false;
-    if (!bench.team || scopedKind(action) === 'decide') return true;
-    if (inDept(actor, 'bench-store.mcp-decide', bench.department_id)) return true;
-    const rel = relationOf({ principal: actor.id }, { team: { host: bench.team_host, team: bench.team } }).relations;
-    return rel.includes('team-lead') || rel.includes('seat-owner');
-  }
   const forbid = (res: express.Response): null => { res.status(403).json({ error: 'bench_views_forbidden' }); return null; };
   /** 放行返回做这件事的人的标识；不放行已经回了应答，返回 null。bench 是这次要碰的台（没登记是 null：只剩第一档，所以没权限的人看不出台存不存在） */
   async function allow(req: express.Request, res: express.Response, action: string, bench: BenchEntry | null = null): Promise<string | null> {
@@ -167,7 +151,7 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     return everywhere(actor, action) || within(actor, action, bench) ? actor : forbid(res);
   }
   /** 这个人能不能在这个台上做这件事（不回应答，只给真假） */
-  const may = (actor: JudgedActor, action: string, bench: BenchEntry | null): boolean => everywhere(actor, action) || within(actor, action, bench);
+  const may = canBenchAction;
   /** 能不能改台名（#905）：PUT /title 拒不拒、入口给不给 can.rename，都只问这一处——页面的按钮和接口不会一个说能一个说不能 */
   const mayRename = (actor: JudgedActor): boolean => everywhere(actor, 'bench-store.bench-link');
 

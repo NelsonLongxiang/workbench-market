@@ -35,6 +35,7 @@
 import { createServer } from 'node:net';
 import { request as httpRequest, createServer as createHttpServer } from 'node:http';
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
@@ -849,6 +850,100 @@ try {
         && rd.json?.names?.actors?.['user:ghost-n1'] === null && !JSON.stringify(rd.json?.names ?? {}).includes('"area:ghost-n1"'),
       'N1 范围指向不在的领域：names.positions 里这一项的 scope 是 null（不退回 area:…），角色名照给；回应者查不到：actors 里是 null（页面都写「未命名」）',
       { wrote, status: rd.status, pos, actor: rd.json?.names?.actors?.['user:ghost-n1'] });
+  }
+  console.log('治理试点：精确作用域、MCP 和 REST、站内确认');
+  {
+    const area = 'zeta', bench = 'synth-orders', dimension = 'zdim';
+    const benchPath = '/synth-orders';
+    const bound = await bv(boss, 'PUT', benchPath + '/binding', { department: area });
+    const proposerRole = await activate({ principal: 'user:beta', role: 'management', scope: '*' });
+    const activeArea = db.prepare('SELECT status FROM areas WHERE id = ?').get(area)?.status;
+    const lead = activeArea === 'active' || await activate({ principal: 'user:alpha', role: 'area-lead', scope: 'area:' + area });
+    const created = await srv.call('POST', '/api/mcp/sessions', { ...member, body: { name: 'governance-synthetic-session', responsible_principal: 'user:beta' } });
+    // 命名会话需站内管理员本人创建。这组以合成主库路径模拟已确认存量会话，仍用真实令牌过网关。
+    const token = created.json?.token ?? 'b'.repeat(64);
+    if (!created.json?.token) {
+      db.prepare("INSERT INTO mcp_sessions (name, token_sha256, responsible_principal) VALUES ('governance-bound-fixture', ?, 'user:beta')").run(createHash('sha256').update(token).digest('hex'));
+    }
+    const bearer = { ...REMOTE, Authorization: 'Bearer ' + token };
+    const access = await srv.call('POST', '/api/mcp-rest/tools/access_request', { headers: bearer, body: {
+      area, actions: ['report.governance-bench-bind'], reason: '合成绑定', report_scope: { bench, dimension },
+    } });
+    const ref = access.json?.request?.ref;
+    const okGrant = ref ? await srv.call('POST', '/api/areas/zeta/access-requests/' + ref.slice(5) + '/approve', { ...boss, body: {} }) : null;
+    const dim = await srv.call('GET', '/api/report-dimensions/zdim/templates/1', boss);
+    const view = await bv(boss, 'GET', benchPath + '/view');
+    const current = await bv(boss, 'GET', benchPath + '/reports/zdim/binding');
+    const viewSha = view.json?.sha256 ?? view.json?.view?.sha256;
+    const templateSha = dim.json?.template?.sha256 ?? dim.json?.sha256;
+    if (!viewSha || !templateSha) throw Error('合成模板或视图未取得摘要：' + JSON.stringify({ bound: bound.status, lead, proposerRole, access: access.status, view: Object.keys(view.json ?? {}), dim: Object.keys(dim.json ?? {}) }));
+    const input = { op: 'bench-bind', idempotency_key: 'bind-fixture-1', args: {
+      bench, dimension, template_version: 1, template_sha256: templateSha, base: current.json?.binding?.version ?? 0,
+      view_version: view.json?.version ?? view.json?.view?.version, view_sha256: viewSha, slots: BINDING,
+    } };
+    const rest = body => srv.call('POST', '/api/report-governance/proposals', { headers: bearer, body });
+    const ask = await rest(input);
+    const wrongDimension = await rest({ ...input, args: { ...input.args, dimension: 'monthly' } });
+    const missingDimension = await rest({ ...input, args: { ...input.args, dimension: 'missing-dimension' } });
+    check(bound.status === 200 && lead && proposerRole && okGrant?.status === 200 && ask.status === 202 && ask.json?.status === 'pending' &&
+      wrongDimension.status === 403 && wrongDimension.text === missingDimension.text,
+      'RG1 授予精确到台和维度，未授权与未登记目标同拒', { bound: bound.status, lead, proposerRole, grant: okGrant?.status, access: access.text, ask: ask.text, wrong: wrongDimension.text });
+    if (!ask.json?.id) throw Error('治理夹具未提案：' + ask.text);
+    const id = ask.json.id;
+    const invoked = await srv.call('POST', '/mcp', { headers: bearer, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: {
+      name: 'invoke', arguments: { target: 'report.governance-propose', args: input },
+    } } });
+    const rpc = JSON.parse(invoked.json?.result?.content?.[0]?.text ?? '{}');
+    const before = await bv(boss, 'GET', benchPath + '/reports/zdim/binding');
+    const inbox = await srv.call('GET', '/api/report-governance/inbox', boss);
+    const frozen = inbox.json?.proposals?.find(row => row.id === id);
+    const path = '/api/report-governance/inbox/' + id + '/confirm';
+    const confirmation = { snapshot_sha256: frozen?.snapshot_sha256 };
+    const cliDenied = await srv.call('POST', path, { body: confirmation });
+    const noBrowserEvidence = await srv.call('POST', path, { session: P.boss, body: confirmation });
+    const agentDenied = await srv.call('POST', path, { headers: bearer, body: confirmation });
+    const crossDenied = await srv.call('POST', path, { ...boss, headers: { ...boss.headers, origin: 'https://other.example.test', 'sec-fetch-site': 'cross-site' }, body: confirmation });
+    const confirmed = await srv.call('POST', path, { ...boss, body: confirmation });
+    const after = await bv(boss, 'GET', benchPath + '/reports/zdim/binding');
+    const result = await srv.call('GET', '/api/report-governance/proposals/' + id, { headers: bearer });
+    check(rpc.id === id && before.json?.binding?.version === current.json?.binding?.version && frozen && cliDenied.status === 401 &&
+      agentDenied.status === 403 && noBrowserEvidence.status === 403 && crossDenied.status === 403 && confirmed.json?.status === 'confirmed' &&
+      after.json?.binding?.version === input.args.base + 1 && result.json?.result?.version === input.args.base + 1 && !result.json?.frozen,
+      'RG2 MCP 与 REST 幂等同一提案，只有有权同源自然人确认才写绑定', { rpc, frozen: !!frozen, cliDenied, agentDenied, noBrowserEvidence, crossDenied, confirmed, result });
+    const replayConfirm = await srv.call('POST', path, { ...boss, body: confirmation });
+    const duplicate = await rest({ ...input, args: { ...input.args, base: input.args.base + 1 } });
+    const proposal2 = await rest({ ...input, idempotency_key: 'bind-fixture-2', args: { ...input.args, base: input.args.base + 1 } });
+    const inbox2 = await srv.call('GET', '/api/report-governance/inbox', boss);
+    const second = inbox2.json?.proposals?.find(row => row.id === proposal2.json?.id);
+    if (!second) throw Error('第二条提案未冻结：' + proposal2.text);
+    await rows([{ id: 100, day: '2026-11-18', amount: 1 }], 'append');
+    const stale = await srv.call('POST', '/api/report-governance/inbox/' + second.id + '/confirm', { ...boss, body: { snapshot_sha256: second.snapshot_sha256 } });
+    const unchanged = await bv(boss, 'GET', benchPath + '/reports/zdim/binding');
+    check(replayConfirm.json?.result?.version === input.args.base + 1 && duplicate.status === 409 && stale.json?.status === 'conflict' &&
+      unchanged.json?.binding?.version === input.args.base + 1, 'RG3 同号重试只回原版本，异参数冲突，来源修订漂移不写绑定', { replayConfirm, duplicate, stale, unchanged });
+    // 模拟台库已提交但主库回执暂不可写。只能用持久绑定回执对账，不能再追加一版。
+    const proposal3 = await rest({ ...input, idempotency_key: 'bind-fixture-3', args: { ...input.args, base: input.args.base + 1 } });
+    const inbox3 = await srv.call('GET', '/api/report-governance/inbox', boss);
+    const third = inbox3.json?.proposals?.find(row => row.id === proposal3.json?.id);
+    if (!third) throw Error('第三条提案未冻结：' + proposal3.text);
+    const path3 = '/api/report-governance/inbox/' + third.id + '/confirm';
+    const confirm3 = { ...boss, body: { snapshot_sha256: third.snapshot_sha256 } };
+    db.exec("CREATE TRIGGER fixture_settlement_failure BEFORE UPDATE ON report_governance_proposals WHEN NEW.status = 'confirmed' BEGIN SELECT RAISE(ABORT, 'fixture: lost settlement'); END");
+    let firstConfirm;
+    try { firstConfirm = await srv.call('POST', path3, confirm3); }
+    finally { db.exec('DROP TRIGGER fixture_settlement_failure'); }
+    const unsettled = db.prepare('SELECT status FROM report_governance_proposals WHERE id = ?').get(Number(third.id.slice(2)))?.status;
+    const committed = await bv(boss, 'GET', benchPath + '/reports/zdim/binding');
+    const recovered = await srv.call('POST', path3, confirm3);
+    const settled = await bv(boss, 'GET', benchPath + '/reports/zdim/binding');
+    check(firstConfirm.status >= 400 && unsettled === 'confirming' && committed.json?.binding?.version === input.args.base + 2 &&
+      recovered.json?.status === 'confirmed' && recovered.json?.result?.version === input.args.base + 2 &&
+      settled.json?.binding?.version === committed.json?.binding?.version,
+      'RG5 台库提交后主库回执失败，重试查持久回执收敛且不重写绑定', { firstConfirm, unsettled, committed, recovered, settled });
+    const moved = await bv(boss, 'PUT', benchPath + '/binding', { department: '' });
+    const movedBack = await bv(boss, 'PUT', benchPath + '/binding', { department: area });
+    const lost = await srv.call('GET', '/api/report-governance/proposals/' + id, { headers: bearer });
+    check(moved.status === 200 && movedBack.status === 200 && lost.status === 403, 'RG4 台范围改绑再回转不会恢复旧会话批准', { moved: moved.status, movedBack: movedBack.status, lost });
   }
   db.close();
 } catch (e) {

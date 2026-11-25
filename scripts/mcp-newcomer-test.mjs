@@ -116,6 +116,7 @@ try {
         c.description = c.description.replace('领域接入改填 area 和 actions，须有可信责任人，由属主或本领域负责人审批。不会增加 tools/list 中的工具。', '');
         delete c.input_schema.properties.area;
         delete c.input_schema.properties.actions;
+        delete c.input_schema.properties.report_scope;
         c.input_schema.required.unshift('tools');
         delete c.input_schema.oneOf;
         return c;
@@ -140,7 +141,11 @@ try {
     const insertAt = (list, items, nameOf) => { const out = [...list]; for (const it of items) { const i = nowFull.catalog.findIndex((x) => x.name === nameOf(it)); out.splice(i, 0, it); } return out; };
     const newEntries = nowFull.catalog.filter((t) => ADDED.includes(t.name));
     const patched = { ...before, granted_tools: (() => { const out = [...before.granted_tools]; for (const name of ADDED) { const i = nowFull.granted_tools.indexOf(name); if (i >= 0) out.splice(i, 0, name); } return out; })(), catalog: insertAt(before.catalog.map((t) => changedNow.get(t.name) ?? t), newEntries, (t) => t.name) };
-    const expected = Object.fromEntries(Object.entries(patched).flatMap(([key, value]) => key === 'catalog' ? [[key, value], ['capabilities', []]] : [[key, value]]));
+    const reportCaps = [
+      { name: 'report.governance-propose', description: '提出报告治理请求，由站内有权的人确认', area: '按目标台和维度', kind: 'decide', granted: false },
+      { name: 'report.governance-result', description: '查询本会话提出的报告治理请求', area: '按原目标台和维度', kind: 'read', granted: false },
+    ];
+    const expected = Object.fromEntries(Object.entries(patched).flatMap(([key, value]) => key === 'catalog' ? [[key, value], ['capabilities', reportCaps]] : [[key, value]]));
     ok('full: true 只含已列明的目录与字段变化，其余逐字节相同', J(added) === J(ADDED) && removed.length === 0 && J(changed) === J(Object.keys(CHANGED)) && declaredOk && JSON.stringify(expected) === nowText,
       J({ added, removed, changed, declaredOk, bytes: [Buffer.byteLength(nowText), Buffer.byteLength(JSON.stringify(expected))] }));
   }

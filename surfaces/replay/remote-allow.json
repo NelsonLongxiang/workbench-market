@@ -20,7 +20,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1879", "etag": "W/\"757-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1972", "etag": "W/\"7b4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -50,6 +50,7 @@
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/asks\\/[1-9]\\d{0,15}\\/answer$/",
                 "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?|uploads\\/[A-Za-z0-9_-]{43})$/",
                 "/^\\/api\\/mcp-rest\\/capabilities\\/[a-z][a-z0-9-]{0,47}\\.[a-z][a-z0-9-]{0,47}$/",
+                "/^\\/api\\/report-governance\\/(proposals|inbox\\/p-[1-9][0-9]{0,14}\\/(confirm|reject))$/",
                 "/^\\/api\\/bench-views(\\/[a-z0-9][a-z0-9-]{0,63}(\\/[a-z0-9_/-]{1,160})?)?$/",
                 "/^\\/api\\/knowledge\\/remember$/",
                 "/^\\/api\\/knowledge\\/project-depts$/",
@@ -71,7 +72,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1879", "etag": "W/\"757-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1972", "etag": "W/\"7b4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -101,6 +102,7 @@
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/asks\\/[1-9]\\d{0,15}\\/answer$/",
                 "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?|uploads\\/[A-Za-z0-9_-]{43})$/",
                 "/^\\/api\\/mcp-rest\\/capabilities\\/[a-z][a-z0-9-]{0,47}\\.[a-z][a-z0-9-]{0,47}$/",
+                "/^\\/api\\/report-governance\\/(proposals|inbox\\/p-[1-9][0-9]{0,14}\\/(confirm|reject))$/",
                 "/^\\/api\\/bench-views(\\/[a-z0-9][a-z0-9-]{0,63}(\\/[a-z0-9_/-]{1,160})?)?$/",
                 "/^\\/api\\/knowledge\\/remember$/",
                 "/^\\/api\\/knowledge\\/project-depts$/",
@@ -190,7 +192,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1879", "etag": "W/\"757-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "1972", "etag": "W/\"7b4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -220,6 +222,7 @@
                 "/^\\/api\\/work-items\\/wi_[A-Za-z0-9_-]{1,96}\\/asks\\/[1-9]\\d{0,15}\\/answer$/",
                 "/^\\/api\\/mcp-rest\\/(tools\\/[^/]+|apps\\/[a-z0-9-]{1,64}\\/files(\\/[^/]+)?|uploads\\/[A-Za-z0-9_-]{43})$/",
                 "/^\\/api\\/mcp-rest\\/capabilities\\/[a-z][a-z0-9-]{0,47}\\.[a-z][a-z0-9-]{0,47}$/",
+                "/^\\/api\\/report-governance\\/(proposals|inbox\\/p-[1-9][0-9]{0,14}\\/(confirm|reject))$/",
                 "/^\\/api\\/bench-views(\\/[a-z0-9][a-z0-9-]{0,63}(\\/[a-z0-9_/-]{1,160})?)?$/",
                 "/^\\/api\\/knowledge\\/remember$/",
                 "/^\\/api\\/knowledge\\/project-depts$/",

@@ -344,6 +344,8 @@ export class BenchStore {
   appFileDrop(...a: Parameters<Core['appFileDrop']>): ReturnType<Core['appFileDrop']> { return this.rpc('appFileDrop', a); }
   reportBindingGet(...a: Parameters<Core['reportBindingGet']>): ReturnType<Core['reportBindingGet']> { return this.rpc('reportBindingGet', a); }
   reportBindingContext(...a: Parameters<Core['reportBindingContext']>): ReturnType<Core['reportBindingContext']> { return this.rpc('reportBindingContext', a); }
+  reportBindingSnapshot(...a: Parameters<Core['reportBindingSnapshot']>): ReturnType<Core['reportBindingSnapshot']> { return this.rpc('reportBindingSnapshot', a); }
+  reportBindingReceipt(...a: Parameters<Core['reportBindingReceipt']>): ReturnType<Core['reportBindingReceipt']> { return this.rpc('reportBindingReceipt', a); }
   reportBindingPut(...a: Parameters<Core['reportBindingPut']>): ReturnType<Core['reportBindingPut']> { return this.rpc('reportBindingPut', a); }
   reportBindingStop(...a: Parameters<Core['reportBindingStop']>): ReturnType<Core['reportBindingStop']> { return this.rpc('reportBindingStop', a); }
   reportSlots(...a: Parameters<Core['reportSlots']>): ReturnType<Core['reportSlots']> { return this.rpc('reportSlots', a); }
