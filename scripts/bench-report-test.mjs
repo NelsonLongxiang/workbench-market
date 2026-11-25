@@ -921,6 +921,25 @@ try {
     const unchanged = await bv(boss, 'GET', benchPath + '/reports/zdim/binding');
     check(replayConfirm.json?.result?.version === input.args.base + 1 && duplicate.status === 409 && stale.json?.status === 'conflict' &&
       unchanged.json?.binding?.version === input.args.base + 1, 'RG3 同号重试只回原版本，异参数冲突，来源修订漂移不写绑定', { replayConfirm, duplicate, stale, unchanged });
+    // 模拟台库已提交但主库回执暂不可写。只能用持久绑定回执对账，不能再追加一版。
+    const proposal3 = await rest({ ...input, idempotency_key: 'bind-fixture-3', args: { ...input.args, base: input.args.base + 1 } });
+    const inbox3 = await srv.call('GET', '/api/report-governance/inbox', boss);
+    const third = inbox3.json?.proposals?.find(row => row.id === proposal3.json?.id);
+    if (!third) throw Error('第三条提案未冻结：' + proposal3.text);
+    const path3 = '/api/report-governance/inbox/' + third.id + '/confirm';
+    const confirm3 = { ...boss, body: { snapshot_sha256: third.snapshot_sha256 } };
+    db.exec("CREATE TRIGGER fixture_settlement_failure BEFORE UPDATE ON report_governance_proposals WHEN NEW.status = 'confirmed' BEGIN SELECT RAISE(ABORT, 'fixture: lost settlement'); END");
+    let firstConfirm;
+    try { firstConfirm = await srv.call('POST', path3, confirm3); }
+    finally { db.exec('DROP TRIGGER fixture_settlement_failure'); }
+    const unsettled = db.prepare('SELECT status FROM report_governance_proposals WHERE id = ?').get(Number(third.id.slice(2)))?.status;
+    const committed = await bv(boss, 'GET', benchPath + '/reports/zdim/binding');
+    const recovered = await srv.call('POST', path3, confirm3);
+    const settled = await bv(boss, 'GET', benchPath + '/reports/zdim/binding');
+    check(firstConfirm.status >= 400 && unsettled === 'confirming' && committed.json?.binding?.version === input.args.base + 2 &&
+      recovered.json?.status === 'confirmed' && recovered.json?.result?.version === input.args.base + 2 &&
+      settled.json?.binding?.version === committed.json?.binding?.version,
+      'RG5 台库提交后主库回执失败，重试查持久回执收敛且不重写绑定', { firstConfirm, unsettled, committed, recovered, settled });
     const moved = await bv(boss, 'PUT', benchPath + '/binding', { department: '' });
     const movedBack = await bv(boss, 'PUT', benchPath + '/binding', { department: area });
     const lost = await srv.call('GET', '/api/report-governance/proposals/' + id, { headers: bearer });

@@ -797,7 +797,8 @@ try {
     const bindingOperation = { id: '11111111-2222-4333-8444-555555555555', snapshotSha256: 'a'.repeat(64) };
     const bindingInput = { base: 0, template_version: 1, slots, actor: 'tester', at: clock, context: await life.reportBindingContext(slots), operation: bindingOperation };
     const liveBinding = await life.reportBindingPut('test-report', bindingInput, captureBenchStorageFence());
-    const repeated = await life.reportBindingPut('test-report', bindingInput, captureBenchStorageFence());
+    const repeated = await life.reportBindingPut('test-report', bindingInput, captureBenchStorageFence())
+      .catch(error => ({ code: error.code, message: error.message }));
     const bindingReceipt = await life.reportBindingReceipt('test-report', bindingOperation);
     const mismatched = await refused(() => life.reportBindingReceipt('test-report', { ...bindingOperation, snapshotSha256: 'b'.repeat(64) }));
     ok('F8 报告绑定操作号和新版本一并提交，重放不追加版本，异摘要对账拒绝', liveBinding.version === 1 && repeated.version === 1 &&
