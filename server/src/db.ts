@@ -138,6 +138,36 @@ export function ensureView(view: string, createSql: string): 'created' | 'replac
   } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
 }
 
+/** 触发器现在的定义（建它的那句 SQL 原文，去掉首尾空白和结尾的分号）；没有这个触发器是 null */
+export function triggerSql(trigger: string): string | null {
+  const row = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(schemaIdent(trigger)) as { sql: unknown } | undefined;
+  return row ? normSql(String(row.sql ?? '')) : null;
+}
+/**
+ * 启动时改写一个触发器的定义：和 ensureView 一样，在 BEGIN IMMEDIATE 里比现有定义，一样就跳过，不一样（或者还没有）才 DROP + CREATE。
+ * 原来无条件 DROP TRIGGER IF EXISTS、再 CREATE TRIGGER，分两步提交：多个进程同时启动一个旧库、按「删、删、建、建」交错时，
+ * 后建的那个报 trigger already exists，进程起不来（#1057 合入前 db-startup-race-test 撞到 19/20）。
+ * createSql 要以 `CREATE TRIGGER <trigger> ` 开头。返回这一次做了什么（测试用）。
+ */
+export function ensureTrigger(trigger: string, createSql: string): 'created' | 'replaced' | 'unchanged' {
+  const want = normSql(createSql);
+  if (!want.startsWith(`CREATE TRIGGER ${schemaIdent(trigger)} `)) throw new Error(`[db] 触发器 ${trigger} 的定义要以 CREATE TRIGGER ${trigger} 开头`);
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const cur = triggerSql(trigger);
+    let did: 'created' | 'replaced' | 'unchanged' = 'unchanged';
+    if (cur !== want) {
+      testPause();
+      db.exec(`DROP TRIGGER IF EXISTS ${trigger}`);
+      testPause();
+      db.exec(want);
+      did = cur === null ? 'created' : 'replaced';
+    }
+    db.exec('COMMIT');
+    return did;
+  } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务没开成 */ } throw e; }
+}
+
 /**
  * 缺这一列才补，多个进程同时启动（升级一个旧库）也只补一次：先看一眼，有了直接返回、不开事务；没有才开 BEGIN IMMEDIATE，
  * 在事务里再核一次再补。原来的「查了没有就补」在事务外核，两个进程都看到缺列时，后补的那个报 duplicate column，进程起不来。
@@ -1893,16 +1923,17 @@ CREATE TRIGGER IF NOT EXISTS report_template_owner_exemptions_no_delete BEFORE D
 CREATE TRIGGER IF NOT EXISTS report_template_owner_exemptions_no_replace BEFORE INSERT ON report_template_owner_exemptions
   WHEN EXISTS (SELECT 1 FROM report_template_owner_exemptions WHERE dimension_id = NEW.dimension_id AND version = NEW.version)
   BEGIN SELECT RAISE(ABORT, '属主豁免记录不能覆盖'); END;
-DROP TRIGGER IF EXISTS report_dimensions_active_reviewed;
-CREATE TRIGGER report_dimensions_active_reviewed BEFORE UPDATE OF active_version ON report_dimensions
+`);
+/** 生效指针的守卫按版本认属主豁免（#1057）。旧库上要把 #1046 建的旧定义换掉：经 ensureTrigger 在事务里比了再换，多个进程同时启动也不撞 */
+export const REPORT_DIMENSIONS_ACTIVE_REVIEWED_SQL = `CREATE TRIGGER report_dimensions_active_reviewed BEFORE UPDATE OF active_version ON report_dimensions
   WHEN NEW.active_version IS NOT NULL
    AND NOT EXISTS (SELECT 1 FROM report_templates a JOIN report_templates t ON t.dimension_id = a.dimension_id AND t.criteria_sha256 = a.criteria_sha256
      JOIN report_template_reviews r ON r.dimension_id = t.dimension_id AND r.version = t.version
      WHERE a.dimension_id = NEW.id AND a.version = NEW.active_version)
    AND NOT EXISTS (SELECT 1 FROM report_templates a JOIN report_template_owner_exemptions e ON e.dimension_id = a.dimension_id AND e.version = a.version AND e.criteria_sha256 = a.criteria_sha256
      WHERE a.dimension_id = NEW.id AND a.version = NEW.active_version)
-  BEGIN SELECT RAISE(ABORT, '生效的模板版本，判据要和某个作者以外的人复核过的版本一样，或者是属主本人发版并激活'); END;
-`);
+  BEGIN SELECT RAISE(ABORT, '生效的模板版本，判据要和某个作者以外的人复核过的版本一样，或者是属主本人发版并激活'); END`;
+export const reportDimensionsActiveReviewedSetup = ensureTrigger('report_dimensions_active_reviewed', REPORT_DIMENSIONS_ACTIVE_REVIEWED_SQL);
 // 报告治理提案与确认账本（#1016 N1/N4）。输入、归属和对象快照固定，确认中的跨库操作保留原操作号。
 db.exec(`
 CREATE TABLE IF NOT EXISTS report_governance_proposals (
