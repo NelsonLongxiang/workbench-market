@@ -19,6 +19,8 @@ export default function PersonalTokensCard() {
   const [draft, setDraft] = useState<TokenDraft>(newDraft);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  /** 签发没成的原因：说在对话框里（对话框盖着卡片，说在卡片上的人看不见） */
+  const [issueErr, setIssueErr] = useState<string | null>(null);
   const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null);
   const now = Date.now();
 
@@ -40,12 +42,12 @@ export default function PersonalTokensCard() {
 
   const issue = async () => {
     if (draftErr) return;
-    setBusy('issue'); setErr(null);
+    setBusy('issue'); setIssueErr(null);
     const r = await issuePersonalToken(issueBody(draft));
     setBusy(null);
     const bad = actionProblem(r);
     const got = bad ? null : issuedOf(r.body);
-    if (!got) { setErr(bad ?? '签发的应答里没有令牌，没签成；请重试。'); return; }
+    if (!got) { setIssueErr(bad ?? '签发的应答里没有令牌，没签成；请重试。'); return; }
     setFresh({ name: draft.name.trim(), token: got.token });
     setOpen(false); setDraft(newDraft()); reload();
   };
@@ -73,7 +75,7 @@ export default function PersonalTokensCard() {
 
   return (
     <Card title={<span><KeyOutlined /> 个人令牌</span>} className="wm-w-full wm-pt-card" data-testid="pt-card"
-      extra={ok ? <Button type="primary" size="small" data-testid="pt-new" onClick={() => { setErr(null); setOpen(true); }}>签发令牌</Button> : null}>
+      extra={ok ? <Button type="primary" size="small" data-testid="pt-new" onClick={() => { setErr(null); setIssueErr(null); setOpen(true); }}>签发令牌</Button> : null}>
       <Typography.Paragraph type="secondary">在终端里用属主身份办事（wm user …），不借已登录的浏览器。{SCOPE_NOTE}</Typography.Paragraph>
       {fresh && (
         <Alert className="wm-acc-alert" type="success" showIcon data-testid="pt-fresh"
@@ -87,6 +89,7 @@ export default function PersonalTokensCard() {
       <Modal open={open} title="签发个人令牌" okText="签发" cancelText="算了" onCancel={() => setOpen(false)} onOk={issue} destroyOnClose
         okButtonProps={{ disabled: !!draftErr, loading: busy === 'issue', 'data-testid': 'pt-issue' }}>
         <Space direction="vertical" className="wm-w-full">
+          {issueErr && <Alert type="warning" showIcon message={issueErr} data-testid="pt-issue-err" />}
           <span>名字</span>
           <Input data-testid="pt-draft-name" value={draft.name} maxLength={NAME_MAX} placeholder={NAME_HINT} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
           <span>能做的事</span>
