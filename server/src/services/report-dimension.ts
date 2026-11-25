@@ -24,6 +24,7 @@ import { REPORT_DIMENSION_SET } from '../roles.ts';
 import { AREA_ID_RE, type AreaService } from './area.ts';
 import type { PrincipalService } from './principal.ts';
 import type { GrantService } from './grant.ts';
+import { v3BodyProblem } from './report-body-v3.ts';
 
 /** 属主本人发版并激活、免作者以外复核时，豁免记录与激活留痕里写的裁定（属主 2026-11-25） */
 export const OWNER_SELF_ACTIVATE_RULING = '属主本人发版并激活，按属主 2026-11-25 裁定免复核';
@@ -79,10 +80,13 @@ export function templateProblem(t: unknown): string | null {
   if (!isObj(t)) return '模板要是一个 JSON 对象';
   const extra = Object.keys(t).filter((k) => !TEMPLATE_KEYS.includes(k));
   if (extra.length) return `模板有不认识的键：${extra.map((k) => k.slice(0, 40)).join('、')}`;
-  if (t.schema_version !== 2) return 'schema_version 要是 2';
+  if (t.schema_version !== 2 && t.schema_version !== 3) return 'schema_version 要是 2 或 3';
   if (typeof t.title !== 'string' || !plainText(t.title, 200)) return 'title 要是 1～200 个字符，不带控制字符';
   for (const k of ['parameters', 'fields', 'slots']) if (!isObj(t[k])) return `${k} 要是对象`;
-  if (!Array.isArray(t.body) || t.body.length < 1 || t.body.length > 300) return 'body 要是 1～300 个节点的数组';
+  if (t.schema_version === 3) {
+    const problem = v3BodyProblem(t.body);
+    if (problem) return problem;
+  } else if (!Array.isArray(t.body) || t.body.length < 1 || t.body.length > 300) return 'body 要是 1～300 个节点的数组';
   if (!Array.isArray(t.claims) || t.claims.length < 1 || t.claims.length > 12) return 'claims 要是 1～12 类论断的数组';
   const kinds = new Set<string>();
   for (const [i, c] of t.claims.entries()) {
