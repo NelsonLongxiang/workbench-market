@@ -277,6 +277,20 @@ console.log(JSON.stringify({ selected: d.prepare('SELECT * FROM grants WHERE id=
     JSON.stringify(result?.history) === JSON.stringify(grantSeed.result?.history) && result?.seq === 100 &&
     result?.stale === 0 && result?.guards === 5 && result?.ref.includes('grants')),
     '旧 grants 的约束迁移可并发重入，保全授予、审计、自增序列、外键与触发器', { grantSeed, grantUpgrade });
+
+  console.log('十、触发器定义变了也会更新（#1057：报告维度生效指针的守卫）');
+  const T = 'report_dimensions_active_reviewed';
+  const tStale = await run(`const m = await import(${JSON.stringify(DB_URL)});
+m.db.exec("DROP TRIGGER ${T}; CREATE TRIGGER ${T} BEFORE UPDATE OF active_version ON report_dimensions BEGIN SELECT 1; END");
+console.log(JSON.stringify({ after: m.triggerSql(${JSON.stringify(T)}) }));`, { DATA_DIR: dir });
+  check(tStale.exit === 0 && /SELECT 1; END$/.test(tStale.result?.after ?? ''), '（准备）库里的触发器换成了一个过时的定义（冒充 #1046 时的旧库）', summary([tStale]));
+  const tAt = Date.now() + 1200;
+  const tUp = await Promise.all(Array.from({ length: N }, () => run(`${PREWARM}
+while (Date.now() < ${tAt}) {}
+const m = await import(${JSON.stringify(DB_URL)});
+console.log(JSON.stringify({ setup: m.reportDimensionsActiveReviewedSetup, ok: m.triggerSql(${JSON.stringify(T)}) === m.REPORT_DIMENSIONS_ACTIVE_REVIEWED_SQL }));`, { DATA_DIR: dir, WM_TEST_SCHEMA_PAUSE_MS: String(PAUSE_MS) })));
+  check(allOk(tUp) && count(tUp, 'replaced') === 1 && count(tUp, 'unchanged') === N - 1,
+    `${N} 个进程同时加载（核对、删、建之间各停 ${PAUSE_MS} 毫秒）：全部成功；只有一个重写触发器（replaced），其余看到已经是新定义就跳过；最后的定义就是 db.ts 里的那一份`, summary(tUp));
 } catch (e) {
   fail++; console.log(`  ✗ 中途抛错：${e?.stack ?? e}`);
 } finally {
