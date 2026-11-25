@@ -42,8 +42,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "error": "personal_token_login_required" }
+            "headers": { "cache-control": "private, no-store", "content-length": "81", "etag": "W/\"51-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "error": "personal_token_login_required", "message": "请先登录属主账号。" }
           }
         },
         {
@@ -54,8 +54,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "error": "personal_token_login_required" }
+            "headers": { "cache-control": "private, no-store", "content-length": "81", "etag": "W/\"51-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "error": "personal_token_login_required", "message": "请先登录属主账号。" }
           }
         },
         {
@@ -66,8 +66,8 @@
           "response": {
             "status": 401,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "error": "personal_token_login_required" }
+            "headers": { "cache-control": "private, no-store", "content-length": "81", "etag": "W/\"51-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "error": "personal_token_login_required", "message": "请先登录属主账号。" }
           }
         },
         {
@@ -83,8 +83,8 @@
           "response": {
             "status": 400,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "error": "有效期须为 1～90 天", "code": "personal_token_invalid" }
+            "headers": { "cache-control": "private, no-store", "content-length": "73", "etag": "W/\"49-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "error": "personal_token_invalid", "message": "有效期须为 1～90 天" }
           }
         },
         {
@@ -105,9 +105,23 @@
           "id": "list",
           "route": "GET /api/owner/personal-tokens",
           "class": "normal",
-          "compare": ["personal_tokens.0.name", "personal_tokens.0.revoked_at"],
+          "compare": ["personal_tokens.0.name", "personal_tokens.0.revoked_at", "available_scopes", "limits"],
           "request": { "method": "GET", "path": "/api/owner/personal-tokens", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
-          "response": { "status": 200, "picked": { "personal_tokens.0.name": "replay-personal", "personal_tokens.0.revoked_at": null } }
+          "response": {
+            "status": 200,
+            "picked": {
+              "personal_tokens.0.name": "replay-personal",
+              "personal_tokens.0.revoked_at": null,
+              "available_scopes": [
+                { "id": "bench:read", "label": "读取台数据", "description": "查询指定台的数据集并读取报告。" },
+                { "id": "bench:write", "label": "写入台数据", "description": "定义指定台的数据集，以及新增、更新或删除行。" },
+                { "id": "view", "label": "保存视图", "description": "保存指定台的视图配置。" },
+                { "id": "grants", "label": "处理 MCP 申请", "description": "查看指定台的 MCP 授予并处理申请。" },
+                { "id": "report-dimensions", "label": "管理报告维度", "description": "按既有权限发布、复核和激活维度模板，可绑定到已选的台。" }
+              ],
+              "limits": { "default_expires_in_days": 30, "min_expires_in_days": 1, "max_expires_in_days": 90 }
+            }
+          }
         },
         {
           "id": "unknown-id",
@@ -117,8 +131,8 @@
           "response": {
             "status": 404,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
-            "body": { "error": "personal_token_missing" }
+            "headers": { "cache-control": "private, no-store", "content-length": "68", "etag": "W/\"44-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "error": "personal_token_missing", "message": "找不到此令牌。" }
           }
         },
         {
