@@ -835,6 +835,23 @@ try { addColumnIfMissing('app_files', "sha256 TEXT NOT NULL DEFAULT ''"); } catc
 try { addColumnIfMissing('mcp_calls', "channel TEXT NOT NULL DEFAULT 'mcp'"); } catch { /* 列已在 */ }
 // 阶段七：席位换来的令牌调用时记下席位（seat = <host>:<seat_id>，从令牌认出来）；claimed_seat 是请求头 X-Team-Seat 自报的，只拿来对账，不认作身份或授权
 try { addColumnIfMissing('mcp_calls', "seat TEXT NOT NULL DEFAULT ''"); addColumnIfMissing('mcp_calls', "claimed_seat TEXT NOT NULL DEFAULT ''"); addColumnIfMissing('mcp_calls', "token_ref TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
+// 属主个人令牌。原文只在发行应答返回，库中仅存摘要。
+db.exec(`
+CREATE TABLE IF NOT EXISTS owner_personal_tokens (
+  id TEXT PRIMARY KEY,
+  token_sha256 TEXT NOT NULL UNIQUE,
+  principal TEXT NOT NULL,
+  name TEXT NOT NULL,
+  scopes TEXT NOT NULL,
+  benches TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  last_used_at INTEGER,
+  revoked_at INTEGER,
+  UNIQUE (principal, name)
+);
+`);
+
 // 阶段七：席位用签名换短期 MCP 令牌（services/seat-tokens.ts）。
 //   a2a_seat_subjects：每个席位（host, seat_id）一个长期的授权主体，挂 mcp_sessions 的一行；grants、按台批的授予都记在它上面，跨令牌轮换保留。
 //     按（peer_root, key_fingerprint, seat_id）认：key_fingerprint 是节点公钥的完整指纹，写法同 a2a_peers.key_fingerprint（sha256:<十六进制全长>），

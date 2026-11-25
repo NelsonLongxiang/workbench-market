@@ -1,0 +1,110 @@
+#!/usr/bin/env node
+import { constants, openSync, readFileSync, closeSync, readSync, mkdirSync, writeFileSync, renameSync, unlinkSync, fstatSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+
+const help = [
+  'wm user login --token-file F [--url https://market.example]',
+  'wm user query <台> <json|@file>',
+  'wm user datasets put <台> <数据集> @file',
+  'wm user rows <台> <数据集> --op <upsert|append|delete|replace> @file',
+  'wm user view put <台> @file',
+  'wm user grants <台> [approve <编号>]',
+  'wm user dims publish <维度> @file',
+  'wm user dims activate <维度> <版本>',
+  'wm user dims bind <台> <维度> @file',
+  'wm user reports <台> [--subject S]',
+].join(String.fromCharCode(10));
+const fail = message => { throw new Error(message); };
+const state = join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'workbench-market', 'user.json');
+const tokenShape = /^wmu_[A-Za-z0-9_-]{43}$/;
+
+function privateFile(path) {
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.uid !== process.getuid() || (stat.mode & 0o077) !== 0 || stat.size > 4096) fail('令牌文件必须是本人可读、权限为 0600 或更严的普通文件');
+    const data = Buffer.alloc(4097);
+    let length = 0;
+    while (length < data.length) {
+      const n = readSync(fd, data, length, data.length - length, null);
+      if (n === 0) break;
+      length += n;
+    }
+    if (length === data.length) fail('令牌文件过长');
+    return data.toString('utf8', 0, length).trim();
+  } finally { closeSync(fd); }
+}
+
+function originOf(raw) {
+  const url = new URL(raw);
+  const canUseHttp = url.protocol === 'http:' && ['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname);
+  if (url.username || url.password || url.pathname !== '/' || url.search || url.hash || (url.protocol !== 'https:' && !canUseHttp)) fail('市场地址须为 HTTPS 来源，或本机回环 HTTP 来源');
+  return url.origin;
+}
+function writeLogin(args) {
+  const [fileFlag, file, urlFlag, url, ...extra] = args;
+  if (fileFlag !== '--token-file' || !file || (urlFlag !== undefined && (urlFlag !== '--url' || !url)) || extra.length) fail(help);
+  const origin = originOf(url ?? 'http://127.0.0.1:9800');
+  const token = privateFile(file);
+  if (!tokenShape.test(token)) fail('个人令牌格式不正确');
+  mkdirSync(dirname(state), { recursive: true, mode: 0o700 });
+  const temporary = state + '.' + randomUUID();
+  writeFileSync(temporary, JSON.stringify({ origin, token }), { mode: 0o600, flag: 'wx' });
+  try { renameSync(temporary, state); } catch (error) { unlinkSync(temporary); throw error; }
+  console.log('个人令牌已保存');
+}
+
+function jsonArg(arg) {
+  if (!arg) fail(help);
+  const text = arg.startsWith('@') ? readFileSync(arg.slice(1), 'utf8') : arg;
+  try { JSON.parse(text); } catch { fail('需要有效 JSON'); }
+  return text;
+}
+const segment = value => {
+  if (!value || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(value)) fail('台、数据集或维度标识不正确');
+  return encodeURIComponent(value);
+};
+const positive = value => {
+  if (!value || !/^[1-9][0-9]{0,8}$/.test(value)) fail('版本或申请编号须为正整数');
+  return Number(value);
+};
+const bench = value => '/api/bench-views/' + segment(value);
+
+function requestOf(args) {
+  const [command, a, b, c, e, f] = args;
+  if (command === 'query' && args.length === 3) return ['POST', bench(a) + '/query', jsonArg(b)];
+  if (command === 'datasets' && a === 'put' && args.length === 5) return ['PUT', bench(b) + '/datasets/' + segment(c), jsonArg(e)];
+  if (command === 'rows' && c === '--op' && args.length === 6 && ['upsert', 'append', 'delete', 'replace'].includes(e)) return ['POST', bench(a) + '/datasets/' + segment(b) + '/rows?op=' + e, jsonArg(f)];
+  if (command === 'view' && a === 'put' && args.length === 4) return ['PUT', bench(b) + '/view', jsonArg(c)];
+  if (command === 'grants' && args.length === 2) return ['GET', bench(a) + '/mcp-grants'];
+  if (command === 'grants' && b === 'approve' && args.length === 4) return ['POST', bench(a) + '/mcp-requests/' + positive(c), '{"approve":true}'];
+  if (command === 'dims' && a === 'publish' && args.length === 4) return ['POST', '/api/report-dimensions/' + segment(b) + '/templates', jsonArg(c)];
+  if (command === 'dims' && a === 'activate' && args.length === 4) return ['POST', '/api/report-dimensions/' + segment(b) + '/activate', JSON.stringify({ version: positive(c) })];
+  if (command === 'dims' && a === 'bind' && args.length === 5) return ['PUT', bench(b) + '/reports/' + segment(c) + '/binding', jsonArg(e)];
+  if (command === 'reports' && args.length === 2) return ['GET', bench(a) + '/reports'];
+  if (command === 'reports' && b === '--subject' && c && args.length === 4) return ['GET', bench(a) + '/reports?' + new URLSearchParams({ subject: c })];
+  fail(help);
+}
+
+async function main(args) {
+  const [group, command, ...rest] = args;
+  if (!group || group === '--help' || (group === 'user' && (!command || command === '--help'))) return console.log(help);
+  if (group !== 'user') fail(help);
+  if (command === 'login') return writeLogin(rest);
+  const [method, path, body] = requestOf([command, ...rest]);
+  let login;
+  try { login = JSON.parse(privateFile(state)); } catch { fail('请先用 wm user login 保存个人令牌'); }
+  if (!tokenShape.test(login?.token)) fail('请重新登录');
+  const headers = { Authorization: 'Bearer ' + login.token, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) };
+  const response = await fetch(originOf(login.origin) + path, { method, headers, body, redirect: 'error', signal: AbortSignal.timeout(60_000) });
+  const text = (await response.text()).replaceAll(login.token, '[个人令牌]');
+  if (!response.ok) fail('HTTP ' + response.status + ' ' + text.slice(0, 1600));
+  if (text) console.log(text);
+}
+
+main(process.argv.slice(2)).catch(error => {
+  console.error(error instanceof Error ? error.message : '命令执行失败');
+  process.exitCode = 1;
+});

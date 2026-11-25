@@ -20,11 +20,12 @@
  */
 import { createServer } from 'node:net';
 import { request as httpRequest } from 'node:http';
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
+import { spawn as spawnCli } from 'node:child_process';
 import { SESSIONS } from './identity-fake-provider.mjs';
 import { legacySeed } from './lib/legacy-dept-seed.mjs';
 
@@ -579,6 +580,93 @@ try {
     && ownerPage.json?.can?.decide === true && pending.json?.request?.status === 'pending'
     && ownerApprove.status === 200 && ownerApprove.json?.status === 'approved',
   'HTTPS 反代：站内 owner 可以从台的授权页批准合成申请', { grant: ownerGrant, identity: ownerIdentity.status, page: ownerPage.status, approve: ownerApprove.status });
+  {
+    console.log('属主个人令牌与终端');
+    const api = '/api/owner/personal-tokens';
+    const input = { name: '终端合成', scopes: ['bench:read', 'bench:write', 'view', 'grants'], benches: ['demo'] };
+    const tokenOwner = { ...owner, headers: { ...owner.headers, 'x-forwarded-proto': 'https' } };
+    const issue = await srv.call('POST', api, { ...tokenOwner, body: input });
+    const token = issue.json?.token;
+    check(issue.status === 201 && typeof token === 'string' && /^wmu_[A-Za-z0-9_-]{43}$/.test(token), '同源属主签发，单次返回原文', issue.status);
+    if (issue.status !== 201 || typeof token !== 'string') throw new Error('个人令牌签发准备失败');
+    const personal = { headers: { authorization: 'Bearer ' + token } };
+    const browserToken = await srv.call('POST', api, { ...owner, headers: { ...owner.headers, origin: 'https://other.example.test' }, body: input });
+    const nonOwnerToken = await srv.call('POST', api, { ...tokenOwner, session: SESSIONS.alpha, body: input });
+    check(browserToken.status === 403 && nonOwnerToken.status === 403, '签发要求当前属主和同源浏览器登录');
+    const subject = { query: { dataset: 'seed' } };
+    const readEndpoint = '/api/bench-views/demo/query';
+    const publicToken = { headers: { authorization: 'Bearer ' + token, host: PUBLIC_HEADERS.host, ...REMOTE, 'x-forwarded-proto': 'https' } };
+    const query = await srv.call('POST', readEndpoint, { ...publicToken, body: subject });
+    const browserQuery = await srv.call('POST', readEndpoint, { ...owner, body: subject });
+    check(query.status === 200 && browserQuery.status === 200 && JSON.stringify(query.json) === JSON.stringify(browserQuery.json), '公共 HTTPS 反代的令牌查询与原属主相同');
+    const wrongBench = await srv.call('POST', '/api/bench-views/other/query', { ...personal, body: subject });
+    const wrongScope = await srv.call('POST', '/api/report-dimensions/test/activate', { ...personal, body: { version: 1 } });
+    const wrongRoute = await srv.call('GET', '/api/grants', personal);
+    check(wrongBench.status === 403 && wrongBench.json?.error === 'personal_token_bench_denied' && wrongScope.status === 403
+      && wrongScope.json?.message?.includes('report-dimensions') && wrongRoute.status === 403, '非授权台、作用域、路径均拒绝', [wrongBench.status, wrongScope.status, wrongRoute.status]);
+    const a2 = await mk('sess-personal-approval');
+    const p2 = await tool(srv, a2.token, 'access_request', { tools: ['dataset_list@bench:demo'], reason: '个人令牌批准' });
+    const approval = await srv.call('POST', '/api/bench-views/demo/mcp-requests/' + p2.json?.request?.id, { ...personal, body: { approve: true } });
+    check(approval.status === 200 && approval.json?.status === 'approved'
+      && db.prepare("SELECT granted_by FROM bench_mcp_grants WHERE bench = 'demo' AND session_id = ? AND tool = 'dataset_list'").get(a2.id)?.granted_by === '属主（令牌 终端合成）', 'MCP 批准按原规则执行并标注令牌', approval.status);
+    const secretFile = join(OUT, 'personal-file');
+    const cliConfig = join(OUT, 'personal-cli');
+    writeFileSync(secretFile, token, { flag: 'wx', mode: 0o600 });
+    const runCli = args => new Promise((ok, no) => {
+      const c = spawnCli(process.execPath, [join(ROOT, 'bin/wm'), 'user', ...args], { env: { XDG_CONFIG_HOME: cliConfig }, stdio: ['ignore', 'pipe', 'pipe'] });
+      let output = '';
+      c.stdout.on('data', chunk => { output += chunk; });
+      c.stderr.on('data', chunk => { output += chunk; });
+      c.on('error', no).on('close', code => ok({ code, output }));
+    });
+    const imported = await runCli(['login', '--token-file', secretFile, '--url', srv.base]);
+    const stored = join(cliConfig, 'workbench-market', 'user.json');
+    check(imported.code === 0 && existsSync(stored) && (statSync(stored).mode & 0o777) === 0o600 && !imported.output.includes(token), 'CLI 导入只写本人 0600 文件');
+    const a3 = await mk('sess-cli-approval');
+    const p3 = await tool(srv, a3.token, 'access_request', { tools: ['dataset_list@bench:demo'], reason: 'CLI 批准' });
+    const cliGrant = await runCli(['grants', 'demo', 'approve', String(p3.json?.request?.id)]);
+    check(cliGrant.code === 0 && db.prepare("SELECT granted_by FROM bench_mcp_grants WHERE bench = 'demo' AND session_id = ? AND tool = 'dataset_list'").get(a3.id)?.granted_by === '属主（令牌 终端合成）', 'CLI 批准成功并写入令牌审计');
+    const cliQuery = await runCli(['query', 'demo', JSON.stringify(subject)]);
+    const fixture = (name, body) => { const p = join(OUT, name); writeFileSync(p, JSON.stringify(body), { flag: 'wx' }); return '@' + p; };
+    const cliRows = await runCli(['rows', 'demo', 'seed', '--op', 'upsert', fixture('personal-rows.json', [{ id: 2, secret: 'terminal-row' }])]);
+    const priorView = await srv.call('GET', '/api/bench-views/demo/view', owner);
+    const cliView = await runCli(['view', 'put', 'demo', fixture('personal-view.json', { base: priorView.json?.view?.version ?? 0, note: '终端保存对照', doc: { title: '终端测试', views: [{ key: 'v', title: 'V', blocks: [{ type: 'stat', query: { dataset: 'seed', measures: [{ as: 'n', fn: 'count' }] }, value: 'n' }] }] } })]);
+    check(cliQuery.code === 0 && cliQuery.output.includes('bench-only-marker') && cliRows.code === 0 && cliView.code === 0, 'CLI 查数、写行、保存视图走真实业务 API', [cliQuery.code, cliRows.code, cliView.code, cliView.output.trim().slice(0, 140)]);
+    const retryPath = '/api/bench-views/demo/datasets/seed/rows?op=upsert';
+    const retryBody = JSON.stringify([{ id: 3, secret: 'idem' }]);
+    const retryKey = { 'idempotency-key': 'personal-retry' };
+    const firstWrite = await srv.call('POST', retryPath, { ...owner, headers: { ...owner.headers, ...retryKey }, raw: retryBody });
+    const sameWrite = await srv.call('POST', retryPath, { headers: { ...personal.headers, ...retryKey }, raw: retryBody });
+    check(firstWrite.status === 200 && sameWrite.status === 200 && sameWrite.json?.duplicate === true, '同一属主换用令牌重试写入仍命中原幂等键');
+    const records = await srv.call('GET', api, tokenOwner);
+    check(records.status === 200 && records.json?.personal_tokens?.[0]?.last_used_at > 0 && !records.text.includes(token)
+      && !records.text.includes('token_sha256'), '列表有最近使用时间，仅显示元数据');
+    const rev = await srv.call('DELETE', api + '/' + issue.json.personal_token.id, tokenOwner);
+    const unused = await srv.call('POST', api, { ...tokenOwner, body: { name: '尚未使用', scopes: ['bench:read'], benches: ['demo'] } });
+    const used = await srv.call('POST', api, { ...tokenOwner, body: { name: '已使用', scopes: ['bench:read'], benches: ['demo'], expires_in_days: 7 } });
+    const markUsed = await srv.call('POST', readEndpoint, { headers: { authorization: 'Bearer ' + used.json?.token }, body: subject });
+    const fixtureList = await srv.call('GET', api, tokenOwner);
+    const byName = new Map(fixtureList.json?.personal_tokens?.map(row => [row.name, row]));
+    check(unused.status === 201 && used.status === 201 && markUsed.status === 200 && byName.size === 3
+      && byName.get('尚未使用')?.last_used_at === null && byName.get('已使用')?.last_used_at > 0
+      && byName.get('终端合成')?.revoked_at > 0 && !fixtureList.text.includes(unused.json.token) && !fixtureList.text.includes(used.json.token),
+    '设置页三态夹具：真实签发未用、用过与撤销，清单无原文');
+    const scopeIds = fixtureList.json?.available_scopes?.map(scope => scope.id);
+    check(scopeIds?.join() === input.scopes.concat('report-dimensions').join()
+      && fixtureList.json.available_scopes.every(scope => scope.label && scope.description)
+      && fixtureList.json.limits?.default_expires_in_days === 30 && fixtureList.json.limits?.max_expires_in_days === 90,
+    '设置页读到服务端作用域文案与签发期限边界');
+    const invalidForm = await srv.call('POST', api, { ...tokenOwner, body: { ...input, expires_in_days: 0 } });
+    const noSession = await srv.call('GET', api);
+    const foreignSession = await srv.call('GET', api, { ...tokenOwner, session: SESSIONS.alpha });
+    check(invalidForm.status === 400 && noSession.status === 401 && foreignSession.status === 403
+      && [invalidForm, noSession, foreignSession].every(r => /[㐀-鿿]/.test(r.json?.message || '')),
+    '设置接口的常见拒绝返回中文提示');
+    const repeatedRevoke = await srv.call('DELETE', api + '/' + issue.json.personal_token.id, tokenOwner);
+    check(repeatedRevoke.status === 204 && repeatedRevoke.text === '', '重复撤销仍返回空的 204');
+    const denied = await runCli(['query', 'demo', JSON.stringify(subject)]);
+    check(rev.status === 204 && denied.code === 1 && denied.output.includes('HTTP 401') && !denied.output.includes(token) && !srv.log().includes(token), '撤销立即拒绝，令牌原文不进入终端输出或服务日志');
+  }
   await srv.stop();
 
   console.log('八、入口关着、网关关着');

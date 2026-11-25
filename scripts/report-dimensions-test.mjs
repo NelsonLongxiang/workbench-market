@@ -420,6 +420,37 @@ try {
       'R5e 跨领域维度：属主发的判据类版本，属主自己复核 403（本人），本机命令行复核 403（认不出是谁）——要另一位持属主授予的人', { ownerPub: ownerPub.status, ownerSelf: err(ownerSelf), cliOnOwner: err(cliOnOwner) });
   }
 
+  // Personal tokens keep the same signed-in author principal and existing activation rules.
+  {
+    const id = 'personal-token-dimension';
+    const route = '/api/report-dimensions/' + id;
+    const issued = await olga.go('POST', '/api/report-dimensions', { json: { id, title: '个人令牌' } });
+    const cookie = [...olga.jar].map(([k, v]) => k + '=' + v).join('; ');
+    const issue = await fetch(A.base + '/api/owner/personal-tokens', {
+      method: 'POST', headers: { cookie, origin: A.base, 'content-type': 'application/json' },
+      body: JSON.stringify({ name: '报告合成', scopes: ['report-dimensions'], benches: [] }),
+    });
+    const token = (await issue.json()).token;
+    check(issued.status === 201 && issue.status === 201 && typeof token === 'string', '个人令牌以现有属主会话签发', [issued.status, issue.status]);
+    const call = async (suffix, json) => {
+      const res = await fetch(A.base + route + suffix, { method: 'POST', headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' }, body: JSON.stringify(json) });
+      return { status: res.status, json: await res.json() };
+    };
+    const version = await call('/templates', { body: tpl() });
+    const self = await call('/templates/1/review', {});
+    const beforeReview = await call('/activate', { version: 1 });
+    const browser = await olga.go('POST', route + '/activate', { json: { version: 1 } });
+    check(version.status === 201 && version.json?.template?.created_by === '属主（令牌 报告合成）'
+      && self.status === 403 && self.json?.error === 'report_template_self_review'
+      && beforeReview.status === browser.status && beforeReview.json?.error === browser.json?.error,
+    '令牌保留作者身份，不能复核本人版本，激活与浏览器的裁定相同', [version.status, self.status, beforeReview.status, browser.status]);
+    const referee = await A.person('token-referee', 'Token-referee-00001', '192.0.2.84');
+    const grant = await A.grant('user:token-referee', 'owner');
+    const reviewed = await referee.go('POST', route + '/templates/1/review', { json: { note: '独立复核' } });
+    const active = await call('/activate', { version: 1 });
+    check(grant.status === 200 && reviewed.status === 200 && active.status === 200, '另一位属主复核后，同一令牌可激活', [grant.status, reviewed.status, active.status]);
+  }
+
   // ---- R5f 偷换生效的判据（#926 独立验收，路径二）：没复核的判据上面再发一版只改标题的，照样要复核；按判据内容认复核 ----
   {
     const err = (r) => `${r.status}:${r.json?.error ?? ''}`;

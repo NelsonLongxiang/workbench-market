@@ -38,8 +38,12 @@ export function useMarketTokenCheck(check: MarketTokenCheck): () => void {
   return () => { tokenChecks.delete(check); };
 }
 
-/** Authorization 是不是市场自己的令牌：形状对，并且有一个登记的查法认得它（查法出错按不认得算） */
+/** 市场个人令牌占用固定前缀，未知、过期或撤销后也不能转给台。 */
+export const personalAuthorization = (value: unknown) => typeof value === 'string' && /^Bearer\s+wmu_/i.test(value.trim());
+
+/** 其余市场令牌需要由登记的令牌查法识别。 */
 export function isMarketAuthorization(value: unknown): boolean {
+  if (personalAuthorization(value)) return true;
   const m = MARKET_BEARER.exec(String(value ?? '').trim());
   if (!m) return false;
   for (const check of tokenChecks) {
