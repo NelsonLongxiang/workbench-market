@@ -215,6 +215,9 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
 
 | 工具 | 做什么 |
 |---|---|
+| `report_dimension_get` | 读本台已绑定维度的生效版本和模板版本清单，给 `dimension` |
+| `report_template_get` | 读已绑定维度的模板正文和摘要，给 `dimension`，省略 `version` 时读生效版 |
+| `report_binding_get` | 读本台的最新绑定，给 `dimension`。可核绑定版本、模板版本、数据槽和停用原因 |
 | `report_generate` | 按绑定生成一份：给 `dimension`、`subject`（事物，写成 `种类:标识`，如 `item:123`）、`inputs`（照模板的参数和文字字段）、`claims`（论断，类别和条数照模板；`basis` 指报告里的行）。**来源、产出方不要自己给**，服务端填；取不全、列类型不合、论断不合模板都会拒 |
 | `report_list` / `report_get` | 看清单、读一份（成品、来源、论断和各自的回应、有没有未处理的反驳） |
 | `report_respond` | 对一条论断认可、反驳或补充，**理由必填**；改主意就带 `supersedes` 接自己上一条 |

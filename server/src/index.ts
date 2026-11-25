@@ -89,7 +89,7 @@ import { registerTaskRoutes } from './routes/tasks.ts';
 import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './routes/bench-views.ts';
 import { registerKnowledgeRoutes } from './routes/knowledge.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
-import { benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, hasBenchGrant, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
+import { BenchToolScopeError, benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, hasBenchGrant, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
 import { captureBenchStorageFence, resolveBenchRef } from './services/bench-registry.ts';
 import { cardDeleterOf, checkCardDeletable, deleteCardWithBench, type CardDeleter } from './bench-card-delete.ts';
 import { BenchError } from './bench-query.ts';
@@ -3872,6 +3872,10 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
       mcpAudit(sess, channel, 'tools/call', toolName, true, '', Date.now() - t0, args);
       return { kind: 'ok', out, upstream: false };
     } catch (e: any) {
+      if (e instanceof BenchToolScopeError) {
+        mcpAudit(sess, channel, 'tools/call', toolName, false, 'not granted: report dimension scope', Date.now() - t0, args);
+        return { kind: 'not_granted' };
+      }
       const err = benchToolError(e);
       mcpAudit(sess, channel, 'tools/call', toolName, false, String(err.message).slice(0, 200), Date.now() - t0, args);
       return { kind: 'error', error: err, upstream: false };

@@ -31,6 +31,18 @@ assert.deepEqual(graphSpec.elements.grid.children.map((id) => graphSpec.elements
   graphTypes.map((type, index) => ({ type, props: { index }, children: [] })), '三种任务图保留原来的类型和序号');
 assert.deepEqual(viewResultToSpec(null).elements.grid.children, [], '空结果保留空网格');
 
+// 报告预检工具只收台、维度和可选模板版本，且在目录里归 read。
+for (const name of ['report_dimension_get', 'report_template_get', 'report_binding_get']) {
+  const tool = BENCH_TOOL_DEFS.find(t => t.name === name);
+  assert.ok(tool, name);
+  assert.equal(tool.category, 'read');
+  assert.equal(tool.benchScoped, true);
+  assert.deepEqual(tool.inputSchema.required, ['bench', 'dimension']);
+  assert.equal(tool.inputSchema.additionalProperties, false);
+  assert.deepEqual(Object.keys(tool.inputSchema.properties), name === 'report_template_get'
+    ? ['bench', 'dimension', 'version'] : ['bench', 'dimension']);
+}
+
 // 一、契约自洽
 assert.deepEqual(Object.keys(BLOCK_CONTRACT), [...BLOCK_TYPES]);
 for (const t of BLOCK_TYPES) {
