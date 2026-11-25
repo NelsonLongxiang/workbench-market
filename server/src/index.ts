@@ -3835,7 +3835,7 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
       const fence = toolName === 'report_generate' ? captureBenchStorageFence() : undefined;
       const store = await benchToolTarget(BENCH_VIEWS.on, sess ? sess.id : null, toolName, args);
       if (!store) { mcpAudit(sess, channel, 'tools/call', toolName, false, 'not granted: bench scope', Date.now() - t0, args); return { kind: 'not_granted' }; }
-      const out = await runBenchTool(store, toolName, args, `mcp:${sess!.name}`, Date.now(), fence);
+      const out = await runBenchTool(store, toolName, args, `mcp:${sess!.name}`, Date.now(), fence, { galleryBase: BENCH_VIEWS.imageGalleryBase });
       mcpAudit(sess, channel, 'tools/call', toolName, true, '', Date.now() - t0, args);
       return { kind: 'ok', out, upstream: false };
     } catch (e: any) {

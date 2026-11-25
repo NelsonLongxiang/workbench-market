@@ -2,7 +2,7 @@
 /** 报告页（/use/<卡片 id>/reports，报告第 1 步 PR D）的纯函数单测（web/src/report-page-view.ts）：地址、分组、并排取哪几份、回应接在谁后面、错误说法。数据都是合成的。 */
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { STANCE_TEXT, UNNAMED, actorKindText, basisText, gateText, nameOr, positionText, sourceText, groupBySubject, headsOf, kindLabel, myHead, replacedIds, reportError, reportRoute, respondProblem, stanceText } from '../web/src/report-page-view.ts';
+import { REPORT_IMAGE_TEXT, loadReportImage, reportImageSrc, reportImageState, STANCE_TEXT, UNNAMED, actorKindText, basisText, gateText, nameOr, positionText, sourceText, groupBySubject, headsOf, kindLabel, myHead, replacedIds, reportError, reportRoute, respondProblem, stanceText } from '../web/src/report-page-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -122,6 +122,57 @@ ok('源码检查自证（#965 统筹补）：下标写法 d[\'dimension_id\']、
   && internalReadsInText('const { responder: who } = r; const A = () => <p>{`来自 ${who}`}</p>;').length === 1
   && internalReadsInText('const { producer } = r; const A = () => <p data-p={producer}>{nameOr(names.actors[producer])}</p>;').length === 0
   && internalReadsInText("const A = () => <p>{nameOr(names.dimensions[d['dimension_id']])}</p>;").length === 0);
+
+// 图片节点（docs/image-step1.md 用例 8，图片第 1 步 PR C）：地址经代取、来源是这份报告；应答码 → 显示、「图片已变」、「图片取不到」
+{
+  const src = reportImageSrc('synth-rep', 12, 'photos/a b&c.png');
+  const q = new URL(src, 'http://x').searchParams;
+  ok('图片：地址是本台的代取路由，带原链接（编码）和 report=编号，不带 view；浏览器不直接访问链接',
+    src.startsWith('/api/bench-views/synth-rep/image?') && q.get('u') === 'photos/a b&c.png' && q.get('report') === '12' && !q.has('view') && !src.includes('photos/a b'));
+  ok('图片：没有链接、编号不是正整数、没有台：给 null（页面画「图片取不到」）',
+    [reportImageSrc('synth-rep', 12, ''), reportImageSrc('synth-rep', 12, null), reportImageSrc('synth-rep', 0, 'a.png'), reportImageSrc('synth-rep', 1.5, 'a.png'), reportImageSrc('', 1, 'a.png')].every((x) => x === null));
+  ok('图片：200 照显示；409（冻结哈希对不上）「图片已变」；401、403、404、415、502、503、504 都「图片取不到」',
+    reportImageState(200) === 'ok' && reportImageState(409) === 'changed' && [401, 403, 404, 415, 502, 503, 504, 0].every((s) => reportImageState(s) === 'missing')
+    && REPORT_IMAGE_TEXT.changed === '图片已变' && REPORT_IMAGE_TEXT.missing === '图片取不到');
+  const page = readFileSync(new URL('../web/src/pages/BenchReports.tsx', import.meta.url), 'utf8');
+  const comp = page.slice(page.indexOf('function ReportImage'), page.indexOf('/** 台页面顶栏'));
+  ok('源码：正文按 image 节点画 ReportImage，地址取 reportImageSrc、取图与状态经 loadReportImage；显示的是取到的那份（blob），不写链接原文、不写内联样式和写死的颜色',
+    /n\.type === 'image'\) return <ReportImage/.test(page) && /reportImageSrc\(img\.bench, img\.report, node\.src\)/.test(comp) && /loadReportImage\(/.test(comp)
+    && /URL\.createObjectURL/.test(comp) && !/\{node\.src\}/.test(comp) && !/style=\{\{/.test(comp) && !/#[0-9A-Fa-f]{3,6}\b|rgba?\(/.test(comp));
+}
+
+// #1033 评审 B1：取图的每一步失败都闭合成「图片取不到」，不留在加载中、不产生未处理的拒绝（合成响应，不起浏览器）
+{
+  let unhandled = 0;
+  const onUnhandled = () => { unhandled++; };
+  process.on('unhandledRejection', onUnhandled);
+  const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' });
+  const res = (status, body = async () => blob) => async () => ({ status, blob: body });
+  const urls = [];
+  const toUrl = (b) => { urls.push(b); return 'blob:synthetic/' + urls.length; };
+  // 取图函数要是拒绝了，记成 rejected 交给下面的断言判（不让用例自己抛错退出）
+  const load = (src, get, url) => loadReportImage(src, get, url).catch((e) => ({ phase: 'rejected', error: String(e?.message ?? e) }));
+  const got = {
+    fetchRejects: await load('/x', async () => { throw new TypeError('synthetic network down'); }, toUrl),
+    bodyRejects: await load('/x', res(200, async () => { throw new TypeError('synthetic body interrupted'); }), toUrl),
+    urlThrows: await load('/x', res(200), () => { throw new Error('synthetic createObjectURL failed'); }),
+    ok: await load('/x', res(200), toUrl),
+    changed: await load('/x', res(409), toUrl),
+    forbidden: await load('/x', res(403), toUrl),
+    noSrc: await load(null, res(200), toUrl),
+  };
+  await new Promise((r) => setTimeout(r, 20));
+  process.off('unhandledRejection', onUnhandled);
+  ok('图片取一次的各条路：请求失败、200 之后读 body 失败、建 blob 地址失败都「图片取不到」；200 显示 blob 地址；409「图片已变」；403、没有地址「图片取不到」；全程没有未处理的拒绝',
+    got.fetchRejects.phase === 'missing' && got.bodyRejects.phase === 'missing' && got.urlThrows.phase === 'missing'
+    && got.ok.phase === 'shown' && got.ok.url === 'blob:synthetic/1' && got.changed.phase === 'changed' && got.forbidden.phase === 'missing' && got.noSrc.phase === 'missing' && unhandled === 0,
+    J({ got, unhandled }));
+  const page = readFileSync(new URL('../web/src/pages/BenchReports.tsx', import.meta.url), 'utf8');
+  const comp = page.slice(page.indexOf('function ReportImage'), page.indexOf('/** 台页面顶栏'));
+  ok('源码：ReportImage 只经 loadReportImage 取图（自己不读 r.blob()、不写 then 的第二个回调），卸载后取到的 blob 地址要收回',
+    /loadReportImage\(src, \(u\) => fetch\(u, \{ credentials: 'same-origin' \}\), \(b\) => URL\.createObjectURL\(b\)\)/.test(comp) && !/\.blob\(\)/.test(comp) && !/\}, \(\) => \{ if \(live\)/.test(comp)
+    && /if \(!live\) \{ if \(out\.phase === 'shown'\) URL\.revokeObjectURL\(out\.url\)/.test(comp));
+}
 
 console.log(`\nreport-page-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

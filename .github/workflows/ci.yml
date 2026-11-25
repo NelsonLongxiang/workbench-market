@@ -661,7 +661,7 @@ jobs:
       - name: 视图台页面单测（入口怎么走·地址里的视图和筛选·表单没交上去的说法）
         run: node scripts/bench-page-unit.mjs
       - name: 报告页单测（地址·按事物分组·并排取哪几份·回应接在谁后面·没成的说法）
-        run: node scripts/report-page-unit.mjs
+        run: node scripts/report-page-unit.mjs && node scripts/report-image-unit.mjs
       - name: 台的 MCP 授权页单测（#904：状态·读写·授予从哪来·驳回要理由·没成的说法·应答不像样不当空·网关页「台上的申请」的行）
         run: node scripts/bench-mcp-page-unit.mjs
       - name: 身份变了以后页面重读单测（纯函数——认人只认 /api/auth/me·不通和 502 不算·合并去抖·世代号；单列一步）
