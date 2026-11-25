@@ -15,6 +15,9 @@
  *   I7 缓存：同一张图第二次不再请求图库；缓存命中时没权限的人仍是 403
  *   I8 对外断开（WM_OUTBOUND=off）：503
  *   I9 钉址与混合解析（本进程直接调 fetchImage，桩 DNS，连接层只放行回环）：DNS 重绑定不访问回环服务；公网与回环混合解析 400；慢解析 504；钉址 lookup 两种调用都只给判过的地址
+ *   I11 报告的图片节点（PR C，用例 8）：引用 image 参数、字段、数据行都冻结出链接加哈希（REST 与 MCP 生成都是）；取不到的图不出报告；
+ *       报告作来源按引用判——读者能读这个台的报告（只有 report-read 也行，只有 render 不行）、报告属于这个台、冻结正文里有这条链接，否则 403、不外发
+ *   I12 读时按冻结的哈希核对：图库里的图换了（重启实例、缓存过期后），报告作来源取回 409 image_changed，不给新图；没换的照给
  *
  *   node scripts/bench-image-test.mjs
  */
@@ -23,6 +26,7 @@ import dns from 'node:dns';
 import { syncBuiltinESMExports } from 'node:module';
 import { createServer as createHttpServer } from 'node:http';
 import { mkdirSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
@@ -58,10 +62,15 @@ const GALLERY = {
   // 宽为 0 的 PNG（文件头合法，尺寸不合法）
   '/photos/zero.png': ['image/png', (() => { const z = Buffer.from(PNG); z.writeUInt32BE(0, 16); return z; })()],
   '/photos/m1.png': ['image/png', PNG], '/photos/m2.png': ['image/png', PNG],
+  // I11、I12：报告里的图
+  '/photos/hero.png': ['image/png', PNG], '/photos/extra.jpg': ['image/jpeg', JPG], '/photos/r1.png': ['image/png', PNG], '/photos/r2.webp': ['image/webp', webpX(2, 3)],
 };
+// I12：冻结之后图库里换掉的图（先是 PNG，重启前换成 JPEG）
+let MUT = ['image/png', PNG];
 const gallery = createHttpServer((req, res) => {
   hits.push({ path: req.url, headers: req.headers });
   const u = req.url;
+  if (u === '/photos/mut.png') { const [type, body] = MUT; res.writeHead(200, { 'content-type': type, 'content-length': body.length }); return void res.end(body); }
   if (GALLERY[u]) { const [type, body] = GALLERY[u]; res.writeHead(200, { 'content-type': type, 'content-length': body.length }); return void res.end(body); }
   if (u === '/photos/a.png' || u === '/photos/c.png') { res.writeHead(200, { 'content-type': 'image/png', 'content-length': PNG.length }); return void res.end(PNG); }
   if (u === '/photos/page.html') { res.writeHead(200, { 'content-type': 'text/html' }); return void res.end('<script>alert(1)</script>'); }
@@ -343,7 +352,126 @@ try {
       'I10 缓存命中时照判：视图不显示 403、读不了视图 403；有权且引用的照取（命中缓存，图库没收到新请求）', cached);
   }
 
+  console.log('I11 报告的图片节点：冻结链接加哈希、报告作来源按引用判（PR C，用例 8）');
+  let mutReport = null, heroReport = null;
+  {
+    const sha = (b) => createHash('sha256').update(b).digest('hex');
+    await srv.call('GET', '/api/auth/viewer', { session: SESSIONS.admin });
+    const sys = who(SESSIONS.admin);
+    const sysId = db.prepare("SELECT id FROM principals WHERE id LIKE '%root-admin%'").get()?.id;
+    const o1 = await activate({ principal: sysId, role: 'owner', scope: '*' });
+    const o2 = await activate({ principal: 'user:alpha', role: 'owner', scope: '*' });
+    const mk = await bv(boss, 'POST', '', { slug: 'synth-rep', title: '合成图片报告台' });
+    const ds = await bv(boss, 'PUT', '/synth-rep/datasets/shots', { key: ['id'], columns: [{ name: 'id', type: 'integer', label: '编号' }, { name: 'pic', type: 'image', label: '图片' }, { name: 'name', type: 'text', label: '名字' }] });
+    const rw = await srv.call('POST', '/api/bench-views/synth-rep/datasets/shots/rows?op=replace', { ...boss, raw: JSON.stringify([{ id: 1, pic: 'photos/r1.png', name: '甲' }, { id: 2, pic: 'photos/r2.webp', name: '乙' }]) });
+    const vw = await bv(boss, 'PUT', '/synth-rep/view', { doc: { title: '合成图片报告台', views: [{ key: 'shots', title: '现场', blocks: [{ type: 'table', query: { dataset: 'shots', sort: [{ col: 'id' }] } }] }] }, base: 0, note: '合成' });
+    const R = (scope, name) => ({ ref: { scope, name } });
+    const TPL = {
+      schema_version: 2, title: '合成·图片报告',
+      parameters: { period: { type: 'month', required: true }, hero: { type: 'image', required: true } }, fields: { extra: { required: true, max_length: 2048 } },
+      slots: { shots: { columns: [{ name: 'id', type: 'integer', label: '编号' }, { name: 'pic', type: 'image', label: '图片' }, { name: 'name', type: 'text', label: '名字' }], key: ['id'], max_rows: 10, completeness: 'all' } },
+      body: [
+        { id: 'cover', type: 'cover', title: ['合成 ', R('parameter', 'period')] },
+        { id: 'hero', type: 'image', src: R('parameter', 'hero'), alt: '头图' },
+        { id: 'extra', type: 'image', src: R('field', 'extra'), alt: '附图' },
+        { id: 'each', type: 'repeat', data: 'shots', row_key: ['id'], max_items: 10, children: [{ id: 'shot', type: 'image', src: R('row', 'pic'), alt: '现场' }] },
+      ],
+      claims: [{ kind: 'conclusion', label: '结论', min: 0, max: 1 }], responses: { stances: ['agree', 'dispute'], reason_required: true }, gate: { open_dispute_blocks_acceptance: false },
+    };
+    await cli('POST', '/api/report-dimensions', { id: 'imgrep', title: '合成图片报告' });
+    const pub = await srv.call('POST', '/api/report-dimensions/imgrep/templates', { ...boss, body: { body: TPL } });
+    const rev = await srv.call('POST', '/api/report-dimensions/imgrep/templates/1/review', { ...sys, body: {} });
+    const act = await cli('POST', '/api/report-dimensions/imgrep/activate', { version: 1 });
+    const bind = await bv(boss, 'PUT', '/synth-rep/reports/imgrep/binding', { base: 0, slots: { shots: { view: 'shots', block: 0, params: {}, columns: { id: 'id', pic: 'pic', name: 'name' } } } });
+    check(o1 && o2 && mk.status === 201 && ds.status === 200 && rw.status === 200 && vw.status === 200 && pub.status === 201 && rev.status === 200 && act.status === 200 && bind.status === 200,
+      '（准备）属主；台、数据集（image 列两行）、视图；维度 imgrep 的模板带 image 参数、三处图片节点，复核后生效；绑定',
+      { o1, o2, mk: mk.status, ds: ds.status, rw: rw.status, vw: vw.status, pub: [pub.status, pub.text.slice(0, 200)], rev: [rev.status, rev.text.slice(0, 160)], act: act.status, bind: [bind.status, bind.text.slice(0, 200)] });
+
+    const gen = (hero, subject, extra = 'photos/extra.jpg') => bv(boss, 'POST', '/synth-rep/reports', { dimension: 'imgrep', subject, inputs: { parameters: { period: '2026-11', hero }, fields: { extra } }, claims: [] });
+    const imgs = (rep) => { const out = []; const walk = (ns) => { for (const n of ns ?? []) { if (n?.type === 'image') out.push(n); walk(n?.children); } }; walk(rep?.body?.body); return out; };
+    const want = { 'photos/hero.png': sha(PNG), 'photos/extra.jpg': sha(JPG), 'photos/r1.png': sha(PNG), 'photos/r2.webp': sha(webpX(2, 3)) };
+    const h0 = hitsOf('/photos/hero.png');
+    const g = await gen('photos/hero.png', 'item:img-1');
+    heroReport = g.json?.report?.id;
+    const nodes = imgs(g.json?.report);
+    const read = await bv(boss, 'GET', `/synth-rep/reports/${heroReport}`);
+    check(g.status === 201 && nodes.length === 4 && nodes.every((n) => n.sha256 === want[n.src] && JSON.stringify(Object.keys(n).sort()) === '["alt","id","sha256","src","type"]')
+        && JSON.stringify(nodes.map((n) => n.src)) === JSON.stringify(['photos/hero.png', 'photos/extra.jpg', 'photos/r1.png', 'photos/r2.webp']) && hitsOf('/photos/hero.png') === h0 + 1
+        && JSON.stringify(imgs(read.json?.report)) === JSON.stringify(nodes),
+      'I11 参数、字段、两行数据的图片节点各冻结出链接加哈希（取到的那份字节的 sha256），节点只有 id、type、src、alt、sha256；冻结时取了一次图；读回一样',
+      { status: g.status, text: g.text.slice(0, 240), nodes, hits: [h0, hitsOf('/photos/hero.png')] });
+    const bodyText = JSON.stringify(g.json?.report?.body ?? {});
+    check(!bodyText.includes(PNG.toString('base64').slice(0, 16)) && !bodyText.includes('data:image') && bodyText.length < 4000, 'I11 正文只记链接加哈希：不带图的内容（没有 base64、data: 地址）', { len: bodyText.length });
+
+    const e = { notImage: await gen('photos/page.html', 'item:img-e1'), missing: await gen('photos/none.png', 'item:img-e2'), blocked: await gen('http://192.0.2.1/a.png', 'item:img-e3'), badRef: await gen('javascript:alert(1)', 'item:img-e4') };
+    const listed = (await bv(boss, 'GET', '/synth-rep/reports')).json?.reports ?? [];
+    check(e.notImage.status === 400 && /report_image_unavailable/.test(e.notImage.text) && /image_type_unsupported/.test(e.notImage.text)
+        && e.missing.status === 400 && /report_image_unavailable/.test(e.missing.text) && /image_fetch_failed/.test(e.missing.text)
+        && e.blocked.status === 400 && /image_address_blocked/.test(e.blocked.text) && e.badRef.status === 400 && /report_invalid_image_ref/.test(e.badRef.text)
+        && !listed.some((r) => /^item:img-e/.test(r.subject)),
+      'I11 图取不到（不是图片、404、文档网段这类非公网地址）不出报告：400 report_image_unavailable 带代取的错误代号；参数不是合规链接 400 report_invalid_image_ref；清单里没有这几份',
+      Object.fromEntries(Object.entries(e).map(([k, v]) => [k, [v.status, v.text.slice(0, 160)]])));
+
+    // MCP 生成走同一处：相对路径按图库前缀取图（没传图库前缀就取不到）
+    const sess = (await srv.call('POST', '/api/mcp/sessions', { headers: { ...REMOTE, 'x-admin-token': ADMIN }, body: { name: 'synth-img-seat' } })).json;
+    const mg = await bv(boss, 'PUT', '/synth-rep/mcp-grants', { session: 'synth-img-seat', tools: ['report_generate'] });
+    const mc = await srv.call('POST', '/mcp', { headers: { authorization: `Bearer ${sess?.token}` }, body: { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'report_generate', arguments: { bench: 'synth-rep', dimension: 'imgrep', subject: 'item:img-mcp', inputs: { parameters: { period: '2026-11', hero: 'photos/r2.webp' }, fields: { extra: 'photos/extra.jpg' } }, claims: [] } } } });
+    let mj = null; try { mj = JSON.parse(mc.json?.result?.content?.[0]?.text ?? ''); } catch { /* 出错时是一句话 */ }
+    check(!!sess?.token && mg.status === 200 && mc.json?.result?.isError !== true && imgs(mj?.report).find((n) => n.id === 'hero')?.sha256 === want['photos/r2.webp'],
+      'I11 MCP 的 report_generate 同样冻结：相对路径按图库前缀取到图、记下哈希', { mg: mg.status, mc: mc.text.slice(0, 240) });
+
+    const gm = await gen('photos/mut.png', 'item:img-mut');
+    mutReport = gm.json?.report?.id;
+    check(gm.status === 201 && imgs(gm.json?.report).find((n) => n.id === 'hero')?.sha256 === sha(PNG), '（准备 I12）一份头图是 photos/mut.png 的报告，冻结时它是 PNG', { gm: [gm.status, gm.text.slice(0, 160)] });
+
+    const rimg = (opts, u, id = heroReport, slug = 'synth-rep') => srv.call('GET', `/api/bench-views/${slug}/image?u=${encodeURIComponent(u)}&report=${id}`, opts);
+    const okHero = await rimg(boss, 'photos/hero.png'), okExtra = await rimg(boss, 'photos/extra.jpg'), okRow = await rimg(boss, 'photos/r2.webp');
+    check(okHero.status === 200 && okHero.buf.equals(PNG) && okHero.headers.get('content-type') === 'image/png' && okHero.headers.get('x-content-type-options') === 'nosniff' && /sandbox/.test(okHero.headers.get('content-security-policy') ?? '')
+        && okExtra.status === 200 && okExtra.buf.equals(JPG) && okRow.status === 200 && okRow.buf.equals(webpX(2, 3)),
+      'I11 报告作来源：参数、字段、数据行的图都取得到，字节一致，带 nosniff、sandbox', { okHero: okHero.status, okExtra: okExtra.status, okRow: okRow.status });
+    const before = hits.length;
+    const deny = {
+      anon: (await srv.call('GET', `/api/bench-views/synth-rep/image?u=photos%2Fhero.png&report=${heroReport}`, { headers: REMOTE })).status,
+      cross: (await srv.call('GET', `/api/bench-views/synth-rep/image?u=photos%2Fhero.png&report=${heroReport}`, { headers: { ...REMOTE, 'sec-fetch-site': 'cross-site' }, session: P.boss })).status,
+      noGrant: (await rimg(member, 'photos/hero.png')).status,
+      notInReport: (await rimg(boss, 'photos/a.png')).status, // 别的台的视图里有，这份报告里没有
+      inViewOnly: (await rimg(boss, 'photos/b.png')).status, // 本测试别处的视图里有，报告里没有
+      part: (await rimg(boss, 'photos/hero')).status,
+      noReport: (await rimg(boss, 'photos/hero.png', 99999)).status,
+      badId: (await rimg(boss, 'photos/hero.png', 'abc')).status,
+      zeroId: (await rimg(boss, 'photos/hero.png', 0)).status,
+      otherBench: (await rimg(boss, 'photos/hero.png', heroReport, 'synth-img')).status, // 报告不属于路径里的台
+    };
+    check(deny.anon === 401 && deny.cross === 403 && Object.entries(deny).filter(([k]) => !['anon', 'cross'].includes(k)).every(([, v]) => v === 403) && hits.length === before,
+      'I11 报告作来源按引用判：匿名 401、跨站 403；台上没授予、链接不在这份报告里（只在别的视图、只是一段）、报告不存在、编号不合、报告不属于路径里的台：403；图库都没收到请求', { ...deny, hits: [before, hits.length] });
+    const ga = await activate({ principal: 'user:beta', role: 'img-report-only', scope: '*' });
+    const viaReport = await rimg(member, 'photos/r1.png');
+    const viaView = await img(member, 'photos/r1.png', 'synth-rep', 'shots');
+    await revokeAll('img-report-only');
+    const gone = await rimg(member, 'photos/r1.png');
+    const gb = await activate({ principal: 'user:beta', role: 'img-render-only', scope: '*' });
+    const renderOnly = await rimg(member, 'photos/r1.png');
+    const renderView = await img(member, 'photos/r1.png', 'synth-rep', 'shots');
+    await revokeAll('img-render-only');
+    check(ga && gb && viaReport.status === 200 && viaReport.buf.equals(PNG) && viaView.status === 403 && gone.status === 403 && renderOnly.status === 403 && renderView.status === 200,
+      'I11 只有 report-read 的读者从报告取得到图（同一张图从视图取 403）；收回后 403；只有 render 的人从报告取 403、从视图取得到',
+      { viaReport: viaReport.status, viaView: viaView.status, gone: gone.status, renderOnly: renderOnly.status, renderView: renderView.status });
+  }
+
   await srv.stop();
+  console.log('I12 读时按冻结的哈希核对：图片已变');
+  {
+    MUT = ['image/jpeg', JPG]; // 冻结之后图库里的图换了；重启实例，进程内缓存随之清掉
+    const again = await boot('on');
+    for (const sess of Object.values(P)) await again.call('GET', '/api/auth/viewer', { session: sess });
+    const b2 = { headers: { ...REMOTE, origin: `http://${again.host}`, 'sec-fetch-site': 'same-origin' }, session: P.boss };
+    const m0 = hitsOf('/photos/mut.png');
+    const changed = await again.call('GET', `/api/bench-views/synth-rep/image?u=photos%2Fmut.png&report=${mutReport}`, b2);
+    const still = await again.call('GET', `/api/bench-views/synth-rep/image?u=photos%2Fhero.png&report=${heroReport}`, b2);
+    check(mutReport && changed.status === 409 && changed.json?.error === 'image_changed' && !changed.buf.includes(JPG) && hitsOf('/photos/mut.png') === m0 + 1 && still.status === 200 && still.buf.equals(PNG),
+      'I12 图库里的图换了：报告作来源取回 409 image_changed，不给新图（图库收到一次请求）；没换的照给', { changed: [changed.status, changed.text.slice(0, 120)], still: still.status, hits: [m0, hitsOf('/photos/mut.png')] });
+    await again.stop();
+  }
   console.log('I8 对外断开');
   {
     const off = await boot('off', { WM_OUTBOUND: 'off' });
