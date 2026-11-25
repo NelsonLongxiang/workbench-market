@@ -2444,6 +2444,9 @@ export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   'work_items_no_delete', 'work_items_no_replace',
   'areas_no_delete', 'areas_no_replace',
   'report_dimensions_no_delete', 'report_dimensions_no_replace',
+  'report_governance_no_replace',
+  'report_governance_audit_no_update',
+  'report_governance_audit_no_replace',
 ];
 /**
  * 启动自检用（market.db.append-only-guarded）。理由只给代号，不带库里的内容。判断都按 SQLite 的错误码（errcode），不看报错的文字。
