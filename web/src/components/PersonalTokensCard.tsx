@@ -1,13 +1,13 @@
 /** 设置页「个人令牌」（#1063）：签发（名字、能做的事、台、有效期）、原文只显示一次、清单看最近使用、撤销。
  *  原文只放在这个组件的状态里：不进地址、不进本地存储、不打日志；点「我已保存」或离开页面就没了。 */
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Checkbox, Input, InputNumber, Modal, Popconfirm, Radio, Select, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Checkbox, Input, InputNumber, Modal, Popconfirm, Select, Space, Table, Tag, Typography } from 'antd';
 import { KeyOutlined } from '@ant-design/icons';
 import { listBenchViews } from '../api';
 import { issuePersonalToken, listPersonalTokens, revokePersonalToken, type SourceResult } from '../personal-tokens-api';
 import {
-  NAME_MAX, ONE_TIME_NOTE, SCOPE_NOTE, actionProblem, benchesLabel, draftProblem, expiryLabel, issueBody, issuedOf, lastUsedLabel, listProblem, maxDaysOf,
-  newDraft, scopesLabel, scopesOf, stateTag, tagLabel, tokenState, tokensOf, type TokenDraft, type TokenRow,
+  MAX_DAYS, NAME_HINT, NAME_MAX, ONE_TIME_NOTE, SCOPES, SCOPE_NOTE, actionProblem, benchesLabel, draftProblem, expiryLabel, issueBody, issuedOf, lastUsedLabel, listProblem,
+  needsBench, newDraft, scopesLabel, stateTag, tokenState, tokensOf, type TokenDraft, type TokenRow,
 } from '../personal-tokens-view';
 
 const TONE: Record<string, string> = { success: 'success', warning: 'warning', default: 'default' };
@@ -34,11 +34,9 @@ export default function PersonalTokensCard() {
 
   const ok = !!list && list.status >= 200 && list.status < 300;
   const tokens = useMemo(() => (ok ? tokensOf(list?.body, now) : []), [ok, list]); // eslint-disable-line react-hooks/exhaustive-deps
-  const scopes = useMemo(() => scopesOf(list?.body), [list]);
-  const maxDays = useMemo(() => maxDaysOf(list?.body), [list]);
   const titles = useMemo(() => new Map((benches ?? []).map((b) => [b.slug, b.title])), [benches]);
   const problem = listProblem(list);
-  const draftErr = draftProblem(draft, maxDays);
+  const draftErr = draftProblem(draft);
 
   const issue = async () => {
     if (draftErr) return;
@@ -61,8 +59,8 @@ export default function PersonalTokensCard() {
   };
 
   const columns = [
-    { title: '名字', key: 'name', render: (_: unknown, t: TokenRow) => <span data-testid="pt-name">{t.name} <Typography.Text type="secondary">{tagLabel(t)}</Typography.Text></span> },
-    { title: '能做的事', key: 'scopes', render: (_: unknown, t: TokenRow) => scopesLabel(t, scopes) },
+    { title: '名字', key: 'name', render: (_: unknown, t: TokenRow) => <span data-testid="pt-name">{t.name}</span> },
+    { title: '能做的事', key: 'scopes', render: (_: unknown, t: TokenRow) => scopesLabel(t) },
     { title: '台', key: 'benches', render: (_: unknown, t: TokenRow) => benchesLabel(t, titles) },
     { title: '期限', key: 'expiry', render: (_: unknown, t: TokenRow) => expiryLabel(t, now) },
     { title: '最近使用', key: 'used', render: (_: unknown, t: TokenRow) => <span data-testid="pt-last-used">{lastUsedLabel(t)}</span> },
@@ -90,19 +88,15 @@ export default function PersonalTokensCard() {
         okButtonProps={{ disabled: !!draftErr, loading: busy === 'issue', 'data-testid': 'pt-issue' }}>
         <Space direction="vertical" className="wm-w-full">
           <span>名字</span>
-          <Input data-testid="pt-draft-name" value={draft.name} maxLength={NAME_MAX} placeholder="比如：笔记本上的 wm user" onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+          <Input data-testid="pt-draft-name" value={draft.name} maxLength={NAME_MAX} placeholder={NAME_HINT} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
           <span>能做的事</span>
           <Checkbox.Group data-testid="pt-draft-scopes" value={draft.scopes} onChange={(v) => setDraft({ ...draft, scopes: v as string[] })}
-            options={scopes.map((s) => ({ value: s.key, label: s.description ? s.label + '（' + s.description + '）' : s.label }))} />
+            options={SCOPES.map((s) => ({ value: s.key, label: s.label + '（' + s.description + '）' }))} />
           <span>台</span>
-          <Radio.Group value={draft.benches === 'all' ? 'all' : 'some'} onChange={(e) => setDraft({ ...draft, benches: e.target.value === 'all' ? 'all' : [] })}>
-            <Radio value="some" data-testid="pt-draft-benches-some">只给选中的台</Radio>
-            <Radio value="all" data-testid="pt-draft-benches-all">我进得去的全部台</Radio>
-          </Radio.Group>
-          {draft.benches !== 'all' && <Select mode="multiple" className="wm-w-full" data-testid="pt-draft-benches" loading={!benches} value={draft.benches}
-            placeholder="选台" onChange={(v) => setDraft({ ...draft, benches: v })} options={(benches ?? []).map((b) => ({ value: b.slug, label: b.title }))} />}
-          <span>有效期（天，最长 {maxDays}）</span>
-          <InputNumber data-testid="pt-draft-days" min={1} max={maxDays} precision={0} value={draft.days} onChange={(v) => setDraft({ ...draft, days: typeof v === 'number' ? v : 0 })} />
+          <Select mode="multiple" className="wm-w-full" data-testid="pt-draft-benches" loading={!benches} value={draft.benches}
+            placeholder={needsBench(draft.scopes) ? '选台（按台的作用域必选）' : '只有报告维度时可以不选台'} onChange={(v) => setDraft({ ...draft, benches: v })} options={(benches ?? []).map((b) => ({ value: b.slug, label: b.title }))} />
+          <span>有效期（天，最长 {MAX_DAYS}）</span>
+          <InputNumber data-testid="pt-draft-days" min={1} max={MAX_DAYS} precision={0} value={draft.days} onChange={(v) => setDraft({ ...draft, days: typeof v === 'number' ? v : 0 })} />
           {draftErr && <Typography.Text type="secondary" data-testid="pt-draft-problem">{draftErr}</Typography.Text>}
         </Space>
       </Modal>
