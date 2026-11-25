@@ -2313,6 +2313,25 @@ CREATE TABLE IF NOT EXISTS bench_mcp_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_bench_mcp_audit_bench ON bench_mcp_audit (bench, id);`);
 
+// 主库鉴权状态变动和围栏推进在同一个事务。跨库提交只写台库。
+db.exec(`CREATE TABLE IF NOT EXISTS bench_storage_fence (id INTEGER PRIMARY KEY CHECK (id = 1), revision INTEGER NOT NULL);
+  INSERT INTO bench_storage_fence (id, revision) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;
+  CREATE TABLE IF NOT EXISTS bench_storage_identities (slug TEXT PRIMARY KEY, identity TEXT NOT NULL UNIQUE);
+  INSERT INTO bench_storage_identities (slug, identity) SELECT slug, lower(hex(randomblob(16))) FROM bench_views WHERE 1 = 1 ON CONFLICT (slug) DO NOTHING;
+  CREATE TRIGGER IF NOT EXISTS bench_storage_identity_insert AFTER INSERT ON bench_views
+  BEGIN INSERT INTO bench_storage_identities (slug, identity) VALUES (NEW.slug, lower(hex(randomblob(16)))); END;
+  CREATE TRIGGER IF NOT EXISTS bench_storage_identity_delete AFTER DELETE ON bench_views
+  BEGIN DELETE FROM bench_storage_identities WHERE slug = OLD.slug; END`);
+for (const table of ['bench_views', 'workbenches', 'principals', 'principal_identities', 'grants', 'custom_roles', 'areas', 'report_dimensions',
+  'report_templates', 'bench_mcp_grants', 'teams', 'seat_assignments', 'team_leads', 'mcp_sessions', 'market_sessions',
+  'a2a_peers', 'a2a_roster_nodes', 'a2a_roster_node_seats']) {
+  for (const operation of ['INSERT', 'UPDATE', 'DELETE']) {
+    const event = table === 'mcp_sessions' && operation === 'UPDATE' ? 'UPDATE OF revoked_at, responsible_principal, grants' : operation;
+    db.exec(`CREATE TRIGGER IF NOT EXISTS fence_${table}_${operation.toLowerCase()} AFTER ${event} ON ${table}
+      BEGIN UPDATE bench_storage_fence SET revision = revision + 1 WHERE id = 1; END`);
+  }
+}
+
 
 // ---------- 只增表的触发器：启动自检（market.db.append-only-guarded）----------
 // 只增表（留痕）在库这一层防改、防删、防覆盖的触发器名单（第一批 #975，加上原来就有的授予、事项、领域、报告几张；第二批 #976；以后加的表接着往这里写）。启动自检逐条核对它们都在，
@@ -2502,7 +2521,7 @@ CREATE TRIGGER IF NOT EXISTS attention_answers_done_kept BEFORE DELETE ON attent
  * 第一次写常量、变量（只有 WM_VARS_STORE 是 shadow、bench 时才会写）才建。旧代码只认识第 1 版的表、不碰多出来的表，
  * 所以 main 档下台库和原来逐字一样，切过 shadow、bench 以后回退到旧代码也照样能开
  */
-export const BENCH_STORE_SCHEMA_VERSION = 1;
+export const BENCH_STORE_SCHEMA_VERSION = 2;
 export type BenchDialect = 'sqlite' | 'postgres';
 export type BenchColumnType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean' | 'image';
 
@@ -2542,6 +2561,39 @@ function benchStoreSchema(d: BenchDialect): string[] {
     `CREATE TABLE IF NOT EXISTS bs_snapshot_rows (snapshot_id ${big} NOT NULL, seq ${big} NOT NULL, row TEXT NOT NULL, PRIMARY KEY (snapshot_id, seq))`,
   ];
 }
+/** 第 2 版：封住旧目录名。旧连接不认识 bench_protocol_v2；已有写事务先于结构迁移提交。 */
+function benchDatasetLifecycleSchema(d: BenchDialect): string[] {
+  const big = d === 'sqlite' ? 'INTEGER' : 'BIGINT';
+  return [
+    'ALTER TABLE bs_datasets RENAME TO bs_dataset_catalog',
+    `CREATE TABLE bs_dataset_lifecycle (
+      name TEXT PRIMARY KEY REFERENCES bs_dataset_catalog(name), dataset_id TEXT NOT NULL UNIQUE,
+      revision ${big} NOT NULL CHECK (revision >= 1), state TEXT NOT NULL CHECK (state IN ('active', 'retired')))`,
+    `CREATE TABLE bs_dataset_operations (
+      operation_id TEXT PRIMARY KEY, generation TEXT NOT NULL, dataset_id TEXT NOT NULL,
+      actor TEXT NOT NULL, action TEXT NOT NULL, context_sha256 TEXT NOT NULL,
+      reason TEXT NOT NULL, at ${big} NOT NULL, receipt TEXT NOT NULL)`,
+    `CREATE TABLE bs_report_binding_stops (
+      dimension_id TEXT NOT NULL, version INTEGER NOT NULL, reason TEXT NOT NULL,
+      actor TEXT NOT NULL, at ${big} NOT NULL, PRIMARY KEY (dimension_id, version))`,
+    ...(d === 'sqlite' ? [
+      'CREATE VIEW bs_datasets AS SELECT * FROM bs_dataset_catalog WHERE bench_protocol_v2() = 0',
+      `CREATE TRIGGER bs_dataset_bump_revision AFTER UPDATE ON bs_dataset_catalog
+        BEGIN UPDATE bs_dataset_lifecycle SET revision = revision + 1 WHERE name = NEW.name; END`,
+      `CREATE TRIGGER bs_active_view_protocol_insert BEFORE INSERT ON bs_meta
+        WHEN NEW.k = 'active_view' BEGIN SELECT bench_protocol_v2(); END`,
+      `CREATE TRIGGER bs_active_view_protocol_update BEFORE UPDATE ON bs_meta
+        WHEN NEW.k = 'active_view' BEGIN SELECT bench_protocol_v2(); END`,
+    ] : []),
+  ];
+}
+
+function benchReportWriteFence(d: BenchDialect): string[] {
+  return d === 'sqlite' ? ['bs_report_bindings', 'bs_reports'].map(table =>
+    `CREATE TRIGGER IF NOT EXISTS ${table}_protocol_insert BEFORE INSERT ON ${table}
+      BEGIN SELECT bench_protocol_v2(); END`) : [];
+}
+
 /** 附加的表（开库不建，第一次写常量、变量时才建）：这张卡片的常量、变量（列和主库的 workbench_vars 一一对应，只是不带 workbench_id；时间是 'YYYY-MM-DD HH:MM:SS' 的文本，由代码生成后当参数传） */
 function benchStoreVarsSchema(): string[] {
   return [
@@ -2620,6 +2672,8 @@ function benchStoreReportSchema(d: BenchDialect): string[] {
  */
 export type BenchSqlKit = {
   dialect: BenchDialect;
+  datasetLifecycleSchema: string[];
+  bindingWriteFence: string[];
   schemaVersion: number;
   /** 附加的表 bs_vars 和它的试读（开库不建、不试；第一次写常量、变量时才建，见 BENCH_STORE_SCHEMA_VERSION） */
   varsSchema: string[];
@@ -2662,6 +2716,8 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
   return {
     dialect: d,
     schemaVersion: BENCH_STORE_SCHEMA_VERSION,
+    datasetLifecycleSchema: benchDatasetLifecycleSchema(d),
+    bindingWriteFence: benchReportWriteFence(d),
     varsSchema: benchStoreVarsSchema(),
     varsProbes: ['SELECT key, kind, value, revision, updated_by, owner, created_at, updated_at FROM bs_vars WHERE 1 = 0'],
     varsExists: d === 'postgres'
@@ -2687,7 +2743,8 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
       : "SELECT 1 AS x FROM sqlite_master WHERE type = 'table' AND name = 'bs_report_responses'",
     schema: benchStoreSchema(d),
     probes: [
-      'SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_datasets WHERE 1 = 0',
+      'SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_dataset_catalog WHERE 1 = 0',
+      'SELECT name, dataset_id, revision, state FROM bs_dataset_lifecycle WHERE 1 = 0',
       'SELECT dataset, version, title, columns, key_cols, author, note, at FROM bs_dataset_versions WHERE 1 = 0',
       'SELECT version, content, sha256, author, note, at FROM bs_view_versions WHERE 1 = 0',
       'SELECT id, dataset, dataset_version, reason, row_count, content, content_sha256, author, at FROM bs_snapshots WHERE 1 = 0',

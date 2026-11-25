@@ -89,7 +89,7 @@ import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './ro
 import { registerKnowledgeRoutes } from './routes/knowledge.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
 import { benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, hasBenchGrant, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
-import { resolveBenchRef } from './services/bench-registry.ts';
+import { captureBenchStorageFence, resolveBenchRef } from './services/bench-registry.ts';
 import { cardDeleterOf, checkCardDeletable, deleteCardWithBench, type CardDeleter } from './bench-card-delete.ts';
 import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
@@ -3820,9 +3820,10 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
   if (BENCH_TOOL_NAMES.has(toolName)) {
     // 数据视图的工具：授予按「会话 × 台 × 工具」核。入口关着、没有会话、没有授予、台没登记，都按未授权处理
     try {
+      const fence = toolName === 'report_generate' ? captureBenchStorageFence() : undefined;
       const store = await benchToolTarget(BENCH_VIEWS.on, sess ? sess.id : null, toolName, args);
       if (!store) { mcpAudit(sess, channel, 'tools/call', toolName, false, 'not granted: bench scope', Date.now() - t0, args); return { kind: 'not_granted' }; }
-      const out = await runBenchTool(store, toolName, args, `mcp:${sess!.name}`, Date.now());
+      const out = await runBenchTool(store, toolName, args, `mcp:${sess!.name}`, Date.now(), fence);
       mcpAudit(sess, channel, 'tools/call', toolName, true, '', Date.now() - t0, args);
       return { kind: 'ok', out, upstream: false };
     } catch (e: any) {

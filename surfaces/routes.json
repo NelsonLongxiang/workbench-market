@@ -80,6 +80,7 @@
       "GET /api/bench-views/:bench/entry  <- <anonymous>",
       "GET /api/bench-views/:bench/reports/:dimension/binding  <- <anonymous>",
       "PUT /api/bench-views/:bench/reports/:dimension/binding  <- <anonymous>",
+      "POST /api/bench-views/:bench/reports/:dimension/binding/stop  <- <anonymous>",
       "POST /api/bench-views/:bench/reports  <- <anonymous>",
       "GET /api/bench-views/:bench/reports  <- <anonymous>",
       "GET /api/bench-views/:bench/reports/:id  <- <anonymous>",

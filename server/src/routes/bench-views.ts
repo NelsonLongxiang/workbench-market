@@ -29,7 +29,7 @@ import type { Kind } from '../roles.ts';
 import { BENCH_LIMITS, BenchError } from '../bench-query.ts';
 import { tableTarget, tableCsv } from '../bench-table.ts';
 import { benchStore, benchStoreExists, type BenchStore } from '../services/bench-store.ts';
-import { bindBench, linkWorkbench, renameBench, cardTitle, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
+import { captureBenchStorageFence, bindBench, linkWorkbench, renameBench, cardTitle, createBench, getBench, listBenches, resolveBenchRef, unopenedCard, cardSlug, type BenchEntry } from '../services/bench-registry.ts';
 import { relationOf } from '../team-relation.ts';
 import { checkBenchRequest, decideBenchRequest, listBenchMcp, setBenchGrants } from '../services/bench-mcp.ts';
 import { viaBegin, viaSettle } from '../attention-via.ts';
@@ -198,12 +198,13 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
 
   const rawRows = express.raw({ type: () => true, limit: BENCH_LIMITS.datasetBytes + 1_000_000 });
   /** 一条「在某个台上做一件事」的路由：先判权限，再核台登记过，然后把台库交给 fn */
-  const on = (action: string, fn: (req: express.Request, res: express.Response, s: BenchStore, actor: string) => Promise<unknown>) => wrap(async (req, res) => {
+  const on = (action: string, fn: (req: express.Request, res: express.Response, s: BenchStore, actor: string, fence: ReturnType<typeof captureBenchStorageFence> | undefined) => Promise<unknown>) => wrap(async (req, res) => {
+    const fence = ['bench-store.report-bind', 'bench-store.report-generate'].includes(action) ? captureBenchStorageFence() : undefined;
     const bench = getBench(req.params.bench);
     const actor = await allow(req, res, action, bench);
     if (!actor) return;
     if (!bench) return res.status(404).json({ error: 'bench_not_found' });
-    try { res.json(await fn(req, res, await benchStore(req.params.bench), actor)); } catch (e) { fail(res, e); }
+    try { res.json(await fn(req, res, await benchStore(req.params.bench), actor, fence)); } catch (e) { fail(res, e); }
   });
 
   // —— 台的登记 ——
@@ -324,9 +325,27 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     return { binding: b };
   }));
   app.put('/api/bench-views/:bench/reports/:dimension/binding', { action: 'bench-store.report-bind', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-bind',
-    (req, _res, s, actor) => bindReport(benchOf(req), s, req.params.dimension, req.body, actor, Date.now())));
-  app.post('/api/bench-views/:bench/reports', { action: 'bench-store.report-generate', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-generate', async (req, res, s, actor) => {
-    const out = await generateReport(benchOf(req), s, req.body, actor, Date.now());
+    (req, _res, s, actor, fence) => bindReport(benchOf(req), s, req.params.dimension, req.body, actor, Date.now(), fence!)));
+  app.post('/api/bench-views/:bench/reports/:dimension/binding/stop', { action: 'bench-store.report-bind-stop', kind: 'decide', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    if (!deps.on) return res.status(404).json({ error: 'bench_views_off' });
+    const fence = captureBenchStorageFence();
+    const actor = await who(req, res);
+    if (!actor) return;
+    if (actor.type !== 'principal' || actor.kind !== 'person' || actor.status !== 'active' || !everywhere(actor, 'bench-store.report-bind-stop')) return forbid(res);
+    if (!getBench(req.params.bench)) return res.status(404).json({ error: 'bench_not_found' });
+    try {
+      const dimension = String(req.params.dimension);
+      const base = int(req.body?.base);
+      const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+      if (!/^[a-z][a-z0-9-]{0,47}$/.test(dimension) || !base || !reason || reason.length > 500 || Object.keys(req.body).some(k => !['base', 'reason'].includes(k))) {
+        throw new BenchError('invalid', '停用报告生成需要绑定版本和理由（1～500 字）');
+      }
+      const store = await benchStore(req.params.bench);
+      return res.json({ binding: await store.reportBindingStop(dimension, { base, reason, actor: actor.id, at: Date.now() }, fence) });
+    } catch (err) { fail(res, err); }
+  }));
+  app.post('/api/bench-views/:bench/reports', { action: 'bench-store.report-generate', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-generate', async (req, res, s, actor, fence) => {
+    const out = await generateReport(benchOf(req), s, req.body, actor, Date.now(), fence!);
     res.status(201);
     return out;
   }));

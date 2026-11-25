@@ -279,7 +279,7 @@ export async function benchToolTarget(on: boolean, sessionId: number | null, too
   return benchStore(bench);
 }
 /** 执行一个工具。actor 写进留痕（mcp:<会话名>） */
-export async function runBenchTool(s: BenchStore, toolName: string, input: unknown, actor: string, at: number): Promise<unknown> {
+export async function runBenchTool(s: BenchStore, toolName: string, input: unknown, actor: string, at: number, fence?: import('./bench-store-core.ts').MainStoreFence): Promise<unknown> {
   const a = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Row;
   const extra = Object.keys(a).filter((k) => !(KEYS.get(toolName) ?? []).includes(k));
   if (extra.length) throw new BenchError('invalid', `${toolName} 不认识这些参数：${extra.map((k) => k.slice(0, 40)).join('、')}`);
@@ -304,7 +304,7 @@ export async function runBenchTool(s: BenchStore, toolName: string, input: unkno
     // 报告（PR C）：和 REST 走同一处（services/bench-report.ts）；actor 是 mcp:<会话名>，记 AI
     case 'report_list': return listReports(s, { dimension: a.dimension, subject: a.subject, limit: int(a.limit) });
     case 'report_get': return readReport(s, a.id, actor);
-    case 'report_generate': { const b = getBench(s.slug); if (!b) throw new BenchError('not_found', '没有这个台'); const { bench: _b, ...body } = a; return generateReport(b, s, body, actor, at); }
+    case 'report_generate': { const b = getBench(s.slug); if (!b) throw new BenchError('not_found', '没有这个台'); const { bench: _b, ...body } = a; if (!fence) throw new BenchError('unsupported', '报告发布要求主库判权围栏'); return generateReport(b, s, body, actor, at, fence); }
     case 'report_respond': { const { bench: _b, id, ...body } = a; return respondReport(s, id, body, actor, at); }
     default: throw new BenchError('invalid', `不是数据视图的工具：${toolName.slice(0, 60)}`);
   }

@@ -30,6 +30,7 @@
     "PUT /api/bench-views/:bench/workbench",
     "GET /api/bench-views/:bench/reports/:dimension/binding",
     "PUT /api/bench-views/:bench/reports/:dimension/binding",
+    "POST /api/bench-views/:bench/reports/:dimension/binding/stop",
     "POST /api/bench-views/:bench/reports",
     "GET /api/bench-views/:bench/reports",
     "GET /api/bench-views/:bench/reports/:id",
@@ -4471,6 +4472,63 @@
               "gate": { "open_dispute_blocks_acceptance": false },
               "template": { "stances": ["agree", "dispute"], "claims": [{ "kind": "conclusion", "label": "结论" }] },
               "open_disputes": 1
+            }
+          }
+        },
+        {
+          "id": "rep-stop-anon",
+          "route": "POST /api/bench-views/:bench/reports/:dimension/binding/stop",
+          "class": "unauthorized",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/reports/monthly/binding/stop", "headers": { "x-forwarded-for": "198.51.100.7" }, "json": { "base": 1, "reason": "合成停用" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "rep-stop-stale",
+          "route": "POST /api/bench-views/:bench/reports/:dimension/binding/stop",
+          "class": "invalid",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/reports/monthly/binding/stop",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "base": 2, "reason": "合成停用" }
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "54", "etag": "W/\"36-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "conflict", "message": "报告绑定已改变" }
+          }
+        },
+        {
+          "id": "rep-stop",
+          "route": "POST /api/bench-views/:bench/reports/:dimension/binding/stop",
+          "class": "normal",
+          "vary": { "binding.created_at": 60000 },
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/reports/monthly/binding/stop",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "base": 1, "reason": "合成停用" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "241", "etag": "W/\"f1-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": {
+              "binding": {
+                "dimension_id": "monthly",
+                "version": 2,
+                "template_version": 1,
+                "slots": { "orders": { "view": "overview", "block": 2, "params": {}, "columns": { "id": "id", "amount": "amount" } } },
+                "created_by": "user:alpha",
+                "created_at": 1893456000000,
+                "disabled": true
+              }
             }
           }
         },

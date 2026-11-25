@@ -24,8 +24,8 @@
  * 库的报错原文里有表名、列名和语句片段，不往外带。
  */
 import { DatabaseSync } from 'node:sqlite';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, renameSync, rmSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, linkSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { BenchDialect, BenchSqlKit } from '../db.ts';
 import { isInsideRoot } from '../path-inside.ts';
@@ -59,6 +59,7 @@ export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
   ['reportBindingGet', 'read'], ['reportSlots', 'read'], ['reportGet', 'read'], ['reportList', 'read'], ['reportCounts', 'read'],
   ['responsesOf', 'read'],
   ['reportBindingPut', 'write'], ['reportInsert', 'write'], ['responseInsert', 'write'],
+  ['datasetStorageTotals', 'read'], ['datasetFence', 'read'], ['datasetLifecycle', 'write'], ['reportBindingContext', 'read'], ['reportBindingStop', 'write'],
 ]);
 
 /** 卡片的一个常量或变量（和主库 workbench_vars 的一行同形，只是不带 workbench_id） */
@@ -82,6 +83,12 @@ export const appDataRowOf = (r: Record<string, unknown>): AppDataRow => ({ id: N
 export const appFileRowOf = (r: Record<string, unknown>): AppFileRow => ({ id: Number(r.id), original_name: String(r.original_name), mime: String(r.mime), size: Number(r.size), storage_path: String(r.storage_path), created_by: String(r.created_by), created_at: String(r.created_at), note: String(r.note ?? ''), sha256: String(r.sha256 ?? ''), deleted_at: String(r.deleted_at ?? '') });
 export type BenchVarRow = { key: string; kind: 'var' | 'const'; value: string; revision: number; updated_by: string; owner: string; created_at: string; updated_at: string };
 
+export type MainStoreFence = { revision: number; expiresAt?: number };
+export type DatasetFence = { name: string; id: string; revision: number; generation: string; state: 'active' | 'retired' };
+export type DatasetContext = DatasetFence & { viewRevision: number; bindingRevision: number };
+export type DatasetTransition = { expected: DatasetContext; operationId: string; action: 'retire' | 'restore'; reason: string; actor: string; at: number };
+export type BindingContext = { view: number; viewRevision: number; generation: string; datasets: DatasetFence[] };
+export type PublicationFence = BindingContext & { main: MainStoreFence };
 export type WriteCtx = { actor: string; at: number; idemKey?: string; note?: string; provenance?: Provenance };
 /**
  * 公共区写入口给的来源（只有它给；带来源列的数据集只收带这个的追加）。每行的来源列由服务端照这里填，写入方的行里不能有。
@@ -106,6 +113,9 @@ interface Conn {
   /** 过了时限就抛 timeout；没过什么都不做。where 是停在哪一步，放进报错的细目里（调用方排查用，也让「停在了哪」可验） */
   check(where: string): void;
   begin(): Promise<void>;
+  assertCurrentFile(): void;
+  attachPrimary(file: string): void;
+  detachPrimary(): void;
   commit(): Promise<void>;
   rollback(): Promise<void>;
   backupTo(file: string): Promise<void>;
@@ -117,10 +127,15 @@ class SqliteConn implements Conn {
   private cache = new Map<string, ReturnType<DatabaseSync['prepare']>>();
   private deadline = Infinity;
   private budget = 0;
+  private file: string;
+  private opened: { dev: number; ino: number };
   constructor(file: string) {
+    this.file = file;
     this.db = new DatabaseSync(file, { timeout: DB_BUSY_TIMEOUT_MS });
     try {
+      this.opened = statSync(file);
       this.db.exec('PRAGMA journal_mode = WAL');
+      this.db.function('bench_protocol_v2', { deterministic: true }, () => 1);
       // 扫描守卫（db.ts 的 scanGuard 模板引用它）：库每扫过若干行回到这里看一眼时限，过了就抛错，语句当场停下
       this.db.function('bench_tick', { deterministic: false }, () => { this.check('扫描数据的中途'); return 1; });
     } catch (e) {
@@ -159,6 +174,14 @@ class SqliteConn implements Conn {
   }
   async all(sql: string, params: unknown[] = []) { return this.use(sql, (s) => s.all(...(params as never[])) as Record<string, unknown>[]); }
   async run(sql: string, params: unknown[] = []) { return this.use(sql, (s) => Number(s.run(...(params as never[])).changes)); }
+  assertCurrentFile() {
+    const current = statSync(this.file, { throwIfNoEntry: false });
+    if (!current || current.dev !== this.opened.dev || current.ino !== this.opened.ino) {
+      throw new BenchError('conflict', '台库文件已经替换或移除，旧句柄不可用');
+    }
+  }
+  attachPrimary(file: string) { this.db.prepare('ATTACH DATABASE ? AS authority').run(file); }
+  detachPrimary() { this.cache.clear(); this.db.exec('DETACH DATABASE authority'); }
   async begin() { this.db.exec('BEGIN IMMEDIATE'); }
   async commit() { this.db.exec('COMMIT'); }
   async rollback() { try { this.db.exec('ROLLBACK'); } catch { /* 没有开着的事务 */ } }
@@ -245,9 +268,10 @@ type CheckedRow = { cols: string[]; vals: (string | number | null)[] };
 /** 存下来的视图描述（保存时已经由 bench-views.ts 核对过，这里只取用到的形状） */
 type FilterField = { name: string; kind: string; label?: string; default?: string; options?: string[] | { dataset: string; col: string } };
 type ViewBlock = { type: string; [k: string]: unknown };
+type ReportSource = { dataset: string; digest: string };
 type ViewDoc = { title: string; views: { key: string; title: string; blocks: ViewBlock[] }[] };
 /** 报告（报告第 1 步 PR B）：绑定、冻结的报告、论断。JSON 的列在这一层是文本，由编排那一层解析 */
-export type ReportBindingRow = { dimension_id: string; version: number; template_version: number; slots: unknown; created_by: string; created_at: number };
+export type ReportBindingRow = { dimension_id: string; version: number; template_version: number; slots: unknown; created_by: string; created_at: number; disabled?: true };
 export type ReportRow = {
   id: number; dimension_id: string; template_version: number; template_sha256: string; binding_version: number; subject: string;
   inputs: string; body: string; sources: string; content_sha256: string; producer: string; producer_kind: 'human' | 'ai'; supersedes: number | null; created_at: number;
@@ -335,8 +359,11 @@ export class BenchStoreCore {
   private closed = false;
   private budgetMs = 0;
   private caps: BenchCaps;
+  private primaryPath?: string;
 
-  constructor(slug: string, conn: Conn, kit: BenchSqlKit, emit: (c: BenchChange) => void, caps: BenchCaps) { this.slug = slug; this.conn = conn; this.kit = kit; this.emit = emit; this.caps = caps; }
+  constructor(slug: string, conn: Conn, kit: BenchSqlKit, emit: (c: BenchChange) => void, caps: BenchCaps, primaryPath?: string) {
+    this.slug = slug; this.conn = conn; this.kit = kit; this.emit = emit; this.caps = caps; this.primaryPath = primaryPath;
+  }
 
   private sqlType(t: string): string {
     const hit = this.kit.types.find(([k]) => k === t);
@@ -356,48 +383,96 @@ export class BenchStoreCore {
   }
 
   /** 这个台的读写排成一队。已经关掉的句柄一律拒绝：台被删了或库被关了之后，手里还拿着旧句柄的调用方要重新取 */
-  private serial<T>(fn: () => Promise<T>): Promise<T> {
+  private serial<T>(fn: () => Promise<T>, verifyFile = true): Promise<T> {
     if (this.closed) return Promise.reject(new BenchError('conflict', `台库 ${this.slug} 已经关闭，重新取一次再用`));
     const budget = this.budgetMs;
     const run = async () => {
-      this.conn.setDeadline(budget > 0 ? performance.now() + budget : Infinity, budget);
-      try { return await fn(); } catch (e) { throw asBenchError(e); } finally { this.conn.setDeadline(Infinity, 0); }
+      if (verifyFile) this.conn.setDeadline(budget > 0 ? performance.now() + budget : Infinity, budget);
+      try {
+        if (verifyFile) this.conn.assertCurrentFile();
+        return await fn();
+      } catch (e) { throw asBenchError(e); } finally { if (verifyFile) this.conn.setDeadline(Infinity, 0); }
     };
     const r = this.chain.then(run, run);
     this.chain = r.catch(() => undefined);
     return r;
   }
-  private tx<T>(fn: () => Promise<T>): Promise<T> {
+  private tx<T>(fn: () => Promise<T>, fence?: MainStoreFence): Promise<T> {
     return this.serial(async () => {
-      await this.conn.begin();
-      this.pending = [];
-      let r: T;
-      // 提交之前再看一次时限：过了就不提交。这样「报了超时」和「没有生效」是同一回事
-      try { r = await fn(); this.conn.check('提交之前'); await this.conn.commit(); } catch (e) {
-        await this.conn.rollback();
-        this.pending = [];
-        if (!(e instanceof BenchError) && /unique|duplicate/i.test(String((e as Error)?.message ?? ''))) throw new BenchError('conflict', '主键重复：已有同主键的行');
-        throw e;
+      if (fence !== undefined) {
+        if (!this.primaryPath || this.conn.dialect !== 'sqlite') throw new BenchError('unsupported', '台库未配置跨库提交围栏');
+        this.conn.attachPrimary(this.primaryPath);
       }
-      const fired = this.pending; this.pending = [];
-      for (const c of fired) { try { this.emit(c); } catch { /* 通知失败不影响已提交的写入 */ } }
-      return r;
+      try {
+        // SQLite 对附着数据库一并取写锁。本事务只改 main（台库），主库 authority 只读。
+        await this.conn.begin();
+        this.pending = [];
+        let r: T;
+        try {
+          if (fence !== undefined) await this.checkMainFence(fence);
+          r = await fn();
+          if (fence?.expiresAt !== undefined && Date.now() >= fence.expiresAt) throw new BenchError('conflict', '授予已到期，重新判定后再提交');
+          this.conn.assertCurrentFile();
+          this.conn.check('提交之前');
+          await this.conn.commit();
+        } catch (e) {
+          await this.conn.rollback();
+          this.pending = [];
+          // 延迟建表可能随事务回滚，下一次重新试读。
+          this.reportsReady = false;
+          if (!(e instanceof BenchError) && /unique|duplicate/i.test(String((e as Error)?.message ?? ''))) throw new BenchError('conflict', '主键重复：已有同主键的行');
+          throw e;
+        }
+        const fired = this.pending; this.pending = [];
+        for (const c of fired) { try { this.emit(c); } catch { /* 通知失败不影响已提交的写入 */ } }
+        return r;
+      } finally {
+        if (fence !== undefined) this.conn.detachPrimary();
+      }
     });
+  }
+
+  private async checkMainFence(fence: MainStoreFence): Promise<void> {
+    const row = (await this.conn.all('SELECT revision FROM authority.bench_storage_fence WHERE id = 1'))[0];
+    const registered = (await this.conn.all('SELECT identity FROM authority.bench_storage_identities WHERE slug = ?', [this.slug]))[0];
+    if (!row || Number(row.revision) !== fence.revision || !registered) throw new BenchError('conflict', '台登记或主库授权已改变，重新判定后再提交');
+    const bound = await this.meta('bench_identity');
+    if (bound && registered.identity !== bound) throw new BenchError('conflict', '台库属于另一代登记，拒绝提交');
+    if (!bound) await this.setMeta('bench_identity', String(registered.identity));
   }
 
   /** 建好固定的几张表；库比这份代码新就拒绝打开（旧代码不认识新结构，不碰它） */
   async init(): Promise<void> {
     await this.serial(async () => {
       const mine = this.kit.schemaVersion;
-      for (const sql of this.kit.schema) await this.conn.run(sql);
-      const v = await this.meta('schema_version');
-      if (v === null) await this.setMeta('schema_version', String(mine));
-      else if (Number(v) > mine) throw new BenchError('unsupported', `台库 ${this.slug} 的结构是第 ${v} 版，比这份代码认识的第 ${mine} 版新，不打开`);
-      // bs_vars 是附加的表：开库不建（main 档下台库和原来一样），有没有由 hasVars 现查，第一次写由 ensureVars 建
-      // 版本号对得上，结构也要对得上：固定的几张表各试读一遍该有的列
-      for (const probe of this.kit.probes) {
-        try { await this.conn.all(probe); } catch (e) { throw new BenchError('unsupported', `台库 ${this.slug} 的结构和这份代码不符，不打开`, [], e); }
-      }
+      await this.conn.begin();
+      try {
+        await this.conn.run(this.kit.schema[0]);
+        const v = await this.meta('schema_version');
+        if (v !== null && Number(v) > mine) throw new BenchError('unsupported', `台库 ${this.slug} 的结构是第 ${v} 版，比这份代码认识的第 ${mine} 版新，不打开`);
+        if (v === null || Number(v) === 1) {
+          for (const sql of this.kit.schema.slice(1)) await this.conn.run(sql);
+          try { await this.conn.all('SELECT data_bytes FROM bs_datasets WHERE 1 = 0'); }
+          catch (e) { throw new BenchError('unsupported', '原台库结构不符，缺少数据集固定列，未升级', [], e); }
+          for (const sql of this.kit.datasetLifecycleSchema) await this.conn.run(sql);
+          for (const row of await this.conn.all('SELECT name FROM bs_dataset_catalog')) {
+            await this.conn.run("INSERT INTO bs_dataset_lifecycle (name, dataset_id, revision, state) VALUES (?, ?, 1, 'active')", [row.name, randomUUID()]);
+          }
+          await this.setMeta('dataset_generation', randomUUID());
+          await this.setMeta('bench_slug', this.slug);
+          // 发布事务必须从升级提交的瞬间即受保护，包括还没生成过报告的台。
+          await this.ensureReports();
+          await this.setMeta('schema_version', String(mine));
+        } else if (Number(v) !== mine || !(await this.meta('dataset_generation')) || await this.meta('bench_slug') !== this.slug) {
+          throw new BenchError('unsupported', '台库结构或数据集恢复代次不受支持');
+        }
+        // bs_vars 是附加的表：开库不建，有没有由 hasVars 现查，第一次写由 ensureVars 建
+        // 版本号对得上，结构也要对得上：固定的几张表各试读一遍该有的列
+        for (const probe of this.kit.probes) {
+          try { await this.conn.all(probe); } catch (e) { throw new BenchError('unsupported', `台库 ${this.slug} 的结构和这份代码不符，不打开`, [], e); }
+        }
+        await this.conn.commit();
+      } catch (e) { await this.conn.rollback(); throw e; }
     });
   }
   private async meta(k: string): Promise<string | null> {
@@ -416,7 +491,7 @@ export class BenchStoreCore {
 
   // —— 数据集 ——
   private async load(): Promise<Map<string, DatasetDef>> {
-    const rows = await this.conn.all('SELECT name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by FROM bs_datasets ORDER BY name');
+    const rows = await this.conn.all("SELECT d.* FROM bs_dataset_catalog d JOIN bs_dataset_lifecycle l ON l.name = d.name WHERE l.state = 'active' ORDER BY d.name");
     return new Map(rows.map((r) => [String(r.name), {
       name: String(r.name), title: String(r.title), version: Number(r.version), columns: JSON.parse(String(r.columns)), key: JSON.parse(String(r.key_cols)),
       row_count: Number(r.row_count), data_bytes: Number(r.data_bytes), created_at: Number(r.created_at), updated_at: Number(r.updated_at), updated_by: String(r.updated_by),
@@ -440,10 +515,24 @@ export class BenchStoreCore {
   private async need(name: string): Promise<DatasetDef> {
     if (typeof name !== 'string' || !NAME_RE.test(name)) throw new BenchError('invalid', '数据集名写法不对');
     const ds = (await this.load()).get(name);
-    if (!ds) throw new BenchError('not_found', `没有数据集 ${name}`);
+    if (!ds) {
+      await this.rejectRetired(name);
+      throw new BenchError('not_found', '没有数据集 ' + name);
+    }
     return ds;
   }
+  private async rejectRetired(name: string): Promise<void> {
+    if ((await this.conn.all("SELECT name FROM bs_dataset_lifecycle WHERE name = ? AND state = 'retired'", [name])).length) {
+      throw new BenchError('conflict', '这个数据集已退役');
+    }
+  }
   datasets(): Promise<DatasetDef[]> { return this.serial(async () => [...(await this.load()).values()]); }
+  datasetStorageTotals(): Promise<{ datasets: number; rows: number; bytes: number }> {
+    return this.serial(async () => {
+      const row = (await this.conn.all('SELECT COUNT(*) AS datasets, COALESCE(SUM(row_count), 0) AS rows, COALESCE(SUM(data_bytes), 0) AS bytes FROM bs_dataset_catalog'))[0];
+      return { datasets: Number(row.datasets), rows: Number(row.rows), bytes: Number(row.bytes) };
+    });
+  }
 
   /**
    * 建数据集，或改已有数据集的列定义。
@@ -456,17 +545,21 @@ export class BenchStoreCore {
   defineDataset(input: DatasetInput, ctx: WriteCtx, opts: { provenance?: boolean } = {}) {
     return this.tx(async () => {
       const c = checkCtx(ctx), def = normalizeDataset(input);
-      const all = await this.load(), old = all.get(def.name), tbl = physTable(def.name), idx = `ux_${tbl}`;
+      const old = (await this.load()).get(def.name), tbl = physTable(def.name), idx = 'ux_' + tbl;
+      if (!old && (await this.conn.all('SELECT name FROM bs_dataset_lifecycle WHERE name = ?', [def.name])).length) {
+        throw new BenchError('conflict', '这个数据集已退役，原名称仍保留');
+      }
       if (opts.provenance !== undefined && typeof opts.provenance !== 'boolean') throw new BenchError('invalid', 'provenance 须为布尔值');
       if (old && opts.provenance === true && !hasProvenance(old)) throw new BenchError('unsupported', `数据集 ${def.name} 已经存在且不带来源列，不能改成公共区的`);
       if (old && opts.provenance === false && hasProvenance(old)) throw new BenchError('unsupported', `数据集 ${def.name} 是公共区的，不能去掉来源列`);
       if ((!old && opts.provenance === true) || (old && hasProvenance(old))) def.columns = [...def.columns, ...SYSTEM_COLUMNS];
       if (!old) {
-        if (all.size >= BENCH_LIMITS.datasets) throw new BenchError('limit', `数据集个数已到上限 ${BENCH_LIMITS.datasets}`);
+        if (Number((await this.conn.all('SELECT COUNT(*) AS n FROM bs_dataset_catalog'))[0].n) >= BENCH_LIMITS.datasets) throw new BenchError('limit', `数据集个数已到上限 ${BENCH_LIMITS.datasets}`);
         await this.conn.run(fill(this.kit.createTable, { table: tbl, columns: def.columns.map((x) => `, ${physCol(x.name)} ${this.sqlType(x.type)}`).join('') }));
         if (def.key.length) await this.conn.run(fill(this.kit.keyIndex, { index: idx, table: tbl, cols: def.key.map(physCol).join(', ') }));
-        await this.conn.run('INSERT INTO bs_datasets (name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by) VALUES (?, ?, 1, ?, ?, 0, 0, ?, ?, ?)',
+        await this.conn.run('INSERT INTO bs_dataset_catalog (name, title, version, columns, key_cols, row_count, data_bytes, created_at, updated_at, updated_by) VALUES (?, ?, 1, ?, ?, 0, 0, ?, ?, ?)',
           [def.name, def.title, JSON.stringify(def.columns), JSON.stringify(def.key), c.at, c.at, c.actor]);
+        await this.conn.run("INSERT INTO bs_dataset_lifecycle (name, dataset_id, revision, state) VALUES (?, ?, 1, 'active')", [def.name, randomUUID()]);
         await this.conn.run('INSERT INTO bs_dataset_versions (dataset, version, title, columns, key_cols, author, note, at) VALUES (?, 1, ?, ?, ?, ?, ?, ?)',
           [def.name, def.title, JSON.stringify(def.columns), JSON.stringify(def.key), c.actor, c.note, c.at]);
         await this.change('dataset.define', def.name, 0, 1, c);
@@ -501,7 +594,7 @@ export class BenchStoreCore {
         await this.conn.run(fill(this.kit.keyIndex, { index: idx, table: tbl, cols: def.key.map(physCol).join(', ') }));
       }
       const version = old.version + 1;
-      await this.conn.run('UPDATE bs_datasets SET title = ?, version = ?, columns = ?, key_cols = ?, updated_at = ?, updated_by = ? WHERE name = ?',
+      await this.conn.run('UPDATE bs_dataset_catalog SET title = ?, version = ?, columns = ?, key_cols = ?, updated_at = ?, updated_by = ? WHERE name = ?',
         [def.title, version, JSON.stringify(def.columns), JSON.stringify(def.key), c.at, c.actor, def.name]);
       await this.conn.run('INSERT INTO bs_dataset_versions (dataset, version, title, columns, key_cols, author, note, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         [def.name, version, def.title, JSON.stringify(def.columns), JSON.stringify(def.key), c.actor, c.note, c.at]);
@@ -510,12 +603,115 @@ export class BenchStoreCore {
       // 加了列、删了列，数据量跟着变：重量一遍
       if (added.length || removed.length) {
         const bytes = await this.account({ ...old, columns: def.columns });
-        await this.conn.run('UPDATE bs_datasets SET data_bytes = ? WHERE name = ?', [bytes, def.name]);
+        await this.conn.run('UPDATE bs_dataset_catalog SET data_bytes = ? WHERE name = ?', [bytes, def.name]);
       }
       await this.change('dataset.define', def.name, old.version, version, c);
       return { name: def.name, version, created: false, unchanged: false, added: added.map((x) => x.name), removed: removed.map((x) => x.name), snapshot_id: snapshotId };
     });
   }
+  private async datasetStamp(name: string): Promise<DatasetFence> {
+    if (typeof name !== 'string' || !NAME_RE.test(name)) throw new BenchError('invalid', '数据集名写法不对');
+    const row = (await this.conn.all('SELECT dataset_id, revision, state FROM bs_dataset_lifecycle WHERE name = ?', [name]))[0];
+    const generation = await this.meta('dataset_generation');
+    if (!row || !generation) throw new BenchError('not_found', '没有这个数据集');
+    return { name, id: String(row.dataset_id), revision: Number(row.revision), generation, state: row.state as DatasetFence['state'] };
+  }
+  private async revisionOf(key: 'view_revision' | 'binding_revision'): Promise<number> { return Number(await this.meta(key) ?? 0); }
+  private async bumpRevision(key: 'view_revision' | 'binding_revision'): Promise<void> {
+    await this.setMeta(key, String(await this.revisionOf(key) + 1));
+  }
+  datasetFence(name: string): Promise<DatasetContext> {
+    return this.serial(async () => ({ ...await this.datasetStamp(name), viewRevision: await this.revisionOf('view_revision'), bindingRevision: await this.revisionOf('binding_revision') }));
+  }
+  private async assertDatasetFence(expected: DatasetFence): Promise<DatasetFence> {
+    const actual = await this.datasetStamp(expected.name);
+    if (canonical(actual) !== canonical(expected)) throw new BenchError('conflict', '数据集身份、修订或恢复代次已改变');
+    return actual;
+  }
+
+  private async reportSlotsFor(doc: ViewDoc | null, slots: unknown): Promise<Record<string, ReportSource>> {
+    if (!isObj(slots)) throw new BenchError('conflict', '现行报告绑定不完整，先改绑或停用');
+    const result: Record<string, ReportSource> = Object.create(null);
+    for (const [slot, locator] of Object.entries(slots)) {
+      if (!isObj(locator) || typeof locator.view !== 'string' || typeof locator.block !== 'number' || !Number.isSafeInteger(locator.block) || locator.block < 0) {
+        throw new BenchError('conflict', '现行报告槽不可解析，先改绑或停用');
+      }
+      const block = doc?.views.find(v => v.key === locator.view)?.blocks[locator.block];
+      if (!block || !isObj(block.query) || typeof block.query.dataset !== 'string') throw new BenchError('conflict', '现行报告槽不可解析，先改绑或停用');
+      if ((await this.datasetStamp(block.query.dataset)).state !== 'active') throw new BenchError('conflict', '现行报告槽的数据集已退役，先改绑或停用');
+      result[slot] = { dataset: block.query.dataset, digest: sha256(canonical([block.type, block.query])) };
+    }
+    return result;
+  }
+  private async bindingReferences(doc: ViewDoc | null): Promise<Map<string, Record<string, ReportSource>>> {
+    const rows = await this.conn.all(`SELECT b.dimension_id, b.slots FROM bs_report_bindings b
+      WHERE b.version = (SELECT MAX(m.version) FROM bs_report_bindings m WHERE m.dimension_id = b.dimension_id)
+      AND NOT EXISTS (SELECT 1 FROM bs_report_binding_stops s WHERE s.dimension_id = b.dimension_id AND s.version = b.version)`);
+    const refs = new Map<string, Record<string, ReportSource>>();
+    for (const row of rows) refs.set(String(row.dimension_id), await this.reportSlotsFor(doc, JSON.parse(String(row.slots))));
+    return refs;
+  }
+  private async currentViewDoc(): Promise<ViewDoc | null> {
+    const active = await this.activeVersion();
+    return active ? (await this.viewDoc(active)).doc : null;
+  }
+  private async assertReportSourcesUnchanged(next: ViewDoc): Promise<void> {
+    const before = await this.bindingReferences(await this.currentViewDoc());
+    const after = await this.bindingReferences(next);
+    for (const [dimension, slots] of before) {
+      if (canonical(slots) !== canonical(after.get(dimension))) throw new BenchError('conflict', '现行报告数据槽改了来源，先改绑或停用生成');
+    }
+  }
+  private async assertNoDatasetReferences(name: string): Promise<void> {
+    const doc = await this.currentViewDoc();
+    for (const v of doc?.views ?? []) for (const b of v.blocks) {
+      const options = b.type === 'filter-bar' && Array.isArray(b.fields) ? b.fields.map(f => f.options) : [];
+      if ((isObj(b.query) && b.query.dataset === name) || b.dataset === name || options.some(o => isObj(o) && o.dataset === name)) {
+        throw new BenchError('conflict', '现行视图仍引用这个数据集');
+      }
+    }
+    for (const slots of (await this.bindingReferences(doc)).values()) if (Object.values(slots).some(source => source.dataset === name)) {
+      throw new BenchError('conflict', '现行报告绑定仍引用这个数据集');
+    }
+  }
+
+  /** 仅供已判权的站内确认服务调用。无主库锁、过期代次或旧上下文都不能写。 */
+  datasetLifecycle(input: DatasetTransition, mainFence: MainStoreFence): Promise<DatasetFence> {
+    if (!mainFence) return Promise.reject(new BenchError('unsupported', '退役和恢复要求主库判权围栏'));
+    return this.tx(async () => {
+      const { expected, operationId, action, actor, at } = input;
+      const reason = typeof input.reason === 'string' ? input.reason.trim() : '';
+      if (!expected || typeof operationId !== 'string' || !IDEM_RE.test(operationId) || !['retire', 'restore'].includes(action) || !reason || reason.length > 500 ||
+        typeof actor !== 'string' || !actor || !Number.isSafeInteger(at)) throw new BenchError('invalid', '退役或恢复需要操作号、执行人和理由');
+      const current = await this.datasetStamp(expected.name);
+      if (current.generation !== expected.generation || current.id !== expected.id) throw new BenchError('conflict', '数据集身份或恢复代次已改变');
+      const digest = sha256(canonical([expected, action, actor, reason]));
+      const prior = (await this.conn.all('SELECT context_sha256, receipt FROM bs_dataset_operations WHERE operation_id = ?', [operationId]))[0];
+      if (prior) {
+        if (prior.context_sha256 !== digest) throw new BenchError('conflict', '操作号已用于不同的确认上下文');
+        return JSON.parse(String(prior.receipt)) as DatasetFence;
+      }
+      const { viewRevision, bindingRevision, ...dataset } = expected;
+      await this.assertDatasetFence(dataset);
+      if (viewRevision !== await this.revisionOf('view_revision') || bindingRevision !== await this.revisionOf('binding_revision')) {
+        throw new BenchError('conflict', '现行视图或报告绑定已改变，重新预检');
+      }
+      const metadata = (await this.conn.all('SELECT columns FROM bs_dataset_catalog WHERE name = ?', [current.name]))[0];
+      if (hasProvenance({ columns: JSON.parse(String(metadata.columns)) })) throw new BenchError('unsupported', '首版不退役公共区数据集');
+      const state = action === 'retire' ? 'retired' : 'active';
+      if (current.state === state) throw new BenchError('conflict', '数据集已是该状态');
+      if (action === 'retire') await this.assertNoDatasetReferences(current.name);
+      const live = physTable(current.name), parked = 'retired_' + live;
+      await this.conn.run('ALTER TABLE ' + (action === 'retire' ? live + ' RENAME TO ' + parked : parked + ' RENAME TO ' + live));
+      const next = { ...current, state, revision: current.revision + 1 } as DatasetFence;
+      await this.conn.run('UPDATE bs_dataset_lifecycle SET state = ?, revision = ? WHERE name = ?', [state, next.revision, next.name]);
+      await this.conn.run('INSERT INTO bs_dataset_operations (operation_id, generation, dataset_id, actor, action, context_sha256, reason, at, receipt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [operationId, next.generation, next.id, actor, action, digest, reason, at, JSON.stringify(next)]);
+      await this.change('dataset.' + action, next.name, current.revision, next.revision, { actor, at, note: reason });
+      return next;
+    }, mainFence);
+  }
+
   /** 列定义的历史版本（新的在前） */
   datasetVersions(name: string) {
     return this.serial(async () => {
@@ -548,7 +744,7 @@ export class BenchStoreCore {
     res.row_count = Number(n[0].n);
     if (res.row_count > BENCH_LIMITS.rows) throw new BenchError('limit', `数据集 ${ds.name} 写入后有 ${res.row_count} 行，超过上限 ${BENCH_LIMITS.rows}，整批未写入`);
     res.data_bytes = await this.account(ds);
-    await this.conn.run('UPDATE bs_datasets SET row_count = ?, data_bytes = ?, updated_at = ?, updated_by = ? WHERE name = ?', [res.row_count, res.data_bytes, c.at, c.actor, ds.name]);
+    await this.conn.run('UPDATE bs_dataset_catalog SET row_count = ?, data_bytes = ?, updated_at = ?, updated_by = ? WHERE name = ?', [res.row_count, res.data_bytes, c.at, c.actor, ds.name]);
     await this.conn.run('INSERT INTO bs_writes (dataset, op, idem_key, body_sha256, row_count, actor, at, result) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
       [ds.name, op, scopedKey, body, res.rows, c.actor, c.at, JSON.stringify(res)]);
     const max = await this.conn.all('SELECT MAX(id) AS m FROM bs_writes');
@@ -573,7 +769,7 @@ export class BenchStoreCore {
     const bytes = await this.measure(ds);
     if (bytes <= ds.data_bytes) return bytes;
     if (bytes > this.caps.datasetBytes) throw new BenchError('limit', `数据集 ${ds.name} 写入后有 ${mb(bytes)}，超过单个数据集的上限 ${mb(this.caps.datasetBytes)}，整批未写入`);
-    const others = Number((await this.conn.all('SELECT COALESCE(SUM(data_bytes), 0) AS n FROM bs_datasets WHERE name <> ?', [ds.name]))[0].n);
+    const others = Number((await this.conn.all('SELECT COALESCE(SUM(data_bytes), 0) AS n FROM bs_dataset_catalog WHERE name <> ?', [ds.name]))[0].n);
     if (others + bytes > this.caps.storeBytes) throw new BenchError('limit', `这个台的数据写入后合计 ${mb(others + bytes)}，超过单台的上限 ${mb(this.caps.storeBytes)}，整批未写入`);
     return bytes;
   }
@@ -787,7 +983,7 @@ export class BenchStoreCore {
       }
       const checked = { length: restored };
       const bytes = await this.account(ds);
-      await this.conn.run('UPDATE bs_datasets SET row_count = ?, data_bytes = ?, updated_at = ?, updated_by = ? WHERE name = ?', [checked.length, bytes, c.at, c.actor, ds.name]);
+      await this.conn.run('UPDATE bs_dataset_catalog SET row_count = ?, data_bytes = ?, updated_at = ?, updated_by = ? WHERE name = ?', [checked.length, bytes, c.at, c.actor, ds.name]);
       await this.change('dataset.restore', ds.name, ds.version, ds.version, { ...c, note: c.note || `退回快照 #${snapshotId}` });
       return { dataset: ds.name, restored_from: snapshotId, row_count: checked.length, dropped_columns: dropped, snapshot_id: backup };
     });
@@ -803,6 +999,7 @@ export class BenchStoreCore {
   }
   /** 查询的本体；要在排着队的那一格里调。room 是还能取回多少个字符，chars 是这次取了多少 */
   private async runQuery(defs: Map<string, DatasetDef>, spec: unknown, params: Record<string, unknown>, room: number) {
+    if (isObj(spec) && typeof spec.dataset === 'string' && !defs.has(spec.dataset)) await this.rejectRetired(spec.dataset);
     const plan = planQuery(spec, defs, { params, contains: (col) => fill(this.kit.contains, { col }), guard: this.guard });
     const rows: Record<string, unknown>[] = [];
     let truncated = false, chars = 0;
@@ -1056,9 +1253,11 @@ export class BenchStoreCore {
         const cur = await this.conn.all('SELECT sha256 FROM bs_view_versions WHERE version = ?', [active]);
         if (cur.length && cur[0].sha256 === sum) return { version: active, active_version: active, unchanged: true, sha256: sum };
       }
+      await this.assertReportSourcesUnchanged(doc as ViewDoc);
       const version = Number((await this.conn.all('SELECT MAX(version) AS m FROM bs_view_versions'))[0].m ?? 0) + 1;
       await this.conn.run('INSERT INTO bs_view_versions (version, content, sha256, author, note, at) VALUES (?, ?, ?, ?, ?, ?)', [version, text, sum, c.actor, c.note, c.at]);
       await this.setMeta('active_view', String(version));
+      await this.bumpRevision('view_revision');
       // 只留最近若干版；生效的那一版不清
       await this.conn.run('DELETE FROM bs_view_versions WHERE version <= ? AND version <> ?', [version - BENCH_LIMITS.viewVersions, version]);
       await this.change('view.put', 'views', active, version, c);
@@ -1075,7 +1274,9 @@ export class BenchStoreCore {
       if (to === active) return { active_version: active, unchanged: true };
       const errs = validateViewDoc(JSON.parse(String(r[0].content)), await this.load());
       if (errs.length) throw new BenchError('invalid', `第 ${to} 版引用的数据集或列现在已经不在了，不能生效`, errs.slice(0, 50));
+      await this.assertReportSourcesUnchanged(JSON.parse(String(r[0].content)) as ViewDoc);
       await this.setMeta('active_view', String(to));
+      await this.bumpRevision('view_revision');
       await this.change('view.rollback', 'views', active, to, c);
       return { active_version: to, unchanged: false };
     });
@@ -1369,7 +1570,7 @@ export class BenchStoreCore {
   /** 第一次绑模板、生成报告时建 bs_report_*（附加的表，不升版本号）。调用方已经在 serial / tx 里 */
   private async ensureReports(): Promise<void> {
     if (this.reportsReady) return;
-    for (const sql of this.kit.reportSchema) await this.conn.run(sql);
+    for (const sql of [...this.kit.reportSchema, ...this.kit.bindingWriteFence]) await this.conn.run(sql);
     for (const probe of this.kit.reportProbes) {
       try { await this.conn.all(probe); } catch (e) { throw new BenchError('unsupported', `台库 ${this.slug} 的报告表和这份代码不符`, [], e); }
     }
@@ -1381,22 +1582,66 @@ export class BenchStoreCore {
   }
   /** 这个台对一个维度最新的绑定；没绑过是 null */
   reportBindingGet(dimension: string): Promise<ReportBindingRow | null> {
+    return this.serial(() => this.latestBinding(dimension));
+  }
+  private async latestBinding(dimension: string): Promise<ReportBindingRow | null> {
+    const rows = await this.conn.all('SELECT * FROM bs_report_bindings WHERE dimension_id = ? ORDER BY version DESC LIMIT 1', [dimension]);
+    if (!rows.length) return null;
+    const binding = reportBindingOf(rows[0]);
+    const stopped = await this.conn.all('SELECT 1 AS x FROM bs_report_binding_stops WHERE dimension_id = ? AND version = ?', [dimension, binding.version]);
+    if (stopped.length) binding.disabled = true;
+    return binding;
+  }
+  reportBindingStop(dimension: string, input: { base: number; reason: string; actor: string; at: number }, fence: MainStoreFence): Promise<ReportBindingRow> {
+    if (!fence) return Promise.reject(new BenchError('unsupported', '停用报告生成要求主库判权围栏'));
+    return this.tx(async () => {
+      const binding = await this.latestBinding(dimension);
+      if (!binding || binding.version !== input.base) throw new BenchError('conflict', '报告绑定已改变');
+      if (binding.disabled) return binding;
+      const version = binding.version + 1;
+      await this.conn.run('INSERT INTO bs_report_bindings (dimension_id, version, template_version, slots, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [dimension, version, binding.template_version, JSON.stringify(binding.slots), input.actor, input.at]);
+      await this.bumpRevision('binding_revision');
+      await this.conn.run('INSERT INTO bs_report_binding_stops (dimension_id, version, reason, actor, at) VALUES (?, ?, ?, ?, ?)',
+        [dimension, version, input.reason, input.actor, input.at]);
+      await this.change('report.binding-stop', dimension, binding.version, version, { actor: input.actor, at: input.at, note: input.reason });
+      return { ...binding, version, created_by: input.actor, created_at: input.at, disabled: true };
+    }, fence);
+  }
+  reportBindingContext(slots: unknown): Promise<BindingContext> {
     return this.serial(async () => {
-      if (!(await this.hasReports())) return null;
-      const r = await this.conn.all('SELECT dimension_id, version, template_version, slots, created_by, created_at FROM bs_report_bindings WHERE dimension_id = ? ORDER BY version DESC LIMIT 1', [dimension]);
-      return r.length ? reportBindingOf(r[0]) : null;
+      const viewRevision = await this.revisionOf('view_revision');
+      const view = await this.activeVersion();
+      const generation = (await this.meta('dataset_generation'))!;
+      const refs = await this.reportSlotsFor(await this.currentViewDoc(), slots);
+      const datasets = await Promise.all([...new Set(Object.values(refs).map(source => source.dataset))].map(name => this.datasetStamp(name)));
+      if (viewRevision !== await this.revisionOf('view_revision')) throw new BenchError('conflict', '取绑定上下文期间视图改变');
+      return { view, viewRevision, generation, datasets };
     });
   }
   /** 绑定加一版（版本号取这个维度现有最大的加一）。base 是调用方看到的最新版本（没绑过写 0），对不上 409，不覆盖别人刚改的 */
-  reportBindingPut(dimension: string, input: { base: number; template_version: number; slots: unknown; actor: string; at: number }): Promise<ReportBindingRow> {
+  reportBindingPut(dimension: string, input: { base: number; template_version: number; slots: unknown; actor: string; at: number; context: BindingContext }, fence: MainStoreFence): Promise<ReportBindingRow> {
+    if (!fence) return Promise.reject(new BenchError('unsupported', '报告绑定要求主库判权围栏'));
     return this.tx(async () => {
       await this.ensureReports();
+      await this.assertBindingContext(input.context);
+      const sources = await this.reportSlotsFor(await this.currentViewDoc(), input.slots);
+      const names = [...new Set(Object.values(sources).map(source => source.dataset))].sort();
+      if (canonical(names) !== canonical(input.context.datasets.map(x => x.name).sort())) throw new BenchError('conflict', '拟绑定数据集范围已改变');
       const max = Number((await this.conn.all('SELECT MAX(version) AS m FROM bs_report_bindings WHERE dimension_id = ?', [dimension]))[0].m ?? 0);
       if (input.base !== max) throw new BenchError('conflict', `绑定已经是第 ${max} 版了，先重新读一次再改`);
       await this.conn.run('INSERT INTO bs_report_bindings (dimension_id, version, template_version, slots, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)',
         [dimension, max + 1, input.template_version, JSON.stringify(input.slots), input.actor, input.at]);
+      await this.bumpRevision('binding_revision');
       return { dimension_id: dimension, version: max + 1, template_version: input.template_version, slots: JSON.parse(JSON.stringify(input.slots)), created_by: input.actor, created_at: input.at };
-    });
+    }, fence);
+  }
+  private async assertBindingContext(context: BindingContext): Promise<void> {
+    if (!context || context.view !== await this.activeVersion() || context.viewRevision !== await this.revisionOf('view_revision') ||
+      context.generation !== await this.meta('dataset_generation')) throw new BenchError('conflict', '写入前视图或恢复代次已改变');
+    for (const expected of context.datasets) if ((await this.assertDatasetFence(expected)).state !== 'active') {
+      throw new BenchError('conflict', '数据集已退役');
+    }
   }
   /**
    * 按绑定取数：在同一格里（一次只做一件事）把每个数据槽要的块一次取齐，各槽看到的是同一时刻的数据（docs/report-step1.md 附录：同一台内一致）。
@@ -1404,8 +1649,11 @@ export class BenchStoreCore {
    * 参数只认这份视图的筛选栏里声明过的字段（和 renderView 一样）；按 limit 取，取不完 truncated 为真（由编排拒，不出半份报告）。
    * 视图的版本和这一版视图描述的 sha256 由这里填（不信调用方）。取的中途数据改了 409
    */
-  reportSlots(specs: { slot: string; view: string; block: number; params: Record<string, string>; limit: number }[]): Promise<ReportSlotData[]> {
+  reportSlots(specs: { slot: string; view: string; block: number; params: Record<string, string>; limit: number }[]): Promise<{ data: ReportSlotData[]; context: BindingContext }> {
     return this.serial(async () => {
+      const viewRevision = await this.revisionOf('view_revision');
+      const generation = (await this.meta('dataset_generation'))!;
+      const datasets = new Map<string, DatasetFence>();
       if (!Array.isArray(specs) || specs.length > 24) throw new BenchError('invalid', '数据槽最多 24 个');
       const { version, doc } = await this.viewDoc(undefined);
       const sha = String((await this.conn.all('SELECT sha256 FROM bs_view_versions WHERE version = ?', [version]))[0]?.sha256 ?? '');
@@ -1425,18 +1673,29 @@ export class BenchStoreCore {
           if (typeof v !== 'string' || v.length > 200) throw new BenchError('invalid', `数据槽 ${sp.slot} 的参数 ${k.slice(0, 40)} 要是 200 个字符以内的文本`);
         }
         const limit = Math.max(1, Math.min(BENCH_LIMITS.queryLimit, Math.floor(sp.limit)));
-        const { chars, dataset: _d, ...data } = await this.runQuery(defs, { ...(b.query as Record<string, unknown>), limit }, sp.params, room);
+        const query = b.query as Record<string, unknown>;
+        const name = String(query.dataset);
+        if (!datasets.has(name)) datasets.set(name, await this.datasetStamp(name));
+        const { chars, dataset: _dataset, ...data } = await this.runQuery(defs, { ...query, limit }, sp.params, room);
         room -= chars;
         out.push({ slot: sp.slot, view: sp.view, block: sp.block, block_type: String(b.type), view_version: version, view_sha256: sha, columns: data.columns.map(publicColumn), rows: data.rows, truncated: data.truncated });
       }
       if (revision !== await this.tableRevision(await this.load())) throw new BenchError('conflict', '读取期间数据已改变，请重试');
-      return out;
+      const context = { view: version, viewRevision, generation, datasets: [...datasets.values()] };
+      await this.assertBindingContext(context);
+      return { data: out, context };
     });
   }
   /** 存一份冻结的报告和它的论断（同一个事务）。supersedes 要是同维度、同事物、还没被更正过的那份（链头），否则 409 */
-  reportInsert(r: Omit<ReportRow, 'id'>, claims: ReportClaimRow[]): Promise<number> {
+  reportInsert(r: Omit<ReportRow, 'id'>, claims: ReportClaimRow[], fence: PublicationFence): Promise<number> {
+    if (!fence?.main) return Promise.reject(new BenchError('unsupported', '报告首次发布要求主库判权和来源围栏'));
     return this.tx(async () => {
       await this.ensureReports();
+      const binding = await this.latestBinding(r.dimension_id);
+      if (!binding || binding.disabled || binding.version !== r.binding_version || await this.activeVersion() !== fence.view) {
+        throw new BenchError('conflict', '首次发布前报告绑定或视图已改变');
+      }
+      await this.assertBindingContext(fence);
       if (r.supersedes !== null) {
         const t = await this.conn.all('SELECT dimension_id, subject FROM bs_reports WHERE id = ?', [r.supersedes]);
         if (!t.length) throw new BenchError('not_found', `没有第 ${r.supersedes} 份报告`);
@@ -1449,7 +1708,7 @@ export class BenchStoreCore {
       const id = Number(ins[0].id);
       for (const c of claims) await this.conn.run('INSERT INTO bs_report_claims (report_id, claim_key, kind, text, basis) VALUES (?, ?, ?, ?, ?)', [id, c.claim_key, c.kind, c.text, c.basis]);
       return id;
-    });
+    }, fence.main);
   }
   /** 一份报告（带论断）；没有是 null */
   reportGet(id: number): Promise<{ report: ReportRow; claims: ReportClaimRow[] } | null> {
@@ -1534,7 +1793,7 @@ export class BenchStoreCore {
   /** 等排着的读写都跑完再关；从调用这一刻起不再接新的读写。关过的再关一次没有效果 */
   close(): Promise<void> {
     if (this.closed) return this.chain.then(() => undefined);
-    const r = this.serial(async () => { this.conn.close(); });
+    const r = this.serial(async () => { this.conn.close(); }, false);
     this.closed = true;
     return r;
   }
@@ -1549,6 +1808,36 @@ export function benchFile(root: string, slug: string): string {
   return file;
 }
 
+/**
+ * 离线恢复：从已验证的台库备份生成一份带新恢复代次的暂存文件。
+ * 只生成新文件，不替换正在服务的文件。部署方在关闭所有台库进程后发布暂存文件。
+ */
+export function stageBenchRecovery(source: string, destination: string, target: { slug: string; identity: string }, kit: BenchSqlKit): string {
+  const { slug, identity } = target;
+  if (!BENCH_SLUG_RE.test(slug) || !/^[0-9a-f]{32}$/.test(identity) || !existsSync(source) || existsSync(destination)) throw new BenchError('invalid', '恢复需要已有备份、新暂存路径和明确的台标识');
+  const src = new DatabaseSync(source, { readOnly: true, timeout: DB_BUSY_TIMEOUT_MS });
+  const partial = destination + '.partial-' + randomUUID();
+  try {
+    src.prepare('VACUUM INTO ?').run(partial);
+    const copy = new DatabaseSync(partial, { timeout: DB_BUSY_TIMEOUT_MS });
+    const generation = randomUUID();
+    try {
+      const meta = copy.prepare('SELECT k, v FROM bs_meta WHERE k IN (?, ?, ?, ?)').all('schema_version', 'bench_slug', 'dataset_generation', 'bench_identity');
+      const values = new Map(meta.map(x => [x.k, x.v]));
+      if (Number(values.get('schema_version')) !== kit.schemaVersion || values.get('bench_slug') !== slug || !values.get('dataset_generation') || values.get('bench_identity') !== identity) {
+        throw new BenchError('unsupported', '备份结构或台身份不匹配');
+      }
+      const integrity = copy.prepare('PRAGMA quick_check').all();
+      if (integrity.length !== 1 || Object.values(integrity[0])[0] !== 'ok') throw new BenchError('invalid', '备份完整性检查未通过');
+      copy.function('bench_protocol_v2', { deterministic: true }, () => 1);
+      copy.prepare("UPDATE bs_meta SET v = ? WHERE k = 'dataset_generation'").run(generation);
+    } finally { copy.close(); }
+    // 用硬链接发布，目标已有则失败，杜绝并发暂存覆盖。
+    linkSync(partial, destination);
+    return generation;
+  } finally { src.close(); rmSync(partial, { force: true }); }
+}
+
 /** 一个目录下的全部台库：开着的连接、正在删的台、提交了还没取走的变更 */
 export class BenchHost {
   readonly root: string;
@@ -1558,10 +1847,11 @@ export class BenchHost {
   private removing = new Map<string, Promise<void>>();
   private fired: BenchChange[] = [];
   private caps: BenchCaps;
+  private primaryPath?: string;
 
   /** caps：三道数据量上限，不给的取默认（BENCH_LIMITS）；测试用小的 */
-  constructor(root: string, kit: BenchSqlKit, caps: Partial<BenchCaps> = {}) {
-    this.root = root; this.kit = kit;
+  constructor(root: string, kit: BenchSqlKit, caps: Partial<BenchCaps> = {}, primaryPath?: string) {
+    this.root = root; this.kit = kit; this.primaryPath = primaryPath;
     this.caps = { datasetBytes: caps.datasetBytes ?? BENCH_LIMITS.datasetBytes, storeBytes: caps.storeBytes ?? BENCH_LIMITS.storeBytes, writeBytes: caps.writeBytes ?? BENCH_LIMITS.writeBytes };
   }
 
@@ -1579,7 +1869,7 @@ export class BenchHost {
         try {
           mkdirSync(this.root, { recursive: true });
           conn = new SqliteConn(file);
-          const s = new BenchStoreCore(slug, conn, this.kit, (c) => { this.fired.push(c); }, this.caps);
+          const s = new BenchStoreCore(slug, conn, this.kit, (c) => { this.fired.push(c); }, this.caps, this.primaryPath);
           await s.init();
           return s;
         } catch (e) {
