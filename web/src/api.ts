@@ -1,4 +1,14 @@
 import type { TableContext } from './bench-table-view';
+
+/** 报告治理只用站内本人登录，不添加管理口令。 */
+export function getReportGovernanceInbox(after: number, signal?: AbortSignal): Promise<Response> {
+  return fetch('/api/report-governance/inbox?after=' + after, { signal });
+}
+export function decideReportGovernance(id: string, action: 'confirm' | 'reject', digest: string): Promise<Response> {
+  return fetch('/api/report-governance/inbox/' + encodeURIComponent(id) + '/' + action, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(action === 'confirm' ? { snapshot_sha256: digest } : {}),
+  });
+}
 import type { WorkItemListPage } from './work-items-view';
 import { seatAsksMore } from './attention-view';
 import type { Cockpit, ExportPayload, PanelConfig, SopApp, SopDefinition, SopRun, SopRunDetail, SopRunFile, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';

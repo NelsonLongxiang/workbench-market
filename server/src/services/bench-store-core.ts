@@ -59,7 +59,7 @@ export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
   ['reportBindingGet', 'read'], ['reportSlots', 'read'], ['reportGet', 'read'], ['reportList', 'read'], ['reportCounts', 'read'],
   ['responsesOf', 'read'],
   ['reportBindingPut', 'write'], ['reportInsert', 'write'], ['responseInsert', 'write'],
-  ['datasetStorageTotals', 'read'], ['datasetFence', 'read'], ['datasetLifecycle', 'write'], ['reportBindingContext', 'read'], ['reportBindingStop', 'write'],
+  ['datasetStorageTotals', 'read'], ['datasetFence', 'read'], ['datasetLifecycle', 'write'], ['reportBindingContext', 'read'], ['reportBindingSnapshot', 'read'], ['reportBindingStop', 'write'], ['reportBindingReceipt', 'read'],
 ]);
 
 /** 卡片的一个常量或变量（和主库 workbench_vars 的一行同形，只是不带 workbench_id） */
@@ -89,6 +89,7 @@ export type DatasetContext = DatasetFence & { viewRevision: number; bindingRevis
 export type DatasetTransition = { expected: DatasetContext; operationId: string; action: 'retire' | 'restore'; reason: string; actor: string; at: number };
 export type BindingContext = { view: number; viewRevision: number; generation: string; datasets: DatasetFence[] };
 export type PublicationFence = BindingContext & { main: MainStoreFence };
+export type ReportBindingOperation = { id: string; snapshotSha256: string };
 export type WriteCtx = { actor: string; at: number; idemKey?: string; note?: string; provenance?: Provenance };
 /**
  * 公共区写入口给的来源（只有它给；带来源列的数据集只收带这个的追加）。每行的来源列由服务端照这里填，写入方的行里不能有。
@@ -466,6 +467,7 @@ export class BenchStoreCore {
         } else if (Number(v) !== mine || !(await this.meta('dataset_generation')) || await this.meta('bench_slug') !== this.slug) {
           throw new BenchError('unsupported', '台库结构或数据集恢复代次不受支持');
         }
+        await this.conn.run(this.kit.bindingOperationSchema);
         // bs_vars 是附加的表：开库不建，有没有由 hasVars 现查，第一次写由 ensureVars 建
         // 版本号对得上，结构也要对得上：固定的几张表各试读一遍该有的列
         for (const probe of this.kit.probes) {
@@ -1609,21 +1611,60 @@ export class BenchStoreCore {
     }, fence);
   }
   reportBindingContext(slots: unknown): Promise<BindingContext> {
-    return this.serial(async () => {
+    return this.serial(() => this.bindingContext(slots));
+  }
+  private async bindingContext(slots: unknown): Promise<BindingContext> {
       const viewRevision = await this.revisionOf('view_revision');
       const view = await this.activeVersion();
       const generation = (await this.meta('dataset_generation'))!;
       const refs = await this.reportSlotsFor(await this.currentViewDoc(), slots);
-      const datasets = await Promise.all([...new Set(Object.values(refs).map(source => source.dataset))].map(name => this.datasetStamp(name)));
+      const datasets = await Promise.all([...new Set(Object.values(refs).map(source => source.dataset))].sort().map(name => this.datasetStamp(name)));
       if (viewRevision !== await this.revisionOf('view_revision')) throw new BenchError('conflict', '取绑定上下文期间视图改变');
       return { view, viewRevision, generation, datasets };
+  }
+  /** 只解析来源及输出列契约，不取业务行。确认时上下文和绑定版本都进写事务复核。 */
+  reportBindingSnapshot(dimension: string, slots: Record<string, { view: string; block: number }>) {
+    return this.serial(async () => {
+      const context = await this.bindingContext(slots);
+      const doc = await this.currentViewDoc();
+      const defs = await this.load();
+      const refs = await this.reportSlotsFor(doc, slots);
+      const slotContracts = Object.fromEntries(Object.entries(slots).map(([name, locator]) => {
+        const block = doc?.views.find(view => view.key === locator.view)?.blocks[locator.block];
+        const plan = planQuery(block?.query, defs);
+        return [name, { ...refs[name], columns: plan.columns.map(({ name, type, role }) => ({ name, type, role })), parameters: [...plan.params].sort() }];
+      }));
+      const view = (await this.conn.all('SELECT sha256 FROM bs_view_versions WHERE version = ?', [context.view]))[0];
+      const bind = await this.latestBinding(dimension);
+      await this.assertBindingContext(context);
+      return { context, viewSha256: view ? String(view.sha256) : '', base: bind?.version ?? 0, slotContracts };
     });
   }
+  private async bindingReceipt(dimension: string, operation: ReportBindingOperation): Promise<ReportBindingRow | null> {
+    const rows = await this.conn.all('SELECT o.snapshot_sha256, b.* FROM bs_report_binding_operations o JOIN bs_report_bindings b ON b.dimension_id = o.dimension_id AND b.version = o.version WHERE o.operation_id = ?', [operation.id]);
+    if (!rows.length) return null;
+    const row = rows[0];
+    if (row.snapshot_sha256 !== operation.snapshotSha256 || row.dimension_id !== dimension) {
+      throw new BenchError('conflict', '该操作号已用于不同报告绑定');
+    }
+    return reportBindingOf(row);
+  }
+  /** 确认结果不明时只查回执，不重发写入。 */
+  reportBindingReceipt(dimension: string, operation: ReportBindingOperation): Promise<ReportBindingRow | null> {
+    return this.serial(() => this.bindingReceipt(dimension, operation));
+  }
   /** 绑定加一版（版本号取这个维度现有最大的加一）。base 是调用方看到的最新版本（没绑过写 0），对不上 409，不覆盖别人刚改的 */
-  reportBindingPut(dimension: string, input: { base: number; template_version: number; slots: unknown; actor: string; at: number; context: BindingContext }, fence: MainStoreFence): Promise<ReportBindingRow> {
+  reportBindingPut(dimension: string, input: { base: number; template_version: number; slots: unknown; actor: string; at: number; context: BindingContext; operation?: ReportBindingOperation }, fence: MainStoreFence): Promise<ReportBindingRow> {
     if (!fence) return Promise.reject(new BenchError('unsupported', '报告绑定要求主库判权围栏'));
     return this.tx(async () => {
       await this.ensureReports();
+      if (input.operation) {
+        if (!/^[0-9a-f-]{36}$/.test(input.operation.id) || !/^[0-9a-f]{64}$/.test(input.operation.snapshotSha256)) {
+          throw new BenchError('invalid', '报告绑定操作号或摘要格式不对');
+        }
+        const prior = await this.bindingReceipt(dimension, input.operation);
+        if (prior) return prior;
+      }
       await this.assertBindingContext(input.context);
       const sources = await this.reportSlotsFor(await this.currentViewDoc(), input.slots);
       const names = [...new Set(Object.values(sources).map(source => source.dataset))].sort();
@@ -1632,6 +1673,8 @@ export class BenchStoreCore {
       if (input.base !== max) throw new BenchError('conflict', `绑定已经是第 ${max} 版了，先重新读一次再改`);
       await this.conn.run('INSERT INTO bs_report_bindings (dimension_id, version, template_version, slots, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)',
         [dimension, max + 1, input.template_version, JSON.stringify(input.slots), input.actor, input.at]);
+      if (input.operation) await this.conn.run('INSERT INTO bs_report_binding_operations (operation_id, snapshot_sha256, dimension_id, version) VALUES (?, ?, ?, ?)',
+        [input.operation.id, input.operation.snapshotSha256, dimension, max + 1]);
       await this.bumpRevision('binding_revision');
       return { dimension_id: dimension, version: max + 1, template_version: input.template_version, slots: JSON.parse(JSON.stringify(input.slots)), created_by: input.actor, created_at: input.at };
     }, fence);

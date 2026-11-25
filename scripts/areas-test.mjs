@@ -1012,7 +1012,7 @@ try {
       const catalog = await callTool(unbound.token, 'access_info', {});
       const detail = await callTool(unbound.token, 'access_info', { capability: readCap });
       check(toolNames.filter(x => x === 'invoke').length === 1 && !toolNames.some(x => x.startsWith('fixture-domain.')) &&
-        catalog.json?.capabilities?.length === 2 && catalog.json.capabilities.every(x => !x.granted && !x.input_schema) &&
+        catalog.json?.capabilities?.filter(x => x.name.startsWith('fixture-domain.')).length === 2 && catalog.json.capabilities.every(x => !x.granted && !x.input_schema) &&
         detail.json?.capability?.input_schema?.required?.join() === 'text', 'G1 仅通用工具公开，能力目录和详情分层', { list: toolNames, catalog: catalog.json?.capabilities, detail });
       const denied = await restCap(readCap, { text: 'x' });
       const missing = await restCap('fixture-domain.missing', { text: 'x' });

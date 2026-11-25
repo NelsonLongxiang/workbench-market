@@ -11,7 +11,7 @@ const ID = /^[a-z][a-z0-9-]{0,47}$/;
 const BENCH = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const IDEM = /^[a-zA-Z0-9_.:-]{1,128}$/;
 
-type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
+export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type ProposalScope = { op: 'bench-bind'; bench: string; dimension: string }
   | { op: 'dimension-create' | 'template-publish' | 'dimension-activate'; area: string; dimension: string };
 export type GovernanceChannel = 'rest' | 'mcp-invoke' | 'market' | 'internal';
@@ -53,11 +53,11 @@ function activePerson(principal: string): boolean {
 function eligibleSession(sessionId: number, principal: string): boolean {
   return activePerson(principal) && Boolean(db.prepare("SELECT id FROM mcp_sessions WHERE id = ? AND revoked_at = '' AND is_system = 0").get(sessionId));
 }
-function canonical(value: Json): string {
+export function canonicalGovernanceJson(value: Json): string {
   if (value === null || typeof value === 'string' || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) return JSON.stringify(value);
-  if (Array.isArray(value)) return '[' + value.map(canonical).join(',') + ']';
+  if (Array.isArray(value)) return '[' + value.map(canonicalGovernanceJson).join(',') + ']';
   if (value && typeof value === 'object' && [null, Object.prototype].includes(Object.getPrototypeOf(value))) {
-    return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonical(value[key])).join(',') + '}';
+    return '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + canonicalGovernanceJson(value[key])).join(',') + '}';
   }
   return fail(400, 'report_governance_args_invalid', '治理提案只接受 JSON 数据');
 }
@@ -107,26 +107,43 @@ export class ReportGovernanceProposalService extends Service {
     if (row.status !== 'pending') return conflict('report_governance_state', '提案已处理或正在确认');
     return row;
   }
+  private prior(input: ProposalInput): Proposal | null {
+    if (typeof input.idempotencyKey !== 'string' || !IDEM.test(input.idempotencyKey)) return fail(400, 'report_governance_idempotency_invalid', '提案需要合法的幂等键');
+    const found = db.prepare('SELECT * FROM report_governance_proposals WHERE session_id = ? AND op = ? AND target_key = ? AND idempotency_key = ?')
+      .get(input.sessionId, input.scope.op, scopeKey(input.scope), input.idempotencyKey) as Proposal | undefined;
+    if (!found) return null;
+    if (found.principal_id !== input.principal) return unavailable();
+    if (found.request_sha256 !== sha(canonicalGovernanceJson(input.args))) return conflict('report_governance_idempotency_mismatch', '幂等键已用于不同的提案参数');
+    return found;
+  }
+  replay(input: ProposalInput, now: number, authorized: () => boolean): Proposal | null {
+    return this.tx(() => {
+      if (!eligibleSession(input.sessionId, input.principal) || !authorized()) return unavailable();
+      const found = this.prior(input);
+      if (!found) return null;
+      const row = this.expirePending(found, now);
+      this.audit(row, 'report.governance-propose', input.channel, null, now);
+      return row;
+    });
+  }
+  pendingPage(after: number, allowed: (p: Proposal) => boolean) {
+    const rows = db.prepare("SELECT * FROM report_governance_proposals WHERE id > ? AND status IN ('pending','confirming') ORDER BY id LIMIT 200").all(after) as Proposal[];
+    return { proposals: rows.filter(allowed), next: rows.length === 200 ? rows[rows.length - 1].id : null };
+  }
   /** 只对已判权的会话冻结对象。幂等重试只复核原身份与当前授权，不重新捕获输入或对象。 */
   create(input: ProposalInput, now: number, authorized: () => boolean, capture: () => Json): Proposal {
     return this.tx(() => {
       if (!eligibleSession(input.sessionId, input.principal) || !authorized()) return unavailable();
-      if (typeof input.idempotencyKey !== 'string' || !IDEM.test(input.idempotencyKey)) return fail(400, 'report_governance_idempotency_invalid', '提案需要合法的幂等键');
-      const target = scopeKey(input.scope);
-      const digest = sha(canonical(input.args));
-      const found = db.prepare('SELECT * FROM report_governance_proposals WHERE session_id = ? AND op = ? AND target_key = ? AND idempotency_key = ?')
-        .get(input.sessionId, input.scope.op, target, input.idempotencyKey) as Proposal | undefined;
+      const found = this.prior(input);
       if (found) {
-        if (found.principal_id !== input.principal) return unavailable();
-        if (found.request_sha256 !== digest) return conflict('report_governance_idempotency_mismatch', '幂等键已用于不同的提案参数');
         const proposal = this.expirePending(found, now);
         this.audit(proposal, 'report.governance-propose', input.channel, null, now);
         return proposal;
       }
-      const snapshot = canonical(capture());
+      const snapshot = canonicalGovernanceJson(capture());
       if (Buffer.byteLength(snapshot) > 300000) return fail(400, 'report_governance_snapshot_too_large', '治理提案超出大小限制');
       const row = db.prepare('INSERT INTO report_governance_proposals (session_id, principal_id, op, target_key, idempotency_key, request_sha256, snapshot_sha256, frozen, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *')
-        .get(input.sessionId, input.principal, input.scope.op, target, input.idempotencyKey, digest, sha(snapshot), snapshot, now, now + PROPOSAL_TTL) as Proposal;
+        .get(input.sessionId, input.principal, input.scope.op, scopeKey(input.scope), input.idempotencyKey, sha(canonicalGovernanceJson(input.args)), sha(snapshot), snapshot, now, now + PROPOSAL_TTL) as Proposal;
       this.audit(row, 'report.governance-propose', input.channel, null, now);
       return row;
     });

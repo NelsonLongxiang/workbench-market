@@ -24,7 +24,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9926", "etag": "W/\"26c6-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10107", "etag": "W/\"277b-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -74,6 +74,7 @@
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-stop-report", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports/probe/binding/stop", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.remember-anonymous", "surface": "market", "method": "POST", "path": "/api/knowledge/remember", "verdict": "pass", "status": 401, "reason": null },
@@ -118,7 +119,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9381", "etag": "W/\"24a5-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9562", "etag": "W/\"255a-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -168,6 +169,7 @@
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-stop-report", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports/probe/binding/stop", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.remember-anonymous", "surface": "market", "method": "POST", "path": "/api/knowledge/remember", "verdict": "pass", "status": 401, "reason": null },
@@ -203,7 +205,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9926", "etag": "W/\"26c6-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10107", "etag": "W/\"277b-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -253,6 +255,7 @@
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-stop-report", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports/probe/binding/stop", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.remember-anonymous", "surface": "market", "method": "POST", "path": "/api/knowledge/remember", "verdict": "pass", "status": 401, "reason": null },
@@ -297,7 +300,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10225", "etag": "W/\"27f1-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10406", "etag": "W/\"28a6-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -348,6 +351,7 @@
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-stop-report", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports/probe/binding/stop", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.remember-anonymous", "surface": "market", "method": "POST", "path": "/api/knowledge/remember", "verdict": "pass", "status": 401, "reason": null },
@@ -394,7 +398,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9496", "etag": "W/\"2518-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9677", "etag": "W/\"25cd-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -445,6 +449,7 @@
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-stop-report", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports/probe/binding/stop", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.remember-anonymous", "surface": "market", "method": "POST", "path": "/api/knowledge/remember", "verdict": "pass", "status": 401, "reason": null },
@@ -488,7 +493,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9926", "etag": "W/\"26c6-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10107", "etag": "W/\"277b-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -538,6 +543,7 @@
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-stop-report", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports/probe/binding/stop", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.remember-anonymous", "surface": "market", "method": "POST", "path": "/api/knowledge/remember", "verdict": "pass", "status": 401, "reason": null },
@@ -580,7 +586,7 @@
           "response": {
             "status": 503,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9404", "etag": "W/\"24bc-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "9585", "etag": "W/\"2571-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": false,
               "service": "workbench-market-server",
@@ -630,6 +636,7 @@
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-stop-report", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports/probe/binding/stop", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.remember-anonymous", "surface": "market", "method": "POST", "path": "/api/knowledge/remember", "verdict": "pass", "status": 401, "reason": null },
@@ -666,7 +673,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "9948", "etag": "W/\"26dc-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10129", "etag": "W/\"2791-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -716,6 +723,7 @@
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-stop-report", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports/probe/binding/stop", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.remember-anonymous", "surface": "market", "method": "POST", "path": "/api/knowledge/remember", "verdict": "pass", "status": 401, "reason": null },
@@ -768,7 +776,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10775", "etag": "W/\"2a17-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10956", "etag": "W/\"2acc-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -818,6 +826,7 @@
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-stop-report", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports/probe/binding/stop", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.remember-anonymous", "surface": "market", "method": "POST", "path": "/api/knowledge/remember", "verdict": "pass", "status": 401, "reason": null },
@@ -868,7 +877,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "10215", "etag": "W/\"27e7-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "10396", "etag": "W/\"289c-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -918,6 +927,7 @@
                   { "id": "market.bench-views.report-generate-anonymous", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-write", "surface": "market", "method": "POST", "path": "/api/bench-views", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.bench-views.anonymous-stop-report", "surface": "market", "method": "POST", "path": "/api/bench-views/wm-self-probe/reports/probe/binding/stop", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.report-governance.anonymous-confirm", "surface": "market", "method": "POST", "path": "/api/report-governance/inbox/p-1/confirm", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.grants.admin-read", "surface": "market", "method": "GET", "path": "/api/grants", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.anonymous-read", "surface": "market", "method": "GET", "path": "/api/knowledge", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.knowledge.remember-anonymous", "surface": "market", "method": "POST", "path": "/api/knowledge/remember", "verdict": "pass", "status": 401, "reason": null },

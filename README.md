@@ -482,6 +482,9 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   report-compile.ts（报告的编排：模板第二版 + 台的绑定 + 台库按绑定取回的数 + 输入 + 论断 → 冻结的报告；纯函数，不碰库。由 P0 的技术试验（web/src/report-template/p0.ts）改写：来源（视图版本、视图描述的 sha256、行数）由台库填，不收调用方给的；取不完、列类型不合就拒，不出半份报告；论断的类别、条数照模板，依据指的行要在这份报告里；图片节点这一步不收（素材授权还没定））
   report-dimension.ts（报告的维度和模板：Cordis 服务 `reportDimensions`·维度属于一个领域或跨领域；模板版本建好不能改、不能删、不修剪，发版不自动生效；和上一版比出 layout / criteria，判据类（criteria，第一版也算）要作者以外的人复核过才能移成生效；撤了只读；每步一行留痕；定报告维度只认属主和持本领域 area-report 授予的人，跨领域的只有属主，见 [docs/report-step1.md](docs/report-step1.md)）
   report-governance-proposal.ts（报告治理提案账本，同事务审计、确认状态与操作号）
+  services/report-governance.ts（报告提案和站内确认编排）
+  services/bench-access.ts（台级授权的共享判定）
+  routes/report-governance.ts（报告治理的会话和站内入口）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   bench-mcp.ts（数据视图的 MCP 工具：授予按「会话 × 台 × 工具」记在自己的表里，不放进会话的 grants·申请由会话提、台的管理层批·读也按台限定·执行时把台库的方法对到工具名上）
   bench-registry.ts（视图台的登记：主库里只记有这个台、叫什么、谁建的、绑到哪个部门和团队·登记过的台才有库，没登记的标识一律当作不存在·改绑留痕·卡片 id 为主、台标识为别名：入口写卡片 id 或台标识都认（resolveBenchRef），只给 workbench_id 就开出 wb-<卡片 id>·纯数字标识不许登记·删卡片时登记和授予一起删（removeCardBench）·绑定的标识要是没撤的领域或还没迁的部门，撤了的领域拒）

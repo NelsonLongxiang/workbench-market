@@ -197,7 +197,7 @@ async function parent() {
   ok('写成之后主库里有一份一样的（值、revision），审计照旧记在主库', r.m5main?.value === '{"n":1}' && r.m5main.revision === 1 && r.m5audit === 'create', { main: r.m5main, audit: r.m5audit });
   console.log('M6 回退安全（台库结构）');
   // 第 2 版台库的固定表。变量表仍需首次写入才创建。
-  const V2 = 'bs_changes,bs_dataset_catalog,bs_dataset_lifecycle,bs_dataset_operations,bs_dataset_versions,bs_meta,bs_report_binding_stops,bs_report_bindings,bs_report_claims,bs_report_responses,bs_reports,bs_snapshot_rows,bs_snapshots,bs_view_versions,bs_writes,sqlite_sequence';
+  const V2 = 'bs_changes,bs_dataset_catalog,bs_dataset_lifecycle,bs_dataset_operations,bs_dataset_versions,bs_meta,bs_report_binding_operations,bs_report_binding_stops,bs_report_bindings,bs_report_claims,bs_report_responses,bs_reports,bs_snapshot_rows,bs_snapshots,bs_view_versions,bs_writes,sqlite_sequence';
   const m = r.m6main;
   ok('main 档：写变量、读台库里的变量、比对、迁移 dry-run 都不建 bs_vars，版本号是 2，保留第 2 版固定表', m?.list === 0 && m.get === null && m.count === 0 && m.digest === 0 && m.shape?.version === '2' && m.shape.tables === V2, m);
   ok('main 档：关了再开还是版本 2、没有 bs_vars', m?.reopen?.version === '2' && m.reopen.tables === V2, m?.reopen);

@@ -794,7 +794,14 @@ try {
     const oldBinding = await refused(() => life.reportBindingPut('test-report', { base: 0, template_version: 1, slots, actor: 'tester', at: clock, context: bindingCtx }, captureBenchStorageFence()));
     ok('F7a 视图版本回到同一编号，旧绑定上下文仍拒绝', oldBinding?.code === 'conflict', oldBinding);
     if (!oldBinding) throw Error('F7a 旧上下文错误产生了绑定');
-    const liveBinding = await life.reportBindingPut('test-report', { base: 0, template_version: 1, slots, actor: 'tester', at: clock, context: await life.reportBindingContext(slots) }, captureBenchStorageFence());
+    const bindingOperation = { id: '11111111-2222-4333-8444-555555555555', snapshotSha256: 'a'.repeat(64) };
+    const bindingInput = { base: 0, template_version: 1, slots, actor: 'tester', at: clock, context: await life.reportBindingContext(slots), operation: bindingOperation };
+    const liveBinding = await life.reportBindingPut('test-report', bindingInput, captureBenchStorageFence());
+    const repeated = await life.reportBindingPut('test-report', bindingInput, captureBenchStorageFence());
+    const bindingReceipt = await life.reportBindingReceipt('test-report', bindingOperation);
+    const mismatched = await refused(() => life.reportBindingReceipt('test-report', { ...bindingOperation, snapshotSha256: 'b'.repeat(64) }));
+    ok('F8 报告绑定操作号和新版本一并提交，重放不追加版本，异摘要对账拒绝', liveBinding.version === 1 && repeated.version === 1 &&
+      bindingReceipt?.version === 1 && mismatched?.code === 'conflict' && (await life.reportBindingGet('test-report')).version === 1, { repeated, bindingReceipt, mismatched });
     const beta = await life.datasetFence('beta');
     const referenced = await refused(() => doTransition(context(beta, 'retire-beta-1')));
     ok('F7b 现行视图引用会阻断退役，状态保持 active', referenced?.code === 'conflict' && (await life.datasetFence('beta')).state === 'active', referenced);

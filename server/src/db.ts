@@ -1748,6 +1748,7 @@ CREATE TABLE IF NOT EXISTS area_access_requests (
 CREATE INDEX IF NOT EXISTS idx_area_access_requests_area ON area_access_requests (area_id, status, id);
 CREATE INDEX IF NOT EXISTS idx_area_access_requests_session ON area_access_requests (session_id, created_at);
 `);
+addColumnIfMissing('area_access_requests', 'governance_scope TEXT');
 // 报告的维度和模板（docs/report-step1.md 第二节第 1 小节；第 19 篇）。维度属于领域（area_id 空是跨领域的维度），一个维度一串模板版本。
 //   report_dimensions：标识、所属领域、名字、状态（active / retired）、生效指针（active_version）。不删，撤了只读。
 //   report_templates：(维度, 版本) 复合主键；正文是模板 JSON（上限 200 KB，按字节），正文摘要 sha256 和判据部分的摘要 criteria_sha256
@@ -2389,7 +2390,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS bench_storage_fence (id INTEGER PRIMARY KEY 
   CREATE TRIGGER IF NOT EXISTS bench_storage_identity_delete AFTER DELETE ON bench_views
   BEGIN DELETE FROM bench_storage_identities WHERE slug = OLD.slug; END`);
 for (const table of ['bench_views', 'workbenches', 'principals', 'principal_identities', 'grants', 'custom_roles', 'areas', 'report_dimensions',
-  'report_templates', 'bench_mcp_grants', 'teams', 'seat_assignments', 'team_leads', 'mcp_sessions', 'market_sessions',
+  'report_templates', 'bench_mcp_grants', 'area_access_requests', 'teams', 'seat_assignments', 'team_leads', 'mcp_sessions', 'market_sessions',
   'a2a_peers', 'a2a_roster_nodes', 'a2a_roster_node_seats']) {
   for (const operation of ['INSERT', 'UPDATE', 'DELETE']) {
     const event = table === 'mcp_sessions' && operation === 'UPDATE' ? 'UPDATE OF revoked_at, responsible_principal, grants' : operation;
@@ -2740,6 +2741,7 @@ export type BenchSqlKit = {
   dialect: BenchDialect;
   datasetLifecycleSchema: string[];
   bindingWriteFence: string[];
+  bindingOperationSchema: string;
   schemaVersion: number;
   /** 附加的表 bs_vars 和它的试读（开库不建、不试；第一次写常量、变量时才建，见 BENCH_STORE_SCHEMA_VERSION） */
   varsSchema: string[];
@@ -2784,6 +2786,7 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
     schemaVersion: BENCH_STORE_SCHEMA_VERSION,
     datasetLifecycleSchema: benchDatasetLifecycleSchema(d),
     bindingWriteFence: benchReportWriteFence(d),
+    bindingOperationSchema: 'CREATE TABLE IF NOT EXISTS bs_report_binding_operations (operation_id TEXT PRIMARY KEY, snapshot_sha256 TEXT NOT NULL, dimension_id TEXT NOT NULL, version INTEGER NOT NULL, FOREIGN KEY (dimension_id, version) REFERENCES bs_report_bindings (dimension_id, version))',
     varsSchema: benchStoreVarsSchema(),
     varsProbes: ['SELECT key, kind, value, revision, updated_by, owner, created_at, updated_at FROM bs_vars WHERE 1 = 0'],
     varsExists: d === 'postgres'

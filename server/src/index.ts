@@ -105,6 +105,8 @@ import { registerSopRunFileRoutes } from './routes/sop-run-files.ts';
 import { registerSopRunLifecycleRoutes, sopRunWriteMode, type SopRunWriteMode } from './routes/sop-run-lifecycle.ts';
 import { registerMcpRestRoutes } from './routes/mcp-rest.ts';
 import { registerCapabilityRoutes } from './routes/capabilities.ts';
+import { registerReportGovernanceRoutes } from './routes/report-governance.ts';
+import { governanceCatalog, governanceForbidden, GOVERNANCE_PROPOSE, GOVERNANCE_RESULT, proposeReportGovernance, resultReportGovernance } from './services/report-governance.ts';
 import { capability, capabilityIndex, capabilityBrief, capabilityDetail, capabilityDenied, executeCapability, type CapabilityChannel, type CapabilityDeclaration } from './capabilities.ts';
 import { registerAppsStaticRoutes } from './routes/apps-static.ts';
 import { managementGrantHolders } from './work-item-access.ts';
@@ -403,7 +405,7 @@ app.use((req, res, next) => {
   if (surfaceOf(req) !== 'control' && !onVaultHost(req)) return next();
   // 用 Express 路由同一个 pathname（req.path：已剥查询串、已处理绝对形式 http://x/mcp），再按小写判——路由不区分大小写（/MCP、/A2A/direct 曾漏过；#299 绝对形式）
   const p = req.path.toLowerCase();
-  if (/^\/(go|sop|apps)(\/|$)/.test(p) || p === '/mcp' || p === '/openapi.json' || p.startsWith('/api/mcp-rest/') || p.startsWith('/a2a/')) return res.status(404).type('text').send(surfaceOf(req) === 'control' ? '控制面不提供此路径（请用业务面）\n' : '凭据库域名不提供此路径（请用主域名）\n');
+  if (/^\/(go|sop|apps)(\/|$)/.test(p) || p === '/mcp' || p === '/openapi.json' || p.startsWith('/api/mcp-rest/') || p.startsWith('/api/report-governance/') || p.startsWith('/a2a/')) return res.status(404).type('text').send(surfaceOf(req) === 'control' ? '控制面不提供此路径（请用业务面）\n' : '凭据库域名不提供此路径（请用主域名）\n');
   res.setHeader('content-security-policy', "frame-ancestors 'none'; frame-src 'none'");
   res.setHeader('x-frame-options', 'DENY');
   next();
@@ -514,6 +516,7 @@ const REMOTE_ALLOW_PREFIX = [
   // 上传票的直传：票本身就是凭据（只能用一次、10 分钟过期），路由内核票、再核发票的会话和授权还在
   /^\/api\/mcp-rest\/(tools\/[^/]+|apps\/[a-z0-9-]{1,64}\/files(\/[^/]+)?|uploads\/[A-Za-z0-9_-]{43})$/,
   /^\/api\/mcp-rest\/capabilities\/[a-z][a-z0-9-]{0,47}\.[a-z][a-z0-9-]{0,47}$/,
+  /^\/api\/report-governance\/(proposals|inbox\/p-[1-9][0-9]{0,14}\/(confirm|reject))$/,
   // 数据视图的入口（开关关着时每条都回 404）：路由内自己判——先拒管理口令，再经身份服务认人、问判定，只有管理层和范围是「全部」的授予放行。
   // 这道门要的恰恰是管理口令，而这组路由不认管理口令，所以登记在这里
   /^\/api\/bench-views(\/[a-z0-9][a-z0-9-]{0,63}(\/[a-z0-9_/-]{1,160})?)?$/,
@@ -573,7 +576,7 @@ function announceAllowDiff(): void {
 }
 /** 扩展的业务写面：远程浏览器 POST 该路径不经管理写门（不要口令、不认管理员），由扩展路由自己判身份与同源。
  *  只收 /api/<命名空间>/… 精确路径，命名空间不得是宿主的；进 S3 豁免面快照，变更照常告警与通知 */
-const HOST_API_NAMESPACES = new Set(['a2a', 'admin', 'admin-token', 'apps', 'auth', 'bindings', 'change-requests', 'check-all', 'cockpits', 'content', 'cookies', 'design', 'export', 'health', 'import', 'mcp', 'mcp-rest', 'remote-allow', 'settings', 'skills', 'sop', 'sops', 'stats', 'summary', 'task-center', 'tasks', 'types', 'vault', 'workbench-events', 'workbenches']);
+const HOST_API_NAMESPACES = new Set(['a2a', 'admin', 'admin-token', 'apps', 'auth', 'bindings', 'change-requests', 'check-all', 'cockpits', 'content', 'cookies', 'design', 'export', 'health', 'import', 'mcp', 'mcp-rest', 'report-governance', 'remote-allow', 'settings', 'skills', 'sop', 'sops', 'stats', 'summary', 'task-center', 'tasks', 'types', 'vault', 'workbench-events', 'workbenches']);
 function allowExtensionRemoteWrite(path: string): void {
   const m = /^\/api\/([a-z0-9][a-z0-9-]{0,63})(\/[a-z0-9][a-z0-9-]{0,63}){1,3}$/.exec(path);
   if (!m) throw new Error(`业务写面路径非法（须 /api/<命名空间>/<段>，小写）：${path}`);
@@ -3614,6 +3617,8 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
     return { request: benchRequestForSession(row!) };
   }
   if (name === 'access_info' && args?.capability !== undefined) {
+    const report = BENCH_VIEWS.on ? governanceCatalog(sess, true).find(cap => cap.name === args.capability) : undefined;
+    if (report) return { capability: report };
     const cap = capability(args.capability);
     if (!cap) bad('领域能力未登记，请查看 access_info 目录');
     return { capability: capabilityDetail(cap!, capabilityCaller(sess, cap!) !== null) };
@@ -3638,7 +3643,10 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
       session: sess?.name ?? null,
       granted_tools: catalog.filter(granted).map((t) => t.name),
       catalog: catalog.map((t) => entry(t, full)),
-      capabilities: capabilityIndex().map(cap => capabilityBrief(cap, capabilityCaller(sess, cap) !== null)),
+      capabilities: [
+        ...capabilityIndex().map(cap => capabilityBrief(cap, capabilityCaller(sess, cap) !== null)),
+        ...(BENCH_VIEWS.on ? governanceCatalog(sess, false) : []),
+      ],
       ...(full ? {} : { how_to_detail: '要某个工具的参数表和完整说明：access_info {tool: "工具名"}（没批的也取得到）' }),
       requests: sess ? (svc<McpService>('mcp').accessRequestsBySession(sess.id) as AccessRequestRow[]).map(accessRequestForSession) : [],
       ...(BENCH_VIEWS.on ? { bench_requests: sess ? benchRequestsOf(sess.id).map(benchRequestForSession) : [], how_to_request_bench: 'access_request {tools: [工具名@bench:台的标识], reason: 用途}：数据视图的工具必须限定到台，读也一样；一次只申请一个台；由台的管理层批准，不经 MCP 网关页' } : {}),
@@ -3791,6 +3799,10 @@ function capabilityCaller(sess: McpSess | null, cap: CapabilityDeclaration) {
 }
 
 async function invokeCapability(sess: McpSess | null, target: unknown, args: unknown, channel: CapabilityChannel, origin: string) {
+  if (target === GOVERNANCE_PROPOSE || target === GOVERNANCE_RESULT) {
+    if (!BENCH_VIEWS.on) governanceForbidden();
+    return target === GOVERNANCE_PROPOSE ? proposeReportGovernance(sess, args, channel) : resultReportGovernance(sess, args, channel);
+  }
   const cap = capability(target);
   if (!cap) capabilityDenied();
   const start = Date.now();
@@ -3856,6 +3868,13 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
 }
 
 registerCapabilityRoutes(http, { wrap, mcpGatewaySession, mcpPublicOrigin, invokeCapability });
+registerReportGovernanceRoutes(http, { wrap, enabled: BENCH_VIEWS.on,
+  session: req => {
+    const bearer = /^Bearer ([0-9a-f]{64})$/i.exec(String(req.headers.authorization ?? ''));
+    return MCP_GATEWAY_ON && bearer ? mcpSessionByToken(bearer[1]) : null;
+  },
+  crossOriginDenied: req => req.headers['sec-fetch-site'] === 'cross-site' || (!!req.headers.origin && !originIsThisSurface(req) && !devOriginOk(req)),
+});
 registerMcpProtocolRoutes(http, { mcpGatewaySession, mcpAudit, mcpRestInfo, mcpPublicOrigin, MCP_KNOWN_PROTOCOLS, MCP_PROTOCOL, mcpAggregatedTools, mcpToolGranted, mcpInvokeTool, mcpByRef });
 
 // ---------- MCP 工具的 OpenAPI REST 开放：不说 MCP 协议的客户端用同一个会话令牌按 REST 调同一批工具 ----------

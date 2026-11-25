@@ -57,6 +57,9 @@ export const MCP_TOOLS: McpToolDef[] = [
         tools: { type: 'array', items: { type: 'string' }, description: '要申请的工具名（来自 access_info 目录）' },
         area: { type: 'string', description: '领域接入申请的领域标识，须有可信会话归属' },
         actions: { type: 'array', items: { type: 'string' }, description: '同一领域要申请的动作，须和 area 一起填写，不与 tools 混写' },
+        report_scope: { type: 'object', additionalProperties: false, required: ['bench', 'dimension'], properties: {
+          bench: { type: 'string' }, dimension: { type: 'string' },
+        }, description: '申请 report.governance-bench-bind 时指定单台和单维度' },
         reason: { type: 'string', description: '用途说明（必填·≤500 字）' },
       },
       required: ['reason'],
