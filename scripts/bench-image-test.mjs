@@ -403,13 +403,13 @@ try {
     const bodyText = JSON.stringify(g.json?.report?.body ?? {});
     check(!bodyText.includes(PNG.toString('base64').slice(0, 16)) && !bodyText.includes('data:image') && bodyText.length < 4000, 'I11 正文只记链接加哈希：不带图的内容（没有 base64、data: 地址）', { len: bodyText.length });
 
-    const e = { notImage: await gen('photos/page.html', 'item:img-e1'), missing: await gen('photos/none.png', 'item:img-e2'), blocked: await gen('http://10.0.0.1/a.png', 'item:img-e3'), badRef: await gen('javascript:alert(1)', 'item:img-e4') };
+    const e = { notImage: await gen('photos/page.html', 'item:img-e1'), missing: await gen('photos/none.png', 'item:img-e2'), blocked: await gen('http://192.0.2.1/a.png', 'item:img-e3'), badRef: await gen('javascript:alert(1)', 'item:img-e4') };
     const listed = (await bv(boss, 'GET', '/synth-rep/reports')).json?.reports ?? [];
     check(e.notImage.status === 400 && /report_image_unavailable/.test(e.notImage.text) && /image_type_unsupported/.test(e.notImage.text)
         && e.missing.status === 400 && /report_image_unavailable/.test(e.missing.text) && /image_fetch_failed/.test(e.missing.text)
         && e.blocked.status === 400 && /image_address_blocked/.test(e.blocked.text) && e.badRef.status === 400 && /report_invalid_image_ref/.test(e.badRef.text)
         && !listed.some((r) => /^item:img-e/.test(r.subject)),
-      'I11 图取不到（不是图片、404、内网地址）不出报告：400 report_image_unavailable 带代取的错误代号；参数不是合规链接 400 report_invalid_image_ref；清单里没有这几份',
+      'I11 图取不到（不是图片、404、文档网段这类非公网地址）不出报告：400 report_image_unavailable 带代取的错误代号；参数不是合规链接 400 report_invalid_image_ref；清单里没有这几份',
       Object.fromEntries(Object.entries(e).map(([k, v]) => [k, [v.status, v.text.slice(0, 160)]])));
 
     // MCP 生成走同一处：相对路径按图库前缀取图（没传图库前缀就取不到）
