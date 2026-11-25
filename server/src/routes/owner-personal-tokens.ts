@@ -7,7 +7,7 @@ import { requestPerson } from '../request-person.ts';
 import { personalAuthorization } from '../portal-forward-headers.ts';
 import { resolveBenchRef } from '../services/bench-registry.ts';
 import type { GrantService } from '../services/grant.ts';
-import { authenticatePersonalToken, issuePersonalToken, listPersonalTokens, markPersonalTokenUsed, revokePersonalToken, type PersonalToken, type Scope } from '../services/owner-personal-tokens.ts';
+import { authenticatePersonalToken, issuePersonalToken, listPersonalTokens, PERSONAL_TOKEN_LIMITS, PERSONAL_TOKEN_SCOPES, markPersonalTokenUsed, revokePersonalToken, type PersonalToken, type Scope } from '../services/owner-personal-tokens.ts';
 
 const personal = new WeakMap<express.Request, PersonalToken & { authorizedBench?: string }>();
 export const personalTokenOf = (req: express.Request) => personal.get(req);
@@ -72,19 +72,19 @@ export function registerPersonalTokenRoutes(app: HttpService, isVaultHost: (req:
       const sameOrigin = req.headers['sec-fetch-site'] !== 'cross-site' && (req.headers.origin ? originIsThisSurface(req, true)
         : req.method === 'GET' || req.method === 'HEAD' || (rawLoopback(req) && req.headers['sec-fetch-site'] === 'same-origin'));
       if (!validSurface || !sameOrigin || req.headers.authorization !== undefined || req.headers['x-admin-token'] !== undefined) {
-        return res.status(403).json({ error: 'personal_token_owner_session_required' });
+        return res.status(403).json({ error: 'personal_token_owner_session_required', message: '请在市场同源页面用属主账号登录后操作。' });
       }
       const { principal } = await requestPerson(req);
-      if (!principal) return res.status(401).json({ error: 'personal_token_login_required' });
-      if (!tokenTransport(req)) return res.status(403).json({ error: 'personal_token_surface_denied' });
-      if (!svc<GrantService>('grants').isOwner(principal)) return res.status(403).json({ error: 'personal_token_owner_required' });
+      if (!principal) return res.status(401).json({ error: 'personal_token_login_required', message: '请先登录属主账号。' });
+      if (!tokenTransport(req)) return res.status(403).json({ error: 'personal_token_surface_denied', message: '请从市场的正式地址打开个人令牌设置。' });
+      if (!svc<GrantService>('grants').isOwner(principal)) return res.status(403).json({ error: 'personal_token_owner_required', message: '只有属主能管理个人令牌。' });
       return fn(req, res, principal);
     })().catch(next); };
-  app.get('/api/owner/personal-tokens', { action: 'auth.personal-token-list', kind: 'read', statusNotVerdict: '只认属主本人登录' }, guard((_req, res, principal) => res.json({ personal_tokens: listPersonalTokens(principal) })));
+  app.get('/api/owner/personal-tokens', { action: 'auth.personal-token-list', kind: 'read', statusNotVerdict: '只认属主本人登录' }, guard((_req, res, principal) => res.json({ personal_tokens: listPersonalTokens(principal), available_scopes: PERSONAL_TOKEN_SCOPES, limits: PERSONAL_TOKEN_LIMITS })));
   app.post('/api/owner/personal-tokens', { action: 'auth.personal-token-issue', kind: 'decide', statusNotVerdict: '只认同源属主本人登录' }, guard((req, res, principal) => res.status(201).json(issuePersonalToken(principal, req.body))));
   app.delete('/api/owner/personal-tokens/:id', { action: 'auth.personal-token-revoke', kind: 'decide', statusNotVerdict: '只认同源属主本人登录' }, guard((req, res, principal) => {
     const id = String(req.params.id ?? '');
-    if (!/^[0-9a-f-]{36}$/.test(id) || !revokePersonalToken(principal, id)) return res.status(404).json({ error: 'personal_token_missing' });
+    if (!/^[0-9a-f-]{36}$/.test(id) || !revokePersonalToken(principal, id)) return res.status(404).json({ error: 'personal_token_missing', message: '找不到此令牌。' });
     res.status(204).end();
   }));
 }

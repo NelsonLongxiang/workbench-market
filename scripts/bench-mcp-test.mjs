@@ -642,6 +642,28 @@ try {
     check(records.status === 200 && records.json?.personal_tokens?.[0]?.last_used_at > 0 && !records.text.includes(token)
       && !records.text.includes('token_sha256'), '列表有最近使用时间，仅显示元数据');
     const rev = await srv.call('DELETE', api + '/' + issue.json.personal_token.id, tokenOwner);
+    const unused = await srv.call('POST', api, { ...tokenOwner, body: { name: '尚未使用', scopes: ['bench:read'], benches: ['demo'] } });
+    const used = await srv.call('POST', api, { ...tokenOwner, body: { name: '已使用', scopes: ['bench:read'], benches: ['demo'], expires_in_days: 7 } });
+    const markUsed = await srv.call('POST', readEndpoint, { headers: { authorization: 'Bearer ' + used.json?.token }, body: subject });
+    const fixtureList = await srv.call('GET', api, tokenOwner);
+    const byName = new Map(fixtureList.json?.personal_tokens?.map(row => [row.name, row]));
+    check(unused.status === 201 && used.status === 201 && markUsed.status === 200 && byName.size === 3
+      && byName.get('尚未使用')?.last_used_at === null && byName.get('已使用')?.last_used_at > 0
+      && byName.get('终端合成')?.revoked_at > 0 && !fixtureList.text.includes(unused.json.token) && !fixtureList.text.includes(used.json.token),
+    '设置页三态夹具：真实签发未用、用过与撤销，清单无原文');
+    const scopeIds = fixtureList.json?.available_scopes?.map(scope => scope.id);
+    check(scopeIds?.join() === input.scopes.concat('report-dimensions').join()
+      && fixtureList.json.available_scopes.every(scope => scope.label && scope.description)
+      && fixtureList.json.limits?.default_expires_in_days === 30 && fixtureList.json.limits?.max_expires_in_days === 90,
+    '设置页读到服务端作用域文案与签发期限边界');
+    const invalidForm = await srv.call('POST', api, { ...tokenOwner, body: { ...input, expires_in_days: 0 } });
+    const noSession = await srv.call('GET', api);
+    const foreignSession = await srv.call('GET', api, { ...tokenOwner, session: SESSIONS.alpha });
+    check(invalidForm.status === 400 && noSession.status === 401 && foreignSession.status === 403
+      && [invalidForm, noSession, foreignSession].every(r => /[㐀-鿿]/.test(r.json?.message || '')),
+    '设置接口的常见拒绝返回中文提示');
+    const repeatedRevoke = await srv.call('DELETE', api + '/' + issue.json.personal_token.id, tokenOwner);
+    check(repeatedRevoke.status === 204 && repeatedRevoke.text === '', '重复撤销仍返回空的 204');
     const denied = await runCli(['query', 'demo', JSON.stringify(subject)]);
     check(rev.status === 204 && denied.code === 1 && denied.output.includes('HTTP 401') && !denied.output.includes(token) && !srv.log().includes(token), '撤销立即拒绝，令牌原文不进入终端输出或服务日志');
   }

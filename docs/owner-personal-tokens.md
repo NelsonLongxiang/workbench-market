@@ -4,11 +4,11 @@
 
 ## 签发与撤销接口
 
-设置页在市场同源调用这些接口，签发与撤销均须有效的属主登录。签发返回 201，撤销返回 204。
+设置页在市场同源调用这些接口，使用属主本人会话。请求使用 Cookie。签发返回 201，初次和重复撤销都返回无应答体的 204。接口级错误包含 error 代号与中文 message。已撤销的令牌继续出现在清单上，以 revoked_at 判定状态。
 
 | 请求 | 请求体与结果 |
 | --- | --- |
-| GET /api/owner/personal-tokens | 返回 personal_tokens 列表，每行含 id、principal、name、scopes、benches、created_at、expires_at、last_used_at、revoked_at。时间为毫秒 Unix 时间戳。 |
+| GET /api/owner/personal-tokens | 返回 personal_tokens、available_scopes 和 limits。personal_tokens 每行含 id、principal、name、scopes、benches、created_at、expires_at、last_used_at、revoked_at。时间为毫秒 Unix 时间戳。available_scopes 每项含 id、label、description。limits 含 default_expires_in_days、min_expires_in_days、max_expires_in_days。 |
 | POST /api/owner/personal-tokens | 提交 name、scopes、benches 和可选 expires_in_days（默认 30，可选 1～90），返回 token 和 personal_token。 |
 | DELETE /api/owner/personal-tokens/{id} | 撤销该条令牌，重复撤销返回相同结果。 |
 
