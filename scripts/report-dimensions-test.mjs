@@ -487,6 +487,46 @@ try {
       { danG: danG.status, dis: dis.status, sess: sess.status, r: `${r.status}:${r.json?.error ?? ''}` });
   }
 
+  // ---- R5o 属主本人发版并激活免作者以外复核（属主 2026-11-25 裁定）：只放开属主本人的、只放开 activate；其他人、命令行、混了别人版本的照旧 409 ----
+  {
+    const err = (r) => `${r.status}:${r.json?.error ?? ''}`;
+    await olga.go('POST', '/api/report-dimensions', { json: { id: 'owner-self', title: '属主自发', area: 'zeta' } });
+    const v1 = await olga.go('POST', '/api/report-dimensions/owner-self/templates', { json: { body: tpl(), note: '属主发的' } });
+    const byRex = await rex.go('POST', '/api/report-dimensions/owner-self/activate', { json: { version: 1 } });            // 不是属主：照旧要复核
+    const byCli = await A.cli('POST', '/api/report-dimensions/owner-self/activate', { version: 1 });                        // 命令行认不出人：照旧要复核
+    const byOwner = await olga.go('POST', '/api/report-dimensions/owner-self/activate', { json: { version: 1 } });
+    const d = A.db();
+    let exemption = null, event = null;
+    try {
+      exemption = d.prepare("SELECT owner_principal, ruling, criteria_sha256 FROM report_template_owner_exemptions WHERE dimension_id = 'owner-self' AND version = 1").get() ?? null;
+      event = d.prepare("SELECT actor_principal, detail FROM report_dimension_events WHERE dimension_id = 'owner-self' AND kind = 'activate' ORDER BY seq DESC LIMIT 1").get() ?? null;
+    } finally { d.close(); }
+    check(v1.status === 201 && err(byRex) === '409:report_template_unreviewed' && byCli.status === 409 && byOwner.status === 200 && byOwner.json?.dimension?.active_version === 1
+        && exemption?.owner_principal === 'user:olga' && exemption?.criteria_sha256 === v1.json?.template?.criteria_sha256 && /属主本人发版并激活/.test(exemption?.ruling ?? '')
+        && event?.actor_principal === 'user:olga' && /2026-11-25 裁定免复核/.test(event?.detail ?? ''),
+      'R5o 属主本人发的判据，属主本人激活 200，记一行豁免并在激活留痕写明裁定；别人激活 409、本机命令行激活 409',
+      { v1: v1.status, byRex: err(byRex), byCli: byCli.status, byOwner: err(byOwner), exemption, event });
+    // 判据一样的版本里有别人发的（rex 只改标题再发），就不算属主本人发的：属主激活自己那一版照旧 409（借道 R5h 的 borrow 维度，那里有人复核过之后才 200，这里另起一个）
+    await olga.go('POST', '/api/report-dimensions', { json: { id: 'owner-mixed', title: '混了别人', area: 'zeta' } });
+    await olga.go('POST', '/api/report-dimensions/owner-mixed/templates', { json: { body: tpl() } });
+    await rex.go('POST', '/api/report-dimensions/owner-mixed/templates', { json: { body: tpl({ title: '只改标题' }) } });
+    const mixed = await olga.go('POST', '/api/report-dimensions/owner-mixed/activate', { json: { version: 1 } });
+    // 复核接口不放开：属主复核自己那一版照旧 403
+    const selfReview = await olga.go('POST', '/api/report-dimensions/owner-self/templates/1/review', { json: {} });
+    // 库这一层：豁免只能记在作者就是这个主体的那一版上；记在 rex 发的那一版上（主体写成 olga）拒；改、删、覆盖都拒；没有复核也没有豁免的版本仍不能生效
+    const db1 = [
+      ['豁免记在别人发的版本上（写库）', sqlThrows(A, "INSERT INTO report_template_owner_exemptions (dimension_id, version, criteria_sha256, owner_principal, at, ruling) SELECT 'owner-mixed', 2, criteria_sha256, 'user:olga', 1, 'x' FROM report_templates WHERE dimension_id = 'owner-mixed' AND version = 2")],
+      ['豁免判据摘要对不上（写库）', sqlThrows(A, "INSERT INTO report_template_owner_exemptions (dimension_id, version, criteria_sha256, owner_principal, at, ruling) VALUES ('owner-mixed', 1, ?, 'user:olga', 1, 'x')", 'd'.repeat(64))],
+      ['改豁免', sqlThrows(A, "UPDATE report_template_owner_exemptions SET ruling = 'x' WHERE dimension_id = 'owner-self'")],
+      ['删豁免', sqlThrows(A, "DELETE FROM report_template_owner_exemptions WHERE dimension_id = 'owner-self'")],
+      ['同版本再记豁免', sqlThrows(A, "INSERT INTO report_template_owner_exemptions (dimension_id, version, criteria_sha256, owner_principal, at, ruling) SELECT 'owner-self', 1, criteria_sha256, 'user:olga', 2, 'x' FROM report_templates WHERE dimension_id = 'owner-self' AND version = 1")],
+      ['指针指没复核也没豁免的判据类（写库）', sqlThrows(A, "UPDATE report_dimensions SET active_version = 1 WHERE id = 'owner-mixed'")],
+    ];
+    check(err(mixed) === '409:report_template_unreviewed' && err(selfReview) === '403:report_template_self_review' && db1.every(([, x]) => x),
+      'R5o 判据一样的版本里有别人发的，属主激活照旧 409；复核接口不放开（属主复核自己 403）；库里豁免只能记在本人发、摘要对得上的那一版，不改不删不覆盖，没复核也没豁免的仍不能生效',
+      { mixed: err(mixed), selfReview: err(selfReview), db1 });
+  }
+
   // ---- R6 读、匿名、跨站 ----
   {
     const reads = {

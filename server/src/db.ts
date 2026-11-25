@@ -1867,6 +1867,41 @@ db.exec(`CREATE TRIGGER IF NOT EXISTS report_template_reviews_not_draft_author B
   WHEN EXISTS (SELECT 1 FROM report_templates v JOIN report_templates t ON t.dimension_id = v.dimension_id AND t.criteria_sha256 = v.criteria_sha256
     WHERE v.dimension_id = NEW.dimension_id AND v.version = NEW.version AND t.draft_author_principal = NEW.reviewed_by_principal)
   BEGIN SELECT RAISE(ABORT, '相同判据的起草人不能复核'); END;`);
+// 属主本人发的判据免复核（属主 2026-11-25 裁定「不需要审，直接操作即可」）：属主本人发、属主本人激活时，记一行豁免代替作者以外的复核。
+//   只增不改；只能记在作者（发版人和起草人）就是这位属主的那一版上，判据摘要也要对得上——是不是属主由服务按授予判（库里判不了有效期），
+//   这里守住「只能给自己发的那一版免」。生效指针的触发器改成：判据要么有作者以外的人复核过，要么有这样一行豁免。
+db.exec(`
+CREATE TABLE IF NOT EXISTS report_template_owner_exemptions (
+  dimension_id TEXT NOT NULL,
+  version INTEGER NOT NULL,
+  criteria_sha256 TEXT NOT NULL CHECK (length(criteria_sha256) = 64),
+  owner_principal TEXT NOT NULL CHECK (owner_principal <> ''),
+  at INTEGER NOT NULL,
+  ruling TEXT NOT NULL CHECK (ruling <> ''),
+  PRIMARY KEY (dimension_id, version)
+);
+CREATE TRIGGER IF NOT EXISTS report_template_owner_exemptions_own_version BEFORE INSERT ON report_template_owner_exemptions
+  WHEN NOT EXISTS (SELECT 1 FROM report_templates t WHERE t.dimension_id = NEW.dimension_id AND t.version = NEW.version
+    AND t.criteria_sha256 = NEW.criteria_sha256 AND t.created_by_principal = NEW.owner_principal
+    AND (t.draft_author_principal IS NULL OR t.draft_author_principal = NEW.owner_principal))
+  BEGIN SELECT RAISE(ABORT, '属主豁免只能记在属主本人发的那一版上（判据摘要和作者都要对得上）'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_owner_exemptions_no_update BEFORE UPDATE ON report_template_owner_exemptions
+  BEGIN SELECT RAISE(ABORT, '属主豁免记录建好不能改'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_owner_exemptions_no_delete BEFORE DELETE ON report_template_owner_exemptions
+  BEGIN SELECT RAISE(ABORT, '属主豁免记录不能删'); END;
+CREATE TRIGGER IF NOT EXISTS report_template_owner_exemptions_no_replace BEFORE INSERT ON report_template_owner_exemptions
+  WHEN EXISTS (SELECT 1 FROM report_template_owner_exemptions WHERE dimension_id = NEW.dimension_id AND version = NEW.version)
+  BEGIN SELECT RAISE(ABORT, '属主豁免记录不能覆盖'); END;
+DROP TRIGGER IF EXISTS report_dimensions_active_reviewed;
+CREATE TRIGGER report_dimensions_active_reviewed BEFORE UPDATE OF active_version ON report_dimensions
+  WHEN NEW.active_version IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM report_templates a JOIN report_templates t ON t.dimension_id = a.dimension_id AND t.criteria_sha256 = a.criteria_sha256
+     JOIN report_template_reviews r ON r.dimension_id = t.dimension_id AND r.version = t.version
+     WHERE a.dimension_id = NEW.id AND a.version = NEW.active_version)
+   AND NOT EXISTS (SELECT 1 FROM report_templates a JOIN report_template_owner_exemptions e ON e.dimension_id = a.dimension_id AND e.criteria_sha256 = a.criteria_sha256
+     WHERE a.dimension_id = NEW.id AND a.version = NEW.active_version)
+  BEGIN SELECT RAISE(ABORT, '生效的模板版本，判据要和某个作者以外的人复核过的版本一样，或者是属主本人发版并激活'); END;
+`);
 // 报告治理提案与确认账本（#1016 N1/N4）。输入、归属和对象快照固定，确认中的跨库操作保留原操作号。
 db.exec(`
 CREATE TABLE IF NOT EXISTS report_governance_proposals (
@@ -2445,6 +2480,7 @@ export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   'report_templates_no_update', 'report_templates_no_delete', 'report_templates_no_replace',
   'report_template_reviews_no_update', 'report_template_reviews_no_delete', 'report_template_reviews_no_replace',
   'report_dimension_events_no_update', 'report_dimension_events_no_delete', 'report_dimension_events_no_replace',
+  'report_template_owner_exemptions_no_update', 'report_template_owner_exemptions_no_delete', 'report_template_owner_exemptions_no_replace',
   // 第二批（#976 裁定）
   'bench_bind_audit_no_update', 'bench_bind_audit_no_delete', 'bench_bind_audit_no_replace',
   'bench_mcp_audit_no_update', 'bench_mcp_audit_no_delete', 'bench_mcp_audit_no_replace',

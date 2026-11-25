@@ -23,6 +23,10 @@ import { areaVerdict } from '../judgment.ts';
 import { REPORT_DIMENSION_SET } from '../roles.ts';
 import { AREA_ID_RE, type AreaService } from './area.ts';
 import type { PrincipalService } from './principal.ts';
+import type { GrantService } from './grant.ts';
+
+/** 属主本人发版并激活、免作者以外复核时，豁免记录与激活留痕里写的裁定（属主 2026-11-25） */
+export const OWNER_SELF_ACTIVATE_RULING = '属主本人发版并激活，按属主 2026-11-25 裁定免复核';
 
 export type DimensionStatus = 'active' | 'retired';
 export type TemplateKind = 'layout' | 'criteria';
@@ -333,6 +337,24 @@ export class ReportDimensionService extends Service {
     });
   }
 
+  /** 判据一样的版本里有没有属主豁免记录（属主 2026-11-25）。 */
+  private ownerExempted(id: string, criteria: string): boolean {
+    return !!db.prepare('SELECT 1 FROM report_template_owner_exemptions WHERE dimension_id = ? AND criteria_sha256 = ?').get(id, criteria);
+  }
+
+  /**
+   * 激活的人是认得出的属主（启用的人、持生效的属主授予），并且判据一样的每一版都只由他本人发（发版人、起草人都是他）。
+   * 本机命令行、管理口令认不出人，不算；判据一样的版本里有别人发的，也不算。
+   */
+  private ownerSelfPublished(id: string, criteria: string, actor: DimensionActor): boolean {
+    const owner = actor.principal;
+    if (!owner || !identifiedPerson(owner) || !svc<GrantService>('grants').isOwner(owner)) return false;
+    const authors = this.criteriaAuthors(id, criteria);
+    if (authors.length === 0 || !this.authorsIdentified(authors)) return false;
+    return authors.every(row => row.created_by_principal === owner && (row.draft_author_principal === null || row.draft_author_principal === owner)
+      && this.authorPrincipals(row).every(p => p === owner));
+  }
+
   /** 复用同判据的人审。经过治理发布的作者集合包含起草人与发布人。 */
   private criteriaReviewed(id: string, criteria: string, draft?: string, publisher?: string): boolean {
     const reviewers = db.prepare('SELECT r.reviewed_by_principal FROM report_templates t JOIN report_template_reviews r ON r.dimension_id = t.dimension_id AND r.version = t.version WHERE t.dimension_id = ? AND t.criteria_sha256 = ?')
@@ -384,9 +406,17 @@ export class ReportDimensionService extends Service {
       const t = this.template(id, version);
       if (!t) return refuse(400, 'report_template_missing', `维度 ${id} 没有第 ${version} 版模板`);
       if (criteriaDigest(t.body as Record<string, unknown>) !== t.criteria_sha256) return refuse(409, 'report_template_criteria_mismatch', `第 ${version} 版存下的判据摘要和正文对不上，不能生效`);
-      if (!this.criteriaReviewed(id, t.criteria_sha256)) return refuse(409, 'report_template_unreviewed', `第 ${version} 版的判据没有被作者以外的人复核过，复核过才能生效`);
+      // 属主 2026-11-25 裁定：属主本人发的判据、由属主本人激活，不用作者以外的人复核；记一行豁免（只增不改）并在激活留痕里写明。
+      // 其他人照旧要作者以外的复核；判据一样的版本里只要有别人发的，就不算属主本人发的。
+      let ruling = '';
+      if (!this.criteriaReviewed(id, t.criteria_sha256) && !this.ownerExempted(id, t.criteria_sha256)) {
+        if (!this.ownerSelfPublished(id, t.criteria_sha256, actor)) return refuse(409, 'report_template_unreviewed', `第 ${version} 版的判据没有被作者以外的人复核过，复核过才能生效`);
+        db.prepare('INSERT INTO report_template_owner_exemptions (dimension_id, version, criteria_sha256, owner_principal, at, ruling) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(id, version, t.criteria_sha256, actor.principal, now, OWNER_SELF_ACTIVATE_RULING);
+        ruling = OWNER_SELF_ACTIVATE_RULING;
+      }
       db.prepare('UPDATE report_dimensions SET active_version = ?, updated_at = ?, updated_by = ? WHERE id = ?').run(version, now, actor.by.slice(0, 256), id);
-      this.event(id, 'activate', version, actor, now);
+      this.event(id, 'activate', version, actor, now, ruling);
       return { ok: true as const, dimension: this.get(id)! };
     });
   }
