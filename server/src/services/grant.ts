@@ -182,8 +182,8 @@ export class GrantService extends Service {
     return c.spec && c.lead ? '定规范和负责人的动作' : c.spec ? '定规范' : c.lead ? '负责人的动作' : null;
   }
 
-  /** 每一步都要过的核对：角色在、范围合规、主体在且启用、不是人的有在职责任人、决定类不给不是人的、不给自己 */
-  private check(g: { principal_id: string; role: string; scope: string; expires_at?: number | null }, actor: Actor): Refusal | null {
+  /** 每一步都复核角色、范围、主体；自授仅允许有效属主兼任领域负责人 */
+  private check(g: { principal_id: string; role: string; scope: string; expires_at?: number | null }, actor: Actor, now = Date.now()): Refusal | null {
     const role = this.roleViews.get(g.role);
     if (!role) return refuse(422, 'role_unknown', `角色 ${g.role} 没有声明`);
     // 访客必须有期限
@@ -210,7 +210,9 @@ export class GrantService extends Service {
       if (!o || o.kind !== 'person' || o.status !== 'active') return refuse(422, 'no_responsible', `${g.principal_id} 不是人，要有在职的责任人才能被授予`);
       if (role.decides) return refuse(422, 'decide_non_person', `角色 ${g.role} 带决定类权限，决定只认人，不授予给 ${g.principal_id}`);
     }
-    if (actor.principal && actor.principal === g.principal_id) return refuse(403, 'self_grant', '不能给自己授予');
+    if (actor.principal === g.principal_id && (g.role !== 'area-lead' || p.kind !== 'person' || this.heldAdmin(actor.principal, now) !== 'owner')) {
+      return refuse(403, 'self_grant', '不能给自己授予');
+    }
     return null;
   }
 
@@ -289,7 +291,7 @@ export class GrantService extends Service {
     if (!db.isTransaction) throw new Error('draftInTx 要在调用方的写事务里用');
     const closed = deptScopeClosed(input.scope);
     if (closed) return closed;
-    const bad = this.check({ principal_id: input.principal, role: input.role, scope: input.scope, expires_at: null }, actor);
+    const bad = this.check({ principal_id: input.principal, role: input.role, scope: input.scope, expires_at: null }, actor, now);
     if (bad) return bad;
     const ownerOnly = this.areaOwnerOnly(input.role, input.scope);
     if (ownerOnly && !actor.owner) return refuse(403, 'area_owner_only', `角色 ${input.role} 在领域范围里覆盖${ownerOnly}，只有属主能起草`);
@@ -329,7 +331,7 @@ export class GrantService extends Service {
     if (!input.reason.trim()) return refuse(400, 'reason_required', '要写理由');
     const closed = deptScopeClosed(input.scope);
     if (closed) return closed;
-    const bad = this.check({ principal_id: input.principal, role: input.role, scope: input.scope, expires_at: input.expiresAt }, actor);
+    const bad = this.check({ principal_id: input.principal, role: input.role, scope: input.scope, expires_at: input.expiresAt }, actor, now);
     if (bad) return bad;
     const ownerOnly = this.areaOwnerOnly(input.role, input.scope);
     if (ownerOnly && !actor.owner) return refuse(403, 'area_owner_only', `角色 ${input.role} 在领域范围里覆盖${ownerOnly}，只有属主能起草`);
@@ -352,7 +354,7 @@ export class GrantService extends Service {
   submit(id: number, actor: Actor, now = Date.now()): Result<{ grant: GrantRow }> {
     const g = db.prepare('SELECT * FROM grants WHERE id = ?').get(id) as GrantRow | undefined;
     if (!g) return refuse(404, 'grant_missing', `授予 ${id} 不存在`);
-    const bad = this.check(g, actor);
+    const bad = this.check(g, actor, now);
     if (bad) return bad;
     return this.move(id, ['draft'], 'pending', 'submit', actor, '', now);
   }
@@ -362,7 +364,7 @@ export class GrantService extends Service {
    * 顺序：各项核对（含不能放行授给自己的）→ 三档放行人 → 第二三档自己起草的 → 期限 → 状态要是待核。
    */
   approvalRefusal(g: GrantRow, actor: Actor, now = Date.now()): Refusal | null {
-    const bad = this.check(g, actor);
+    const bad = this.check(g, actor, now);
     if (bad) return bad;
     const view = this.roleViews.get(g.role);
     const tier = view ? approvalOf(view) : 'owner';

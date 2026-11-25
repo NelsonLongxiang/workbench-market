@@ -58,10 +58,10 @@ export function leadLine(leads: Lead[]): string {
 }
 
 /** 指定负责人时可选的人：只列在用的人（不是席位、节点）；已经是这个领域生效或待放行负责人的不再列；
- *  也不列自己（不能给自己授予，服务端回 self_grant——实机走查时属主出现在名单里、点了才被拒，11-20） */
-export function leadCandidates(principalsBody: unknown, leads: Lead[], self: string | null = null): PersonPick[] {
+ *  有效属主可以兼任，页面用领域接口的 assign_lead 能力判断。 */
+export function leadCandidates(principalsBody: unknown, leads: Lead[], self: string | null = null, canAssignLead = false): PersonPick[] {
   const taken = new Set(leads.filter((l) => l.status !== 'disabled').map((l) => l.principal));
-  if (self) taken.add(self);
+  if (self && !canAssignLead) taken.add(self);
   return (Array.isArray(obj(principalsBody).principals) ? obj(principalsBody).principals as unknown[] : []).flatMap((v): PersonPick[] => {
     const p = obj(v);
     const id = str(p.id);

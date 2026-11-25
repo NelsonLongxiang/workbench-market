@@ -248,7 +248,37 @@ console.log(JSON.stringify({ gaps: ${aoGaps} }));`, { DATA_DIR: dir })));
     `${N} 个进程同时加载这个旧库：全部成功；触发器都补回来了，整库的列和索引、触发器、视图都和原来一样`,
     aoUp.map((r) => (r.timedOut ? 'timeout' : r.exit !== 0 ? `exit ${r.exit}: ${r.err}` : `gaps=${r.result?.gaps}`)));
 
-  console.log('九、触发器定义变了也会更新（#1057：报告维度生效指针的守卫）');
+  console.log('九、旧授予表迁移：并发启动保留授予和审计');
+  const grantDir = join(OUT, 'legacy-grants');
+  mkdirSync(grantDir, { recursive: true });
+  const grantSeed = await run(`const m = await import(${JSON.stringify(DB_URL)});
+const d = m.db;
+const objects = d.prepare("SELECT sql FROM sqlite_master WHERE tbl_name = 'grants' AND type IN ('index','trigger') AND sql IS NOT NULL AND name NOT IN ('grants_self_draft','grants_self_approve')").all();
+const table = d.prepare("SELECT sql FROM sqlite_master WHERE name = 'grants'").get().sql;
+d.exec('PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON; BEGIN IMMEDIATE; ALTER TABLE grants RENAME TO grant_fixture;');
+d.exec(table.replace("CHECK (status NOT IN", "CHECK (created_by_principal IS NULL OR created_by_principal <> principal_id), CHECK (approved_by_principal IS NULL OR approved_by_principal <> principal_id), CHECK (status NOT IN"));
+d.exec("INSERT INTO grants (id, principal_id, role, scope, reason, status, created_by, approved_by, created_at, updated_at, source) VALUES (31,'user:legacy','member','*','合成旧授予','active','cli','cli',1,2,'migration'); DROP TABLE grant_fixture; UPDATE sqlite_sequence SET seq=100 WHERE name='grants';");
+for (const row of objects) d.exec(row.sql);
+d.exec("INSERT INTO grant_events (grant_id,event,to_status,actor,at) VALUES (31,'approve','active','cli',2); COMMIT;");
+const selected = d.prepare("SELECT * FROM grants WHERE id=31").get();
+console.log(JSON.stringify({ selected, history: d.prepare('SELECT * FROM grant_events WHERE grant_id=31').all() }));`, { DATA_DIR: grantDir });
+  const grantStart = Date.now() + 1200;
+  const grantUpgrade = await Promise.all(Array.from({ length: 4 }, () => run(`${PREWARM}
+while (Date.now() < ${grantStart}) {}
+const m = await import(${JSON.stringify(DB_URL)});
+const d = m.db;
+console.log(JSON.stringify({ selected: d.prepare('SELECT * FROM grants WHERE id=31').get(), history: d.prepare('SELECT * FROM grant_events WHERE grant_id=31').all(),
+  seq: d.prepare("SELECT seq FROM sqlite_sequence WHERE name='grants'").get().seq,
+  ref: d.prepare('PRAGMA foreign_key_list(area_access_limits)').all().map(x=>x.table),
+  stale: d.prepare("SELECT count(*) AS n FROM sqlite_master WHERE sql LIKE '%grants_before_owner_area_lead%'").get().n,
+  guards: d.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name IN ('grants_self_draft','grants_self_approve','grants_no_delete','grants_source_fixed','fence_grants_update')").get().n }));`, { DATA_DIR: grantDir })));
+  check(grantSeed.exit === 0 && grantUpgrade.every(({ exit, result }) => exit === 0 &&
+    JSON.stringify(result?.selected) === JSON.stringify(grantSeed.result?.selected) &&
+    JSON.stringify(result?.history) === JSON.stringify(grantSeed.result?.history) && result?.seq === 100 &&
+    result?.stale === 0 && result?.guards === 5 && result?.ref.includes('grants')),
+    '旧 grants 的约束迁移可并发重入，保全授予、审计、自增序列、外键与触发器', { grantSeed, grantUpgrade });
+
+  console.log('十、触发器定义变了也会更新（#1057：报告维度生效指针的守卫）');
   const T = 'report_dimensions_active_reviewed';
   const tStale = await run(`const m = await import(${JSON.stringify(DB_URL)});
 m.db.exec("DROP TRIGGER ${T}; CREATE TRIGGER ${T} BEFORE UPDATE OF active_version ON report_dimensions BEGIN SELECT 1; END");
