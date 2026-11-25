@@ -25,6 +25,10 @@ assert.deepEqual(spec, { root: 'grid', elements: {
   b1: { type: 'table', props: { index: 1 }, children: [] },
   b2: { type: 'UnknownBlock', props: { index: 2 }, children: [] },
 } }, '转换只传稳定序号，隐藏筛选不重新编号、取数与陌生类型不进解释器');
+const graphTypes = ['dag', 'gantt', 'flow'];
+const graphSpec = viewResultToSpec({ blocks: graphTypes.map((type) => ({ type, shape_col: 'kind' })) });
+assert.deepEqual(graphSpec.elements.grid.children.map((id) => graphSpec.elements[id]),
+  graphTypes.map((type, index) => ({ type, props: { index }, children: [] })), '三种任务图保留原来的类型和序号');
 assert.deepEqual(viewResultToSpec(null).elements.grid.children, [], '空结果保留空网格');
 
 // 一、契约自洽
