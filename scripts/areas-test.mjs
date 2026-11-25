@@ -408,6 +408,62 @@ try {
     check(eAp.status === 200 && (await areaStatus('eta')) === 'active', 'B2c 本机命令行起草、放行 eta 的第一位负责人：eta 变 active', { eAp: eAp.status });
   }
 
+  // ---- 有效属主兼任：服务、库约束和界面要用同一条窄例外 ----
+  {
+    const id = 'owner-lead';
+    const scope = 'area:' + id;
+    const created = await A.cli('POST', '/api/areas', { id, name: '合成属主兼任' });
+    const pending = await draftBy(olga, 'user:olga', 'area-lead', scope);
+    const submitted = pending.id && await olga.go('POST', '/api/grants/' + pending.id + '/submit');
+    const before = pending.id && await olga.go('GET', '/api/grants/' + pending.id);
+    const stillPending = await areaStatus(id);
+    const approved = pending.id && await olga.go('POST', '/api/grants/' + pending.id + '/approve');
+    const record = pending.id && (await olga.go('GET', '/api/grants/' + pending.id)).json?.grant;
+    const listing = await olga.go('GET', '/api/areas/' + id);
+    check(created.status === 201 && pending.status === 201 && submitted?.status === 200 && before?.json?.grant?.can_approve === true &&
+      stillPending === 'pending-lead' && approved?.status === 200 && listing.json?.area?.status === 'active' &&
+      listing.json?.leads?.some(l => l.principal === 'user:olga' && l.status === 'active') &&
+      record?.created_by_principal === 'user:olga' && record?.approved_by_principal === 'user:olga' &&
+      same(record?.events?.map(e => [e.event, e.actor_principal]), ['draft', 'submit', 'approve'].map(event => [event, 'user:olga'])),
+      'OSL1 有效属主可给自己起草、提交和放行 area-lead，首位放行后领域生效且三步记真实主体', { pending, submitted, before, approved, listing, record });
+    const ownerOther = [];
+    for (const role of ['admin', 'owner', 'member']) ownerOther.push([role, await draftBy(olga, 'user:olga', role, '*')]);
+    const otherAreaRoles = [];
+    for (const role of ['area-spec', 'area-member', 'lead-helper']) otherAreaRoles.push([role, await draftBy(olga, 'user:olga', role, 'area:zeta')]);
+    const adminSelf = await draftBy(sam, 'user:sam', 'area-lead', 'area:zeta');
+    const memberSelf = await draftBy(tom, 'user:tom', 'area-lead', 'area:zeta');
+    check(ownerOther.concat(otherAreaRoles).every(([, r]) => r.status === 403 && r.error === 'self_grant' && r.id === null) &&
+      adminSelf.status === 403 && adminSelf.error === 'self_grant' && memberSelf.status === 403 && memberSelf.id === null,
+      'OSL2 其他角色、可覆盖负责人动作的自定义角色和非属主自授均拒', { ownerOther, otherAreaRoles, adminSelf, memberSelf });
+    const invalidScope = await draftBy(olga, 'user:olga', 'area-lead', '*');
+    const retired = await draftBy(olga, 'user:olga', 'area-lead', 'area:gamma');
+    const sql = A.db();
+    try {
+      const rawDraft = sql.prepare('INSERT INTO grants (principal_id, role, scope, reason, created_by, created_by_principal, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, 1)');
+      const directNonOwner = throws(() => rawDraft.run('user:sam', 'area-lead', 'area:zeta', '合成', 'user:sam', 'user:sam'));
+      const directOtherRole = throws(() => rawDraft.run('user:olga', 'admin', '*', '合成', 'user:olga', 'user:olga'));
+      const thirdParty = await draftBy(olga, 'user:sam', 'area-lead', 'area:zeta');
+      const thirdSubmit = await olga.go('POST', '/api/grants/' + thirdParty.id + '/submit');
+      const directApproval = throws(() => sql.prepare("UPDATE grants SET status = 'active', approved_by = 'user:sam', approved_by_principal = 'user:sam' WHERE id = ?").run(thirdParty.id));
+      check(invalidScope.error === 'area_scope_required' && retired.error === 'area_retired' && directNonOwner && directOtherRole &&
+        thirdParty.status === 201 && thirdSubmit.status === 200 && directApproval,
+        'OSL3 范围和退役状态仍拒，数据库独立阻断非属主自起草或自放行以及属主自授其他角色', { invalidScope, retired, directNonOwner, directOtherRole, thirdParty, thirdSubmit, directApproval });
+    } finally { sql.close(); }
+    const temporaryOwner = await A.grant('user:sam', 'owner');
+    const forSubmit = await draftBy(sam, 'user:sam', 'area-lead', 'area:zeta');
+    const forApprove = await draftBy(sam, 'user:sam', 'area-lead', 'area:eta');
+    const moved = forApprove.id && await sam.go('POST', '/api/grants/' + forApprove.id + '/submit');
+    const revoke = await A.cli('POST', '/api/grants/' + temporaryOwner.id + '/revoke', { reason: '合成撤销' });
+    if (revoke.status !== 200) throw Error('撤销测试属主失败：' + JSON.stringify(revoke));
+    const submitAfter = forSubmit.id && await sam.go('POST', '/api/grants/' + forSubmit.id + '/submit');
+    const approveAfter = forApprove.id && await sam.go('POST', '/api/grants/' + forApprove.id + '/approve');
+    const readAfter = await sam.go('GET', '/api/grants/' + forApprove.id);
+    check(temporaryOwner.status === 200 && moved?.status === 200 && revoke.status === 200 &&
+      submitAfter?.status === 403 && submitAfter?.json?.error === 'self_grant' && approveAfter?.status === 403 && approveAfter?.json?.error === 'self_grant' &&
+      readAfter.json?.grant?.status === 'pending' && readAfter.json?.grant?.can_approve === false,
+      'OSL4 自授兼任在提交和放行时重核有效属主，撤掉属主后仅有管理员不能继续', { temporaryOwner, forSubmit, forApprove, moved, revoke, submitAfter, approveAfter, readAfter });
+  }
+
   // ---- B3 定规范、负责人：按权限覆盖判，只有属主起草、放行 ----
   {
     const before = grantCount();

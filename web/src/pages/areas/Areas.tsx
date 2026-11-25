@@ -27,7 +27,7 @@ function AreaCard({ a, leads, principals, me, can, onChanged }: { a: Area; leads
   const [who, setWho] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const options = leadCandidates(principals, leads ?? [], me);
+  const options = leadCandidates(principals, leads ?? [], me, can.assignLead);
   const assign = async () => {
     if (!who) return;
     const name = options.find((o) => o.id === who)?.name ?? '这位同事';
