@@ -150,14 +150,16 @@ ok('源码检查自证（#965 统筹补）：下标写法 d[\'dimension_id\']、
   const res = (status, body = async () => blob) => async () => ({ status, blob: body });
   const urls = [];
   const toUrl = (b) => { urls.push(b); return 'blob:synthetic/' + urls.length; };
+  // 取图函数要是拒绝了，记成 rejected 交给下面的断言判（不让用例自己抛错退出）
+  const load = (src, get, url) => loadReportImage(src, get, url).catch((e) => ({ phase: 'rejected', error: String(e?.message ?? e) }));
   const got = {
-    fetchRejects: await loadReportImage('/x', async () => { throw new TypeError('synthetic network down'); }, toUrl),
-    bodyRejects: await loadReportImage('/x', res(200, async () => { throw new TypeError('synthetic body interrupted'); }), toUrl),
-    urlThrows: await loadReportImage('/x', res(200), () => { throw new Error('synthetic createObjectURL failed'); }),
-    ok: await loadReportImage('/x', res(200), toUrl),
-    changed: await loadReportImage('/x', res(409), toUrl),
-    forbidden: await loadReportImage('/x', res(403), toUrl),
-    noSrc: await loadReportImage(null, res(200), toUrl),
+    fetchRejects: await load('/x', async () => { throw new TypeError('synthetic network down'); }, toUrl),
+    bodyRejects: await load('/x', res(200, async () => { throw new TypeError('synthetic body interrupted'); }), toUrl),
+    urlThrows: await load('/x', res(200), () => { throw new Error('synthetic createObjectURL failed'); }),
+    ok: await load('/x', res(200), toUrl),
+    changed: await load('/x', res(409), toUrl),
+    forbidden: await load('/x', res(403), toUrl),
+    noSrc: await load(null, res(200), toUrl),
   };
   await new Promise((r) => setTimeout(r, 20));
   process.off('unhandledRejection', onUnhandled);
