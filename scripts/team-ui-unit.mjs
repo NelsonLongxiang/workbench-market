@@ -2,7 +2,7 @@
 /** 「团队」页的纯函数单测（web/src/team-view.ts）：应答整形、管理员视图、团队状态、负责人、成员归谁用、计数、空的说法、读不到和被拒的说法、建部门的校验。数据都是合成的。 */
 // 在非 UTC 的时区里跑（东八区）：不带时区的时间写法要按 UTC 解析，在这里才看得出来
 process.env.TZ = 'Asia/Shanghai';
-import { actionProblem, approvedNotice, needsMigration, DEPT_LEAD_DRAFTED, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterAt, rosterStaleText, deptLeadText, leadPendingGrantText, reassignHintText, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf, pendingText, proposedText , proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, claimButtonText, LEAD_SKIPPED_TEXT, teamKey, outcomeLabel, outcomeReasonText, assignOps, assigneeOptions, assignDoneText, unassignConfirmText, ASSIGN_BY_TEXT } from '../web/src/team-view.ts';
+import { actionProblem, approvedNotice, needsMigration, DEPT_LEAD_DRAFTED, assignedText, memberlessText, departmentsOf, claimedTeams, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterAt, rosterStaleText, deptLeadText, leadPendingGrantText, reassignHintText, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf, pendingText, proposedText , proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, claimButtonText, LEAD_SKIPPED_TEXT, teamKey, outcomeLabel, outcomeReasonText, assignOps, assigneeOptions, assignDoneText, unassignConfirmText, ASSIGN_BY_TEXT } from '../web/src/team-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -46,9 +46,9 @@ ok('人名：显示名优先，没有去前缀，空的给空串', personName({ 
 
 const deps = departmentsOf({ departments: [{ id: 'ops', name: '运营部', lead: null, member_count: 3 }, { name: '缺标识' }] });
 ok('部门列表：缺标识的丢掉；不是对象按空', deps.length === 1 && deps[0].member_count === 3 && departmentsOf('x').length === 0);
-ok('空：没有部门——管理员说部门正在换成领域、到「领域」页建（这一页不再建部门），别人说等管理员', /部门正在换成领域/.test(emptyText(teamsOf({ departments: [], unclaimed: [] }), [], true)) && /「领域」页/.test(emptyText(teamsOf({ departments: [], unclaimed: [] }), [], true)) && /等管理员先建部门/.test(emptyText(teamsOf({ departments: [] }), [], false)));
-ok('空：有部门没团队——管理员说会先出现在待认领里，别人说哪些团队会出现', /待认领的团队/.test(emptyText(teamsOf({ departments: [], unclaimed: [] }), deps, true)) && /你所在部门的团队/.test(emptyText(teamsOf({ departments: [] }), deps, false)));
-ok('空：有团队（哪怕只有待认领的）就不算空；部门读不到时只看团队', emptyText(teamsOf({ departments: [], unclaimed: [team({ status: 'unclaimed', department: null })] }), deps, true) === null && emptyText(t, null, false) === null);
+ok('团队按卡片呈现：打平已裁剪的分组，保留成员和负责人，不从待认领列表补进来', claimedTeams(t).length === 1 && claimedTeams(t)[0] === t.departments[0].teams[0] && claimedTeams(teamsOf({ departments: [{ id: 'blank' }], unclaimed: [team()] })).length === 0);
+ok('空态：管理员可见待认领提示，其他用户只提示无可见团队', /待认领的团队/.test(emptyText(teamsOf({ departments: [], unclaimed: [] }), true)) && emptyText(teamsOf({ departments: [] }), false) === '还没有你能看到的团队。');
+ok('空态：分组空但有待认领团队，或存在已认领团队时不提示空', emptyText(teamsOf({ departments: [], unclaimed: [team({ status: 'unclaimed', department: null })] }), true) === null && emptyText(t, false) === null);
 
 ok('读不到：401 请先登录、403 不能查看、404 没上线、其余读不到', sourceProblem('团队', { status: 401 }).text.startsWith('请先登录') && /不能查看团队/.test(sourceProblem('团队', { status: 403 }).text) && sourceProblem('团队', { status: 404 }).type === 'info' && sourceProblem('团队', { status: 0 }).text === '读不到团队，稍后再试。' && sourceProblem('团队', { status: 200 }) === null);
 ok('被拒：服务端的说法优先；只有代码不显示代码', actionProblem({ status: 409, body: { error: 'last_lead', message: '最后一个负责人不能直接移除' } }) === '最后一个负责人不能直接移除' && actionProblem({ status: 403, body: { error: 'not_team_lead' } }) === '你的账号现在不能做这一步。' && actionProblem({ status: 201, body: {} }) === null);

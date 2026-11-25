@@ -2,14 +2,14 @@
 团队的读接口（GET /api/teams）用合成的应答（经 page.route 截下：名册要节点报上来，实例里造不出）；部门、人用实例真的；部门已停写（410），测试直接写库造（scripts/lib/legacy-dept-seed.mjs）。
 认领、指定负责人两个写请求也截下，核对发了什么。
   · 没登录：说请先登录，不弹口令框；
-  · 管理员、还没有部门：说部门正在换成领域，不再给建部门的入口，指去「领域」页（领域第 1 步，统筹 11-20）；部门由测试直接写库造进实例（停写前就有的部门）；
+  · 空列表与兼容认领分开显示；没有可认领的原部门时指去「领域」页，部门夹具用停写前已有的记录；
   · 待认领的团队：只有管理员的视图里有；挂到部门，发对了请求；
   · 关系确认制（#638）：口令管理员（系统管理员，不是管理层）认领只记成提议（202）——页面说「已提出，等〈谁〉确认」、那张卡标「待确认」，
-    不出现部门分块（关系没生效）；管理层确认之后（截下的应答换成认领了的）才按部门分块；
+    不进入已认领列表；管理层确认后才显示团队卡片；
   · 认领按钮照 can：系统管理员只能提议，按钮写「提议认领」；选了负责人又只是提议时，提示补一句负责人等认领确认后再指定；
   · 待确认的关系（GET /api/relations/proposals，截下来换成合成的）：等你确认、你提的、别的三组，按钮照 can_approve / can_reject，
     自己提的写「撤回」、不出确认；确认、撤回发对了请求，办完卡片没了，并广播「等你拍板」刷新；
-  · 认领之后：按部门分块，团队头卡写状态、负责人（部门负责人标出来）、总工、成员数和在办；成员卡写在办几件、分配给谁或团队公用；
+  · 认领之后：按团队展示，团队头卡写状态、负责人、总工、成员数和在办；成员卡写在办几件、分配给谁或团队公用；
   · 成员分配（规范 14 第二节）：团队上 can_assign 为真时（负责人、管理层），团队公用的成员出「分配给…」，已分配的出「改派」「收回」；
     总工没有；选人只从 assignable 里选，改派时不列现在的人；分配、改派（一步：POST /api/teams/reassign，不再先收回）、收回发对了请求，卡片原地更新、不闪骨架；
     被拒时写服务端的说法、卡片不变（改派被拒也不变：不会停在团队公用）；回 202 时照提议说；
@@ -100,11 +100,12 @@ with sync_playwright() as p:
     pg.route('**/api/relations/proposals/*/*', on_prop)
     pg.goto(M + '/team'); pg.wait_for_selector('.wm-team-intro')
     set_token(pg)
-    pg.wait_for_selector('[data-testid=team-empty]')
-    check('管理员、还没有部门：说部门正在换成领域，不再给建部门的入口，指去「领域」页', '部门正在换成领域' in pg.locator('[data-testid=team-empty]').inner_text()
-          and pg.locator('[data-testid=team-newdept-cta], [data-testid=team-newdept-open], [data-testid=team-newdept]').count() == 0 and pg.locator('[data-testid=team-to-areas]').get_attribute('href') == '/areas')
     un = pg.locator('[data-testid=team-unclaimed]')
-    check('待认领的团队：管理员看得到；没有部门时说没有部门可挂、指去「领域」页，没有认领按钮', un.count() == 1 and '还没有部门可挂' in un.inner_text()
+    un.locator('[data-testid=team-claim-nodept]').wait_for()
+    check('管理员：页首可去领域，仍没有建部门入口；有待认领团队时不显示整体空态',
+          pg.locator('.wm-team-intro a').get_attribute('href') == '/areas' and pg.locator('[data-testid=team-empty]').count() == 0
+          and pg.locator('[data-testid=team-newdept-cta], [data-testid=team-newdept-open], [data-testid=team-newdept]').count() == 0)
+    check('待认领的团队：没有可用原部门时指去「领域」页，没有认领按钮', un.count() == 1 and '当前没有可用于认领的原部门' in un.inner_text()
           and un.locator('[data-testid=team-claim-nodept] a').get_attribute('href') == '/areas' and pg.locator('[data-testid=team-claim]').count() == 0, un.all_inner_texts())
     check('待认领卡：节点没有名字就不写「来自」这一项，节点标识、团队和席位句柄都不出现', '来自' not in un.inner_text() and not any(x in pg.locator('body').inner_text() for x in [HOST, 'ops/', '/canvas/']), un.inner_text())
 
@@ -114,7 +115,7 @@ with sync_playwright() as p:
     pg.reload(); set_token(pg); pg.wait_for_selector('[data-testid=team-unclaimed] [data-testid=team-roster-stale]')  # 口令只在内存里，重载后再输一次
     check('待认领卡：名册停推（服务端说停了 3000 分钟）写「名册已 2 天没更新」', un.locator('[data-testid=team-roster-stale]').inner_text() == '名册已 2 天没更新', un.inner_text())
     state['teams']['unclaimed'] = [UNCLAIMED]
-    pg.reload(); set_token(pg); pg.wait_for_selector('[data-testid=team-empty]')
+    pg.reload(); set_token(pg); un.locator('[data-testid=team-claim-nodept]').wait_for()
 
     # 部门不再从页面建（换成领域了），旧部门接口也停写了（410）：测试直接写库造进实例（停写前就有的部门，旧部门照旧读、照旧显示），重读页面。
     # 和别的测试同一个写法：调 scripts/lib/legacy-dept-seed.mjs 的 legacySeed().department
@@ -124,7 +125,7 @@ with sync_playwright() as p:
     with urllib.request.urlopen(urllib.request.Request(M + '/api/departments', headers={'x-admin-token': TOK})) as r: real = json.load(r)
     check('部门（写库造的）：实例里有了这个部门', [d['id'] for d in real['departments']] == ['synthetic-ops'], real)
     pg.reload(); set_token(pg); pg.wait_for_selector('[data-testid=team-claim]')
-    check('建好部门：空的说法没了，待认领的团队可以挂到部门', pg.locator('[data-testid=team-empty]').count() == 0 and pg.locator('[data-testid=team-claim]').is_disabled())
+    check('有旧部门后：出现兼容认领表单，选对象前不能提交', pg.locator('[data-testid=team-empty]').count() == 0 and pg.locator('[data-testid=team-claim]').is_disabled())
 
     # 认领：挂到部门、顺带指定负责人
     pick(pg, 'team-claim-dept', '合成运营部')
@@ -144,21 +145,21 @@ with sync_playwright() as p:
     check('「已提出，等谁确认」的提示是浅底（和身份服务那条一样轻），带关闭，不是深灰的整条', nbg == 'rgb(238, 242, 247)' and pg.locator('[data-testid=team-notice] .ant-alert-close-icon').count() == 1, nbg)
     pg.wait_for_selector('[data-testid=team-claim-pending]')
     check('系统管理员认领只是提议：说「已提出，等管理层或接收部门的负责人确认」，不说认领成功', f'已提出，等{CONFIRM_BY}确认' in notice and '成功' not in notice, notice)
-    check('提议期间：卡上标「待确认」、写挂到哪个部门等谁确认，没有认领按钮；没有部门分块（关系没生效）',
+    check('提议期间：卡上标「待确认」、写挂到哪个部门等谁确认，没有认领按钮；不进入已认领列表',
           pg.locator('[data-testid=team-claim-state]').inner_text().strip() == '待确认' and '合成运营部' in pg.locator('[data-testid=team-claim-pending]').inner_text()
-          and pg.locator('[data-testid=team-claim]').count() == 0 and pg.locator('[data-testid=team-dept]').count() == 0, pg.locator('[data-testid=team-unclaimed]').inner_text())
+          and pg.locator('[data-testid=team-claim]').count() == 0 and pg.locator('[data-testid=claimed-teams]').count() == 0, pg.locator('[data-testid=team-unclaimed]').inner_text())
     check('认领只是提议时不接着指定负责人（团队还没挂上）', all(x[0] == 'claim' for x in posted), posted)
     check('选了的负责人被跳过时，提示补一句「负责人等认领确认后再指定」', '负责人等认领确认后再指定' in notice, notice)
 
-    # 管理层确认之后：关系生效，按部门分块（截下的应答换成认领了的）
+    # 管理层确认之后：应答中的团队移到已认领区域
     state['teams'] = {'can': CAN_ADMIN, 'departments': [{'id': 'synthetic-ops', 'name': '合成运营部', 'lead': {'principal': 'user:jia', 'display_name': '甲经理'}, 'teams': [claimed('合成运营部')]}], 'unclaimed': []}
-    pg.reload(); pg.wait_for_selector('[data-testid=team-dept]')
+    pg.reload(); pg.wait_for_selector('[data-testid=claimed-teams]')
 
     # 认领之后的样子
-    dept = pg.locator('[data-testid=team-dept]')
-    head = pg.locator('[data-testid=team-team] .wm-team-head').inner_text()
-    check('按部门分块：部门名、部门负责人、几个团队', dept.count() == 1 and '合成运营部' in dept.inner_text() and '负责人 甲经理' in dept.inner_text() and '1 个团队' in dept.inner_text())
-    check('团队头卡：团队名、状态、负责人（部门负责人标出来）、总工、成员数和在办（含总工）', all(s in head for s in ['合成运营', '正常', '甲经理（部门负责人）、乙主管', '总工：合成总工', '2 个成员 · 在办 5 件']), head)
+    cards = pg.locator('[data-testid=claimed-teams] [data-testid=team-team]')
+    head = cards.locator('.wm-team-head').inner_text()
+    check('已认领列表直接呈现团队，旧部门名不再作为分组标题', cards.count() == 1 and '合成运营' in head and '合成运营部' not in pg.locator('[data-testid=claimed-teams]').inner_text())
+    check('团队头卡：团队名、状态、负责人（部门负责人标出来）、总工、成员数和在办（含总工）', all(s in head for s in ['合成运营', '正常', '甲经理（沿用原部门负责人）、乙主管', '总工：合成总工', '2 个成员 · 在办 5 件']), head)
     mems = pg.locator('[data-testid=team-member]')
     m1, m2 = mems.nth(0).inner_text(), mems.nth(1).inner_text()
     check('成员卡：名字（不带句柄）、在办几件、分配给谁 / 团队公用', mems.count() == 2 and m1.split('\n')[0].strip() == '小算' and '在办 3 件' in m1 and '分配给 丙' in m1 and '团队公用' in m2 and '手上没有在办的' in m2, [m1, m2])
@@ -317,7 +318,7 @@ with sync_playwright() as p:
           and card('小审').locator('[data-testid=team-reassign-open]').count() == 1, posted[n0:])
     t_ok = toast('「小审」已分配给 丁')
     check('分配：成功是轻提示（几秒自动消失的成功消息），不是页面上方的横幅', t_ok.locator('.ant-message-success').count() == 1 and pg.locator('[data-testid=team-notice]').count() == 0)
-    check('分配：重读不闪骨架（部门分块一直在）', pg.locator('.ant-skeleton').count() == 0 and pg.locator('[data-testid=team-dept]').count() == 1)
+    check('分配：重读不闪骨架（团队卡片一直在）', pg.locator('.ant-skeleton').count() == 0 and pg.locator('[data-testid=claimed-teams]').count() == 1)
 
     # 改派：弹窗里写现在归谁，不列现在的人；一步办完（一个请求）
     n0 = len(posted)
@@ -401,24 +402,29 @@ with sync_playwright() as p:
     check('服务端说没停推：收到时刻三天前也标「正常」、不写没更新', pg.locator('[data-testid=team-roster-stale]').count() == 0 and pg.locator('.wm-team-st', has_text='正常').count() == 1)
     del t0['roster_stale']; del t0['roster_stale_for_minutes']
 
-    # 部门负责人待属主放行：部门头写「（待属主放行权限）」；团队上 lead_pending_grant 补一句，不当成负责人
+    # 部门负责人待放行的信息只在团队卡片显示
     state['teams']['departments'][0]['lead'] = {'principal': 'user:jia', 'display_name': '甲经理', 'grant': 'missing'}
     t0.update({'leads': [{'principal': 'user:yi', 'display_name': '乙主管', 'source': 'explicit'}], 'lead_pending_grant': {'principal': 'user:jia', 'display_name': '甲经理'}})
     pg.reload(); pg.wait_for_selector('[data-testid=team-lead-pending-grant]')
     head = pg.locator('[data-testid=team-team] .wm-team-head').inner_text()
-    check('部门负责人待属主放行：部门头写「负责人 甲经理（待属主放行权限）」；团队头卡负责人只写乙主管，另补「部门负责人 甲经理（待属主放行权限）」',
-          pg.locator('[data-testid=team-dept-lead]').inner_text() == '负责人 甲经理（待属主放行权限）' and '负责人：乙主管' in head and '甲经理（部门负责人）' not in head
+    check('部门负责人待放行：团队头只列已获授权的乙主管，另行注明甲经理待放行',
+          '负责人：乙主管' in head and '甲经理（沿用原部门负责人）' not in head
           and pg.locator('[data-testid=team-lead-pending-grant]').inner_text() == '部门负责人 甲经理（待属主放行权限）', head)
     shot('team-lead-pending-grant-1440.png')
     state['teams']['departments'][0]['lead'] = {'principal': 'user:jia', 'display_name': '甲经理', 'grant': 'active'}
-    t0.update({'lead_pending_grant': None})
+    t0.update({'lead_pending_grant': None, 'leads': claimed('合成运营部')['leads']})
     pg.reload(); pg.wait_for_selector('[data-testid=team-member]')
-    check('部门负责人已放行（grant=active）：照常写「负责人 甲经理」，团队上没有待放行那一句', pg.locator('[data-testid=team-dept-lead]').inner_text() == '负责人 甲经理' and pg.locator('[data-testid=team-lead-pending-grant]').count() == 0)
+    head = pg.locator('[data-testid=team-team] .wm-team-head').inner_text()
+    check('部门负责人放行后：团队卡片列出两位有效负责人，待放行提示消失',
+          '甲经理（沿用原部门负责人）、乙主管' in head and pg.locator('[data-testid=team-lead-pending-grant]').count() == 0)
     pg.unroute('**/api/auth/me')
 
     state['teams'] = {'departments': state['teams']['departments']}
-    pg.reload(); pg.wait_for_selector('[data-testid=team-dept]')
+    pg.reload(); pg.wait_for_selector('[data-testid=claimed-teams]')
     check('不是管理员的视图：没有待认领', pg.locator('[data-testid=team-newdept-open]').count() == 0 and pg.locator('.wm-team-unclaimed').count() == 0)
+    state['teams'] = {'departments': []}
+    pg.reload(); pg.wait_for_selector('[data-testid=team-empty]')
+    check('没有可见团队时显示整体空态', pg.locator('[data-testid=team-empty]').inner_text() == '还没有你能看到的团队。')
     b.close()
 
 print(f'team-browser: {ok} 过 / {fail} 败')
