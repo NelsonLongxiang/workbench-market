@@ -7,7 +7,7 @@ import { captureBenchStorageFence, getBench, type BenchEntry } from './bench-reg
 import { benchStore, benchStoreExists } from './bench-store.ts';
 import { compiled, usableDimension } from './bench-report.ts';
 import { checkBinding, type Binding } from './report-compile.ts';
-import { REPORT_BIND_ACCESS, REPORT_CREATE_ACCESS, type AreaAccessService } from './area-access.ts';
+import { REPORT_BIND_ACCESS, REPORT_CREATE_ACCESS, REPORT_PUBLISH_ACCESS, type AreaAccessService } from './area-access.ts';
 import type { AreaService } from './area.ts';
 import type { GrantService } from './grant.ts';
 import { type ReportDimensionService, normalizeDimensionTitle } from './report-dimension.ts';
@@ -33,6 +33,11 @@ type Channel = 'rest' | 'mcp-invoke';
 type BindArgs = { bench: string; dimension: string; template_version: number; template_sha256: string;
   base: number; view_version: number; view_sha256: string; slots: unknown };
 type FrozenBinding = Awaited<ReturnType<typeof capture>>;
+type FrozenTemplatePublish = {
+  scope: { area: string; dimension: string };
+  args: { body_json: string; note: string };
+  snapshot: { body_sha256: string; criteria_sha256: string; kind: 'criteria' | 'layout'; latest_version: number };
+};
 type FrozenDimensionCreate = { scope: { area: string; dimension: string }; args: { title: string }; snapshot: { area_status: 'active' } };
 
 export function governanceForbidden(): never {
@@ -71,36 +76,48 @@ function maySetDimension(principal: string, area: string): boolean {
 function dimensionCreateAllowed(sessionId: number, principal: string, area: string): boolean {
   return mcp().areaAccessPrincipal(sessionId) === principal && maySetDimension(principal, area) && approvals().hasReportCreateApproval(sessionId, principal, area);
 }
+function templatePublishAllowed(sessionId: number, principal: string, area: string, dimension: string): boolean {
+  return mcp().areaAccessPrincipal(sessionId) === principal && maySetDimension(principal, area) &&
+    approvals().hasReportPublishApproval(sessionId, principal, area, dimension);
+}
 export function governanceCatalog(session: Session, details: boolean) {
   const principal = session ? mcp().areaAccessPrincipal(session.id) : null;
   const scopes = session && principal ? approvals().reportBindApprovals(session.id, principal)
     .filter(scope => sourceAllowed(session.id, principal, scope.bench, scope.dimension, scope.area)) : [];
   const createAreas = session && principal ? approvals().reportCreateAreas(session.id, principal).filter(area => maySetDimension(principal, area)) : [];
-  const granted = scopes.length > 0 || createAreas.length > 0;
+  const publishScopes = session && principal ? approvals().reportPublishApprovals(session.id, principal).filter(scope => maySetDimension(principal, scope.area)) : [];
+  const granted = scopes.length > 0 || createAreas.length > 0 || publishScopes.length > 0;
   const propose = { name: GOVERNANCE_PROPOSE, description: '提出报告治理请求，由站内有权的人确认', area: '按目标台和维度', kind: 'decide', granted };
   const result = { name: GOVERNANCE_RESULT, description: '查询本会话提出的报告治理请求', area: '按原目标台和维度', kind: 'read', granted };
   if (!details) return [propose, result];
   return [{ ...propose, skill: 'wm-report-governance', scopes,
     activation: { action: REPORT_BIND_ACCESS, report_scope: ['bench', 'dimension'] },
     ops: { 'dimension-create': { args: { area: 'string', id: 'string', title: 'string' }, activation: { action: REPORT_CREATE_ACCESS }, areas: createAreas },
+      'template-publish': { args: { dimension: 'string', body: 'object', body_sha256: 'sha256', criteria_sha256: 'sha256',
+        expected_kind: ['criteria', 'layout'], expected_latest_version: 'integer', note: 'string' },
+        activation: { action: REPORT_PUBLISH_ACCESS, report_scope: ['dimension'] }, scopes: publishScopes },
       'bench-bind': { args: { bench: 'string', dimension: 'string', template_version: 'integer', template_sha256: 'sha256',
       base: 'integer', view_version: 'integer', view_sha256: 'sha256', slots: 'object' } } },
     openapi: { method: 'POST', path: '/api/report-governance/proposals', required: ['op', 'args', 'idempotency_key'] },
     errors: { report_governance_forbidden: '需要有可信责任人的会话，并已获该台和维度范围的批准及本人授予',
       report_governance_target_changed: '重新读取绑定、模板和视图后重提' } },
-  { ...result, skill: 'wm-report-governance', scopes, dimension_create_areas: createAreas, openapi: { method: 'GET', path: '/api/report-governance/proposals/{id}', required: ['id'] } }];
+  { ...result, skill: 'wm-report-governance', scopes, dimension_create_areas: createAreas, template_publish_scopes: publishScopes, openapi: { method: 'GET', path: '/api/report-governance/proposals/{id}', required: ['id'] } }];
 }
 function scopeOf(p: Proposal): FrozenBinding['scope'] {
   return (JSON.parse(p.frozen) as FrozenBinding).scope;
 }
 function allowsProposalSource(p: Proposal): boolean {
   if (p.op === 'dimension-create') return dimensionCreateAllowed(p.session_id, p.principal_id, scopeOf(p).area);
+  if (p.op === 'template-publish') {
+    const { area, dimension } = scopeOf(p);
+    return templatePublishAllowed(p.session_id, p.principal_id, area, dimension);
+  }
   if (p.op !== 'bench-bind') return false;
   const { bench, dimension, area } = scopeOf(p);
   return sourceAllowed(p.session_id, p.principal_id, bench, dimension, area);
 }
 function mayConfirm(principal: string, p: Proposal): boolean {
-  if (p.op === 'dimension-create') return maySetDimension(principal, scopeOf(p).area);
+  if (p.op === 'dimension-create' || p.op === 'template-publish') return maySetDimension(principal, scopeOf(p).area);
   if (p.op !== 'bench-bind') return false;
   const { bench, area } = scopeOf(p);
   const current = getBench(bench);
@@ -148,10 +165,47 @@ function proposeDimension(sessionId: number, principal: string, body: Record<str
   return { id: 'p-' + row.id, status: 'pending' as const };
 }
 
+function proposeTemplate(sessionId: number, principal: string, body: Record<string, unknown>, channel: Channel) {
+  const raw = record(body.args);
+  const id = raw?.dimension;
+  if (typeof id !== 'string' || !ID.test(id)) return governanceForbidden();
+  const area = dimensions().get(id)?.area_id;
+  if (!area || !templatePublishAllowed(sessionId, principal, area, id)) return governanceForbidden();
+  const args = exact(raw, ['dimension', 'body', 'body_sha256', 'criteria_sha256', 'expected_kind', 'expected_latest_version', 'note']);
+  const { body_sha256, criteria_sha256, expected_kind, expected_latest_version, note } = args;
+  if (typeof body_sha256 !== 'string' || !SHA.test(body_sha256) || typeof criteria_sha256 !== 'string' || !SHA.test(criteria_sha256) ||
+      (expected_kind !== 'layout' && expected_kind !== 'criteria') || !Number.isSafeInteger(expected_latest_version) || Number(expected_latest_version) < 0 || typeof note !== 'string') {
+    return invalid('发版须给出两个摘要、预期分类、最新模板版本及说明');
+  }
+  if (typeof body.idempotency_key !== 'string') return invalid('治理提案须指定幂等键');
+  if (!record(args.body)) return invalid('模板正文须为对象');
+  const bodyJson = JSON.stringify(args.body);
+  const input = { body: args.body, note, sha256: body_sha256 };
+  const row = ledger().create({ sessionId, principal, scope: { op: 'template-publish', area, dimension: id },
+    idempotencyKey: body.idempotency_key, args: { ...args, body: bodyJson } as Json, channel }, Date.now(),
+    () => templatePublishAllowed(sessionId, principal, area, id), () => {
+      const current = dimensions().previewTemplate(id, input, principal);
+      if (!current.ok) {
+        if (current.code === 'report_template_sha256_mismatch' || current.http !== 400) return changed('当前模板正文、分类或版本与提案不符');
+        return invalid(current.message);
+      }
+      const p = current.preview;
+      if (p.criteriaSha256 !== criteria_sha256 || p.kind !== expected_kind || p.latestVersion !== expected_latest_version) {
+        return changed('当前模板判据摘要、分类或版本与提案不符');
+      }
+      // 用同发版的序列化保存正文，避免提案的键排序改变正文摘要。
+      const frozen: FrozenTemplatePublish = { scope: { area, dimension: id }, args: { body_json: p.text, note },
+        snapshot: { body_sha256: p.bodySha256, criteria_sha256: p.criteriaSha256, kind: p.kind, latest_version: p.latestVersion } };
+      return frozen;
+    });
+  return { id: 'p-' + row.id, status: 'pending' as const };
+}
+
 export async function proposeReportGovernance(session: Session, input: unknown, channel: Channel) {
   const principal = activePrincipal(session);
   const body = exact(input, ['op', 'args', 'idempotency_key']);
   if (body.op === 'dimension-create') return proposeDimension(session!.id, principal, body, channel);
+  if (body.op === 'template-publish') return proposeTemplate(session!.id, principal, body, channel);
   if (body.op !== 'bench-bind') return governanceForbidden();
   const raw = record(body.args);
   const benchId = raw?.bench, dimension = raw?.dimension;
@@ -203,6 +257,16 @@ export async function confirmReportGovernance(principal: string, id: number, dig
   const previous = db.get(id);
   if (!previous || !mayConfirm(principal, previous)) return governanceForbidden();
   if (previous.snapshot_sha256 !== digest) return changed('提案摘要不匹配，重新打开后确认');
+  if (previous.op === 'template-publish') {
+    const now = Date.now();
+    return projectProposal(db.confirmLocal(id, principal, digest, now, p => mayConfirm(principal, p), allowsProposalSource, p => {
+      const { scope, args, snapshot } = JSON.parse(p.frozen) as FrozenTemplatePublish;
+      if (areas().get(scope.area)?.status !== 'active' || dimensions().get(scope.dimension)?.area_id !== scope.area) return { reason: 'target_changed' };
+      const published = dimensions().addTemplate(scope.dimension, { body: JSON.parse(args.body_json), note: args.note, sha256: snapshot.body_sha256 },
+        { by: principal, principal }, now, { latestVersion: snapshot.latest_version, criteriaSha256: snapshot.criteria_sha256, kind: snapshot.kind, draftAuthor: p.principal_id });
+      return published.ok ? { result: { version: published.template.version } } : { reason: 'target_changed' };
+    }));
+  }
   if (previous.op === 'dimension-create') {
     const now = Date.now();
     return projectProposal(db.confirmLocal(id, principal, digest, now, p => mayConfirm(principal, p), allowsProposalSource, p => {

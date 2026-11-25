@@ -16,6 +16,7 @@ export const AREA_ACCESS_LIST = 'area.access-requests';
 export const AREA_ACCESS_LIMIT = 'area.access-limit-set';
 export const REPORT_BIND_ACCESS = 'report.governance-bench-bind';
 export const REPORT_CREATE_ACCESS = 'report.governance-dimension-create';
+export const REPORT_PUBLISH_ACCESS = 'report.governance-template-publish';
 export type ReportBindGrantScope = { bench: string; dimension: string };
 const benchName = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const actionName = /^[a-z][a-z0-9-]{0,47}\.[a-z][a-z0-9-]{0,47}$/;
@@ -89,6 +90,25 @@ function reportBindScopeView(encoded: string): ReportBindGrantScope {
   const { bench, dimension } = JSON.parse(encoded) as ReportBindGrantScope;
   return { bench, dimension };
 }
+function reportDimensionScope(raw: unknown): { dimension: string } {
+  if (!raw || typeof raw !== 'object' || Object.keys(raw).length !== 1 || !Object.hasOwn(raw, 'dimension')) {
+    return reject(400, 'area_access_report_scope_invalid', '发版接入须指定单一维度');
+  }
+  const { dimension } = raw as Record<string, unknown>;
+  if (typeof dimension !== 'string' || !AREA_ID_RE.test(dimension)) return reject(400, 'area_access_report_scope_invalid', '发版接入须指定合法维度');
+  return { dimension };
+}
+function reportDimensionScopeKey(area: string, dimension: string): string | null {
+  return db.prepare("SELECT id FROM report_dimensions WHERE id = ? AND area_id = ? AND status = 'active'").get(dimension, area)
+    ? JSON.stringify({ dimension }) : null;
+}
+function currentGovernanceScope(row: RequestRow): string | null {
+  const encoded = row.governance_scope!;
+  const scope = JSON.parse(encoded);
+  return Object.hasOwn(scope, 'bench')
+    ? reportBindScopeKey(row.area_id, reportBindScopeView(encoded))
+    : reportDimensionScopeKey(row.area_id, scope.dimension);
+}
 function requestView(row: RequestRow) {
   return {
     ref: 'area-' + row.id, area: row.area_id, actions: JSON.parse(row.actions) as string[],
@@ -136,8 +156,12 @@ export class AreaAccessService extends Service {
         if (selected.length !== 1) reject(400, 'area_access_report_scope_invalid', '报告绑定操作须单独申请');
         scope = reportBindScopeKey(area, reportBindScope(input.report_scope));
         if (!scope) reject(403, 'area_access_unavailable', '这个领域当前不接受此台的接入申请');
+      } else if (selected.includes(REPORT_PUBLISH_ACCESS)) {
+        if (selected.length !== 1) reject(400, 'area_access_report_scope_invalid', '模板发布操作须单独申请');
+        scope = reportDimensionScopeKey(area, reportDimensionScope(input.report_scope).dimension);
+        if (!scope) reject(403, 'area_access_unavailable', '这个领域当前不接受此维度的接入申请');
       } else if (input.report_scope !== undefined) {
-        reject(400, 'area_access_report_scope_invalid', '只有报告绑定接入可指定报告作用域');
+        reject(400, 'area_access_report_scope_invalid', '仅精确作用域的报告操作可指定 report_scope');
       }
       const actions = JSON.stringify(selected);
       const reason = text(input.reason, true);
@@ -181,6 +205,22 @@ export class AreaAccessService extends Service {
     const rows = db.prepare("SELECT DISTINCT area_id FROM area_access_requests WHERE session_id = ? AND applicant = ? AND status = 'approved' AND governance_scope IS NULL ORDER BY area_id")
       .all(sessionId, principal) as { area_id: string }[];
     return rows.map(row => row.area_id).filter(area => this.hasReportCreateApproval(sessionId, principal, area));
+  }
+
+  reportPublishApprovals(sessionId: number, principal: string): { area: string; dimension: string }[] {
+    const rows = db.prepare("SELECT DISTINCT area_id, governance_scope FROM area_access_requests WHERE session_id = ? AND applicant = ? AND status = 'approved' AND governance_scope IS NOT NULL AND actions = ? ORDER BY area_id, governance_scope")
+      .all(sessionId, principal, JSON.stringify([REPORT_PUBLISH_ACCESS])) as { area_id: string; governance_scope: string }[];
+    return rows.flatMap(row => {
+      const scope = JSON.parse(row.governance_scope) as { dimension: string };
+      return areas().get(row.area_id)?.status === 'active' && reportDimensionScopeKey(row.area_id, scope.dimension) === row.governance_scope
+        ? [{ area: row.area_id, dimension: scope.dimension }] : [];
+    });
+  }
+  hasReportPublishApproval(sessionId: number, principal: string, area: string, dimension: string): boolean {
+    if (areas().get(area)?.status !== 'active') return false;
+    const key = reportDimensionScopeKey(area, dimension);
+    return key !== null && Boolean(db.prepare("SELECT id FROM area_access_requests WHERE session_id = ? AND applicant = ? AND area_id = ? AND status = 'approved' AND governance_scope = ? AND actions = ?")
+      .get(sessionId, principal, area, key, JSON.stringify([REPORT_PUBLISH_ACCESS])));
   }
 
   reportBindApprovals(sessionId: number, principal: string): (ReportBindGrantScope & { area: string })[] {
@@ -250,8 +290,8 @@ export class AreaAccessService extends Service {
         const current = this.applicant(row.session_id);
         if (current !== row.applicant) reject(409, 'area_access_applicant_changed', '会话责任人已变，请重新申请');
         if (actor === current) reject(403, 'area_access_self_approval', '不能批准自己账户名下会话的申请');
-        if (row.governance_scope && reportBindScopeKey(area, reportBindScopeView(row.governance_scope)) !== row.governance_scope) {
-          reject(409, 'area_access_report_scope_changed', '报告绑定申请的台登记或所属领域已变');
+        if (row.governance_scope && currentGovernanceScope(row) !== row.governance_scope) {
+          reject(409, 'area_access_report_scope_changed', '报告接入申请的目标或所属领域已变');
         }
         if (!grants().isOwner(actor)) {
           const needed = JSON.parse(row.actions) as string[];

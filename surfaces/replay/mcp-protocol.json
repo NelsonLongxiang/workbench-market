@@ -218,7 +218,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "7324", "etag": "W/\"1c9c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "7322", "etag": "W/\"1c9a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "jsonrpc": "2.0",
               "id": 5,
@@ -256,9 +256,9 @@
                         "report_scope": {
                           "type": "object",
                           "additionalProperties": false,
-                          "required": ["bench", "dimension"],
+                          "required": ["dimension"],
                           "properties": { "bench": { "type": "string" }, "dimension": { "type": "string" } },
-                          "description": "申请 report.governance-bench-bind 时指定单台和单维度"
+                          "description": "台绑定指定 bench 和 dimension；模板发布只指定 dimension"
                         },
                         "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" }
                       },
@@ -342,7 +342,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "6668", "etag": "W/\"1a0c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "6666", "etag": "W/\"1a0a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "jsonrpc": "2.0",
               "id": 6,
@@ -380,9 +380,9 @@
                         "report_scope": {
                           "type": "object",
                           "additionalProperties": false,
-                          "required": ["bench", "dimension"],
+                          "required": ["dimension"],
                           "properties": { "bench": { "type": "string" }, "dimension": { "type": "string" } },
-                          "description": "申请 report.governance-bench-bind 时指定单台和单维度"
+                          "description": "台绑定指定 bench 和 dimension；模板发布只指定 dimension"
                         },
                         "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" }
                       },
@@ -720,7 +720,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "27085", "etag": "W/\"69cd-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "27083", "etag": "W/\"69cb-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "jsonrpc": "2.0",
               "id": 2,
@@ -758,9 +758,9 @@
                         "report_scope": {
                           "type": "object",
                           "additionalProperties": false,
-                          "required": ["bench", "dimension"],
+                          "required": ["dimension"],
                           "properties": { "bench": { "type": "string" }, "dimension": { "type": "string" } },
-                          "description": "申请 report.governance-bench-bind 时指定单台和单维度"
+                          "description": "台绑定指定 bench 和 dimension；模板发布只指定 dimension"
                         },
                         "reason": { "type": "string", "description": "用途说明（必填·≤500 字）" }
                       },
