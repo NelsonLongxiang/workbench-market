@@ -39,7 +39,8 @@ description: 工作台市场·能力接入——agent 怎么找到、申请、�
 
 - 名字不在目录里会报错，不会编一个出来。
 - 老客户端要整份目录（每项都带参数表）可以带 `full: true`，但很大，平时别用。
-- `tool`、`full`、`ref` 一次只能给一个。
+- `tool`、`capability`、`full`、`area`、`ref` 一次只能给一个。
+- 领域能力在应答的 `capabilities` 中。用 `access_info { capability: "目录里的能力名" }` 取入参、REST 片段和说明技能名。
 
 ## 三、申请：没批的用 `access_request`
 
@@ -71,7 +72,12 @@ description: 工作台市场·能力接入——agent 怎么找到、申请、�
 {}
 ```
 
-两条路对「没批」的说法不一样，别误判：
+领域能力经 `access_request { area, actions, reason }` 申请。获批后仍要符合责任人当前的领域授予。
+
+- **MCP 领域调用**：用通用工具 `invoke { target, args }`。目标和参数从能力详情取。
+- **REST 领域调用**：按能力详情的 REST 路径发送 `args`。两条路都按目标能力记审计。决定类成功时只返回待人确认的提案编号和状态。
+
+普通工具的拒绝应答：
 
 | | 没批 | 没这个工具 |
 |---|---|---|

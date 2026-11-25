@@ -20,6 +20,8 @@ import type { Viewer } from './identity.ts';
 import type { ActionKind, HttpService } from './http.ts';
 
 /** 1 版。ctx.routes 是后来加的、只增不改的能力：扩展按有没有 ctx.routes 判断，不靠版本号（版本号不变，按 1 写死的旧扩展照常加载） */
+import { addCapability, type CapabilityDeclaration } from './capabilities.ts';
+
 export const EXTENSION_API_VERSION = 1;
 
 /**
@@ -176,6 +178,7 @@ export interface ExtensionContext {
     addReturnPath: (path: string) => void;
   };
   tasks: { addSource: (src: TaskSource) => void };
+  capabilities: { add: (declaration: CapabilityDeclaration) => () => void };
   /** 业务写面：远程浏览器 POST 该精确路径不经宿主管理写门（不要口令、不认管理员），由扩展路由自己判身份与同源。
    *  只收 /api/<命名空间>/…，命名空间不得是宿主的；进 S3 豁免面快照（/api/remote-allow/diff） */
   remoteWrite: { allowExact: (path: string) => void };
@@ -183,7 +186,7 @@ export interface ExtensionContext {
   warn: (msg: string) => void;
 }
 
-export type ExtensionHost = Omit<ExtensionContext, 'apiVersion' | 'name' | 'dir' | 'log' | 'warn' | 'tasks' | 'routes' | 'odoo'> & {
+export type ExtensionHost = Omit<ExtensionContext, 'apiVersion' | 'name' | 'dir' | 'log' | 'warn' | 'tasks' | 'routes' | 'odoo' | 'capabilities'> & {
   /** 经它注册扩展的路由、对比路由栈 */
   http: HttpService;
   routesMode: ExtensionRoutesMode;
@@ -262,6 +265,7 @@ export async function loadExtensions(dirRaw: string | undefined, host: Extension
     const ctx: ExtensionContext = {
       ...shared, apiVersion: EXTENSION_API_VERSION, name, dir: extDir,
       tasks: { addSource: (src) => addTaskSource(name, src) },
+      capabilities: { add: (declaration) => addCapability(name, declaration) },
       routes: {
         add: (method, path, spec, ...handlers) => {
           checkExtensionRoute(name, method, path, spec);
