@@ -1182,6 +1182,11 @@ with sync_playwright() as p:
         assert smoke_passed(dp.stdout, 11), f'dispatch-smoke 计数异常: {dp.stdout[-200:]}'
         record('MCP 生产通道（协议面 + 17 tools + 网关 P1 + 管理页 + Cookie 池 + 数据面 + 文件面 + 上游聚合 P2）', True)
     except Exception as e:
+        # 只输出调用位置与异常类型，定位分组内卡点；不输出局部变量、请求头、口令或业务数据。
+        _tb = e.__traceback__
+        while _tb is not None:
+            print(f'[MCP-E2E location] {_Path(_tb.tb_frame.f_code.co_filename).name}:{_tb.tb_lineno} {_tb.tb_frame.f_code.co_name} {type(e).__name__}')
+            _tb = _tb.tb_next
         record('MCP 生产通道', False, str(e)); shot('mcp')
 
     # ---------- 18. SOP 管理页（/sops：状态徽章 + 版本链；run 记录在交付空间 /sops/:slug，#318） ----------
