@@ -479,7 +479,8 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   area.ts（领域：Cordis 服务 `areas`·领域、领域规范的版本（建好不能改、不能删，改规范 = 新加一版、回退 = 移生效指针）、留痕·新建的是 pending-lead·撤领域时同一个写事务里一并撤销 area:<标识> 的没结束的授予（草稿、待核、生效）·撤了只读不删；docs/domains-step1.md·负责人：生效的负责人没有了（收回、到期、本人停用）就退回 pending-lead、有了就回 active，留痕 lead-active / lead-missing·收回最后一位负责人回 409（撤领域除外）·workGate：pending-lead 时不能触发、验收·migrateDepartments：每个部门一个写事务，建同标识领域（source=department），给有生效负责人授予的部门起草 area-lead（待核），旧表不删）
   area-access.ts（第 16 篇第 2 步的领域接入服务：属主按负责人授予设置动作上限，审批事务核当前领域、归属及回避，领域审批单独留痕）
   bench-report.ts（台上的报告：绑定、生成并冻结、清单、读、回应，路由和 MCP 的 report_* 工具都走这一处；维度属于某个领域时只有绑在这个领域的台能用；产出方、回应者由调用方身份定，席位和 MCP 会话记 AI；回应者的位置按回应时生效的授予记；「未处理的反驳」只算人的回应链的链头，报告被更正之后不再算）
-  report-compile.ts（报告的编排：模板第二版 + 台的绑定 + 台库按绑定取回的数 + 输入 + 论断 → 冻结的报告；纯函数，不碰库。由 P0 的技术试验（web/src/report-template/p0.ts）改写：来源（视图版本、视图描述的 sha256、行数）由台库填，不收调用方给的；取不完、列类型不合就拒，不出半份报告；论断的类别、条数照模板，依据指的行要在这份报告里；图片节点这一步不收（素材授权还没定））
+  report-compile.ts（报告的编排：第二版或第三版模板 + 台的绑定 + 台库按绑定取回的数 + 输入 + 论断 → 冻结的报告；纯函数，不碰库。由 P0 的技术试验（web/src/report-template/p0.ts）改写：来源（视图版本、视图描述的 sha256、行数）由台库填，不收调用方给的；取不完、列类型不合就拒，不出半份报告；论断的类别、条数照模板，依据指的行要在这份报告里；图像保持既有链接与冻结摘要约束）
+  report-body-v3.ts（校验模板第三版平铺正文及白名单指令，冻结时用已校验的数据求值）
   report-dimension.ts（报告的维度和模板：Cordis 服务 `reportDimensions`·维度属于一个领域或跨领域；模板版本建好不能改、不能删、不修剪，发版不自动生效；和上一版比出 layout / criteria，判据类（criteria，第一版也算）要作者以外的人复核过才能移成生效；撤了只读；每步一行留痕；定报告维度只认属主和持本领域 area-report 授予的人，跨领域的只有属主，见 [docs/report-step1.md](docs/report-step1.md)）
   report-governance-proposal.ts（报告治理提案账本，同事务审计、确认状态与操作号）
   services/report-governance.ts（报告提案和站内确认编排）
