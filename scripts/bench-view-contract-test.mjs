@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { validateViewDoc, dagGraphMeta, BLOCK_TYPES, BLOCK_CONTRACT, VIEW_DOC_CONTRACT } from '../server/src/bench-views.ts';
 import { BENCH_TOOL_DEFS, VIEW_DOC_SCHEMA } from '../server/src/bench-mcp-tools.ts';
 import { readFileSync } from 'node:fs';
-import { render, renderComponentCatalog } from './gen-view-doc-schema.mjs';
+import { render } from './gen-view-doc-schema.mjs';
 
 // 一、契约自洽
 assert.deepEqual(Object.keys(BLOCK_CONTRACT), [...BLOCK_TYPES]);
@@ -32,8 +32,6 @@ assert.deepEqual([...slim.required].sort(), ['title', 'views']);
 assert.ok(slim.description.includes('references/view-doc-schema.json'), 'view_put 的 doc 说明指向技能里的完整契约');
 assert.ok(Buffer.byteLength(JSON.stringify(viewPut)) < 3000, `view_put 的定义要小（现在 ${Buffer.byteLength(JSON.stringify(viewPut))} 字节）：完整契约不放进工具定义`);
 assert.equal(readFileSync(new URL('../skills/wm-data-views/references/view-doc-schema.json', import.meta.url), 'utf8'), render(), '技能里的 view-doc-schema.json 和代码生成的一字不差（不一致就跑 node scripts/gen-view-doc-schema.mjs）');
-const componentCatalog = readFileSync(new URL('../skills/wm-data-views/references/views.md', import.meta.url), 'utf8');
-assert.equal(componentCatalog, renderComponentCatalog(componentCatalog), '组件一览与服务端契约一致');
 const doc = VIEW_DOC_SCHEMA;
 assert.equal(doc.type, 'object');
 const views = doc.properties.views;
@@ -183,4 +181,8 @@ for (const [name, blocks] of negatives) {
   const top = validateViewDoc({ title: 'x', views: [{ key: 'v', title: 't', blocks: [] }], theme: 'dark' }, datasets).find((e) => e.includes('有不认识的键 theme'));
   assert.ok(top?.includes('这里能用的键：title、views'), `顶层也列出能用的键（${top}）`);
 }
+const { renderComponentCatalog } = await import('./gen-view-doc-schema.mjs');
+const componentCatalog = readFileSync(new URL('../skills/wm-data-views/references/views.md', import.meta.url), 'utf8');
+assert.equal(componentCatalog, renderComponentCatalog(componentCatalog), '组件一览与服务端契约一致');
+
 console.log(`bench-view-contract-test: ${BLOCK_TYPES.length} 个契约分支同构 + 正反例全部通过；不认识的键报出能用的键`);
