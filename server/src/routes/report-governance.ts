@@ -10,6 +10,7 @@ type Deps = {
   wrap: (run: (req: express.Request, res: express.Response) => Promise<unknown>) => express.RequestHandler;
   session: (req: express.Request) => { id: number } | null;
   crossOriginDenied: (req: express.Request) => boolean;
+  publicPerson: (req: express.Request) => string | undefined;
   enabled: boolean;
 };
 const SITE_PERSON = '按登录的启用自然人和本台权限确认，不接受管理口令或会话代办';
@@ -26,6 +27,8 @@ export function registerReportGovernanceRoutes(app: HttpService, deps: Deps) {
     }
   });
   const identity = async (req: express.Request): Promise<string> => {
+    const publicPrincipal = deps.publicPerson(req);
+    if (publicPrincipal) return publicPrincipal;
     if (deps.crossOriginDenied(req) || req.headers['x-admin-token'] !== undefined || req.headers.authorization !== undefined) governanceForbidden();
     const p = await requestPerson(req);
     if (!p.principal) throw new HttpError(401, '请以本站自然人账户登录', { code: 'report_governance_person_required' });

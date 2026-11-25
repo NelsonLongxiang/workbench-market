@@ -101,6 +101,24 @@ export function originIsThisSurface(req: IncomingMessage, allowPublicMarket = fa
   } catch { return false; }
 }
 
+/** 公共地址只由启动配置和真实 Origin/Host 声明识别，反代头不参与。 */
+export function addressesPublicMarketHttps(req: IncomingMessage): boolean {
+  return !!publicMarket?.origin.startsWith('https://') &&
+    (req.headers.host?.toLowerCase() === publicMarket.host || req.headers.origin === publicMarket.origin);
+}
+
+/** 明确面向公共 HTTPS 的业务确认。非公共直连仍由原路由校验。 */
+export function publicBusinessConfirmationOrigin(req: IncomingMessage): 'local' | 'public' | 'denied' {
+  if (!publicMarket?.origin.startsWith('https://')) return 'local';
+  const { host, origin } = req.headers;
+  const addressedPublic = addressesPublicMarketHttps(req);
+  if (!addressedPublic && !origin && (browserMarked(req) || (req.headers.cookie && !rawLoopback(req)))) return 'denied';
+  if (!addressedPublic) return req.headers.cookie && forwarded(req) ? 'denied' : 'local';
+  const site = req.headers['sec-fetch-site'];
+  return surfaceOf(req) === 'market' && host === publicMarket.host && origin === publicMarket.origin && (site === undefined || site === 'same-origin')
+    ? 'public' : 'denied';
+}
+
 /** 给浏览器显示的另一面地址（只用请求里的主机名拼链接，不据此做任何授权） */
 export function surfaceUrl(req: IncomingMessage, name: SurfaceName): string | null {
   const port = surfacePort(name);

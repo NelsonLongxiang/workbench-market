@@ -30,6 +30,7 @@ export type RelationRouteDeps = {
   adminHeaderOk: (req: express.Request) => boolean;
   adminActor: (req: express.Request) => string;
   crossOriginDenied: (req: express.Request) => boolean;
+  publicPerson: (req: express.Request) => string | undefined;
 };
 
 const proposals = () => svc<RelationProposalService>('relationProposals');
@@ -62,6 +63,8 @@ export function registerRelationRoutes(app: HttpService, deps: RelationRouteDeps
   /** 认人：本机命令行（属主）、管理员（同源）、登录的人（启用的人）。不过就已经写好应答，返回 null */
   async function who(req: express.Request, res: express.Response): Promise<{ actor: ProposalActor; admin: boolean } | null> {
     res.set('Cache-Control', 'private, no-store');
+    const publicPrincipal = deps.publicPerson(req);
+    if (publicPrincipal) return { actor: { by: publicPrincipal, principal: publicPrincipal, owner: grants().isOwner(publicPrincipal) }, admin: false };
     if (!browserMarked(req) && rawLoopback(req)) return { actor: { by: 'cli', principal: null, owner: true }, admin: true };
     if (deps.crossOriginDenied(req)) { res.status(403).json({ error: 'relations_cross_origin_denied' }); return null; }
     await deps.markAdmin(req);

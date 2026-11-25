@@ -15,12 +15,15 @@ function numeric(raw: unknown): number {
   return Number(raw);
 }
 
-export function registerAreaAccessRoutes(app: HttpService, crossOriginDenied: (req: express.Request) => boolean): void {
+export function registerAreaAccessRoutes(app: HttpService, crossOriginDenied: (req: express.Request) => boolean,
+  publicPerson: (req: express.Request) => string | undefined): void {
   const withPerson = (run: (req: express.Request, actor: string, area: string) => unknown): express.RequestHandler =>
     (req, res, next) => {
       res.set('Cache-Control', 'private, no-store');
-      if (crossOriginDenied(req)) { res.status(403).json({ error: 'area_access_cross_origin_denied' }); return; }
-      void requestPerson(req).then(who => {
+      const verified = publicPerson(req);
+      if (!verified && crossOriginDenied(req)) { res.status(403).json({ error: 'area_access_cross_origin_denied' }); return; }
+      const person = verified ? Promise.resolve({ principal: verified, hasCredential: true }) : requestPerson(req);
+      void person.then(who => {
         if (!who.principal) {
           res.status(who.hasCredential ? 403 : 401).json({ error: 'area_access_person_required' });
           return;
