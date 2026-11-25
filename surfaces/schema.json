@@ -662,6 +662,18 @@
       "responsible_principal TEXT",
       "is_system INTEGER NOT NULL DEFAULT 0"
     ],
+    "owner_personal_tokens": [
+      "id TEXT PK",
+      "token_sha256 TEXT NOT NULL",
+      "principal TEXT NOT NULL",
+      "name TEXT NOT NULL",
+      "scopes TEXT NOT NULL",
+      "benches TEXT NOT NULL",
+      "created_at INTEGER NOT NULL",
+      "expires_at INTEGER NOT NULL",
+      "last_used_at INTEGER",
+      "revoked_at INTEGER"
+    ],
     "principal_identities": [
       "provider TEXT NOT NULL PK",
       "external_id TEXT NOT NULL PK",

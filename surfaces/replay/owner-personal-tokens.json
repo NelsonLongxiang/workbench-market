@@ -1,0 +1,134 @@
+{
+  "domain": "owner-personal-tokens",
+  "what": "属主同源签发、列元数据和撤销。签发只录稳定元数据，生成的令牌原文不录制。",
+  "routes": ["GET /api/owner/personal-tokens", "POST /api/owner/personal-tokens", "DELETE /api/owner/personal-tokens/:id"],
+  "exempt": [{ "route": "GET /api/owner/personal-tokens", "class": "invalid", "why": "查询参数和请求体不参与列表校验", "shown_by": "owner/list" }],
+  "scenarios": [
+    {
+      "name": "owner",
+      "what": "合成主体 beta 持有效属主授予，经假登录提供方认人。",
+      "env": {},
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["identity-fake"],
+      "seed": [
+        { "table": "principals", "row": { "id": "user:beta", "id_key": "user:beta", "kind": "person", "display_name": "合成乙" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "beta", "external_key": "beta", "principal_id": "user:beta" } }
+      ],
+      "steps": [
+        {
+          "id": "setup-owner",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants", "json": { "principal": "user:beta", "role": "owner", "scope": "*", "reason": "合成" } },
+          "save": { "grant": "grant.id" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "setup-submit",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{grant}}/submit" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "setup-approve",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{grant}}/approve" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "no-list",
+          "route": "GET /api/owner/personal-tokens",
+          "class": "unauthorized",
+          "request": { "method": "GET", "path": "/api/owner/personal-tokens" },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "error": "personal_token_login_required" }
+          }
+        },
+        {
+          "id": "no-issue",
+          "route": "POST /api/owner/personal-tokens",
+          "class": "unauthorized",
+          "request": { "method": "POST", "path": "/api/owner/personal-tokens", "headers": { "sec-fetch-site": "same-origin" }, "json": {} },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "error": "personal_token_login_required" }
+          }
+        },
+        {
+          "id": "no-revoke",
+          "route": "DELETE /api/owner/personal-tokens/:id",
+          "class": "unauthorized",
+          "request": { "method": "DELETE", "path": "/api/owner/personal-tokens/00000000-0000-0000-0000-000000000000", "headers": { "sec-fetch-site": "same-origin" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "41", "etag": "W/\"29-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "error": "personal_token_login_required" }
+          }
+        },
+        {
+          "id": "wrong-expiry",
+          "route": "POST /api/owner/personal-tokens",
+          "class": "invalid",
+          "request": {
+            "method": "POST",
+            "path": "/api/owner/personal-tokens",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" },
+            "json": { "name": "replay-personal", "scopes": ["report-dimensions"], "benches": [], "expires_in_days": 0 }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "70", "etag": "W/\"46-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "error": "有效期须为 1～90 天", "code": "personal_token_invalid" }
+          }
+        },
+        {
+          "id": "issue",
+          "route": "POST /api/owner/personal-tokens",
+          "class": "normal",
+          "compare": ["personal_token.name", "personal_token.scopes", "personal_token.benches"],
+          "request": {
+            "method": "POST",
+            "path": "/api/owner/personal-tokens",
+            "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" },
+            "json": { "name": "replay-personal", "scopes": ["report-dimensions"], "benches": [] }
+          },
+          "save": { "issued": "personal_token.id" },
+          "response": { "status": 201, "picked": { "personal_token.name": "replay-personal", "personal_token.scopes": ["report-dimensions"], "personal_token.benches": [] } }
+        },
+        {
+          "id": "list",
+          "route": "GET /api/owner/personal-tokens",
+          "class": "normal",
+          "compare": ["personal_tokens.0.name", "personal_tokens.0.revoked_at"],
+          "request": { "method": "GET", "path": "/api/owner/personal-tokens", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": { "status": 200, "picked": { "personal_tokens.0.name": "replay-personal", "personal_tokens.0.revoked_at": null } }
+        },
+        {
+          "id": "unknown-id",
+          "route": "DELETE /api/owner/personal-tokens/:id",
+          "class": "invalid",
+          "request": { "method": "DELETE", "path": "/api/owner/personal-tokens/00000000-0000-0000-0000-000000000000", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "34", "etag": "W/\"22-<指纹>\"", "vary": "Origin, Cookie", "x-powered-by": "Express" },
+            "body": { "error": "personal_token_missing" }
+          }
+        },
+        {
+          "id": "revoke",
+          "route": "DELETE /api/owner/personal-tokens/:id",
+          "class": "normal",
+          "request": { "method": "DELETE", "path": "/api/owner/personal-tokens/{{issued}}", "headers": { "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": { "status": 204, "type": "", "headers": { "cache-control": "private, no-store", "vary": "Origin, Cookie", "x-powered-by": "Express" }, "body": "" }
+        }
+      ]
+    }
+  ]
+}
