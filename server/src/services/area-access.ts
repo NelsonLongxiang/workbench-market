@@ -15,6 +15,7 @@ export const AREA_ACCESS_APPROVE = 'area.access-approve';
 export const AREA_ACCESS_LIST = 'area.access-requests';
 export const AREA_ACCESS_LIMIT = 'area.access-limit-set';
 export const REPORT_BIND_ACCESS = 'report.governance-bench-bind';
+export const REPORT_CREATE_ACCESS = 'report.governance-dimension-create';
 export type ReportBindGrantScope = { bench: string; dimension: string };
 const benchName = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const actionName = /^[a-z][a-z0-9-]{0,47}\.[a-z][a-z0-9-]{0,47}$/;
@@ -156,16 +157,30 @@ export class AreaAccessService extends Service {
     const principal = this.applicant(sessionId);
     if (typeof area !== 'string' || !AREA_ID_RE.test(area)) reject(400, 'area_access_scope_invalid', '请指定一个合法的领域标识');
     if (areas().get(area)?.status !== 'active') return { area, effective_actions: [] };
-    const approvals = db.prepare("SELECT actions FROM area_access_requests WHERE session_id = ? AND applicant = ? AND area_id = ? AND status = 'approved' AND governance_scope IS NULL")
-      .all(sessionId, principal, area) as { actions: string }[];
+    const actions = this.approvedAreaActions(sessionId, principal, area);
     const catalog = new Map(svc<HttpService>('http').actions().map(({ action, kind }) => [action, kind]));
     for (const cap of capabilityIndex()) if (cap.area === area) catalog.set(cap.name, cap.kind);
-    const actions = new Set(approvals.flatMap(row => JSON.parse(row.actions) as string[]));
     const effective_actions = [...actions].filter(action => {
       const kind = catalog.get(action);
       return kind !== undefined && areaVerdict({ principal, area, action, kind, now }).verdict === 'allow';
     }).sort();
     return { area, effective_actions };
+  }
+
+  private approvedAreaActions(sessionId: number, principal: string, area: string) {
+    const rows = db.prepare("SELECT actions FROM area_access_requests WHERE session_id = ? AND applicant = ? AND area_id = ? AND status = 'approved' AND governance_scope IS NULL")
+      .all(sessionId, principal, area) as { actions: string }[];
+    return new Set(rows.flatMap(row => JSON.parse(row.actions) as string[]));
+  }
+
+  hasReportCreateApproval(sessionId: number, principal: string, area: string): boolean {
+    return areas().get(area)?.status === 'active' && this.approvedAreaActions(sessionId, principal, area).has(REPORT_CREATE_ACCESS);
+  }
+
+  reportCreateAreas(sessionId: number, principal: string): string[] {
+    const rows = db.prepare("SELECT DISTINCT area_id FROM area_access_requests WHERE session_id = ? AND applicant = ? AND status = 'approved' AND governance_scope IS NULL ORDER BY area_id")
+      .all(sessionId, principal) as { area_id: string }[];
+    return rows.map(row => row.area_id).filter(area => this.hasReportCreateApproval(sessionId, principal, area));
   }
 
   reportBindApprovals(sessionId: number, principal: string): (ReportBindGrantScope & { area: string })[] {

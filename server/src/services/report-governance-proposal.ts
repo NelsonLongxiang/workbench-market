@@ -90,6 +90,7 @@ export class ReportGovernanceProposalService extends Service {
   }
 
   private tx<T>(fn: () => T): T {
+    if (db.isTransaction) return fn();
     db.exec('BEGIN IMMEDIATE');
     try { const value = fn(); db.exec('COMMIT'); return value; }
     catch (error) { db.exec('ROLLBACK'); throw error; }
@@ -182,6 +183,20 @@ export class ReportGovernanceProposalService extends Service {
       return row;
     });
   }
+  /** 单主库动作把授权复核、业务效果、回执与审计放在一个事务。 */
+  confirmLocal(id: number, confirmer: string, digest: string, now: number, allowed: (p: Proposal) => boolean,
+    sourceAllowed: (p: Proposal) => boolean, execute: (p: Proposal) => { result: GovernanceResult } | { reason: 'target_changed' }): Proposal {
+    return this.tx(() => {
+      const current = this.get(id);
+      if (!current || !allowed(current) || !activePerson(confirmer)) return unavailable();
+      if (current.snapshot_sha256 !== digest) return conflict('report_governance_snapshot_changed', '提案摘要不匹配，重新打开后确认');
+      if (current.status === 'confirmed') return current;
+      const claimed = this.claimConfirmation(id, confirmer, digest, now, allowed, sourceAllowed);
+      if (claimed.status !== 'confirming') return claimed;
+      return this.settle(id, claimed.operation_id!, now, execute(claimed));
+    });
+  }
+
   /** 只有已知的业务提交回执或已证实的冲突可以结束确认；未知结果留在 confirming 对账。 */
   settle(id: number, operationId: string, now: number, outcome: { result: GovernanceResult } | { reason: 'authorization_changed' | 'target_changed' | 'write_conflict' }): Proposal {
     return this.tx(() => {
