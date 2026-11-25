@@ -22,6 +22,7 @@ const NOT_TOOLS = new Map([
   ['workbench_id', '数据视图台对应的市场台号（GET /api/bench-views 的字段）'],
   ['result_ref', '大结果的引用：工具结果太大时应答里的字段（{ id, url, sha256, bytes, expires_at }），见 wm-capability-access'],
   ['result_id', 'wm-capability-access 例子里的占位 {{result_id}}：换成上一步 result_ref.id'],
+  ['report_scope', 'access_request 的报告治理授权范围字段（server/src/mcp-tools.ts），不是工具名'],
 ]);
 
 const tools = new Set(JSON.parse(readFileSync(join(ROOT, 'surfaces/mcp-tools.json'), 'utf8')).map((x) => String(x).split(/\s+/)[0]));
