@@ -112,7 +112,12 @@ async function boot(publicMarket = false) {
   const remote = (method, path, { json, token, headers = {} } = {}) => fetch(new URL(path, base), {
     method, headers: { 'x-real-ip': '198.51.100.9', ...(token ? { 'x-admin-token': token } : {}), ...(json === undefined ? {} : { 'content-type': 'application/json' }), ...headers },
     body: json === undefined ? undefined : JSON.stringify(json),
-  }).then(async (r) => ({ status: r.status, json: await r.json().catch(() => null) }));
+  }).then(async (r) => {
+    const text = await r.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* 非 JSON 应答 */ }
+    return { status: r.status, json, text };
+  });
   const grant = async (principal, role) => { const d = await cli('POST', '/api/grants', { principal, role, scope: '*', reason: '合成' }); const id = d.json?.grant?.id; await cli('POST', `/api/grants/${id}/submit`); const a = await cli('POST', `/api/grants/${id}/approve`); return { id, status: a.status }; };
   const person = async (username, pw, ip) => { const t = (await cli('POST', '/api/local-accounts', { username })).json?.temp_password ?? ''; return login(username, t, pw, ip); };
   const db = () => new DatabaseSync(join(data, 'workbench-market.db'), { timeout: BUSY_MS });
@@ -662,6 +667,12 @@ try {
             body_sha256: input.body_sha256, criteria_sha256: criteria, expected_active_version: 3, review_version: 3, ...changes },
         } });
         const beforeActivate = await activateRequest('activate-before-approval');
+        const badArgs = { version: 0 };
+        const invalidBeforeApproval = await activateRequest('activate-invalid-before-approval', badArgs);
+        check(beforeActivate.status === 403 && beforeActivate.json?.code === 'report_governance_forbidden' &&
+          invalidBeforeApproval.status === 403 && invalidBeforeApproval.json?.code === 'report_governance_forbidden' &&
+          typeof beforeActivate.text === 'string' && beforeActivate.text.length > 0 && invalidBeforeApproval.text === beforeActivate.text,
+          'RGA3 未取得精确激活批准时，非法参数也先返回同一个 403', { beforeActivate, invalidBeforeApproval });
         const activationAccess = await A.remote('POST', '/api/mcp-rest/tools/access_request', { headers, json: {
           area: 'zeta', actions: ['report.governance-dimension-activate'], report_scope: { dimension: dimensionId }, reason: '合成治理回退',
         } });
@@ -669,12 +680,23 @@ try {
         const start = counts(A);
         const wrongDimension = await activateRequest('activate-wrong-dimension', { dimension: 'governance-racing' });
         const wrongActivationHash = await activateRequest('activate-bad-target', { body_sha256: '0'.repeat(64) });
+        const invalidAfterApproval = await activateRequest('activate-invalid-after-approval', badArgs);
+        const wrongCriteria = await activateRequest('activate-bad-criteria', { criteria_sha256: '0'.repeat(64) });
+        check(access.status === 200 && invalidAfterApproval.status === 400 &&
+          wrongCriteria.status === 409 && wrongCriteria.json?.code === 'report_governance_target_changed',
+          'RGA4 获准后参数结构不合返 400，唯请求判据摘要与目标不符返 409', { access, invalidAfterApproval, wrongCriteria });
         const wrongReview = await activateRequest('activate-bad-review', { review_version: 2 });
         const good = await activateRequest('activate-exact-review');
         const repeat = await activateRequest('activate-exact-review');
         const frozenActivation = await inbox(good.json?.id);
         if (!frozenActivation) throw Error('激活提案冻结失败：' + JSON.stringify({ beforeActivate, activationAccess, access, good }));
         const pinned = frozenActivation.frozen.snapshot;
+        const recordedReview = newReview.json?.template?.review;
+        check(newReview.status === 200 && recordedReview?.reviewed_by === 'user:nina' &&
+          Number.isSafeInteger(recordedReview?.reviewed_at) && recordedReview.reviewed_at > 0 &&
+          pinned.review.version === newReview.json.template.version && pinned.review.principal === recordedReview.reviewed_by &&
+          pinned.review.at === recordedReview.reviewed_at,
+          'RGA5 冻结的复核版本、主体和时点等于人工复核入口实存的记录', { recordedReview, pinnedReview: pinned.review });
         const beforeConfirm = await rex.go('GET', dimensionPath);
         const noPermission = await tom.go('POST', '/api/report-governance/inbox/' + frozenActivation.id + '/confirm', { json: { snapshot_sha256: frozenActivation.snapshot_sha256 } });
         const done = await confirm(rex, frozenActivation.id, frozenActivation.snapshot_sha256);
