@@ -1,5 +1,6 @@
 /** 设置页「个人令牌」（#1063）的纯函数：清单怎么读、状态和期限怎么说、签发表单怎么核、出错怎么说。不碰 React、不碰网络。
- *  规则对齐后端 server/src/services/owner-personal-tokens.ts（#1065）：名字、作用域五项、台、有效期 1～90 天、令牌格式。 */
+ *  规则对齐后端 server/src/services/owner-personal-tokens.ts（#1065）：名字、作用域、台、有效期、令牌格式。
+ *  作用域的中文说法与有效期上下限以清单应答的 available_scopes、limits 为准；应答里没有时用下面的兜底（与后端同值）。 */
 import type { SourceResult } from './personal-tokens-api';
 
 export interface TokenRow { id: string; name: string; scopes: string[]; benches: string[]; createdAt: number; expiresAt: number; lastUsedAt: number | null; revokedAt: number | null }
@@ -9,10 +10,13 @@ export interface TokenDraft { name: string; scopes: string[]; benches: string[];
 const DAY = 86400000;
 export const DEFAULT_DAYS = 30;
 export const MAX_DAYS = 90;
+export interface Limits { defaultDays: number; minDays: number; maxDays: number }
+export const FALLBACK_LIMITS: Limits = { defaultDays: DEFAULT_DAYS, minDays: 1, maxDays: MAX_DAYS };
 export const NAME_MAX = 48;
 /** 和服务端同一条：字母或数字开头，其后字母、数字、空格、点、短横线、下划线，共 1～48 个，前后不留空格 */
 const NAME = /^[\p{L}\p{N}][\p{L}\p{N} ._-]{0,47}$/u;
 export const NAME_HINT = '1～48 个字母、数字、空格、点、短横线或下划线，以字母或数字开头';
+/** 兜底的五项作用域（与后端 PERSONAL_TOKEN_SCOPES 同 id）；只有报告维度不按台 */
 export const SCOPES: ScopeDef[] = [
   { key: 'bench:read', label: '读台数据', description: '查询数据、读报告', perBench: true },
   { key: 'bench:write', label: '写台数据', description: '定义数据集、写入行', perBench: true },
@@ -62,8 +66,25 @@ export function expiryLabel(t: TokenRow, now: number): string {
   return ymdhm(t.expiresAt) + ' 到期（还剩 ' + Math.ceil((t.expiresAt - now) / DAY) + ' 天）';
 }
 /** 作用域的说法：认得的写中文，认不得的只说有几项，不露代号 */
-export function scopesLabel(t: TokenRow): string {
-  const byKey = new Map(SCOPES.map((d) => [d.key, d.label]));
+/** 作用域清单：服务端给的 available_scopes（id、label、description）优先；形状不对或没给用兜底。是否按台按 id 判（只有报告维度不按台） */
+export function scopesOf(body: unknown): ScopeDef[] {
+  const raw = body && typeof body === 'object' ? (body as { available_scopes?: unknown }).available_scopes : null;
+  if (!Array.isArray(raw)) return SCOPES;
+  const got = raw.filter((s): s is { id: string; label: string; description?: unknown } => !!s && typeof s === 'object' && typeof (s as { id?: unknown }).id === 'string' && typeof (s as { label?: unknown }).label === 'string')
+    .map((s) => ({ key: s.id, label: s.label, description: typeof s.description === 'string' ? s.description : '', perBench: s.id !== 'report-dimensions' }));
+  return got.length ? got : SCOPES;
+}
+/** 有效期上下限与缺省：服务端给的 limits 优先，不合理就用兜底 */
+export function limitsOf(body: unknown): Limits {
+  const l = body && typeof body === 'object' ? (body as { limits?: unknown }).limits : null;
+  const o = l && typeof l === 'object' ? (l as Record<string, unknown>) : {};
+  const n = (x: unknown) => (typeof x === 'number' && Number.isInteger(x) && x >= 1 ? x : null);
+  const min = n(o.min_expires_in_days), max = n(o.max_expires_in_days), def = n(o.default_expires_in_days);
+  if (min === null || max === null || def === null || min > max || def < min || def > max) return FALLBACK_LIMITS;
+  return { defaultDays: def, minDays: min, maxDays: max };
+}
+export function scopesLabel(t: TokenRow, defs: ScopeDef[] = SCOPES): string {
+  const byKey = new Map(defs.map((d) => [d.key, d.label]));
   const known = t.scopes.filter((k) => byKey.has(k)).map((k) => byKey.get(k) as string);
   const unknown = t.scopes.length - known.length;
   return [...known, ...(unknown ? ['另有 ' + unknown + ' 项'] : [])].join('、') || '—';
@@ -72,19 +93,19 @@ export function benchesLabel(t: TokenRow, titles: Map<string, string>): string {
   return t.benches.map((s) => titles.get(s) ?? s).join('、') || '不限台（只有报告维度）';
 }
 
-export function newDraft(): TokenDraft { return { name: '', scopes: [], benches: [], days: DEFAULT_DAYS }; }
+export function newDraft(limits: Limits = FALLBACK_LIMITS): TokenDraft { return { name: '', scopes: [], benches: [], days: limits.defaultDays }; }
 /** 选的作用域里有没有按台的（这时必须选台） */
-export function needsBench(scopes: string[]): boolean { return scopes.some((k) => SCOPES.find((s) => s.key === k)?.perBench !== false); }
+export function needsBench(scopes: string[]): boolean { return scopes.some((k) => k !== 'report-dimensions'); }
 /** 签发前核一遍（与服务端同规则）：哪一项没填好就说哪一项；都好返回 null */
-export function draftProblem(d: TokenDraft): string | null {
+export function draftProblem(d: TokenDraft, limits: Limits = FALLBACK_LIMITS): string | null {
   if (!NAME.test(d.name) || d.name !== d.name.trim()) return '名字：' + NAME_HINT;
   if (!d.scopes.length) return '至少选一项它能做的事';
   if (needsBench(d.scopes) && !d.benches.length) return '选了按台的作用域，至少选一个台';
-  if (!Number.isInteger(d.days) || d.days < 1 || d.days > MAX_DAYS) return '有效期在 1 到 ' + MAX_DAYS + ' 天之间';
+  if (!Number.isInteger(d.days) || d.days < limits.minDays || d.days > limits.maxDays) return '有效期在 ' + limits.minDays + ' 到 ' + limits.maxDays + ' 天之间';
   return null;
 }
-export function issueBody(d: TokenDraft): { name: string; scopes: string[]; benches: string[]; expires_in_days: number } {
-  const order = SCOPES.map((s) => s.key);
+export function issueBody(d: TokenDraft, defs: ScopeDef[] = SCOPES): { name: string; scopes: string[]; benches: string[]; expires_in_days: number } {
+  const order = defs.map((s) => s.key);
   return { name: d.name, scopes: [...new Set(d.scopes)].sort((a, b) => order.indexOf(a) - order.indexOf(b)), benches: [...new Set(d.benches)].sort(), expires_in_days: d.days };
 }
 /** 签发应答：原文只取这一次（wmu_ 加 43 位）；没有原文当没签成 */

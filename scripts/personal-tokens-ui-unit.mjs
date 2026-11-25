@@ -2,7 +2,7 @@
 /** 设置页「个人令牌」（#1063）的纯函数单测（web/src/personal-tokens-view.ts）与接口适配层实发请求，加上原文不落地、不带管理口令的源码检查。数据都是合成的。 */
 import { readFileSync } from 'node:fs';
 import { PERSONAL_TOKENS_PATH, issuePersonalToken, listPersonalTokens, personalTokenPath, revokePersonalToken } from '../web/src/personal-tokens-api.ts';
-import { MAX_DAYS, ONE_TIME_NOTE, SCOPES, actionProblem, benchesLabel, draftProblem, expiryLabel, issueBody, issuedOf, lastUsedLabel, listProblem, needsBench, newDraft, scopesLabel, stateTag, tokenRowOf, tokenState, tokensOf } from '../web/src/personal-tokens-view.ts';
+import { FALLBACK_LIMITS, limitsOf, scopesOf, MAX_DAYS, ONE_TIME_NOTE, SCOPES, actionProblem, benchesLabel, draftProblem, expiryLabel, issueBody, issuedOf, lastUsedLabel, listProblem, needsBench, newDraft, scopesLabel, stateTag, tokenRowOf, tokenState, tokensOf } from '../web/src/personal-tokens-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log('  ✓ ' + name); } else { fail++; console.log('  ✗ ' + name + ' ' + extra); } };
@@ -34,6 +34,13 @@ ok('清单读不到：401 请先登录、403 分清非属主/非 HTTPS/非同源
 ok('清单 403 带中文句子时照说（如拿令牌访问：这个接口不接受个人令牌），已知代号的说法优先', listProblem({ status: 403, body: { error: 'personal_token_route_denied', message: '这个接口不接受个人令牌' } }).text === '这个接口不接受个人令牌' && listProblem({ status: 403, body: { error: 'personal_token_surface_denied', message: 'x 中' } }).text.includes('HTTPS'));
 ok('操作没办成：服务端中文句子照说（名字重了），代号不露；撤销 404、断网各有说法；204 算办成', actionProblem({ status: 409, body: { error: 'personal_token_name_taken', message: '此令牌名称已使用，请换一个名字' } }) === '此令牌名称已使用，请换一个名字'
   && actionProblem({ status: 404, body: { error: 'personal_token_missing' } }).includes('找不到') && actionProblem({ status: 403, body: { error: 'forbidden' } }) === '你的账号现在不能做这一步。' && actionProblem({ status: 0, body: null }).includes('连不上') && actionProblem({ status: 204, body: null }) === null);
+const CAT = { available_scopes: [{ id: 'bench:read', label: '读取台数据', description: '查询数据' }, { id: 'report-dimensions', label: '管理报告维度', description: '维度模板' }], limits: { default_expires_in_days: 14, min_expires_in_days: 2, max_expires_in_days: 60 } };
+ok('作用域清单：服务端 available_scopes 优先（id、label、description），只有报告维度不按台；形状不对或没给用兜底五项', J(scopesOf(CAT).map((s) => [s.key, s.label, s.perBench])) === J([['bench:read', '读取台数据', true], ['report-dimensions', '管理报告维度', false]])
+  && scopesOf({ available_scopes: [{ key: 'x' }] }) === SCOPES && scopesOf(null) === SCOPES && scopesOf({}) === SCOPES);
+ok('作用域说法用服务端的标签', scopesLabel(tokenRowOf(row('s', { scopes: ['report-dimensions'] })), scopesOf(CAT)) === '管理报告维度');
+ok('有效期：服务端 limits 优先；缺项、倒挂、缺省越界都用兜底 1～90、缺省 30', J(limitsOf(CAT)) === J({ defaultDays: 14, minDays: 2, maxDays: 60 }) && limitsOf(null) === FALLBACK_LIMITS
+  && limitsOf({ limits: { default_expires_in_days: 30, min_expires_in_days: 90, max_expires_in_days: 1 } }) === FALLBACK_LIMITS && limitsOf({ limits: { default_expires_in_days: 99, min_expires_in_days: 1, max_expires_in_days: 90 } }) === FALLBACK_LIMITS && J(FALLBACK_LIMITS) === J({ defaultDays: 30, minDays: 1, maxDays: MAX_DAYS }));
+ok('新表单的缺省天数与表单核对跟着 limits 走', newDraft(limitsOf(CAT)).days === 14 && draftProblem(d({ days: 61 }), limitsOf(CAT)).includes('60') && draftProblem(d({ days: 1 }), limitsOf(CAT)).includes('2') && draftProblem(d({ days: 60 }), limitsOf(CAT)) === null);
 ok('只显示一次的说明写明了离开就没了、怎么存', ONE_TIME_NOTE.includes('只显示这一次') && ONE_TIME_NOTE.includes('0600'));
 ok('路径：/api/owner/personal-tokens，撤销按 id 编码拼路径', PERSONAL_TOKENS_PATH === '/api/owner/personal-tokens' && personalTokenPath('a/b c') === '/api/owner/personal-tokens/a%2Fb%20c');
 

@@ -6,7 +6,7 @@ import { KeyOutlined } from '@ant-design/icons';
 import { listBenchViews } from '../api';
 import { issuePersonalToken, listPersonalTokens, revokePersonalToken, type SourceResult } from '../personal-tokens-api';
 import {
-  MAX_DAYS, NAME_HINT, NAME_MAX, ONE_TIME_NOTE, SCOPES, SCOPE_NOTE, actionProblem, benchesLabel, draftProblem, expiryLabel, issueBody, issuedOf, lastUsedLabel, listProblem,
+  NAME_HINT, NAME_MAX, ONE_TIME_NOTE, SCOPE_NOTE, limitsOf, scopesOf, actionProblem, benchesLabel, draftProblem, expiryLabel, issueBody, issuedOf, lastUsedLabel, listProblem,
   needsBench, newDraft, scopesLabel, stateTag, tokenState, tokensOf, type TokenDraft, type TokenRow,
 } from '../personal-tokens-view';
 
@@ -38,18 +38,20 @@ export default function PersonalTokensCard() {
   const tokens = useMemo(() => (ok ? tokensOf(list?.body, now) : []), [ok, list]); // eslint-disable-line react-hooks/exhaustive-deps
   const titles = useMemo(() => new Map((benches ?? []).map((b) => [b.slug, b.title])), [benches]);
   const problem = listProblem(list);
-  const draftErr = draftProblem(draft);
+  const scopes = useMemo(() => scopesOf(list?.body), [list]);
+  const limits = useMemo(() => limitsOf(list?.body), [list]);
+  const draftErr = draftProblem(draft, limits);
 
   const issue = async () => {
     if (draftErr) return;
     setBusy('issue'); setIssueErr(null);
-    const r = await issuePersonalToken(issueBody(draft));
+    const r = await issuePersonalToken(issueBody(draft, scopes));
     setBusy(null);
     const bad = actionProblem(r);
     const got = bad ? null : issuedOf(r.body);
     if (!got) { setIssueErr(bad ?? '签发的应答里没有令牌，没签成；请重试。'); return; }
     setFresh({ name: draft.name.trim(), token: got.token });
-    setOpen(false); setDraft(newDraft()); reload();
+    setOpen(false); setDraft(newDraft(limits)); reload();
   };
   const revoke = async (t: TokenRow) => {
     setBusy('revoke:' + t.id); setErr(null);
@@ -62,7 +64,7 @@ export default function PersonalTokensCard() {
 
   const columns = [
     { title: '名字', key: 'name', render: (_: unknown, t: TokenRow) => <span data-testid="pt-name">{t.name}</span> },
-    { title: '能做的事', key: 'scopes', render: (_: unknown, t: TokenRow) => scopesLabel(t) },
+    { title: '能做的事', key: 'scopes', render: (_: unknown, t: TokenRow) => scopesLabel(t, scopes) },
     { title: '台', key: 'benches', render: (_: unknown, t: TokenRow) => benchesLabel(t, titles) },
     { title: '期限', key: 'expiry', render: (_: unknown, t: TokenRow) => expiryLabel(t, now) },
     { title: '最近使用', key: 'used', render: (_: unknown, t: TokenRow) => <span data-testid="pt-last-used">{lastUsedLabel(t)}</span> },
@@ -75,7 +77,7 @@ export default function PersonalTokensCard() {
 
   return (
     <Card title={<span><KeyOutlined /> 个人令牌</span>} className="wm-w-full wm-pt-card" data-testid="pt-card"
-      extra={ok ? <Button type="primary" size="small" data-testid="pt-new" onClick={() => { setErr(null); setIssueErr(null); setOpen(true); }}>签发令牌</Button> : null}>
+      extra={ok ? <Button type="primary" size="small" data-testid="pt-new" onClick={() => { setErr(null); setIssueErr(null); setDraft(newDraft(limits)); setOpen(true); }}>签发令牌</Button> : null}>
       <Typography.Paragraph type="secondary">在终端里用属主身份办事（wm user …），不借已登录的浏览器。{SCOPE_NOTE}</Typography.Paragraph>
       {fresh && (
         <Alert className="wm-acc-alert" type="success" showIcon data-testid="pt-fresh"
@@ -94,12 +96,12 @@ export default function PersonalTokensCard() {
           <Input data-testid="pt-draft-name" value={draft.name} maxLength={NAME_MAX} placeholder={NAME_HINT} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
           <span>能做的事</span>
           <Checkbox.Group data-testid="pt-draft-scopes" value={draft.scopes} onChange={(v) => setDraft({ ...draft, scopes: v as string[] })}
-            options={SCOPES.map((s) => ({ value: s.key, label: s.label + '（' + s.description + '）' }))} />
+            options={scopes.map((s) => ({ value: s.key, label: s.description ? s.label + '（' + s.description + '）' : s.label }))} />
           <span>台</span>
           <Select mode="multiple" className="wm-w-full" data-testid="pt-draft-benches" loading={!benches} value={draft.benches}
             placeholder={needsBench(draft.scopes) ? '选台（按台的作用域必选）' : '只有报告维度时可以不选台'} onChange={(v) => setDraft({ ...draft, benches: v })} options={(benches ?? []).map((b) => ({ value: b.slug, label: b.title }))} />
-          <span>有效期（天，最长 {MAX_DAYS}）</span>
-          <InputNumber data-testid="pt-draft-days" min={1} max={MAX_DAYS} precision={0} value={draft.days} onChange={(v) => setDraft({ ...draft, days: typeof v === 'number' ? v : 0 })} />
+          <span>有效期（天，{limits.minDays}～{limits.maxDays}）</span>
+          <InputNumber data-testid="pt-draft-days" min={limits.minDays} max={limits.maxDays} precision={0} value={draft.days} onChange={(v) => setDraft({ ...draft, days: typeof v === 'number' ? v : 0 })} />
           {draftErr && <Typography.Text type="secondary" data-testid="pt-draft-problem">{draftErr}</Typography.Text>}
         </Space>
       </Modal>
