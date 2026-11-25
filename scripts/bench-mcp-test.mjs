@@ -632,6 +632,12 @@ try {
     const priorView = await srv.call('GET', '/api/bench-views/demo/view', owner);
     const cliView = await runCli(['view', 'put', 'demo', fixture('personal-view.json', { base: priorView.json?.view?.version ?? 0, note: '终端保存对照', doc: { title: '终端测试', views: [{ key: 'v', title: 'V', blocks: [{ type: 'stat', query: { dataset: 'seed', measures: [{ as: 'n', fn: 'count' }] }, value: 'n' }] }] } })]);
     check(cliQuery.code === 0 && cliQuery.output.includes('bench-only-marker') && cliRows.code === 0 && cliView.code === 0, 'CLI 查数、写行、保存视图走真实业务 API', [cliQuery.code, cliRows.code, cliView.code, cliView.output.trim().slice(0, 140)]);
+    const retryPath = '/api/bench-views/demo/datasets/seed/rows?op=upsert';
+    const retryBody = JSON.stringify([{ id: 3, secret: 'idem' }]);
+    const retryKey = { 'idempotency-key': 'personal-retry' };
+    const firstWrite = await srv.call('POST', retryPath, { ...owner, headers: { ...owner.headers, ...retryKey }, raw: retryBody });
+    const sameWrite = await srv.call('POST', retryPath, { headers: { ...personal.headers, ...retryKey }, raw: retryBody });
+    check(firstWrite.status === 200 && sameWrite.status === 200 && sameWrite.json?.duplicate === true, '同一属主换用令牌重试写入仍命中原幂等键');
     const records = await srv.call('GET', api, tokenOwner);
     check(records.status === 200 && records.json?.personal_tokens?.[0]?.last_used_at > 0 && !records.text.includes(token)
       && !records.text.includes('token_sha256'), '列表有最近使用时间，仅显示元数据');

@@ -190,7 +190,7 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     const token = personalTokenOf(req);
     return token ? personalTokenAuditName(token) : actor;
   };
-  const ctxOf = (req: express.Request, actor: string, note?: unknown) => ({ actor: auditActor(req, actor), at: Date.now(), idemKey: str(req.headers['idempotency-key']), note: str(note) });
+  const ctxOf = (req: express.Request, actor: string, note?: unknown) => ({ actor: auditActor(req, actor), idemActor: actor, at: Date.now(), idemKey: str(req.headers['idempotency-key']), note: str(note) });
 
   const rawRows = express.raw({ type: () => true, limit: BENCH_LIMITS.datasetBytes + 1_000_000 });
   /** 一条「在某个台上做一件事」的路由：先判权限，再核台登记过，然后把台库交给 fn */

@@ -90,7 +90,7 @@ export type DatasetTransition = { expected: DatasetContext; operationId: string;
 export type BindingContext = { view: number; viewRevision: number; generation: string; datasets: DatasetFence[] };
 export type PublicationFence = BindingContext & { main: MainStoreFence };
 export type ReportBindingOperation = { id: string; snapshotSha256: string };
-export type WriteCtx = { actor: string; at: number; idemKey?: string; note?: string; provenance?: Provenance };
+export type WriteCtx = { actor: string; at: number; idemKey?: string; idemActor?: string; note?: string; provenance?: Provenance };
 /**
  * 公共区写入口给的来源（只有它给；带来源列的数据集只收带这个的追加）。每行的来源列由服务端照这里填，写入方的行里不能有。
  * supersedes：和这批的行一一对应，给了就是「这一行更正那一行」（那一行的 _row）；不更正的写 null。
@@ -731,7 +731,7 @@ export class BenchStoreCore {
    */
   private async logged(ds: DatasetDef, op: string, payload: unknown, ctx: WriteCtx, fn: (c: { actor: string; at: number; note: string }) => Promise<WriteResult>): Promise<WriteResult> {
     const c = checkCtx(ctx), body = sha256(canonical([ds.name, op, payload]));
-    const scopedKey = ctx.idemKey ? `${c.actor}\n${ctx.idemKey}` : null;
+    const scopedKey = ctx.idemKey ? `${ctx.idemActor ?? c.actor}\n${ctx.idemKey}` : null;
     if (scopedKey) {
       const prev = await this.conn.all('SELECT dataset, op, body_sha256, result FROM bs_writes WHERE idem_key = ?', [scopedKey]);
       if (prev.length) {
