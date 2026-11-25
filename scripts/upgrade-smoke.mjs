@@ -117,7 +117,7 @@ if (argv.includes('--selftest')) {
   t('原有行没了：算改了', rowsChangedOf({ work_item_backfill: [bf()] }, { work_item_backfill: [] }, [], vol), true);
   t('什么都没变：不算', run(bf(), bf()), false);
   // Frozen observed contract, independent of the implementation's expected-ID list above.
-  const goodRows = ['anonymous-read', 'anonymous-write', 'var-render-anonymous', 'table-export-anonymous', 'table-row-anonymous', 'report-generate-anonymous']
+  const goodRows = ['anonymous-read', 'anonymous-write', 'var-render-anonymous', 'table-export-anonymous', 'table-row-anonymous', 'report-generate-anonymous', 'anonymous-stop-report']
     .map((name) => ({ id: 'market.bench-views.' + name, verdict: 'pass', status: 401 }));
   const probes = (label, rows, want) => t(label, benchProbesPassed({ rows }) ? [] : ['probe contract mismatch'], !want);
   probes('七条具名匿名守卫都通过且401：放行', goodRows, true);
