@@ -161,23 +161,27 @@ with sync_playwright() as p:
     reread(f"/cockpit/{cfg['cockpit']}", '/api/attention', '驾驶舱（右栏「事项」里 alpha 的事项、左栏「等你拍板」）', tab='ck-tab-items-items')
     reread(f"/cockpit/{cfg['cockpit']}", '/api/bench-views/', '驾驶舱里的数据视图面板')
     # 团队页：页面上要有只属于 alpha 的东西，「换人后没有 alpha 的内容」才不是空过（阶段四要求）。
-    # 截下 /api/teams，按请求带的会话给不同的应答：alpha 有一个合成部门，beta 什么都没有
-    ALPHA_DEPT = '合成：只给 alpha 看的部门'
+    # #1041 后页面展示团队卡，不再展示部门分组；alpha 有一个合成团队，beta 什么都没有。
+    ALPHA_TEAM = '合成：只给 alpha 看的团队'
     def teams_by_session(route):
         mine = cfg['alpha_session'] in (route.request.headers.get('cookie') or '')
-        body = {'departments': [{'id': 'syn-alpha-dept', 'name': ALPHA_DEPT, 'lead': {'principal': 'user:alpha', 'display_name': 'Synthetic alpha'}, 'teams': []}] if mine else [], 'unclaimed': []}
+        team = {'host': 'syn-alpha-host', 'team': 'syn-zone/canvas/alpha-team', 'name': ALPHA_TEAM,
+                'status': 'active', 'in_roster': True, 'department': {'id': 'syn-alpha-dept', 'name': '合成部门'},
+                'leads': [{'principal': 'user:alpha', 'display_name': 'Synthetic alpha', 'source': 'explicit'}],
+                'router': None, 'members': []}
+        body = {'departments': [{'id': 'syn-alpha-dept', 'name': '合成部门', 'teams': [team]}] if mine else [], 'unclaimed': []}
         route.fulfill(status=200, content_type='application/json', body=json.dumps(body))
     ctx = b.new_context(viewport={'width': 1440, 'height': 900})
     ctx.add_cookies([{'name': 'session_id', 'value': cfg['alpha_session'], 'url': M}])
     ctx.route(re.compile(r'/api/teams(\?|$)'), teams_by_session)
     pg = ctx.new_page(); pg.set_default_timeout(10000)
     pg.goto(M + '/team'); pg.wait_for_load_state('networkidle')
-    soft(lambda: pg.wait_for_function('(t) => document.documentElement.innerHTML.includes(t)', arg=ALPHA_DEPT))
-    had = ALPHA_DEPT in pg.content()
+    soft(lambda: pg.wait_for_function('(t) => document.documentElement.innerHTML.includes(t)', arg=ALPHA_TEAM))
+    had = ALPHA_TEAM in pg.content()
     to_beta(ctx); pg.evaluate("window.dispatchEvent(new Event('focus'))")
-    try: pg.wait_for_function('(t) => !document.documentElement.innerHTML.includes(t)', arg=ALPHA_DEPT, timeout=6000); cleared = True
+    try: pg.wait_for_function('(t) => !document.documentElement.innerHTML.includes(t)', arg=ALPHA_TEAM, timeout=6000); cleared = True
     except Exception: cleared = False
-    check('团队页：alpha 看得到只属于他的部门 → 换成 beta → 这个部门不在页面上了', had and cleared, (had, cleared))
+    check('团队页：alpha 看得到只属于他的团队 → 换成 beta → 这个团队不在页面上了', had and cleared, (had, cleared))
     ctx.close()
     reread('/access', '/api/grants', '谁能做什么')
     reread('/attention', '/api/attention', '「等你拍板」完整列表（/attention，#656 按新外壳重写的那一版）')
