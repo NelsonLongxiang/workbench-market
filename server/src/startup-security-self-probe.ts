@@ -221,6 +221,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       { id: 'market.login-flow.forged-callback', target: m, surface: 'market', method: 'GET', path: '/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x', headers: REMOTE_ANON, status: 400 },
       // Login gate (enforce only): fixed synthetic slug, so a bypass shows up as 404/200 instead of the login redirect
       ...(loginGate === 'enforce' ? [
+        { id: 'market.a2a-roster.unsigned', target: m, surface: 'market', method: 'POST', path: '/a2a/direct', body: JSON.stringify({ team: 'market/00000000', caller_session: 'dsh-host-selfprobe', message: '[A2A roster] 00000000 2000-01-01T00:00:00.000Z\n{"host":"00000000","seats":[]}' }), headers: REMOTE_ANON, status: 401 },
         { id: 'market.login-gate.page', target: m, surface: 'market', method: 'GET', path: '/', headers: REMOTE_ANON, status: 302, login: true },
         { id: 'market.login-gate.app', target: m, surface: 'market', method: 'GET', path: '/apps/wm-self-probe/', headers: REMOTE_ANON, status: 302, login: true },
         { id: 'market.login-gate.api', target: m, surface: 'market', method: 'GET', path: '/api/apps', headers: REMOTE_ANON, status: 401 },
