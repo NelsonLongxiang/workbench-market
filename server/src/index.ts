@@ -118,17 +118,17 @@ import { registerSopRunAccessRoutes } from './routes/sop-run-access.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import { workItemStuckHoursFromEnv, type WorkItemService } from './services/work-item.ts';
 import type { SopService } from './services/sop.ts';
-import type { McpService } from './services/mcp.ts';
-import type { ChangeRequestService } from './services/change-request.ts';
+import { inAccessRequestTx, insertSkillSearchAudit, type McpService } from './services/mcp.ts';
+import { insertMcpChangeRequest, mcpChangeRequestsByStatus, type ChangeRequestService } from './services/change-request.ts';
 import type { TaskCenterService } from './services/task-center.ts';
-import type { RemoteAllowService } from './services/remote-allow.ts';
-import { SkillService } from './services/skill.ts';
-import type { AppService } from './services/app.ts';
+import { allowNotifyBindings, insertAllowSnapshot, latestAllowSnapshot, type RemoteAllowService } from './services/remote-allow.ts';
+import { deleteSkillRows, insertDownloadTicket, markSkillVersionShadowSkipped, purgeDownloadTicketsExpiredBefore, SkillService } from './services/skill.ts';
+import { appVersionTotalBytes, type AppService } from './services/app.ts';
 import { Config as AppDataConfig, type AppDataService } from './services/app-data.ts';
 import type { GrantService } from './services/grant.ts';
 import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
-import { ADMIN_TOKEN_KEY, type SettingService } from './services/setting.ts';
+import { ADMIN_TOKEN_KEY, markWmSkillsRebuilt, settingValue, type SettingService } from './services/setting.ts';
 import type { BindingService } from './services/binding.ts';
 import { recordLayerFsShadowOutcome, recordLayerFsSkillShadowOutcome } from './layerfs-shadow.ts';
 import { db, getSettings, dataDir, appendOnlySelfCheck, rowToWorkbench, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
@@ -263,7 +263,7 @@ const loginGate = createLoginGate({
   varsAppTokenOk: (req) => workbenchVars.appTokenWrite(req),
   runCapOk: async (kind, runId, presented) => {
     if (kind === 'read') return (await authorizeRunRead({ cap: presented }, runId)).authorized;
-    const row = db.prepare('SELECT status, upload_token FROM sop_runs WHERE id = ?').get(runId) as { status: string; upload_token: string } | undefined;
+    const row = svc<SopService>('sop').runWriteCredential(runId);
     const want = String(row?.upload_token ?? '');
     return row?.status === 'running' && want.length > 0 && want.length === presented.length && timingSafeEqual(Buffer.from(want), Buffer.from(presented));
   },
@@ -579,13 +579,13 @@ function computeAllowDiff() {
   const cur = remoteAllowSnapshot();
   let prev: string[] | null = null;
   try {
-    const row = db.prepare('SELECT snapshot FROM remote_allow_state ORDER BY id DESC LIMIT 1').get() as { snapshot: string } | undefined;
-    if (row) prev = JSON.parse(row.snapshot);
+    const snapshot = latestAllowSnapshot();
+    if (snapshot !== undefined) prev = JSON.parse(snapshot);
   } catch { prev = null; }
   const added = prev === null ? [] : cur.filter((p) => !prev!.includes(p));
   const removed = prev === null ? [] : prev!.filter((p) => !cur.includes(p));
   if (prev === null || added.length > 0 || removed.length > 0) {
-    db.prepare('INSERT INTO remote_allow_state (snapshot) VALUES (?)').run(JSON.stringify(cur));
+    insertAllowSnapshot(JSON.stringify(cur));
   }
   return { added, removed, current: cur };
 }
@@ -599,7 +599,7 @@ function announceAllowDiff(): void {
   setTimeout(() => {
     if (outboundOff()) { noteBlocked('allow-notify'); console.warn('[S3-notify] 对外已断开：豁免面变更通知不发'); return; }
     try {
-      const nts = db.prepare("SELECT target_slug, agent_node, notify_url FROM bindings WHERE direction IN ('notify','both') AND revoked_at = '' AND notify_url != ''").all() as { target_slug: string; agent_node: string; notify_url: string }[];
+      const nts = allowNotifyBindings();
       for (const nt of nts) {
         a2aSendOutbound(a2aKeyPath(), { baseUrl: nt.notify_url, team: nt.agent_node }, JSON.stringify({
           type: 'remote-allow-changed', added: lastAllowDiff.added, removed: lastAllowDiff.removed,
@@ -1281,7 +1281,7 @@ function publishAppBody(b: any, source?: { repo: string; path: string; commit: s
   if (existing && !force) {
     const prev = svc<AppService>('app').versionsMax(existing.id) as { v: number | null };
     if (prev.v !== null && prev.v > 0) {
-      const prevRow = db.prepare('SELECT total_bytes FROM app_versions WHERE app_id = ? AND version = ?').get(existing.id, prev.v) as { total_bytes?: number } | undefined;
+      const prevRow = appVersionTotalBytes(existing.id, prev.v);
       const prevBytes = prevRow?.total_bytes ?? 0;
       const newBytes = files.reduce((s, f) => s + Buffer.byteLength(f.content, 'utf8'), 0);
       if (prevBytes > 0 && newBytes < prevBytes * 0.5) {
@@ -1438,9 +1438,7 @@ function executeSkillDelete(slug: string): void {
   const row = S.skillBySlug(slug);
   if (!row) throw new HttpError(404, `skill not found: ${slug}`);
   for (const v of S.versionsBySkill(row.id) as any[]) { try { rmSync(resolveSnap(v.snapshot_path), { recursive: true, force: true }); } catch { /* 已不在 */ } }
-  db.prepare('DELETE FROM install_ledger WHERE skill_id = ?').run(row.id);
-  db.prepare('DELETE FROM skill_versions WHERE skill_id = ?').run(row.id);
-  db.prepare('DELETE FROM skills WHERE id = ?').run(row.id);
+  deleteSkillRows(row.id);
 }
 registerChangeRequestRoutes(http, { adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, executeSkillRollback, executeSkillDelete, cardDeleter: (req) => cardDeleterOf(req, (r) => adminHeaderOk(r)) });
 
@@ -1807,7 +1805,7 @@ function sopRunStartCore(slugRaw: string, startedByRaw: string, requester: strin
   const id = Number(r.lastInsertRowid);
   // P0：run-scoped 上传令牌（启动签发·Runner 页内嵌·files POST 必带）
   const uploadToken = randomBytes(32).toString('hex');
-  try { db.prepare('UPDATE sop_runs SET upload_token = ? WHERE id = ?').run(uploadToken, id); } catch { /* 列缺=降级 */ }
+  try { svc<SopService>('sop').runSetUploadToken(id, uploadToken); } catch { /* 列缺=降级 */ }
   // Lazy Redis initialization under the per-run queue avoids racing a new save or finish.
   // #309 phase2：创建即得 run 级读能力（明文仅此一次；库内只存摘要）
   const readCapability = issueRunReadCap(id);
@@ -2091,7 +2089,7 @@ function runFileQuota(runId: number) {
 function runFileWriteGate(req: express.Request, runId: number): void {
   const row = sopRunRow(runId);
   if (row.status !== 'running') throw new HttpError(409, `run ${runId} 已 ${row.status}，不可再关联文件`);
-  const strict = (() => { try { const r = db.prepare("SELECT value FROM settings WHERE key = 'run_upload_require_token'").get() as { value?: string } | undefined; return String(r?.value ?? '') === '1'; } catch { return false; } })();
+  const strict = (() => { try { return String(settingValue('run_upload_require_token') ?? '') === '1'; } catch { return false; } })();
   if (strict && !adminHeaderOk(req)) {
     const presented = String(req.headers['x-run-upload-token'] ?? '').trim();
     const expected = String((row as any).upload_token ?? '');
@@ -2440,8 +2438,8 @@ function skillDownloadIssue(slugIn: unknown, versionIn: unknown, issuedTo: strin
   const { row, target } = skillVersionDir(slugIn, versionIn);
   const id = randomBytes(32).toString('hex');
   const exp = Date.now() + SKILL_DL_TTL_MS;
-  db.prepare('DELETE FROM skill_download_tickets WHERE expires_at < ?').run(Date.now() - 86400_000); // 过期一天的票顺手清掉
-  db.prepare('INSERT INTO skill_download_tickets (id, slug, version, issued_to, expires_at) VALUES (?, ?, ?, ?, ?)').run(skillTicketKey(id), row.slug, target.version, issuedTo, exp);
+  purgeDownloadTicketsExpiredBefore(Date.now() - 86400_000); // 过期一天的票顺手清掉
+  insertDownloadTicket(skillTicketKey(id), row.slug, target.version, issuedTo, exp);
   const name = skillPkgDir(row.slug);
   const url = `${base}/api/skills/dl/${id}`;
   const pkgSha = createHash('sha256').update(skillPackage(row, target, skillVersionDir(row.slug, target.version).dir)).digest('hex');
@@ -2564,7 +2562,7 @@ async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknow
   // Skill shadow remains non-blocking; its per-version outcome is durable/retryable like app publishing.
   // LayerFS 契约 v1 只收文本：含二进制的版本不推影子，记 skipped（与 migrate-layerfs 的留档不迁同义）
   const binary = blobs.find((f) => !isUtf8Bytes(f.content));
-  if (binary) db.prepare("UPDATE skill_versions SET shadow_status='skipped', shadow_error=? WHERE skill_id=? AND version=? AND commit_id=''").run(`含非 UTF-8（二进制）文件 ${binary.path}：LayerFS 契约只收文本，不推影子`, row.id, nextVer);
+  if (binary) markSkillVersionShadowSkipped(`含非 UTF-8（二进制）文件 ${binary.path}：LayerFS 契约只收文本，不推影子`, row.id, nextVer);
   else void layerfsPublish(LAYERFS_SKILLS_PROJECT, blobs.map((f) => ({ path: f.path, content: f.content.toString('utf8') })), `[skill-publish] ${slug} v${nextVer}`, `skill/${slug}`).then((out) => {
     try { recordLayerFsSkillShadowOutcome(db, Number(row.id), nextVer, out); }
     catch (e) { console.warn(`[S2-shadow] outcome persistence failed: ${slug} v${nextVer}: ${String((e as Error).message).slice(0,100)}`); }
@@ -2602,7 +2600,7 @@ async function rebuildWmSkills(trigger: string): Promise<{ ok: boolean; deleted_
     const out = await layerfsPublish(LAYERFS_SKILLS_PROJECT, files, `[rebuild] ${sk.slug} v${latest.version}`, `skill/${sk.slug}`);
     if (out) { S.versionMigrated(out.commit_id, latest.id); republished++; }
   }
-  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_wm_skills_rebuild', datetime('now'))").run();
+  markWmSkillsRebuilt();
   console.log(`[S4-rebuild] ${trigger}: deleted=${deleted} republished=${republished} cleared=${cleared}`);
   return { ok: true, deleted_project: deleted, republished, cleared_stale: cleared };
 }
@@ -2610,8 +2608,8 @@ async function rebuildWmSkills(trigger: string): Promise<{ ok: boolean; deleted_
 void (async function scheduleMonthlyRebuild() {
   const check = async () => {
     try {
-      const row = db.prepare("SELECT value FROM settings WHERE key = 'last_wm_skills_rebuild'").get() as { value?: string } | undefined;
-      const last = row?.value ? Date.parse(row.value.replace(' ', 'T') + 'Z') : 0;
+      const lastRaw = settingValue('last_wm_skills_rebuild');
+      const last = lastRaw ? Date.parse(lastRaw.replace(' ', 'T') + 'Z') : 0;
       if (Date.now() - last >= 30 * 24 * 3600 * 1000) await rebuildWmSkills('monthly-auto');
     } catch { /* 调度失败不阻运行 */ }
   };
@@ -3185,7 +3183,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
         const cur = SkillService.currentOf(s, vs)?.version ?? null;
         return { slug: s.slug, short_name: skillShortName(s.slug), name: s.name, layer: s.layer, description: String(s.description ?? ''), confidence: pv, version: cur, install_plan: { slug: s.slug, version: cur } };
       });
-      try { db.prepare("INSERT INTO mcp_calls (at, session_name, method, tool, ok, error, duration_ms, args_sha256) VALUES (datetime('now'), ?, 'tools/call', 'skill_search', 1, '', 0, ?)").run('skill_search', need_digest); } catch { /* 审计失败不阻 */ }
+      try { insertSkillSearchAudit(need_digest); } catch { /* 审计失败不阻 */ }
       const _total = { candidates_total: candidatesTotal, top_n: topN }; // #007 总量披露（恒报·含未截断）
       return items.length ? { need_digest, ..._total, items } : { need_digest, ..._total, items: [], note: `库里有 ${candidatesTotal} 个技能，没有置信度大于 0.7 的；换个说法再搜，或用 skills_list 按关键词看全部、用 skill_read 读正文` };
     }
@@ -3252,13 +3250,12 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (op === 'rollback' && typeof args?.target_version !== 'number') bad('rollback 需 target_version（数字）');
       if (kind === 'app') getApp(slug);
       else if (!svc<SkillService>('skill').skillBySlug(slug)) throw new HttpError(404, `skill not found: ${slug}`);
-      const info = db.prepare("INSERT INTO change_requests (kind, slug, op, target_version, reason, source, requested_by) VALUES (?, ?, ?, ?, ?, 'mcp', ?)")
-        .run(kind, slug, op, op === 'rollback' ? Number(args?.target_version) : null, String(args?.reason ?? '').slice(0, 500), String(args?.requested_by ?? 'mcp-agent'));
+      const info = insertMcpChangeRequest(kind, slug, op, op === 'rollback' ? Number(args?.target_version) : null, String(args?.reason ?? '').slice(0, 500), String(args?.requested_by ?? 'mcp-agent'));
       return { id: Number(info.lastInsertRowid), kind, slug, op, target_version: args?.target_version ?? null, status: 'pending', note: '请求已建——批准前状态不变（人经 /api/change-requests/:id/approve 口令+reviewed_by 批准执行）' };
     }
     case 'change_requests': {
       const status = typeof args?.status === 'string' ? args.status : 'pending';
-      return db.prepare('SELECT id, kind, slug, op, target_version, reason, status, requested_by, created_at FROM change_requests WHERE status = ? ORDER BY id DESC LIMIT 50').all(status);
+      return mcpChangeRequestsByStatus(status);
     }
     case 'sop_publish': {
       const a = sopTransition(String(args?.slug), ['draft', 'deprecated'], 'published', '发布');
@@ -3843,8 +3840,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
   if ([...reason].length > ACCESS_REASON_MAX) bad(`reason 超过 ${ACCESS_REASON_MAX} 字`);
   const toolsJson = JSON.stringify(wanted);
   const mcp = svc<McpService>('mcp');
-  db.exec('BEGIN IMMEDIATE');
-  try {
+  return inAccessRequestTx(() => {
     const dup = mcp.accessRequestPendingSame(s.id, toolsJson) as AccessRequestRow | undefined;
     let out;
     if (dup) out = { ok: true, duplicate: true, request: accessRequestForSession(dup) };
@@ -3853,12 +3849,8 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
       const r = mcp.accessRequestInsert(s.id, toolsJson, reason) as unknown as { lastInsertRowid: number | bigint };
       out = { ok: true, duplicate: false, request: accessRequestForSession(mcp.accessRequestById(Number(r.lastInsertRowid)) as AccessRequestRow) };
     }
-    db.exec('COMMIT');
     return { ...out, next: accessNext(out.request.ref) };
-  } catch (e) {
-    db.exec('ROLLBACK');
-    throw e;
-  }
+  });
 }
 
 /** 审批人：站内管理员记主体，口令记 admin-token（口令本身不落库）。历史留痕里的 odoo:<登录名> 不改 */

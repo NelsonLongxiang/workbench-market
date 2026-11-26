@@ -3,6 +3,11 @@ import type { SQLInputValue } from 'node:sqlite';
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 
+/** 某个台某一版的总字节数（发布时防误覆盖的比较用） */
+export function appVersionTotalBytes(appId: SQLInputValue, version: SQLInputValue): { total_bytes?: number } | undefined {
+  return db.prepare('SELECT total_bytes FROM app_versions WHERE app_id = ? AND version = ?').get(appId, version) as { total_bytes?: number } | undefined;
+}
+
 export class AppService extends Service {
   constructor(ctx: any) {
     super(ctx, 'app');
