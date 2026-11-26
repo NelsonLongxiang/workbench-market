@@ -501,6 +501,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   bench-sweep.ts（台库的清扫：Cordis 服务 `benchSweep`·起来 1 分钟后一次、之后每天一次、随根上下文停·没有登记的库文件先备份再删·.deleted/ 里过了 30 天的备份删掉·Redis 里卡片已不在的台的键清掉）
   attention.ts（「关注」：Cordis 服务 `attention`·各来源注册提供方、可撤销·汇总当前这个人的条目和各类条数）
   binding.ts（A2A 人工绑定）
+  workbench-events-store.ts（工作台事件、投递、事件日志的存取；表在 db.ts，口径与投递 worker 在 workbench-events.ts）
   change-request.ts（人审变更请求；detailOf 给审核卡片看内容所需的最少字段：版本从几到几、目标版本说明、删除连带几个版本几个文件、不可恢复）
   custom-role.ts（自定义角色：Cordis 服务 `customRoles`·从内置预设复制、改、删、属主放行、导出·每步留痕·带来管理类或决定类权限的要属主放行）
   department.ts（部门：Cordis 服务 `departments`·部门清单、负责人、成员归属、职能代号·部门标识即授予范围 dept:<标识>·还有没结束的部门授予时不能删）

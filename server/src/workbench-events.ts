@@ -6,7 +6,7 @@
 import { outboundOff, noteBlocked } from './outbound-gate.ts';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type express from 'express';
-import { db } from './db.ts';
+import { cancelDelivery, cancellableTaskDeliveries, deliveriesOfEvent, dueDeliveries, eventById, eventLogRows, eventSourceItem, heldDeliveryIds, inWorkbenchEventTx, insertDelivery, insertEventLog, insertWorkbenchEvent, markDeliveryPending, notifyBindingRows, recentEvents, recordDeliveryDecision, replyCandidates, scheduleDeliveryRetry, settleDelivery, taskStatusRow } from './services/workbench-events-store.ts';
 import { a2aKeyPath, a2aSendOutbound, MARKET_TEAM, marketPublicUrl, sopNode8 } from './a2a.ts';
 import { MAX_ROUTE_BODY_BYTES } from '@nelsonlongxiang/dsh-open-a2a-net/transport-caps';
 import { root } from './root-context.ts';
@@ -35,33 +35,9 @@ export const TERMINAL_CODES = new Set([-32001, -32002, -32003]);
 export const REPLY_TTL_DAYS = 7; // reply token 自送达起 7 天有效（ask 之后也不例外）
 const WORKER_CONCURRENCY = 8;
 
+/** 投递表和到期索引已搬进 db.ts（随库加载建好）；保留这个入口，任务中心初始化照旧调它 */
 export function initWorkbenchEvents(): void {
-  db.exec(`
-CREATE TABLE IF NOT EXISTS workbench_event_deliveries (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  event_id TEXT NOT NULL REFERENCES workbench_events(event_id),
-  target_team TEXT NOT NULL,
-  target_url TEXT NOT NULL,
-  caller_session TEXT NOT NULL,
-  status TEXT NOT NULL CHECK (status IN ('held','pending','sent','dead','cancelled')),
-  message TEXT NOT NULL DEFAULT '', -- 待投递的完整信封（含 reply token 明文）；sent/dead 后清空，明文只在待投期间存在
-  attempts INTEGER NOT NULL DEFAULT 0,
-  next_at TEXT NOT NULL DEFAULT (datetime('now')),
-  last_error TEXT NOT NULL DEFAULT '',
-  sent_at TEXT NOT NULL DEFAULT '',
-  reply_token_sha256 TEXT NOT NULL DEFAULT '',
-  decision TEXT NOT NULL DEFAULT '' CHECK (decision IN ('','accept','decline','ask')),
-  decision_reason TEXT NOT NULL DEFAULT '',
-  decision_ref TEXT NOT NULL DEFAULT '',
-  decided_by TEXT NOT NULL DEFAULT '',
-  decided_at TEXT NOT NULL DEFAULT '',
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  UNIQUE (event_id, target_team)
-);
-CREATE INDEX IF NOT EXISTS idx_wbe_deliveries_due ON workbench_event_deliveries(status, next_at);
--- 事件日志 workbench_event_log 的建表和三道只增触发器（改、删、覆盖）在 db.ts
--- 工作台事件 workbench_events 的建表和只增触发器（不删、不改、不覆盖）在 db.ts
-`);
+  // 事件 workbench_events、投递 workbench_event_deliveries、事件日志 workbench_event_log 的建表与触发器都在 db.ts
 }
 
 const sha256 = (text: string): string => createHash('sha256').update(text, 'utf8').digest('hex');
@@ -78,17 +54,17 @@ export function logEventFact(eventId: string, actor: string, action: string, det
 }
 /** 写一行事件日志，返回行 id */
 function log(eventId: string, deliveryId: number | null, actor: string, action: string, detail: Record<string, unknown> = {}): number {
-  const info = db.prepare('INSERT INTO workbench_event_log (event_id, delivery_id, actor, action, detail) VALUES (?, ?, ?, ?, ?)').run(eventId, deliveryId, actor, action, JSON.stringify(detail));
+  const id = insertEventLog(eventId, deliveryId, actor, action, JSON.stringify(detail));
   // 听的一方出什么错都不影响这里：它自己回滚、计数，漏掉的由回填补上
-  try { root.emit('workbench-event/logged', { id: Number(info.lastInsertRowid), event_id: eventId, delivery_id: deliveryId, action }); }
+  try { root.emit('workbench-event/logged', { id, event_id: eventId, delivery_id: deliveryId, action }); }
   catch (e) { console.error(`[workbench-events] 发事件日志事件失败（不影响本次写入）：${(e as Error)?.message ?? e}`); }
-  return Number(info.lastInsertRowid);
+  return id;
 }
 
 export interface Target { agent_node: string; notify_url: string }
 function notifyTargets(type: 'sop' | 'app', slug: string): Target[] {
   // 同一节点可以同时有 notify 与 both 两行（自然键含 direction）——按节点去重，先绑的那行为准
-  const rows = db.prepare("SELECT agent_node, notify_url FROM bindings WHERE target_type = ? AND target_slug = ? AND direction IN ('notify','both') AND revoked_at = '' AND notify_url != '' ORDER BY id").all(type, slug) as unknown as Target[];
+  const rows = notifyBindingRows(type, slug) as unknown as Target[];
   const seen = new Map<string, string>();
   return rows.filter((r) => {
     const first = seen.get(r.agent_node);
@@ -155,8 +131,7 @@ function dispatchText(core: EventCore, message: Record<string, unknown>): string
 function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'default' | 'unrouted', held: boolean, callerSession: string, envelopeOf: (eventId: string, createdAt: string) => Record<string, unknown>): string {
   const eventId = 'wbe-' + randomBytes(8).toString('hex');
   const createdAt = new Date().toISOString();
-  db.prepare('INSERT INTO workbench_events (event_id, source, workbench, item, context_id, submitter_kind, submitter, form_version, data_sha256, dispatch, routed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(eventId, core.source, core.workbench, core.item, core.contextId, core.submitterKind, core.submitter, core.formVersion, core.dataSha256, core.dispatch ? 1 : 0, routed);
+  insertWorkbenchEvent(eventId, core.source, core.workbench, core.item, core.contextId, core.submitterKind, core.submitter, core.formVersion, core.dataSha256, core.dispatch ? 1 : 0, routed);
   log(eventId, null, 'market', 'recorded', { source: core.source, routed, submitter_kind: core.submitterKind, targets: targets.length, ...(core.requester ? { requester: core.requester } : {}), ...(core.via ? { via: core.via } : {}), ...(core.publisher ? { publisher: core.publisher } : {}), ...(core.object ? { object: core.object } : {}), ...(core.phase ? { phase: core.phase } : {}),
     ...(core.handoff ? { handoff: core.handoff, review_by: core.reviewBy ?? (held ? 'lead' : '') } : {}), ...(core.directedSeatId ? { directed_seat_id: core.directedSeatId } : {}), ...(core.cockpitId ? { cockpit_id: core.cockpitId } : {}), ...(core.directedFallback ? { directed_fallback: core.directedFallback } : {}), ...(core.due ? { due: core.due } : {}), ...(core.priority ? { priority: core.priority } : {}) });
   const envelope = envelopeOf(eventId, createdAt);
@@ -167,9 +142,8 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
       token = randomBytes(24).toString('base64url');
       message = { ...envelope, reply: { url: `${marketPublicUrl()}/api/workbench-events/${eventId}/decision`, token, decisions: [...DECISIONS] } };
     }
-    const info = db.prepare('INSERT INTO workbench_event_deliveries (event_id, target_team, target_url, caller_session, status, message, reply_token_sha256) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(eventId, t.agent_node, t.notify_url, callerSession, held ? 'held' : 'pending', dispatchText(core, message), token === '' ? '' : sha256(token));
-    log(eventId, Number(info.lastInsertRowid), 'market', held ? 'held' : 'queued', { target_team: t.agent_node });
+    const deliveryId = insertDelivery(eventId, t.agent_node, t.notify_url, callerSession, held ? 'held' : 'pending', dispatchText(core, message), token === '' ? '' : sha256(token));
+    log(eventId, deliveryId, 'market', held ? 'held' : 'queued', { target_team: t.agent_node });
   }
   return eventId;
 }
@@ -238,18 +212,12 @@ export function recordAppDataEvent(item: { slug: string; id: number; data: unkno
   // 只通知、不派发（dispatch:false）照旧
   const ticketed = item.submitterPrincipal ? { submitter_principal: item.submitterPrincipal, submitter_via: 'ticket' as const } : {};
   if (item.submitterPrincipal) { core.requester = item.submitterPrincipal; core.via = 'ticket'; }
-  let eventId = '';
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    eventId = recordEvent(core, targets, 'target', false, `${MARKET_TEAM}/${sopNode8(item.slug)}`, (id) => ({
+  return inWorkbenchEventTx(() => recordEvent(core, targets, 'target', false, `${MARKET_TEAM}/${sopNode8(item.slug)}`, (id) => ({
       type: 'app-data-submitted', slug: item.slug, id: item.id, data: item.data, created_at: item.createdAt,
       hint: '经 MCP app_data_list（slug + before_id 增量）读取；真源在 app_data',
       v: WORKBENCH_EVENT_VERSION, event_id: id, source: core.source, workbench: core.workbench, item: core.item, context_id: contextId,
       submitter_kind: core.submitterKind, submitter: core.submitter, ...ticketed, data_sha256: core.dataSha256, dispatch: false,
-    }));
-    db.exec('COMMIT');
-  } catch (e) { db.exec('ROLLBACK'); throw e; }
-  return eventId;
+    })));
 }
 
 // ---------- 投递 worker ----------
@@ -262,8 +230,7 @@ export function backoffScale(): number {
 const inFlight = new Set<number>();
 /** attempts = 已尝试次数（含成功的那次）。只从 pending 落定，别的状态不覆盖。 */
 function settle(row: DeliveryRow, status: 'sent' | 'dead' | 'cancelled', error = '', attempts = row.attempts): void {
-  const r = db.prepare("UPDATE workbench_event_deliveries SET status = ?, message = '', attempts = ?, last_error = ?, sent_at = CASE WHEN ? = 'sent' THEN datetime('now') ELSE sent_at END WHERE id = ? AND status = 'pending'").run(status, attempts, error.slice(0, 300), status, row.id);
-  if (Number(r.changes) === 0) return; // 已被别处落定（不应发生：撤回跳过在途行）
+  if (settleDelivery(status, attempts, error.slice(0, 300), row.id) === 0) return; // 已被别处落定（不应发生：撤回跳过在途行）
   // 发送途中任务被撤回：接单方确实收到了，如实记 sent，另记一条，供撤回方追查
   const action = status === 'sent' && taskWithdrawn(row.source, row.item) ? 'sent-after-withdraw' : status;
   log(row.event_id, row.id, 'market', action, error === '' ? {} : { error: error.slice(0, 300) });
@@ -281,23 +248,21 @@ function settle(row: DeliveryRow, status: 'sent' | 'dead' | 'cancelled', error =
 export function releaseCore(eventId: string, actor: string, actingFor = ''): { status: number; body: Record<string, unknown> } {
   const blocked = releaseBlock(eventId);
   if (blocked) return blocked;
-  db.exec('BEGIN IMMEDIATE');
-  let released: { id: number }[] = [];
-  try {
-    released = db.prepare("SELECT id FROM workbench_event_deliveries WHERE event_id = ? AND status = 'held'").all(eventId) as { id: number }[];
-    for (const r of released) {
-      db.prepare("UPDATE workbench_event_deliveries SET status = 'pending', next_at = datetime('now') WHERE id = ?").run(r.id);
+  const released = inWorkbenchEventTx(() => {
+    const held = heldDeliveryIds(eventId) as { id: number }[];
+    for (const r of held) {
+      markDeliveryPending(r.id);
       log(eventId, r.id, actor, 'released', actingFor ? { acting_for: actingFor } : undefined);
     }
-    db.exec('COMMIT');
-  } catch (e) { db.exec('ROLLBACK'); throw e; }
+    return held;
+  });
   if (released.length === 0) return { status: 409, body: { error: '该事件没有待确认（held）的投递', event_id: eventId } };
   kickWorkbenchEvents();
   return { status: 200, body: { ok: true, event_id: eventId, released: released.length, ...(actingFor ? { acting_for: actingFor } : {}) } };
 }
 
 export function releaseBlock(eventId: string): { status: number; body: Record<string, unknown> } | null {
-  const ev = db.prepare('SELECT source, item FROM workbench_events WHERE event_id = ?').get(eventId) as { source: string; item: string } | undefined;
+  const ev = eventSourceItem(eventId) as { source: string; item: string } | undefined;
   if (!ev) return { status: 404, body: { error: 'event not found' } };
   if (taskWithdrawn(ev.source, ev.item)) return { status: 409, body: { error: '任务已撤回，不再派发', event_id: eventId } };
   return null;
@@ -306,7 +271,7 @@ export function releaseBlock(eventId: string): { status: number; body: Record<st
 function taskWithdrawn(source: string, item: string): boolean {
   if (source !== 'task-center') return false;
   const id = Number(item.replace(/^task:/, ''));
-  const t = db.prepare('SELECT status FROM tasks WHERE id = ?').get(id) as { status: string } | undefined;
+  const t = taskStatusRow(id) as { status: string } | undefined;
   return t?.status === 'withdrawn';
 }
 /**
@@ -314,11 +279,11 @@ function taskWithdrawn(source: string, item: string): boolean {
  * 正在发送的那次不动——它可能已经到了对端；返回 in_flight 如实报告，落定时记 sent-after-withdraw。
  */
 export function cancelTaskCenterDeliveries(taskId: number, actor: string): { cancelled: number; in_flight: number } {
-  const rows = db.prepare("SELECT d.id, d.event_id FROM workbench_event_deliveries d JOIN workbench_events e ON e.event_id = d.event_id WHERE e.source = 'task-center' AND e.item = ? AND d.status IN ('held','pending')").all(`task:${taskId}`) as { id: number; event_id: string }[];
+  const rows = cancellableTaskDeliveries(`task:${taskId}`) as { id: number; event_id: string }[];
   let cancelled = 0, in_flight = 0;
   for (const r of rows) {
     if (inFlight.has(r.id)) { in_flight++; continue; }
-    db.prepare("UPDATE workbench_event_deliveries SET status = 'cancelled', message = '' WHERE id = ?").run(r.id);
+    cancelDelivery(r.id);
     log(r.event_id, r.id, actor, 'cancelled', { reason: 'task withdrawn' });
     cancelled++;
   }
@@ -357,7 +322,7 @@ async function attemptDelivery(row: DeliveryRow): Promise<void> {
   if (typeof out?.code === 'number' && TERMINAL_CODES.has(out.code)) return settle(row, 'dead', `${out.code}: ${error}`, attempt);
   if (attempt >= MAX_ATTEMPTS) return settle(row, 'dead', error, attempt);
   const delay = (BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)] ?? 3_600_000) * backoffScale();
-  db.prepare("UPDATE workbench_event_deliveries SET attempts = ?, next_at = ?, last_error = ? WHERE id = ? AND status = 'pending'").run(attempt, sqliteUtcIn(delay), error.slice(0, 300), row.id);
+  scheduleDeliveryRetry(attempt, sqliteUtcIn(delay), error.slice(0, 300), row.id);
   log(row.event_id, row.id, 'market', 'retry', { attempts: attempt, error: error.slice(0, 300) });
 }
 let ticking = false;
@@ -370,7 +335,7 @@ export async function workbenchEventTick(): Promise<void> {
   try {
     do {
       kickAgain = false;
-      const due = db.prepare("SELECT d.id, d.event_id, d.target_team, d.target_url, d.caller_session, d.message, d.attempts, e.context_id, e.source, e.item FROM workbench_event_deliveries d JOIN workbench_events e ON e.event_id = d.event_id WHERE d.status = 'pending' AND d.next_at <= datetime('now') ORDER BY d.id LIMIT 20").all() as unknown as DeliveryRow[];
+      const due = dueDeliveries() as unknown as DeliveryRow[];
       // 并发投递：一台宕机的主机（每次可能等满 15s）不拖住发往其他主机的投递
       for (let i = 0; i < due.length; i += WORKER_CONCURRENCY) {
         await Promise.allSettled(due.slice(i, i + WORKER_CONCURRENCY).map((row) => deliver(row).catch((e) => console.error(`[workbench-events] delivery ${row.id} failed: ${String(e).slice(0, 120)}`))));
@@ -396,7 +361,7 @@ export function startWorkbenchEventWorker(): void {
 
 // ---------- HTTP 面 ----------
 function eventView(e: any) {
-  const deliveries = db.prepare('SELECT id, target_team, target_url, status, attempts, last_error, sent_at, decision, decision_reason, decision_ref, decided_by, decided_at, created_at FROM workbench_event_deliveries WHERE event_id = ? ORDER BY id').all(e.event_id);
+  const deliveries = deliveriesOfEvent(e.event_id);
   return { ...e, dispatch: e.dispatch === 1, deliveries };
 }
 
@@ -406,14 +371,14 @@ export function registerWorkbenchEventRoutes(app: HttpService, guards: { admin: 
   app.get('/api/workbench-events', { action: 'workbench-event.list', kind: 'admin' }, (req, res) => {
     if (!guards.admin(req, res)) return;
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
-    const rows = db.prepare('SELECT * FROM workbench_events ORDER BY id DESC LIMIT ?').all(limit);
+    const rows = recentEvents(limit);
     res.set('Cache-Control', 'no-store').json(rows.map(eventView));
   });
   app.get('/api/workbench-events/:eventId', { action: 'workbench-event.read', kind: 'admin' }, (req, res) => {
     if (!guards.admin(req, res)) return;
-    const e = db.prepare('SELECT * FROM workbench_events WHERE event_id = ?').get(req.params.eventId);
+    const e = eventById(req.params.eventId);
     if (!e) return res.status(404).json({ error: 'event not found' });
-    const logRows = db.prepare('SELECT delivery_id, at, actor, action, detail FROM workbench_event_log WHERE event_id = ? ORDER BY id').all(req.params.eventId);
+    const logRows = eventLogRows(req.params.eventId);
     res.set('Cache-Control', 'no-store').json({ ...eventView(e), log: logRows });
   });
   // 决定：接单节点凭投递里的 reply token 回写。ask 可再改；accept/decline 是终态。
@@ -431,7 +396,7 @@ export function registerWorkbenchEventRoutes(app: HttpService, guards: { admin: 
     if (ref.length > 300 || (ref !== '' && !/^https?:\/\/\S+$/.test(ref))) return res.status(400).json({ error: 'ref 须为 http(s) 链接，≤300 字' });
     // 凭 token 找到唯一一条投递；找不到与 token 错同答 404（不泄露事件是否存在）
     const hash = Buffer.from(sha256(token), 'hex');
-    const rows = db.prepare("SELECT id, status, decision, target_url, reply_token_sha256, (sent_at != '' AND datetime(sent_at, '+' || ? || ' days') > datetime('now')) AS live FROM workbench_event_deliveries WHERE event_id = ? AND reply_token_sha256 != ''").all(REPLY_TTL_DAYS, eventId) as { id: number; status: string; decision: string; target_url: string; reply_token_sha256: string; live: number }[];
+    const rows = replyCandidates(REPLY_TTL_DAYS, eventId) as { id: number; status: string; decision: string; target_url: string; reply_token_sha256: string; live: number }[];
     const row = token === '' ? undefined : rows.find((r) => { const h = Buffer.from(r.reply_token_sha256, 'hex'); return h.length === hash.length && timingSafeEqual(h, hash); });
     if (!row) return res.status(404).json({ error: 'event not found' });
     // 对端登记表里停用、等确认新键的节点：令牌还在有效期内也和不存在一样答，什么都不动（没登记的照旧，同投递）
@@ -439,12 +404,10 @@ export function registerWorkbenchEventRoutes(app: HttpService, guards: { admin: 
     if (row.status !== 'sent') return res.status(409).json({ error: `投递状态为 ${row.status}，只有已送达的投递才能回写决定` });
     if (row.decision === 'accept' || row.decision === 'decline') return res.status(409).json({ error: `已有终态决定：${row.decision}`, decision: row.decision });
     if (row.live !== 1) return res.status(410).json({ error: `reply token 已过期（送达后 ${REPLY_TTL_DAYS} 天）` });
-    db.exec('BEGIN IMMEDIATE');
-    try {
-      db.prepare("UPDATE workbench_event_deliveries SET decision = ?, decision_reason = ?, decision_ref = ?, decided_by = ?, decided_at = datetime('now') WHERE id = ?").run(decision, reason, ref, by, row.id);
+    inWorkbenchEventTx(() => {
+      recordDeliveryDecision(decision, reason, ref, by, row.id);
       log(eventId, row.id, by === '' ? 'receiver' : `receiver:${by}`, `decision:${decision}`, { reason, ref });
-      db.exec('COMMIT');
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
+    });
     res.json({ ok: true, event_id: eventId, decision });
   });
 }
