@@ -240,7 +240,10 @@ v2 的 body 是有 id 的节点数组。第十二次上线起可用 v3：把 sch
 
 **图片已变**：报告页经市场代取显示图片，按报告冻结的 sha256 核对。源图被换掉后，代取返回 409 `image_changed`，页面显示「图片已变」，不显示新图。要用新图就重新生成一份报告。
 
-**出错时**：src 引用的参数或列不是 image 类型，返回 `image_source_type`；值不是合规链接，返回 `invalid_image_ref`；没有值，返回 `missing_reference`；alt 不合规，返回 `invalid_alt`。
+**出错时**：src 引用的参数或列不是 image 类型，返回 `image_source_type`；alt 不合规，返回 `invalid_alt`。来源的值不合规时，参数和字段与行不一样：
+
+- 参数、字段：值不是合规链接返回 `invalid_image_ref`，没有值返回 `missing_reference`。
+- 行：取回的格子在核数据时就先核过，不是合规链接或是空的，返回 `invalid_cell`（路径指到 `/slots/<槽>/rows/<行>/<列>`）。只有槽里把这一列声明成 `nullable`、格子是 null 时，才走到图片节点，返回 `missing_reference`。
 
 以下模板为每个商品排一节：标题是商品名，下面是这一行的主图。槽 products 的 pic 列声明成 image，绑定时映射到视图里存图片链接的那一列。
 
