@@ -216,5 +216,27 @@ with sync_playwright() as p:
     t5 = docs(pg).inner_text()
     check('回应者名字、范围名取不到：写「未命名」「领域成员（未命名）」，不写 user:beta、area-member@area:zeta、xss-dim',
           '领域成员（未命名）' in t5 and not any(k in t5 for k in ['user:', 'area-member', '@area', 'xss-dim', 'zeta']), t5[-300:])
+    print('七、章节锚点和本页目录（#1099）')
+    REPORTS[4]['body'] = {'schema_version': 2, 'title': '合成·长报告', 'body': [{'id': 'cover', 'type': 'cover', 'title': '合成·长报告', 'content': '合成摘要'}]
+        + [{'id': f'sec{i}', 'type': 'section', 'title': f'第{i}节', 'children': [{'id': f't{i}', 'type': 'text', 'content': '合成正文。' * 300}]} for i in range(1, 6)]}
+    pg.goto(f'{M}/use/{CARD}/reports?report=4#sec4'); pg.wait_for_selector('[data-testid=report-doc][data-report="4"] #sec4')
+    try: pg.wait_for_function("() => document.getElementById('sec4')?.classList.contains('wm-anchor-flash')", timeout=5000)
+    except Exception: pass
+    jump = pg.evaluate("""() => { const m = document.querySelector('.wm-bp-body').getBoundingClientRect(), el = document.getElementById('sec4'); if (!el) return null;
+      const r = el.getBoundingClientRect(); return { inView: r.top >= m.top - 2 && r.top < m.top + 120, flash: el.classList.contains('wm-anchor-flash'), title: el.querySelector('.wm-rp-h')?.textContent }; }""")
+    check('报告：打开带 #sec4 的链接，定位到第4节（在顶上）并高亮', bool(jump) and jump['inView'] and jump['flash'] and jump['title'] == '第4节', jump)
+    toc = [x.inner_text().strip() for x in pg.locator('[data-testid=page-toc] a').all()]
+    check('报告超过 3 节：右侧有本页目录，列出各节（封面不进）', toc == ['第1节', '第2节', '第3节', '第4节', '第5节'], toc)
+    pg.locator('[data-testid=page-toc] a', has_text='第2节').click()
+    try: pg.wait_for_function("() => location.hash === '#sec2' && document.querySelector('[data-testid=page-toc] a[aria-current=true]')?.textContent === '第2节'", timeout=5000)
+    except Exception: pass
+    check('点目录条目：地址换成 #sec2，这一条高亮', pg.evaluate('() => location.hash') == '#sec2' and pg.locator('[data-testid=page-toc] a[aria-current=true]').inner_text().strip() == '第2节')
+    pg.evaluate("() => { window.__copied = null; navigator.clipboard.writeText = (t) => { window.__copied = t; return Promise.resolve(); }; }")
+    pg.locator('[data-testid=copy-anchor][data-anchor=sec3]').click()
+    try: pg.wait_for_function('() => window.__copied !== null', timeout=5000)
+    except Exception: pass
+    check('章节标题旁「复制本块链接」：复制 /reports?report=4#sec3', pg.evaluate('() => window.__copied') == f'{M}/use/{CARD}/reports?report=4#sec3', pg.evaluate('() => window.__copied'))
+    pg.goto(f'{M}/use/{CARD}/reports?subject=item%3A7'); wait_n(pg, '[data-testid=report-doc]', 2)
+    check('并排看几份：不出目录、章节不带锚点（几份的章节键会重）', pg.locator('[data-testid=page-toc]').count() == 0 and pg.locator('.wm-rp-body section[id]').count() == 0 and pg.locator('[data-testid=copy-anchor]').count() == 0)
     b.close()
 print(f'\nreport-page-browser: {ok} 过 / {fail} 败'); sys.exit(1 if fail else 0)

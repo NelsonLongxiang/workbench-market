@@ -8,6 +8,8 @@ import { Alert, Button, Empty, Image, Input, Radio, Result, Skeleton, Tag, Typog
 import { ArrowLeftOutlined, FileTextOutlined } from '@ant-design/icons';
 import { getBenchEntry, getBenchReport, listBenchReports, respondBenchReport, type BenchEntry, type ReportListItem, type ReportListNames, type ReportNames, type ReportNode, type ReportRead, type ReportResponse } from '../api';
 import { entryOutcome } from '../bench-page-view';
+import { BackToTop, CopyAnchorButton, TocLayout, useAnchorJump } from '../components/PageToc';
+import { reportTocEntries } from '../page-toc-view';
 import { fmtNumber } from '../bench-blocks/blocks-view';
 import { BarBlock } from '../bench-blocks/Chart';
 import { REPORT_IMAGE_TEXT, loadReportImage, actorKindText, basisText, gateText, groupBySubject, headsOf, kindLabel, myHead, nameOr, positionText, replacedIds, reportError, reportImageSrc, reportImageState, reportRoute, respondProblem, sourceText, stanceText, timeText, type ReportImageLoad } from '../report-page-view';
@@ -53,6 +55,7 @@ export default function BenchReports() {
             : route.kind === 'subject' ? <SubjectReports cardId={id} subject={route.subject} entry={entry.data} />
               : <OneReport cardId={id} reportId={route.id} entry={entry.data} />
         ) : null}
+        <BackToTop />
       </div>
     </div>
   );
@@ -134,6 +137,8 @@ function OneReport({ cardId, reportId, entry, column }: { cardId: string; report
     setS(r.status === 200 && body?.report ? { phase: 'ok', data: body } : { phase: 'error', text: reportError(r.status, r.body) });
   }, [cardId, reportId]);
   useEffect(() => { setS({ phase: 'loading' }); void load(); }, [load]);
+  // #1099 单看一份时：章节带锚点，打开带 #<章节键> 的地址定位到那一节（并排看时几份的章节键会重，不给锚点）
+  useAnchorJump(s.phase === 'ok' && !column, `r${reportId}`);
   if (s.phase === 'loading') return <div className="wm-rp-col"><Skeleton active /></div>;
   if (s.phase === 'error') return <div className="wm-rp-col"><Alert type="error" showIcon message={s.text} data-testid="report-page-msg" /></div>;
   const d = s.data, rep = d.report;
@@ -141,6 +146,7 @@ function OneReport({ cardId, reportId, entry, column }: { cardId: string; report
   const canRespond = entry.can.respond;
   const names: ReportNames = d.names ?? { dimension: null, actors: {}, positions: {}, sources: [] };
   return (
+    <TocLayout entries={column ? [] : reportTocEntries(rep.body.body)}>
     <article className={column ? 'wm-rp-col wm-rp-doc' : 'wm-rp-doc'} data-testid="report-doc" data-report={rep.id} data-dimension={rep.dimension_id}>
       <header className="wm-rp-doc-head">
         <div className="wm-rp-doc-dim" data-testid="report-dimension">{nameOr(names.dimension)}<span className="wm-rp-meta"> · 模板第 {rep.template_version} 版 · {rep.subject}</span></div>
@@ -154,7 +160,7 @@ function OneReport({ cardId, reportId, entry, column }: { cardId: string; report
           {gateText(d.gate) ? <span className="wm-rp-meta" data-testid="report-gate">{gateText(d.gate)}</span> : null}
         </div>
       </header>
-      <div className="wm-rp-body"><Nodes nodes={rep.body.body} level={1} img={{ bench: entry.bench.slug, report: rep.id }} /></div>
+      <div className="wm-rp-body"><Nodes nodes={rep.body.body} level={1} img={{ bench: entry.bench.slug, report: rep.id }} anchors={!column} /></div>
       <footer className="wm-rp-meta wm-rp-sources" data-testid="report-sources">
         来源：{rep.sources.map((x, i) => sourceText(names.sources[i], x)).join('；')}
       </footer>
@@ -180,6 +186,7 @@ function OneReport({ cardId, reportId, entry, column }: { cardId: string; report
         </div>
       </section>
     </article>
+    </TocLayout>
   );
 }
 
@@ -235,13 +242,13 @@ function RespondBox({ cardId, reportId, claimKey, stances, mine, onDone }: { car
 
 /** 冻结的正文：封面、小节、文字、栅格、统计、表格、柱状图、图片（图片经代取，来源是这份报告） */
 type ImgFrom = { bench: string; report: number };
-function Nodes({ nodes, level, img }: { nodes: ReportNode[]; level: number; img: ImgFrom }) {
+function Nodes({ nodes, level, img, anchors }: { nodes: ReportNode[]; level: number; img: ImgFrom; anchors?: boolean }) {
   return <>{nodes.map((n) => {
     if (n.type === 'cover') return <header key={n.id} className="wm-rp-cover" data-node={n.id}><h1>{n.title}</h1>{n.content ? <p>{n.content}</p> : null}</header>;
-    if (n.type === 'section') { const H = level <= 1 ? 'h2' : 'h3'; return <section key={n.id} data-node={n.id}><H className="wm-rp-h">{n.title}</H><Nodes nodes={n.children ?? []} level={level + 1} img={img} /></section>; }
+    if (n.type === 'section') { const H = level <= 1 ? 'h2' : 'h3'; return <section key={n.id} data-node={n.id} {...(anchors ? { id: n.id } : {})}><H className="wm-rp-h">{n.title}{anchors ? <CopyAnchorButton anchor={n.id} /> : null}</H><Nodes nodes={n.children ?? []} level={level + 1} img={img} anchors={anchors} /></section>; }
     if (n.type === 'image') return <ReportImage key={n.id} node={n} img={img} />;
     if (n.type === 'text') return <p key={n.id} data-node={n.id} className="wm-rp-text">{n.content}</p>;
-    if (n.type === 'grid') return <div key={n.id} data-node={n.id} className="wm-rp-grid"><Nodes nodes={n.children ?? []} level={level} img={img} /></div>;
+    if (n.type === 'grid') return <div key={n.id} data-node={n.id} className="wm-rp-grid"><Nodes nodes={n.children ?? []} level={level} img={img} anchors={anchors} /></div>;
     if (n.type === 'data-view' && n.data) {
       const p = n.props ?? {};
       if (n.component === 'stat') {
