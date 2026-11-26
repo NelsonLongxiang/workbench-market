@@ -105,8 +105,9 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_EXTENSIONS_DIR`（扩展挂载点·绝对路径·缺省不加载任何扩展·见「扩展」）
 - `WM_EXTENSION_ROUTES`（扩展路由没报动作时怎么办·缺省 `warn`：照旧能跑，启动日志逐条点名并计数；`enforce`：有没报动作的扩展路由就拒绝启动，阶段六切换判定时打开；其它值拒绝启动·见「扩展」）
 - `YGL_MAX_PROJECTS`（统一待办读 ygl-trees 的 active 项目数上限·缺省 200·超出部分在 `degraded_projects` 报 cap-exceeded）
-- `WM_YGL_CLI`（ygl-trees 入口文件 `dist/bundle/bin.cjs` 的绝对路径·可选·不设时照旧在 node 同目录、PNPM_HOME、APPDATA/npm 下找·相对路径拒绝启动·统一待办、经验库、MCP 上游都经它找入口）
-- `WM_KNOWLEDGE_SYNC_MINUTES`（经验库从 ygl-trees 同步目录的间隔·分钟·缺省 10·`0` 不同步·不是 0～1440 的整数拒绝启动·同步等启动自检通过才开始）
+- `WM_YGL_CLI`（ygl-trees 入口文件 `dist/bundle/bin.cjs` 的绝对路径·可选·不设时照旧在 node 同目录、PNPM_HOME、APPDATA/npm 下找·相对路径拒绝启动·统一待办、经验库、MCP 上游都经它找入口。市场镜像（`deploy/Dockerfile.market`）已装好 ygl-trees（版本按 `deploy/ygl-trees` 的锁文件），并把它设成 `/opt/ygl/node_modules/ygl-trees/dist/bundle/bin.cjs`；部署方要用别处的就照旧设这个变量改指）
+- `WM_KNOWLEDGE_SYNC_MINUTES`（经验库从 ygl-trees 同步目录的间隔·分钟·缺省 10·`0` 不同步·不是 0～1440 的整数拒绝启动·同步等启动自检通过才开始。上线后要确认它不是 `0`，否则经验库只显示已经同步过的；也要确认挂上的库源不是空卷，否则同样不会同步）
+- `YGL_HOME`（ygl-trees 工作区目录·绝对路径·可选·经验库（`library list` 四类：claim 依据、note 经验、skill 方法、check 检查）和统一待办从这里读；不设或目录不在时，经验库显示「未接入」、统一待办不读 ygl。市场镜像里缺省 `/var/lib/ygl`（挂载点；镜像不带工作区）：部署方把正式工作区挂到这里（卷来源在 `deploy/docker-compose.yml` 的 market 服务里改），目录里要有 `ygl-trees.db`、要可写。启动时有一行 `[knowledge] 经验库接入：…` 报入口、库源（有没有库文件、能不能写）和同步周期，缺哪样 warn 点名。MCP 上游的 `ygl_home` 不能和它是同一个目录）
 - `WM_KNOWLEDGE_WRITE_RETRY_SECONDS`（「记成经验」写 ygl-trees 没写上时的重试间隔·秒·缺省 60·按次数翻倍、封顶 6 小时·`0` 不自动重试·不是 0～3600 的整数拒绝启动）
 - `YGL_TOTAL_BUDGET_MS`（ygl-trees 源总预算·缺省 8000·超预算未读的报 budget-exhausted；两项非整数或越界都回落缺省）。
 - `WM_PORTAL_OBSERVE`（显式1才记录被动聚合，管理员读`/api/content/observation`；coverageVerified仍false），见[装配说明（已归档）](docs/archive/content-foundations-integration-296.md)。设置键：`run_upload_require_token`（`1`=SOP run 文件上传要令牌·缺省关=旧直传语义）。。凭据库：`WM_VAULT_PATH`（库文件·缺省 `DATA_DIR/vault/default.json`；指向 `$DSH_HOME/vault/default.json` 即与 DSH 插件共用——插件开着时同时写会丢更新）
@@ -461,6 +462,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   tasks.ts（定时任务）
   upload-integrity.ts（上传应答的核对结果：调用方带了期望的 sha256 / size 且对上才会存，应答写明 integrity 与 next，agent 不必下载回读；MCP 上传与 REST 上传共用）
   url-admission.ts（#258 R3 业务 URL 登记准入单核·WM_REGISTER_URL_ALLOWLIST）
+  knowledge-startup.ts（经验库接入的启动自检行：ygl-trees 入口、YGL_HOME 与 ygl-trees.db、同步周期，缺哪样 warn 点名，#894）
   ygl-cli.ts（调 ygl-trees 的命令行：找入口（WM_YGL_CLI 或几处安装目录）、无 shell 调用、按 --json 契约读结果；统一待办、经验库、MCP 上游共用）
   vault-api.ts（凭据库 REST 面：17 条路由经 HTTP 服务注册，报动作 vault.*（管理类）；除状态外声明面门——服务端持有主密码时只在控制面或凭据库专用域名开放）
   vault/（dsh-vault 存储层引入件·见其 README）
@@ -502,6 +504,8 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   bench-sweep.ts（台库的清扫：Cordis 服务 `benchSweep`·起来 1 分钟后一次、之后每天一次、随根上下文停·没有登记的库文件先备份再删·.deleted/ 里过了 30 天的备份删掉·Redis 里卡片已不在的台的键清掉）
   attention.ts（「关注」：Cordis 服务 `attention`·各来源注册提供方、可撤销·汇总当前这个人的条目和各类条数）
   binding.ts（A2A 人工绑定）
+  endpoint-stats-store.ts（端点命中计数的存取；表在 db.ts，计数口径在 endpoint-stats.ts）
+  read-grants.ts（待办读授权的存取：ygl-trees 项目授权与 SOP 运行读授权的运行号）
   change-request.ts（人审变更请求；detailOf 给审核卡片看内容所需的最少字段：版本从几到几、目标版本说明、删除连带几个版本几个文件、不可恢复）
   custom-role.ts（自定义角色：Cordis 服务 `customRoles`·从内置预设复制、改、删、属主放行、导出·每步留痕·带来管理类或决定类权限的要属主放行）
   department.ts（部门：Cordis 服务 `departments`·部门清单、负责人、成员归属、职能代号·部门标识即授予范围 dept:<标识>·还有没结束的部门授予时不能删）
