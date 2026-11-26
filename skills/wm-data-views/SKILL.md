@@ -157,6 +157,37 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
 
 第十二次上线起，浏览器用 json-render 渲染数据视图。写视图仍使用原来的 JSON、组件、`view_put` 参数和版本规则。组件目录 [views.md](references/views.md) 在该版本起由服务端契约生成，契约检查会核对目录和 JSON Schema。
 
+## 视图与数据的执行标准
+
+### 保持报告绑定有效
+
+视图块被生效报告绑定使用时，改动槽数据来源可能让 `view_put` 返回 409「现行报告数据槽改了来源」。先读回当前绑定并记下版本和槽映射，请有停用权限的活跃自然人发 POST `/api/bench-views/<台>/reports/<维度>/binding/stop`。请求体为 `{ "base": 1, "reason": "调整数据来源" }`，将 1 换成刚读到的绑定版本。停用生成后再保存视图。
+
+使用最新停用版的绑定版本作 `base`，按原槽位和列契约重绑到更新后的视图块、参数和列。用绑定的 PUT 接口，或按能力目录发起绑定。然后读回绑定，核对新版本、关联模板和槽映射，确认已启用再生成报告。停用和重绑只影响后续生成，已经发出的报告仍使用各自的冻结数据。
+
+在三个只读报告工具尚未上线的环境（#1069 上线前），如果台 MCP 读不到生效模板或绑定，请属主一侧用获准入口代读并留回执。回执记维度、模板和绑定版本及槽映射，生成前核它与目标台和这次参数是否对应。只有读回证据齐了才继续。
+
+### 写入和展示采集值
+
+- 金额与比例统一展示两位小数。保留采集原值及计算精度，最后一步格式化展示，避免输出浮点长尾。比例先确认源值是小数还是百分数，再加百分号。比如合成的金额 12.5、比例 0.125 显示为 **12.50**、**12.50%**。
+- 采集值同时保留 `observed_at`（源上能核验的观测时间）和 `source_ref`（可追溯的来源引用）。有真实时间才填，未知用 `null`；采集执行时间不能代替观测时间。按相同主键回读数值、时间和来源，确认口径与源一致。
+
+```json dataset
+{ "name": "observations", "title": "合成观测", "key": ["id"], "columns": [
+  { "name": "id", "type": "integer", "label": "行号" },
+  { "name": "amount", "type": "decimal", "label": "金额" },
+  { "name": "ratio", "type": "decimal", "label": "比例" },
+  { "name": "observed_at", "type": "datetime", "label": "观测时间" },
+  { "name": "source_ref", "type": "text", "label": "来源引用", "required": true }
+] }
+```
+
+```json rows:observations
+[ { "id": 1, "amount": 12.5, "ratio": 0.125, "observed_at": null, "source_ref": "synthetic:sample-1" } ]
+```
+
+报告论断、更正链与三层验收见 [wm-reports](../wm-reports/SKILL.md)。
+
 ## 做好以后：告诉人去哪打开
 
 人从市场打开这张卡片，就进视图台页面：`/use/<卡片编号>`。顶栏是视图描述里的各份视图（按顺序，默认打开第一份），页面标题用视图描述的 `title`。
