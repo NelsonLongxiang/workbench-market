@@ -6,9 +6,12 @@
  *    /api/auth/me 自己不通、或回 502 identity_unavailable（身份服务连不上，#641 那一套）时不算变，什么都不清。
  *  · 身份变了：世代号加一、广播 wm-session-lost。外壳按世代号整棵重挂页面（各页的状态一起丢掉、按新的人重读），
  *    共用的取数缓存清空；旧世代发出去、还在路上的请求回来时直接丢弃（不交回页面，免得把上一个人的数据写回去）。
- *  不引别的文件：scripts/session-watch-unit.mjs 直接测核心（createSessionWatch）。 */
+ *  scripts/session-watch-unit.mjs 直接测核心（createSessionWatch）。 */
+
+import { loginRequired, redirectToLogin } from './admin-token.ts';
 
 export const SESSION_LOST = 'wm-session-lost';
+const APP_LOGIN_HINT = 'wm-app-login-check';
 
 /** /api/auth/me 的回答 → 「这是谁」的键；回答不可用（断网、502、形状不对）返回 undefined（不当成变了） */
 export function whoKey(status: number, body: unknown): string | undefined {
@@ -72,7 +75,7 @@ export function createSessionWatch(deps: {
 
 /** 装在 fetch 外面的那一层（拆出来好单测）：同源 /api/ 回 401 就去确认；发出时记下世代号，
  *  拿到响应头时、读完正文（json / text）时各比一次，世代号变了就不交回（这个 Promise 不再结束）。 */
-export function guardedFetch(raw: typeof fetch, w: SessionWatch, origin: string): typeof fetch {
+export function guardedFetch(raw: typeof fetch, w: SessionWatch, origin: string, onLoginRequired = redirectToLogin): typeof fetch {
   const isApi = (url: string): boolean => { try { const u = new URL(url, origin); return u.origin === origin && u.pathname.startsWith('/api/'); } catch { return false; } };
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
@@ -86,7 +89,8 @@ export function guardedFetch(raw: typeof fetch, w: SessionWatch, origin: string)
     const json = r.json.bind(r), text = r.text.bind(r);
     Object.defineProperty(r, 'json', { value: () => fresh(json()) });
     Object.defineProperty(r, 'text', { value: () => fresh(text()) });
-    if (r.status === 401 && !new URL(url, origin).pathname.startsWith('/api/auth/me')) w.saw401();
+    if (r.status === 401 && loginRequired(r) && (!r.url || isApi(r.url))) onLoginRequired();
+    else if (r.status === 401 && new URL(url, origin).pathname !== '/api/auth/me') w.saw401();
     return r;
   }) as typeof fetch;
 }
@@ -103,7 +107,10 @@ export function installSessionWatch(onLost: () => void): void {
   const origin = window.location.origin;
   const ask = async () => {
     const r = await raw('/api/auth/me', { cache: 'no-store', credentials: 'same-origin', headers: { Accept: 'application/json' } });
-    return { status: r.status, body: await r.json().catch(() => null) };
+    const body = await r.json().catch(() => null);
+    // auth/me 允许匿名读取。enforce 下明确未登录的 200 也说明需要登录。
+    if (loginRequired(r) || (r.ok && body?.gate === 'enforce' && body.authenticated === false)) redirectToLogin();
+    return { status: r.status, body };
   };
   const w = createSessionWatch({
     ask,
@@ -115,6 +122,16 @@ export function installSessionWatch(onLost: () => void): void {
   void w.check();
   window.addEventListener('focus', () => { void w.check(); });
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') void w.check(); });
+  window.addEventListener('message', (event) => {
+    if (event.origin !== 'null' || !event.source || event.data !== APP_LOGIN_HINT) return;
+    const managedFrame = Array.from(document.querySelectorAll<HTMLIFrameElement>('iframe[src]')).some((frame) => {
+      if (frame.contentWindow !== event.source) return false;
+      const url = new URL(frame.src, origin);
+      return url.origin === origin && /^\/(?:go\/\d+|apps\/[a-z0-9-]+)(?:\/|$)/.test(url.pathname);
+    });
+    // 不透明子框的消息只触发复查，顶层按本站 auth/me 的应答决定是否导航。
+    if (managedFrame) w.saw401();
+  });
   window.addEventListener('pageshow', (e) => { if ((e as PageTransitionEvent).persisted) void w.check(); });
   window.setInterval(() => { void w.check(); }, 60_000);
 }

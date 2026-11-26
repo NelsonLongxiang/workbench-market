@@ -90,6 +90,33 @@ with sync_playwright() as p:
         ok('④ 点「退出」回登录页且 cookie 已清', 'wm_login' not in {c['name'] for c in ctx.cookies()})
         page.goto(base + '/market')
         ok('④ 退出后再进被拦', '/login' in page.url, page.url)
+        # #1134：已启动的 SPA 上验证无标记的 401、可见复查与不透明台框提示。
+        page.goto(base + '/login?next=' + quote('/market', safe=''))
+        login(page, tok)
+        page.wait_for_url(base + '/market', timeout=10000)
+        page.route('**/api/fixture-admin-probe', lambda route: route.fulfill(status=401, content_type='application/json', body='{"error":"admin_token_required"}'))
+        with page.expect_response(lambda response: response.url.endswith('/api/auth/me') and response.ok):
+            status = page.evaluate("() => fetch('/api/fixture-admin-probe').then(r => r.status)")
+        ok('⑥ 无登录标记的管理口令 401 不跳页', status == 401 and page.url == base + '/market', page.url)
+        ctx.clear_cookies()
+        page.evaluate("() => document.dispatchEvent(new Event('visibilitychange'))")
+        page.wait_for_url(base + '/login?next=' + quote('/market', safe=''), timeout=10000)
+        ok('⑥ 页面重新可见时，明确未登录的 auth/me 应答触发登录', '/login?' in page.url, page.url)
+        login(page, tok)
+        page.wait_for_url(base + '/market', timeout=10000)
+        page.goto(f'{base}/use/{wid}')
+        nested = page.frame_locator(f'iframe[src^="/go/{wid}/"]').locator('#out[data-done="1"]')
+        nested.wait_for(state='attached', timeout=15000)
+        child = next(f for f in page.frames if f'/go/{wid}/~wm/' in f.url)
+        with page.expect_response(lambda response: response.url.endswith('/api/auth/me') and response.ok):
+            child.evaluate("() => parent.postMessage('wm-app-login-check', new URL(location.href).origin)")
+        ok('⑥ 登录有效时，受管台页只触发重新核对，不跳页', page.url == f'{base}/use/{wid}', page.url)
+        ctx.clear_cookies()
+        # 不透明源的失败应答可能不会以 response 事件暴露给浏览器。
+        with page.expect_request(lambda request: request.url.endswith('/api/workbenches') and request.frame == child):
+            child.evaluate("() => { fetch('/api/workbenches').catch(() => {}); }")
+        page.wait_for_url(base + '/login?next=' + quote(f'/use/{wid}', safe=''), timeout=15000)
+        ok('⑥ 不透明台页的登录门拒绝经父页复核后跳到登录页', '/login?' in page.url, page.url)
         # ⑤ next 指向站外
         page.goto(base + '/login?next=' + quote('//evil.example/x', safe=''))
         login(page, tok)
