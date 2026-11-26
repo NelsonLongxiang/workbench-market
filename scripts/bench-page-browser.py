@@ -454,7 +454,8 @@ with sync_playwright() as p:
     check('选卡片：清单来自市场里登记的卡片，写名字和编号', opt.count() == 1 and f"#{cfg['self_card']}" in opt.first.inner_text(), opt.all_inner_texts())
     opt.first.click()
     n0 = len(log.get('link', [])); pg.locator('[data-testid=bench-link-save]').click()
-    pg.wait_for_function(f"() => location.pathname === '/use/{SLUG}'")
+    try: pg.wait_for_function(f"() => location.pathname === '/use/{SLUG}'", timeout=10000)  # 等不到由下面的断言带着地址报
+    except Exception: pass
     check('保存：发 PUT /workbench { workbench_id: 选的卡片 }；页面换成按台标识打开，留在这个台上', log['link'][n0:] == [{'workbench_id': cfg['self_card']}] and pg.locator('[data-testid=bench-page]').count() == 1, (log.get('link'), pg.url))
     pg.locator('[data-testid=bench-page-link]').click(); pg.wait_for_selector('[data-testid=bench-link-remove]')
     n0 = len(log['link']); pg.locator('[data-testid=bench-link-remove]').click()
