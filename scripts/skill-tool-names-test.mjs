@@ -23,6 +23,7 @@ const NOT_TOOLS = new Map([
   ['result_ref', '大结果的引用：工具结果太大时应答里的字段（{ id, url, sha256, bytes, expires_at }），见 wm-capability-access'],
   ['result_id', 'wm-capability-access 例子里的占位 {{result_id}}：换成上一步 result_ref.id'],
   ['report_scope', 'access_request 的报告治理授权范围字段（server/src/mcp-tools.ts），不是工具名'],
+  ['report_image_unavailable', '生成报告时图片取不到的错误代号（server/src/services/bench-report.ts 的 details），见 wm-reports「图片」，不是工具名'],
 ]);
 
 const tools = new Set(JSON.parse(readFileSync(join(ROOT, 'surfaces/mcp-tools.json'), 'utf8')).map((x) => String(x).split(/\s+/)[0]));
