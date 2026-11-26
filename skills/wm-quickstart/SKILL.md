@@ -1,6 +1,6 @@
 ---
 name: wm-quickstart
-version: 1.4.1
+version: 1.4.2
 description: 工作台市场·快速开始构建——builder/agent 视角 15 分钟从零建台：新台默认走数据视图（不写 HTML，见 wm-data-views），登记外部工作台、发布自产台（台的仓库 main + app_sync）、文件/数据双通道、交付空间模式、发布纪律（仓库 PR → main → app_sync）、三闸。当需要「在市场上建一个台」「发布页面/交付物」「自产台怎么上线」时加载。
 ---
 
@@ -44,7 +44,7 @@ MCP `workbench_register({name, url, type:'web'})` → 自动探活入册 → /us
 ## 交付空间模式（数据+文件双通道·实战验证）
 1. 页面表单 → /api/apps/<slug>/data（哑存储任意 JSON）
 2. 文件上传 → /api/apps/<slug>/files（≤100MB/个+note 可改）
-3. agent 找已有的数据和文件 → MCP app_data_list / app_files_list（验证刚上传的文件用不着它们：上传时带 sha256，应答自带核对结果，不必列文件或下载回读）
+3. agent 找已有的数据和文件 → MCP app_data_list / app_files_list（验证刚上传的文件用不着它们：上传时带 sha256，应答自带核对结果，不必列文件或下载回读）。要把某一份文件交给只管取件的工具时，不要给它会话令牌：app_files_list 带 `ticket_for_id` 申请一张短时下载票（细节见 references/write-read.md）
 4. 页面引用资源用相对路径或 /go/<id>/ 前缀（iframe 代理坑）
 
 ## 发布纪律

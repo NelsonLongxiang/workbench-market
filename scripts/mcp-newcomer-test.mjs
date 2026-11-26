@@ -121,6 +121,13 @@ try {
         delete c.input_schema.oneOf;
         return c;
       },
+      // app_files_list（#1055）：加了短时下载票——说明末尾一段和三个参数（ticket_for_id、max_uses、revoke_ticket）
+      app_files_list: (t) => {
+        const c = JSON.parse(J(t));
+        c.description = c.description.slice(0, c.description.indexOf('下载票：交给'));
+        for (const k of ['ticket_for_id', 'max_uses', 'revoke_ticket']) delete c.input_schema.properties[k];
+        return c;
+      },
       dataset_query: (t) => { const c = JSON.parse(J(t)); delete c.input_schema.properties.query.properties.current_only; return c; },
       view_put: (t) => {
         const c = JSON.parse(J(t));
