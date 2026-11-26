@@ -396,6 +396,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   design-standard.ts（MCP design_standard 工具的 design token 标准只读读取）
   design-tokens-css.ts（DESIGN.md 生成的 tokens.css 服务端出口）
   endpoint-stats.ts（端点数）
+  endpoint-key.ts（端点计数的键：带 :ticket 参数的路由按路由模板记键，票的路径不进统计；没有路由对象时按 URL 折叠上传、下载票段，不分大小写）
   errors.ts（错误类型）
   eval.ts（#178 jev 评估客户端）
   extensions.ts（扩展挂载点·WM_EXTENSIONS_DIR）

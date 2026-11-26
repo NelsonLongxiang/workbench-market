@@ -59,6 +59,21 @@ console.log('零、票的仓库');
   ok('发票的会话撤销：true，之后拿不到；再撤是 false', R2.revoke(r2.ref, 1, 's1') === true && R2.take(r2.token) === null && R2.revoke(r2.ref, 1, 's1') === false);
 }
 
+// ---------- 统计的键（纯函数，不开库） ----------
+{
+  const { endpointKey, normalizeEndpoint } = await import('../server/src/endpoint-key.ts');
+  const SECRET = 'Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZmdoaWo';
+  ok('带 :ticket 的路由：不管 URL 怎么写（大小写、末尾斜杠、编码），键都是路由模板', [
+    ['/api/mcp-rest/downloads/:ticket', '/api/mcp-rest/downloads/' + SECRET],
+    ['/api/mcp-rest/downloads/:ticket', '/API/MCP-REST/DownLoads/' + SECRET + '/'],
+    ['/api/mcp-rest/uploads/:ticket', '/api/mcp-rest/uploads/%5A' + SECRET.slice(1)],
+    ['/api/skills/dl/:ticket', '/api/skills/dl/' + SECRET],
+    ['/api/skills/dl/:ticket', '/api/skills/DL/' + SECRET],
+  ].every(([tpl, url]) => endpointKey(tpl, url) === tpl && !endpointKey(tpl, url).includes(SECRET.slice(2))));
+  ok('没有路由对象时按 URL 折叠（不分大小写，键写成小写规范形）', ['/api/mcp-rest/downloads/' + SECRET, '/api/mcp-rest/Downloads/' + SECRET + '/', '/API/MCP-REST/DOWNLOADS/' + SECRET].filter((u) => u.startsWith('/api/')).every((u) => /^\/api\/mcp-rest\/downloads\/:ticket\/?$/.test(endpointKey(undefined, u))) && normalizeEndpoint('/api/mcp-rest/UPLOADS/' + SECRET) === '/api/mcp-rest/uploads/:ticket');
+  ok('别的路由不受影响：数字段照旧折成 :id，普通路径原样', endpointKey('/api/sop/runs/:id', '/api/sop/runs/42') === '/api/sop/runs/:id' && endpointKey('/api/apps/:slug', '/api/apps/demo') === '/api/apps/demo' && endpointKey(undefined, '/api/health') === '/api/health' && endpointKey(['x'], '/api/sop/runs/7/files') === '/api/sop/runs/:id/files');
+}
+
 // ---------- 实例 ----------
 const PORT = 20000 + Math.floor(Math.random() * 12000);
 const BASE = 'http://127.0.0.1:' + PORT;

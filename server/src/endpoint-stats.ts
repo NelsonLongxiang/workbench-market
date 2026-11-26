@@ -11,6 +11,7 @@ import type express from 'express';
 import { db } from './db.ts';
 import { isStartupProbeRequest } from './startup-security-self-probe.ts';
 import { root } from './root-context.ts';
+import { endpointKey, normalizeEndpoint } from './endpoint-key.ts';
 
 db.exec(`CREATE TABLE IF NOT EXISTS endpoint_stats (
   endpoint TEXT NOT NULL,
@@ -41,20 +42,7 @@ root.effect(() => {
   return () => { clearInterval(flushTimer); };
 }, 'endpoint-stats.flush(5s)');
 
-/**
- * 路径规范化：数字段折叠为 :id（/api/sop/runs/42 → /api/sop/runs/:id）。
- * 票就是凭据：上传票、下载票的路径段（/api/mcp-rest/uploads/<票>、/api/mcp-rest/downloads/<票>）折叠为 :ticket，
- * 成功请求的票不会作为 endpoint_stats 的键落库、也不会在统计视图里露出（用票之后它还能再用几次，或者别人在 2 分钟内看到统计就能取件）。
- */
-export function normalizeEndpoint(pathname: string): string {
-  // Express matches routes without regard to case (no caseSensitive), so /API/MCP-REST/Downloads/<ticket> reaches the same route: fold on any case, key in the canonical one (#1080 review)
-  const ticket = /^\/api\/mcp-rest\/(uploads|downloads)\/[^/]+(\/.*)?$/i.exec(pathname);
-  if (ticket) return `/api/mcp-rest/${ticket[1]!.toLowerCase()}/:ticket${ticket[2] ?? ''}`;
-  return pathname
-    .split('/')
-    .map((seg) => (/^\d+$/.test(seg) ? ':id' : seg))
-    .join('/');
-}
+export { normalizeEndpoint, endpointKey };
 
 /** 计数中间件：只记 GET/POST 等业务请求，跳过静态资源与 stats 自身（防自增噪声） */
 export function endpointStatsMiddleware(): express.RequestHandler {
@@ -76,7 +64,7 @@ export function endpointStatsMiddleware(): express.RequestHandler {
         if (!url.startsWith('/api/') && !isPortal) return; // 统一待办页（/tasks）已退役（#664），不再单列
         if (isPortal && res.statusCode >= 400) return; // 门户 4xx/5xx 不计入活跃
         if (url === '/api/stats') return; // 自身不计
-        const key = `${normalizeEndpoint(url)}|${new Date().toISOString().slice(0, 10)}`;
+        const key = `${endpointKey(req.route?.path, url)}|${new Date().toISOString().slice(0, 10)}`;
         pending.set(key, (pending.get(key) ?? 0) + 1);
       } catch { /* 计数失败不影响业务 */ }
     });
