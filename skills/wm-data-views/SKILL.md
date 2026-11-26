@@ -79,7 +79,7 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
   { "id": 3, "day": "2026-02-02", "region": "东区", "status": "done", "amount": 15 } ]
 ```
 
-**③ 写视图描述**（`view_put`）：页面上放什么。动手前先按 [布局](references/layout.md) 写规划卡：谁看、看完做什么决定、一行代表什么、什么时候算做完，再按「筛选、数、图、清单、明细」从上到下摆块。每种组件有哪些键、哪些必填、上限多少，以 `references/view-doc-schema.json` 为准（`view_put` 的参数说明里不列全）。
+**③ 写视图描述**（`view_put`）：页面上放什么。动手前先读 [数据视图设计指南](references/layout.md)，写好规划卡：谁看、看完做什么决定、一行代表什么、什么时候算做完，再按「筛选、数、图、清单、明细」从上到下摆块。每种组件有哪些键、哪些必填、上限多少，以 `references/view-doc-schema.json` 为准（`view_put` 的参数说明里不列全）。
 
 ```json view-doc
 { "title": "订单台", "views": [ { "key": "overview", "title": "总览", "blocks": [
