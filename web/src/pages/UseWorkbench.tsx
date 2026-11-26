@@ -44,7 +44,9 @@ export default function UseWorkbench() {
   const w = req.data;
   // #1086：卡片地址是本站的 /use/<台>：这是一个数据视图台，还没对应到这张卡片。写明下一步；管理层带一个去台上的按钮（不在这里直接跳——入口按卡片 id 判权）
   const benchRef = benchUseRef(w.url, window.location.origin);
-  if (benchRef !== null) return <UseBenchHint bench={benchRef} />;
+  if (benchRef !== null) {
+    return <UseBenchHint bench={benchRef} />;
+  }
   // 登记的地址指向市场自己：不嵌（嵌出来就是市场套市场），说一句、给个回去的按钮
   if (pointsAtMarket(w.url, window.location.origin)) {
     return <div data-testid="use-self"><Result status="info" title={USE_SELF_TEXT} extra={<Button onClick={() => nav('/')}>返回全景</Button>} /></div>;

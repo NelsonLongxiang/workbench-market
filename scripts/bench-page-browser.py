@@ -456,7 +456,7 @@ with sync_playwright() as p:
     n0 = len(log.get('link', [])); pg.locator('[data-testid=bench-link-save]').click()
     try: pg.wait_for_function(f"() => location.pathname === '/use/{SLUG}'", timeout=10000)  # 等不到由下面的断言带着地址报
     except Exception: pass
-    check('保存：发 PUT /workbench { workbench_id: 选的卡片 }；页面换成按台标识打开，留在这个台上', log['link'][n0:] == [{'workbench_id': cfg['self_card']}] and pg.locator('[data-testid=bench-page]').count() == 1, (log.get('link'), pg.url))
+    check('保存：发 PUT /workbench { workbench_id: 选的卡片 }；页面换成按台标识打开，留在这个台上', log['link'][n0:] == [{'workbench_id': cfg['self_card']}] and urlparse(pg.url).path == f'/use/{SLUG}' and pg.locator('[data-testid=bench-page]').count() == 1, (log.get('link'), pg.url))
     pg.locator('[data-testid=bench-page-link]').click(); pg.wait_for_selector('[data-testid=bench-link-remove]')
     n0 = len(log['link']); pg.locator('[data-testid=bench-link-remove]').click()
     until(pg, lambda: len(log['link']) > n0)
