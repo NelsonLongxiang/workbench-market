@@ -4,6 +4,8 @@
 
 分工：接口和组件 `web/src/bench-blocks/` 归数据视图支线；页面（打开卡片先问入口的 `web/src/pages/UseEntry.tsx`、视图台页面本身 `web/src/pages/BenchPage.tsx`、驾驶舱的 `components/cockpit/BenchView*.tsx`）归前端。页面要让组件做它现在做不到的事，找数据视图支线改组件，不在页面里另写一份。
 
+> **现行图片列**：用受台读取权限保护的 `GET /api/bench-views/<台>/image?u=<地址>`。按视图取图要沿用渲染的 `view`、`version`、`p.*`，服务端核对视图中确有该图片。相对路径按图库配置解析。报告取图传 `report=<报告编号>`，服务端以报告读取权限和冻结正文中的图片引用为准，图片变动返回 `409 image_changed`。**第十二次候选** [#1061](https://github.com/NelsonLongxiang/workbench-market/pull/1061) 的 json-render 壳只传允许的组件名和原始块索引，数据、权限和回调由 React context 传递，服务端接口及视图格式保持原契约。
+
 ## 一、打开一张卡片（`/use/<卡片编号>`）
 
 1. **先问入口**：`GET /api/bench-views/<卡片编号>/entry`，前端用 `web/src/api.ts` 的 `getBenchEntry(cardId)`。

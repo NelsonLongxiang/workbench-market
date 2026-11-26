@@ -8,7 +8,7 @@
 >
 > 属主同时指出，这是 RSI（递归自我改进）的一根支柱。RSI 的定义见 agent-atelier 的设计讨论稿「RSI：我们的理解」和「化的边界、度量与验证」（2026-11-21，在该仓分支 `docs/experience-theory-design` 上，还没进 main）。
 >
-> **状态：设计讨论稿。** 本篇只写模型、规则草案和实现顺序，不写代码。第八节是属主已定的；其余各节里标「草案」的，以第八节为准。
+> **状态：协议设计部分已实现。** 维度、模板治理、冻结报告与追加回应已进入市场，报告治理能力随 [第十次上线](https://github.com/NelsonLongxiang/workbench-market/pull/1042) 接入领域。第八节保留 11-21 的原裁定，模板激活以 [现行实施规格](../report-step1.md) 和后来 [#1057](https://github.com/NelsonLongxiang/workbench-market/pull/1057) 的限定豁免为准。第十二次候选新增模板 v3，尚未作为已上线能力记载。以下设计顺序与开工前输入保留作追溯。
 
 ## 一、要点
 

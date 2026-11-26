@@ -1,6 +1,6 @@
 # 报告 · 第 1 步实施规格
 
-> 依据：[19 · 报告：人机协同的协议](productization/19-report-protocol.md)，以及其中第八节属主 2026-11-21 定的五条（维度由领域负责人和属主定、单独授予；AI 能回应但标明；验收不强制报告、由维度的模板声明；报告是产出物；判据类模板版本必须有作者以外的复核人才能生效）。
+> 依据：[19 · 报告：人机协同的协议](productization/19-report-protocol.md)，以及其中第八节属主 2026-11-21 定的五条（维度由领域负责人和属主定、单独授予；AI 能回应但标明；验收不强制报告、由维度的模板声明；报告是产出物；判据类模板版本默认经作者以外的人复核）。第十一次上线加入 #1057 的限定豁免，见下文「生效按判据内容判」。
 > 依据的代码事实见第 19 篇附录（main `903e840d`）。开工时重核。
 >
 > **状态：第 1 步已实施，已进入 `main` 和 `release/10`。** A [#926](https://github.com/NelsonLongxiang/workbench-market/pull/926)、B [#930](https://github.com/NelsonLongxiang/workbench-market/pull/930)、C [#932](https://github.com/NelsonLongxiang/workbench-market/pull/932)、D [#937](https://github.com/NelsonLongxiang/workbench-market/pull/937) 及验收跟进 [#944](https://github.com/NelsonLongxiang/workbench-market/pull/944) 已合入。E 随 B 完成，[三条拒收测试](https://github.com/NelsonLongxiang/workbench-market/blob/a85d21402325a86c13ce94f90d256d27b8638d4b/scripts/report-template-p0-test.mjs#L31-L33) 分别核对 `duplicate_row_key`、`repeat_limit`、`invalid_asset`。F [#996](https://github.com/NelsonLongxiang/workbench-market/pull/996) 先合入 `release/9`，连同测试补强 [#997](https://github.com/NelsonLongxiang/workbench-market/pull/997) 经 [#998](https://github.com/NelsonLongxiang/workbench-market/pull/998) 收敛入 `main`。
@@ -80,10 +80,14 @@
   - 现在只有一位属主（属主 2026-11-21 裁定：规则不放宽，先接受这个限制）：跨领域维度的 `criteria` 版本发得了、生效不了。第 1 步用的是各领域的维度，用不到。真要用时两条路：给一位信得过的人加属主授予（不改代码）；或者另行设计「跨领域维度由指定的人复核」，再评审。领域维度、`layout` 版本不受影响。
 - 库这一层也守着：复核人主体为空、作者本人复核、`criteria` 版本作者主体为空，触发器都拒。
 
-生效按判据内容判，不按 `kind` 判（#926 独立验收）：
+生效按判据内容判，不按 `kind` 判（#926 独立验收）。[#1057](https://github.com/NelsonLongxiang/workbench-market/pull/1057) 自第十一次上线起加了一项窄例外：当前可识别、启用且持有生效属主授予的本人发布并激活目标版本，且同维度同判据摘要下各版的整个作者集合（包括发版人和有记录的起草责任人）都只有该属主本人时，可免独立复核。每次激活都重新核对当前属主身份和完整作者集合。服务在激活事务里按维度、版本、判据摘要和属主主体追加豁免，再移生效指针。豁免记录只增不改，既不是复核，也不会因判据相同传给其他版本。其余情形按原复核规则。上面的单属主阻塞记录是豁免前口径。
+
+**第十二次候选（未上线）**：[#1059](https://github.com/NelsonLongxiang/workbench-market/pull/1059) 增加 `schema_version: 3`，正文用 json-render 的 `root/elements` 平铺结构。`$format`、`$count`、`$join`、`$concat`、`$math` 只用于正文和标题，由服务端冻结报告时校验并求值。台库值只作数据，冻结结果和既有 v2 读取、判据摘要、打印契约沿用。
+
+原判据规则：
 
 - 起初 `kind` 是和**上一版**比出来的，上一版可能没复核过。在没复核的判据类版本上再发一版只改标题的，它会被记成 `layout`，没复核的判据就跟着它生效了；把已生效的判据偷换掉也是同一条路。
-- 现在：移生效指针时，目标版本的 `criteria_sha256` 要等于这个维度**某个复核过的版本**的 `criteria_sha256`，不然 409。服务和触发器都这么判。
+- 常规路径：移生效指针时，目标版本的 `criteria_sha256` 要等于同一维度**某个复核过的版本**的摘要；没有复核或上面的本版本豁免则返回 409。服务和触发器一并约束。
 - 复核认的是判据内容：两版判据一样，复核了其中一版，另一版也能生效。只改版式、措辞的版本不用另外复核。
 - 库这一层还守着：记成 `layout` 的版本，判据要和某个复核过的版本一样，否则触发器拒。
 - 摘要和正文对不对得上，库这一层核不了（SQLite 里没有 sha256）。服务发版时算，移指针时按正文重算一遍再比，对不上 409。直接改库移指针的人绕得过这一步，和直接改库能写复核记录一样，不在这一层的防线里。

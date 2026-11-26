@@ -4,6 +4,8 @@
 
 > 相关文档：给 agent 的用法见技能 `skills/wm-data-views`（含一个从零到能打开页面的完整例子 `references/example-inspection.md`）；给前端开发者的接口和组件说明见 [bench-view-frontend.md](bench-view-frontend.md)。属主 2026-11-13 定：工作台以数据视图为主，HTML 页面可以有，但不是主要的呈现形式——技能里新台默认走数据视图。
 
+> **实现状态（2026-11-26）**：`image` 列和视图取图已进 main（[#1006](https://github.com/NelsonLongxiang/workbench-market/pull/1006)），报告引用与自检另见 [图片第 1 步](image-step1.md)。图片仍是数据值，绝对 HTTP(S) 地址或配置了 `WM_IMAGE_GALLERY_BASE` 后可解析的图库相对路径，由受台读取权限保护的图片入口处理。第十二次候选 [#1061](https://github.com/NelsonLongxiang/workbench-market/pull/1061) 用 json-render 调度原有组件，视图 JSON、`view_put` 与服务端校验保持原契约。
+
 ## 一、要解决什么
 
 现在一个自产台就是一份 HTML：布局、样式、提交逻辑、读数据的脚本都在里面。同一件事在每个台各写一遍，各错一遍。改一处规矩，要改所有台。
