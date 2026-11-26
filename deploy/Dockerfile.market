@@ -49,7 +49,8 @@ ENV WM_YGL_CLI=/opt/ygl/node_modules/ygl-trees/dist/bundle/bin.cjs
 # 没挂时目录不存在，经验库显示「未接入」，启动自检行 warn 点名「库源没挂上」
 ENV YGL_HOME=/var/lib/ygl
 # P1-5：非 root 运行（数据目录属主 node）；扩展目录保持 root 所有、只读
-RUN mkdir -p /data && chown -R node:node /app /data
+# /var/lib/ygl 也建好并交给 node：命名卷首次挂载会带上镜像里挂载点的属主，否则卷目录属 root、node 写不进（#1106 评审 N1）
+RUN mkdir -p /data /var/lib/ygl && chown -R node:node /app /data /var/lib/ygl
 ENV DATA_DIR=/data
 ENV NODE_ENV=production
 EXPOSE 9800

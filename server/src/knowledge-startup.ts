@@ -3,7 +3,7 @@
  * 而启动时这三样都不报。这里启动时打一行，把三样一起报出来；有一样不满足就是 warn，并点名哪样——不拒绝启动（0 是合法配置，没接 ygl 也能跑）。
  * 只依赖 ygl-cli.ts 与文件系统，不导入 db.ts；同步周期由调用方（index.ts）从经验库的配置读好传进来。
  */
-import { existsSync } from 'node:fs';
+import { accessSync, constants, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { yglCliEntry, yglHome, yglHomeRaw } from './ygl-cli.ts';
 
@@ -16,6 +16,8 @@ export type KnowledgeStartupState = {
   home: string | null;
   /** 工作区里有 ygl-trees.db */
   dbPresent: boolean;
+  /** 运行用户能写工作区目录（「记成经验」要写库） */
+  writable: boolean;
   /** 同步周期（分钟），0 = 不同步 */
   syncMinutes: number;
 };
@@ -23,7 +25,11 @@ export type KnowledgeStartupState = {
 /** 读本机实际状态（入口、工作区、库文件）；同步周期由调用方给 */
 export function knowledgeStartupState(syncMinutes: number): KnowledgeStartupState {
   const home = yglHome();
-  return { cli: yglCliEntry(), homeRaw: yglHomeRaw(), home, dbPresent: home ? existsSync(join(home, 'ygl-trees.db')) : false, syncMinutes };
+  return { cli: yglCliEntry(), homeRaw: yglHomeRaw(), home, dbPresent: home ? existsSync(join(home, 'ygl-trees.db')) : false, writable: home ? canWrite(home) : false, syncMinutes };
+}
+
+function canWrite(dir: string): boolean {
+  try { accessSync(dir, constants.W_OK); return true; } catch { return false; }
 }
 
 /** 启动自检那一行：三样都齐是 info；缺哪样就 warn 并逐项点名（经验库不会同步的原因） */
@@ -33,8 +39,9 @@ export function knowledgeStartupLine(s: KnowledgeStartupState): { level: 'info' 
   if (!s.homeRaw) problems.push('YGL_HOME 没设（没有库源）');
   else if (!s.home) problems.push('YGL_HOME 不是已存在的绝对路径目录（库源没挂上）');
   else if (!s.dbPresent) problems.push('YGL_HOME 里没有 ygl-trees.db（库源是空的）');
+  if (s.home && !s.writable) problems.push('YGL_HOME 不可写（运行用户写不进，「记成经验」会失败）');
   if (s.syncMinutes === 0) problems.push('同步周期是 0（WM_KNOWLEDGE_SYNC_MINUTES=0，不同步）');
-  const home = s.home ? s.home + (s.dbPresent ? '（有 ygl-trees.db）' : '（没有 ygl-trees.db）') : s.homeRaw ? s.homeRaw + '（不可用）' : '没设';
+  const home = s.home ? s.home + (s.dbPresent ? '（有 ygl-trees.db）' : '（没有 ygl-trees.db）') + (s.writable ? '' : '（不可写）') : s.homeRaw ? s.homeRaw + '（不可用）' : '没设';
   const line = '[knowledge] 经验库接入：ygl-trees 入口 ' + (s.cli ?? '没找到') + '；YGL_HOME ' + home + '；同步' + (s.syncMinutes ? '每 ' + s.syncMinutes + ' 分钟' : '关闭（0）')
     + (problems.length ? '。经验库不会同步：' + problems.join('；') : '');
   return { level: problems.length ? 'warn' : 'info', line, problems };
