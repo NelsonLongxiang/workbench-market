@@ -8,6 +8,8 @@
 
 > **产品化（阶段 0，草稿）**：定位、概念模型、驾驶舱 v2、与 DSH GUI 的关系、Token v2、A2A × superagent 融合契约与适配层重构方案，见 [docs/productization/](docs/productization/README.md)。
 
+当前路线和已上线批次见 [实现计划](docs/productization/12-implementation-plan.md)。数据视图和图片列见 [数据视图](docs/data-views.md)，报告模板复核及属主本人发版与激活的豁免见 [报告第 1 步](docs/report-step1.md)。第十二次候选的 json-render 和模板 v3 进展以 [#1071](https://github.com/NelsonLongxiang/workbench-market/pull/1071) 为准。
+
 ## 快速开始
 
 ```bash
