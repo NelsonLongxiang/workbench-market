@@ -449,20 +449,24 @@ with sync_playwright() as p:
     jump = pg.evaluate("""() => { const m = document.querySelector('.wm-bp-body').getBoundingClientRect(), el = document.getElementById('b4'); if (!el) return null;
       const r = el.getBoundingClientRect(); return { kind: el.dataset.bb, inView: r.top >= m.top - 2 && r.top < m.bottom - 40, flash: el.classList.contains('wm-anchor-flash') }; }""")
     check('打开带 #b4 的链接：第 5 块（巡检记录）有这个锚点，定位到看得见的地方并高亮', bool(jump) and jump['kind'] == 'table' and jump['inView'] and jump['flash'], jump)
+    # 期望照这次取数的合成应答算（有标题的块按次序；块键是它在应答里的序号）
+    vb = view_result('vk-board', {})['blocks']
+    exp_toc = [b['title'] for b in vb if b.get('title')]
+    plan = 'b' + str(next(i for i, b in enumerate(vb) if b.get('title') == '改巡检计划'))
     toc = [x.inner_text().strip() for x in pg.locator('[data-testid=page-toc] a').all()]
-    check('超过 3 块：右侧有本页目录，条目是有标题的块（筛选栏没标题不进）', toc == ['本月巡检', '完成度', '各区巡检次数', '巡检记录', '改巡检计划'], toc)
+    check('超过 3 块：右侧有本页目录，条目是有标题的块（筛选栏没标题不进）', len(vb) > 3 and toc == exp_toc and '' not in toc, (toc, exp_toc))
     pg.locator('[data-testid=page-toc] a', has_text='改巡检计划').click()
-    try: pg.wait_for_function("() => location.hash === '#b5'", timeout=5000)
+    try: pg.wait_for_function(f"() => location.hash === '#{plan}'", timeout=5000)
     except Exception: pass
     cur = pg.locator('[data-testid=page-toc] a[aria-current=true]')
-    check('点目录条目：地址换成 #b5，这一条高亮', pg.evaluate('() => location.hash') == '#b5' and cur.count() == 1 and cur.inner_text().strip() == '改巡检计划', (pg.evaluate('() => location.hash'), cur.all_inner_texts()))
+    check('点目录条目：地址换成这一块的 #键，这一条高亮', pg.evaluate('() => location.hash') == f'#{plan}' and cur.count() == 1 and cur.inner_text().strip() == '改巡检计划', (pg.evaluate('() => location.hash'), cur.all_inner_texts()))
     pg.evaluate("() => { window.__copied = null; navigator.clipboard.writeText = (t) => { window.__copied = t; return Promise.resolve(); }; }")
     pg.locator('[data-testid=copy-anchor][data-anchor=b3]').click()
     try: pg.wait_for_function('() => window.__copied !== null', timeout=5000)
     except Exception: pass
     want = pg.evaluate("() => location.origin + location.pathname + location.search + '#b3'")
     check('块标题旁「复制本块链接」：复制的是当前地址（保留视图）加 #b3；统计卡没有这个按钮', pg.evaluate('() => window.__copied') == want and pg.locator('[data-bb=stat] [data-testid=copy-anchor]').count() == 0, (pg.evaluate('() => window.__copied'), want))
-    ps = ctx.new_page(); ps.set_viewport_size({'width': 1440, 'height': 420}); ps.set_default_timeout(10000)
+    ps = ctx.new_page(); ps.route('**/api/bench-views/**', on_bv); ps.set_viewport_size({'width': 1440, 'height': 420}); ps.set_default_timeout(10000)
     ps.goto(f'{M}/use/{CARD}?v=vk-board'); ps.wait_for_selector('[data-bb=table][data-bb-state=ready]'); ps.wait_for_selector('[data-testid=page-toc]')
     act = lambda: (ps.locator('[data-testid=page-toc] a[aria-current=true]').all_inner_texts() or [''])[0].strip()
     first = act()
