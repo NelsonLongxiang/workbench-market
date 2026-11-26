@@ -219,7 +219,10 @@ with sync_playwright() as p:
     print('七、章节锚点和本页目录（#1099）')
     REPORTS[4]['body'] = {'schema_version': 2, 'title': '合成·长报告', 'body': [{'id': 'cover', 'type': 'cover', 'title': '合成·长报告', 'content': '合成摘要'}]
         + [{'id': f'sec{i}', 'type': 'section', 'title': f'第{i}节', 'children': [{'id': f't{i}', 'type': 'text', 'content': '合成正文。' * 300}]} for i in range(1, 6)]}
-    pg.goto(f'{M}/use/{CARD}/reports?report=4#sec4'); pg.wait_for_selector('[data-testid=report-doc][data-report="4"] #sec4')
+    pg.goto(f'{M}/use/{CARD}/reports?report=4#sec4'); pg.wait_for_selector('[data-testid=report-doc][data-report="4"] .wm-rp-body section')
+    # 章节没带锚点时不在这里抛错，由下面的断言报
+    try: pg.wait_for_selector('#sec4', timeout=5000)
+    except Exception: pass
     try: pg.wait_for_function("() => document.getElementById('sec4')?.classList.contains('wm-anchor-flash')", timeout=5000)
     except Exception: pass
     jump = pg.evaluate("""() => { const m = document.querySelector('.wm-bp-body').getBoundingClientRect(), el = document.getElementById('sec4'); if (!el) return null;
@@ -227,12 +230,12 @@ with sync_playwright() as p:
     check('报告：打开带 #sec4 的链接，定位到第4节（在顶上）并高亮', bool(jump) and jump['inView'] and jump['flash'] and jump['title'] == '第4节', jump)
     toc = [x.inner_text().strip() for x in pg.locator('[data-testid=page-toc] a').all()]
     check('报告超过 3 节：右侧有本页目录，列出各节（封面不进）', toc == ['第1节', '第2节', '第3节', '第4节', '第5节'], toc)
-    pg.locator('[data-testid=page-toc] a', has_text='第2节').click()
+    if pg.locator('[data-testid=page-toc] a', has_text='第2节').count(): pg.locator('[data-testid=page-toc] a', has_text='第2节').click()
     try: pg.wait_for_function("() => location.hash === '#sec2' && document.querySelector('[data-testid=page-toc] a[aria-current=true]')?.textContent === '第2节'", timeout=5000)
     except Exception: pass
     check('点目录条目：地址换成 #sec2，这一条高亮', pg.evaluate('() => location.hash') == '#sec2' and pg.locator('[data-testid=page-toc] a[aria-current=true]').inner_text().strip() == '第2节')
     pg.evaluate("() => { window.__copied = null; navigator.clipboard.writeText = (t) => { window.__copied = t; return Promise.resolve(); }; }")
-    pg.locator('[data-testid=copy-anchor][data-anchor=sec3]').click()
+    if pg.locator('[data-testid=copy-anchor][data-anchor=sec3]').count(): pg.locator('[data-testid=copy-anchor][data-anchor=sec3]').click()
     try: pg.wait_for_function('() => window.__copied !== null', timeout=5000)
     except Exception: pass
     check('章节标题旁「复制本块链接」：复制 /reports?report=4#sec3', pg.evaluate('() => window.__copied') == f'{M}/use/{CARD}/reports?report=4#sec3', pg.evaluate('() => window.__copied'))

@@ -491,10 +491,13 @@ with sync_playwright() as p:
     check('20 个页签：只占一行，当前页签（最后一个）露在页签条里', geo['n'] == 20 and geo['rows'] == 1 and geo['h'] <= 40 and geo['cur'] == '合成视角17' and geo['curIn'], geo)
     more = pg.locator('[data-testid=bench-page-tabs-more]')
     check('放不下：最右有「更多」', more.count() == 1)
-    more.click(); pg.wait_for_selector('[data-testid=bench-page-tabs-more-item]')
+    more.click()
+    # 菜单里一条都没有时不在这里抛错，由下面的断言带着当时的清单报
+    try: pg.wait_for_selector('[data-testid=bench-page-tabs-more-item]', timeout=5000)
+    except Exception: pass
     items = [x.inner_text().strip() for x in pg.locator('[data-testid=bench-page-tabs-more-item]').all()]
     check('「更多」里列出没露全的页签：有第一个「巡检看板」，没有当前这个', '巡检看板' in items and '合成视角17' not in items, items)
-    pg.locator('[data-testid=bench-page-tabs-more-item]', has_text='巡检看板').click()
+    if pg.locator('[data-testid=bench-page-tabs-more-item]', has_text='巡检看板').count(): pg.locator('[data-testid=bench-page-tabs-more-item]', has_text='巡检看板').click()
     try: pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-tab][aria-selected=true]')?.textContent === '巡检看板'", timeout=10000)
     except Exception: pass
     pg.wait_for_timeout(300); geo = pg.evaluate(GEO)
