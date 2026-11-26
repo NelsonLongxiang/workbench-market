@@ -361,6 +361,8 @@ jobs:
         run: node scripts/mutation-run-test.mjs
       - name: 轻量工作树依赖复用自测
         run: node --test scripts/worktree-review-env-test.mjs
+      - name: 经验库接入启动自检行单测（ygl-trees 入口、YGL_HOME 与 ygl-trees.db、同步周期，缺哪样 warn 点名；#894、#1089）
+        run: node scripts/knowledge-startup-line-unit.mjs
       - name: 本机 CI 复放入口单测（scripts/ci-run-block.mjs：只剔共享浅取·actions、安装、诊断步骤不跑·未知表达式不猜·全跑全过才退出 0；夹具只在 tmp/）
         run: node scripts/ci-run-block-test.mjs
       - name: tsc (web)

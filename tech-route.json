@@ -673,6 +673,9 @@
       "react-resizable",
       "react-router-dom",
       "zod"
+    ],
+    "image": [
+      "ygl-trees"
     ]
   },
   "tests": {},

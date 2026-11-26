@@ -32,6 +32,9 @@ export function yglCliEntry(): string | null {
   return null;
 }
 
+/** YGL_HOME 的原值（没设是空串）：启动自检要分清「没设」和「设了但不能用」 */
+export function yglHomeRaw(): string { return config.home; }
+
 /** 工作区（YGL_HOME）：要是存在的绝对路径目录，否则 null */
 export function yglHome(): string | null {
   const home = config.home;
