@@ -965,3 +965,5 @@ button.wm-view:focus-visible { outline: 2px solid var(--wm-color-primary); outli
 .wm-vault-tag-click { cursor: pointer; }
 .wm-set-form { max-width: 480px; }
 .wm-set-num { width: 160px; }
+/* 设置页「个人令牌」（#1063）：清单比表单宽 */
+.wm-pt-card { max-width: 960px; }

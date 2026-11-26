@@ -5,6 +5,7 @@ import { useRequest } from 'ahooks';
 import { api } from '../api';
 import type { ExportPayload } from '../types';
 import WmPage from '../components/WmPage';
+import PersonalTokensCard from '../components/PersonalTokensCard';
 
 export default function Settings() {
   const { message, modal } = App.useApp();
@@ -103,8 +104,9 @@ export default function Settings() {
   };
 
   return (
-    <WmPage subTitle="健康巡检 · 导入导出 · 系统信息">
+    <WmPage subTitle="个人令牌 · 健康巡检 · 导入导出 · 系统信息">
     <Flex vertical gap={16} align="flex-start" className="wm-w-full">
+      <PersonalTokensCard />
       <Card title="健康巡检" className="wm-w-full wm-max-w-640" styles={{ body: { paddingTop: 8 } }}>
         <Form
           form={form}
