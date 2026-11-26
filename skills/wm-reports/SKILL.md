@@ -1,6 +1,6 @@
 ---
 name: wm-reports
-version: 0.2.0
+version: 0.3.0
 description: 工作台市场报告编写。定义报告维度和模板、绑定台数据、生成冻结报告并回应论断。适用于编写 schema_version 2 或 3 模板、准备生成输入或查找报告入口。
 ---
 
@@ -217,6 +217,146 @@ v2 的 body 是有 id 的节点数组。第十二次上线起可用 v3：把 sch
 | $math | a 和可选 b 为数字表达式。支持 add、subtract、multiply、divide、mod、min、max，以及 round、floor、ceil、abs。 |
 
 表达式在生成时由服务端根据经校验的输入和绑定槽求值，结果随报告冻结。预览不了的指令或取不到的字段、列需要回模板或绑定修正。浏览器展示已冻结结果。旧 v2 模板仍可使用，改模板或台数据不会改写已生成的报告。
+
+### 图片
+
+报告里放商品图、现场图这类图片，用 image 节点：`{ "id": …, "type": "image", "src": <一个引用>, "alt": <替代文字> }`。v3 的写法是元素 `type: "image"`，props 里放 src 和 alt。
+
+**三种来源**（src 只能写一个引用，不能拼字）：
+
+| 来源 | 写法 | 要求 |
+| --- | --- | --- |
+| 参数 | `{"ref":{"scope":"parameter","name":"hero"}}` | 模板里把这个参数声明成 `"type": "image"`，生成时传图片链接 |
+| 字段 | `{"ref":{"scope":"field","name":"extra"}}` | 文字字段，生成时填的值要是合规的图片链接 |
+| 行 | `{"ref":{"scope":"row","name":"pic"}}` | 只能放在 repeat 里，取当前行的一列；这一列在槽里要声明成 `"type": "image"`，绑定的视图也要出这一列 |
+
+图片链接是 http(s) 链接，或图库里的相对路径（不以 / 开头、不含 ..），最长 2048 个字符。alt 必填，1～200 个字符，不能全是空白。
+
+**格式**：只收 PNG、JPEG、WebP（GIF、SVG 不收）。单张不超过 5MB、4000 万像素，取图超过 10 秒算超时。
+
+**冻结**：生成时服务端把每张图取一次，只把链接和 sha256 记进冻结正文，不存图片本身。取不到就不出报告：返回 `report_image_unavailable` 和代取的错误代号（对方断开或忙 503，超时 504，其余 400）。
+
+**上限**：一份报告的图片节点按展开后计数（repeat 里每行算一张），现在最多 20 张；超了返回 `image_limit`。grid 里现在不能放 image（返回 `grid_split_unsupported`）。这两项在放宽中（issue #1081），以服务端实际返回为准。
+
+**图片已变**：报告页经市场代取显示图片，按报告冻结的 sha256 核对。源图被换掉后，代取返回 409 `image_changed`，页面显示「图片已变」，不显示新图。要用新图就重新生成一份报告。
+
+**出错时**：src 引用的参数或列不是 image 类型，返回 `image_source_type`；alt 不合规，返回 `invalid_alt`。来源的值不合规时，参数和字段与行不一样：
+
+- 参数、字段：值不是合规链接返回 `invalid_image_ref`，没有值返回 `missing_reference`。
+- 行：取回的格子在核数据时就先核过，不是合规链接或是空的，返回 `invalid_cell`（路径指到 `/slots/<槽>/rows/<行>/<列>`）。只有槽里把这一列声明成 `nullable`、格子是 null 时，才走到图片节点，返回 `missing_reference`。
+
+以下模板为每个商品排一节：标题是商品名，下面是这一行的主图。槽 products 的 pic 列声明成 image，绑定时映射到视图里存图片链接的那一列。
+
+```json report-template-v2
+{
+  "schema_version": 2,
+  "title": "商品图册",
+  "parameters": {
+    "period": {
+      "type": "month",
+      "required": true
+    }
+  },
+  "fields": {},
+  "slots": {
+    "products": {
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "label": "编号"
+        },
+        {
+          "name": "name",
+          "type": "text",
+          "label": "商品"
+        },
+        {
+          "name": "pic",
+          "type": "image",
+          "label": "主图"
+        }
+      ],
+      "key": [
+        "id"
+      ],
+      "max_rows": 20,
+      "completeness": "all"
+    }
+  },
+  "body": [
+    {
+      "id": "cover",
+      "type": "cover",
+      "title": [
+        "商品图册 ",
+        {
+          "ref": {
+            "scope": "parameter",
+            "name": "period"
+          }
+        }
+      ]
+    },
+    {
+      "id": "each",
+      "type": "repeat",
+      "data": "products",
+      "row_key": [
+        "id"
+      ],
+      "max_items": 20,
+      "children": [
+        {
+          "id": "item",
+          "type": "section",
+          "title": [
+            {
+              "ref": {
+                "scope": "row",
+                "name": "name"
+              }
+            }
+          ],
+          "children": [
+            {
+              "id": "photo",
+              "type": "image",
+              "src": {
+                "ref": {
+                  "scope": "row",
+                  "name": "pic"
+                }
+              },
+              "alt": "商品主图"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "claims": [
+    {
+      "kind": "conclusion",
+      "label": "结论",
+      "min": 0,
+      "max": 1
+    }
+  ],
+  "responses": {
+    "stances": [
+      "agree",
+      "dispute"
+    ],
+    "reason_required": true
+  },
+  "gate": {
+    "open_dispute_blocks_acceptance": false
+  }
+}
+```
+
+repeat 的 max_items 和槽的 max_rows 要能容下全部行；行数乘以每行的图片数，不能超过上面的图片上限。
 
 ## 3. 绑定台数据
 
