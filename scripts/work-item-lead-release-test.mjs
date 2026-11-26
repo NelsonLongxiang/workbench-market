@@ -266,7 +266,7 @@ try {
     const reason = (sql, id) => q(sql, id).map(r => JSON.parse(r.detail).reason);
     const eventReason = reason("SELECT detail FROM workbench_event_log WHERE event_id = ? AND action = 'released'", I.owner.event);
     const itemReason = reason("SELECT detail FROM work_item_log WHERE item_id = ? AND fact = 'release'", I.owner.item);
-    check(ownerBefore.can && leadBefore.can && ownerGlance?.answer_via && denial.status === 403 && cross.status === 403 && done.status === 200
+    check(ownerBefore.can && ownerBefore.turn === false && leadBefore.can && leadBefore.turn === true && ownerGlance?.answer_via && denial.status === 403 && cross.status === 403 && done.status === 200
       && duplicate.body?.duplicate === true && show(eventReason) === show(['属主放行']) && show(itemReason) === show(['属主放行']),
       '属主跨队可见且能放行，原负责人仍可见；普通员工及跨站仍拒，事件与事项各记一次「属主放行」', show({ ownerBefore, leadBefore, denial: denial.status, cross: cross.status, done, duplicate, eventReason, itemReason }));
   }

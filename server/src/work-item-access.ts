@@ -272,8 +272,12 @@ export function canDispatchWithoutReview(principal: string, team: string, url: s
 
 type ReleaseRole = { acting_for: '' | 'team-lead'; owner?: true };
 export function releaseRole(item: WorkItemRow, viewer: WorkItemViewer): ReleaseRole | null {
+  return isReleaseOwner(viewer.principal, viewer.person) ? { acting_for: '', owner: true } : assignedReleaseRole(item, viewer);
+}
+
+/** 待办归属沿用实际过目人。属主的跨队放行权不把别人的待办移给属主。 */
+function assignedReleaseRole(item: WorkItemRow, viewer: WorkItemViewer): ReleaseRole | null {
   const p = viewer.principal;
-  if (isReleaseOwner(p, viewer.person)) return { acting_for: '', owner: true };
   if (item.review_by === 'requester') return p && viewer.person && isCreator(item, p) ? { acting_for: '' } : null;
   return teamLeadRole(item, viewer);
 }
@@ -399,7 +403,7 @@ export function turnOf(item: WorkItemRow, viewer: WorkItemViewer): Turn {
   const live = !TERMINAL_STATES.includes(item.state);
   const mine = viewer.principal !== null && isCreator(item, viewer.principal);
   return {
-    release: releasable(item) && releaseRole(item, viewer)?.acting_for === '',
+    release: releasable(item) && assignedReleaseRole(item, viewer)?.acting_for === '',
     answer: live && mine && pendingAsks(item) > 0,
     verify: item.state === 'ready' && mine,
   };
