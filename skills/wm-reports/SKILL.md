@@ -1,6 +1,6 @@
 ---
 name: wm-reports
-version: 0.4.0
+version: 0.4.1
 description: 工作台市场报告编写。定义报告维度和模板、绑定台数据、生成冻结报告并回应论断。适用于编写 schema_version 2 或 3 模板、准备生成输入或查找报告入口。
 ---
 
@@ -379,12 +379,11 @@ repeat 的 max_items 和槽的 max_rows 要能容下全部行；行数乘以每�
 
 ## 3. 绑定台数据
 
-先读当前模板和视图版本。以下 PUT /api/bench-views/<台>/reports/<维度>/binding 的示例假设首次绑定，生效模板为第 1 版，board 视图的第 2 块（block 从 0 算）返回 id 和 amount，筛选参数 month 已在该视图声明。
+先读当前模板和视图版本。以下 PUT /api/bench-views/<台>/reports/<维度>/binding 的示例假设首次绑定。请求体只收 `base`（当前绑定版本，首次为 0）和 `slots`，绑定会自动对到当前生效的模板版本；带上 `template_version` 会被 400「有不认识的键」拒收（MCP 治理工具另有自己的参数，见下文）。示例里board 视图的第 2 块（block 从 0 算）返回 id 和 amount，筛选参数 month 已在该视图声明。
 
 ```json report-binding
 {
   "base": 0,
-  "template_version": 1,
   "slots": {
     "orders": {
       "view": "board",
