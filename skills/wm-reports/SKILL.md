@@ -373,7 +373,7 @@ repeat 的 max_items 和槽的 max_rows 要能容下全部行；行数乘以每�
 几条做法：
 
 - 槽对应的视图块用 `=` 精确筛出要的行，统计卡要求槽里恰好一行。
-- 槽按 `max_rows` 取数，多一行整份报告就拒收。要「前 N 名」，由写入方先写一列名次，块再按名次 `<=` N 筛，做法见 wm-data-views 的 [布局](../wm-data-views/references/layout.md) 第二节第 7 条。
+- 槽按 `max_rows` 取数，多一行整份报告就拒收。要「前 N 名」，由写入方先写一列名次，块再按名次 `<=` N 筛，做法见 wm-data-views 的 [数据视图设计指南](../wm-data-views/references/layout.md) 第八节。
 - 正文的 `$format` 只能格式化参数、字段和计算结果。数据槽引用返回的是数组，要显示格式化的单个数，放进 `stat`。
 - 报告里的 `table` 不支持 `value_labels`，代号会原样显示。给人看的取值要在写入时就写成说法，或者不放进报告表格。
 
@@ -384,7 +384,6 @@ repeat 的 max_items 和槽的 max_rows 要能容下全部行；行数乘以每�
 ```json report-binding
 {
   "base": 0,
-  "template_version": 1,
   "slots": {
     "orders": {
       "view": "board",
@@ -406,7 +405,7 @@ repeat 的 max_items 和槽的 max_rows 要能容下全部行；行数乘以每�
 }
 ```
 
-已有绑定时，用当前绑定版本填写 base。更改槽来源遇到 409 时按 [停用与重绑](../wm-data-views/SKILL.md#保持报告绑定有效) 处理。生成前核生效模板和当前绑定是否对应。
+已有绑定时，用当前绑定版本填写 base。请求体只有 base 和 slots，绑定自动对到当前生效的模板，写 template_version 会被拒。更改槽来源遇到 409 时按 [停用与重绑](../wm-data-views/SKILL.md#保持报告绑定有效) 处理。生成前核生效模板和当前绑定是否对应。
 
 ## 4. 生成、查看和回应
 
