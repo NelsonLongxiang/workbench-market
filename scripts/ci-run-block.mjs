@@ -7,8 +7,8 @@
  *
  * 执行前先核每一步（--plan 只核不跑）：
  *   - 上游材料预检（执行前）：列出 actions/checkout 声明的 repository、ref、path（CHECKOUT 行）。步骤 env（含 job、workflow 层）里
- *     落在某个上游 checkout 目录内的路径逐个核对在不在；是 .ts/.mjs/.js 的再顺着相对 import 查依赖（只在该目录内，import type 不算）。
- *     缺了就把这一步记 insufficient:material，执行前打印 MATERIAL 行点名所缺路径，汇总落成 INCOMPLETE。只读本地文件：
+ *     落在上游 checkout 内的绝对路径核对物理边界和存在性；JS/TS 用已有的 TypeScript 解析器查同目录树的静态相对引入（排除类型引入）。
+ *     未确定的 checkout 声明记 insufficient:checkout-expression；缺料、符号链接或路径被替换记 insufficient:material，并打印 MATERIAL 行。只读本地文件：
  *     不取凭据、不联网、不去 checkout 或安装、不改 run 原文；材料要由人按 workflow 钉住的提交自行备好；
  *   - uses（actions）不跑，记 not-run:action；带 if 的步骤不求值：failure()/always()/cancelled() 这类诊断条件记 not-run:not-triggered，其余记 insufficient:condition；
  *   - 安装类命令（pnpm/npm install、npm ci、pip install、playwright install、apt-get、brew install）不跑，记 not-run:install；
@@ -25,8 +25,8 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const SHALLOW_FETCH = /^\s*git\s+fetch\b[^\n#]*\s--depth(?:=|\s)/;
@@ -117,45 +117,129 @@ export function classify(step, index, baseEnv, ctx) {
   return { ...out, run: text, env, removed, workdir };
 }
 
-/** actions/checkout 的声明：repository（缺省是本仓）、ref、path（相对工作区展开成绝对目录）。本仓那份就是工作树本身，不算上游材料 */
+/** checkout 声明的表达式使用已合并的 workflow 与 job env。 */
 export function checkoutDecls(steps, ctx) {
   const out = [];
   steps.forEach((s, i) => {
     if (typeof s.uses !== 'string' || !/^actions\/checkout@/.test(s.uses)) return;
     const w = s.with ?? {}, unknown = new Set();
-    const path = w.path != null ? expand(String(w.path), ctx, unknown) : '';
-    out.push({ index: i + 1, repository: w.repository != null ? String(w.repository) : '', ref: w.ref != null ? String(w.ref) : '', path, dir: path ? resolve(ctx.workspace, path) : ctx.workspace, upstream: w.repository != null && path !== '', unknown: [...unknown] });
+    const path = w.path == null ? '' : expand(w.path, ctx, unknown);
+    let dir = unknown.size ? null : resolve(ctx.workspace, path);
+    if (dir && !inside(ctx.workspace, dir)) {
+      unknown.add('checkout.path-outside-workspace');
+      dir = null;
+    }
+    const repository = w.repository == null ? '' : expand(w.repository, ctx, unknown);
+    const ref = w.ref == null ? '' : expand(w.ref, ctx, unknown);
+    out.push({ index: i + 1, repository, ref, path, dir, upstream: w.repository != null && path !== '', unknown: [...unknown] });
   });
   return out;
 }
 
-const SOURCE = /\.(?:m?[jt]s|cjs)$/;
-const REL_IMPORT = /(?:^|[^\w.$])(?:import|export)\s+(?!type\b)(?:[^'"`;]*?\sfrom\s*)?['"](\.{1,2}\/[^'"]+)['"]|import\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g;
-/** 一个上游文件及其相对依赖里缺的那些（只顺着 root 目录内的相对引入走；import type 运行时会被擦掉，不算） */
-export function missingWithDeps(file, root) {
-  const missing = [], seen = new Set(), todo = [file];
-  while (todo.length) {
-    const f = todo.pop();
-    if (seen.has(f)) continue;
-    seen.add(f);
-    if (!existsSync(f)) { missing.push(f); continue; }
-    if (!SOURCE.test(f) || !statSync(f).isFile()) continue;
-    for (const m of readFileSync(f, 'utf8').matchAll(REL_IMPORT)) {
-      const t = resolve(dirname(f), m[1] ?? m[2]);
-      if (t === root || t.startsWith(root + sep)) todo.push(t);
-    }
+const SOURCE = /\.(?:[cm]?[jt]s|[jt]sx)$/;
+const inside = (root, path) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+const sameEntry = (a, b) => a.dev === b.dev && a.ino === b.ino;
+
+let compiler;
+function relativeImports(file, text) {
+  // 用工作树内已钉版的编译器解析 JS/TS，只读源文本。
+  if (!compiler) {
+    try { compiler = createRequire(new URL('../web/package.json', import.meta.url))('typescript'); }
+    catch { throw new UsageError('无法加载工作树已有的 TypeScript；请使用已安装的依赖或 --review-env'); }
   }
-  return missing;
+  const ts = compiler;
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false);
+  const paths = [];
+  const visit = (node) => {
+    let arg;
+    if (ts.isImportDeclaration(node) && !node.importClause?.isTypeOnly) arg = node.moduleSpecifier;
+    else if (ts.isExportDeclaration(node) && !node.isTypeOnly) arg = node.moduleSpecifier;
+    else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) arg = node.arguments[0];
+    if (arg && ts.isStringLiteralLike(arg) && /^\.{1,2}\//.test(arg.text)) paths.push(arg.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return paths;
 }
 
-/** 步骤 env 里落在某个上游 checkout 目录内的路径：缺了哪些（连同相对依赖），带上是哪一步 checkout、哪个仓、哪个提交声明的 */
-export function materialGaps(stepEnv, decls) {
-  const ups = decls.filter((d) => d.upstream), gaps = [];
+/** 从工作区根逐级核对。声明目录、文件及祖先路径都不借符号链接。 */
+function materialEntries(workspace, path) {
+  if (!inside(workspace, path)) return { reason: 'outside-root' };
+  const parts = relative(workspace, path).split(sep).filter(Boolean);
+  const entries = [];
+  let next = workspace;
+  try {
+    for (let i = 0; i <= parts.length; i++) {
+      const info = lstatSync(next);
+      if (info.isSymbolicLink()) return { reason: 'outside-root' };
+      if (i < parts.length && !info.isDirectory()) return { reason: 'missing' };
+      entries.push(info);
+      if (i < parts.length) next = join(next, parts[i]);
+    }
+    if (realpathSync(path) !== path) return { reason: 'outside-root' };
+  } catch (err) {
+    return { reason: err.code === 'ENOENT' || err.code === 'ENOTDIR' ? 'missing' : 'unreadable' };
+  }
+  return { entries };
+}
+
+/** 读取打开的描述符前，复核文件和各级目录的身份。 */
+function materialSource(workspace, path, entries) {
+  let fd;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const actual = fstatSync(fd);
+    const rechecked = materialEntries(workspace, path);
+    if (rechecked.reason === 'outside-root') return rechecked;
+    if (!actual.isFile() || !sameEntry(entries.at(-1), actual) || !rechecked.entries
+      || entries.some((info, i) => !sameEntry(info, rechecked.entries[i]))) return { reason: 'changed' };
+    return { text: readFileSync(fd, 'utf8') };
+  } catch (err) {
+    return { reason: err.code === 'ELOOP' ? 'outside-root' : 'unreadable' };
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+function dependencyGaps(file, root, workspace) {
+  const gaps = [], seen = new Set(), todo = [file];
+  while (todo.length) {
+    const path = todo.pop();
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const checked = inside(root, path) ? materialEntries(workspace, path) : { reason: 'outside-root' };
+    if (checked.reason) { gaps.push({ path, reason: checked.reason }); continue; }
+    if (checked.entries.at(-1).isDirectory()) continue;
+    if (!checked.entries.at(-1).isFile()) { gaps.push({ path, reason: 'unreadable' }); continue; }
+    if (!SOURCE.test(path)) continue;
+    const source = materialSource(workspace, path, checked.entries);
+    if (source.reason) { gaps.push({ path, reason: source.reason }); continue; }
+    for (const spec of relativeImports(path, source.text)) {
+      const dep = resolve(dirname(path), spec);
+      if (inside(root, dep)) todo.push(dep);
+    }
+  }
+  return gaps;
+}
+
+/** 主文件及声明目录内的运行时依赖，返回未通过预检的路径。 */
+export function missingWithDeps(file, root) {
+  return dependencyGaps(file, root, root).map((gap) => gap.path);
+}
+
+/** 只核上游 checkout 内的绝对路径，并报告缺口所属的 checkout 和变量。 */
+export function materialGaps(stepEnv, decls, workspace) {
+  const ups = decls.filter((d) => d.upstream && d.dir && !d.unknown?.length), gaps = [];
   for (const [k, v] of Object.entries(stepEnv ?? {})) {
     if (typeof v !== 'string' || !isAbsolute(v)) continue;
-    const d = ups.find((u) => v === u.dir || v.startsWith(u.dir + sep));
+    const absolute = resolve(v);
+    const d = ups.find((u) => inside(u.dir, v) || inside(u.dir, absolute));
     if (!d) continue;
-    for (const path of missingWithDeps(resolve(v), d.dir)) gaps.push({ env: k, path, checkout: d.index, repository: d.repository, ref: d.ref });
+    // shell 用的是原值。带上级跳转的原值可能和规范化结果指向不同目录。
+    const paths = v.split(sep).includes('..') ? [{ path: v, reason: 'outside-root' }] : dependencyGaps(absolute, d.dir, workspace ?? d.dir);
+    for (const { path, reason } of paths) {
+      gaps.push({ env: k, path, checkout: d.index, repository: d.repository, ref: d.ref, ...(reason === 'missing' ? {} : { reason }) });
+    }
   }
   return gaps;
 }
@@ -240,14 +324,24 @@ export async function main(argv) {
   if (!chosen.length) throw new UsageError('没有选中任何步骤');
   const plan = chosen.map(([s, i]) => (job.unknown.length ? { index: i, name: s.name ?? '', status: 'insufficient', reason: 'job-env-expression', unknown: job.unknown, removed: [] } : classify(s, i, job.env, ctx)));
   // 上游材料预检：执行前列出 checkout 声明，缺料的步骤记 insufficient:material 并点名所缺路径（只读本地文件，不取、不装、不联网）
-  const decls = checkoutDecls(job.steps, ctx);
-  for (const d of decls) console.log('CHECKOUT step ' + d.index + ' repository=' + (d.repository || '(本仓)') + ' ref=' + (d.ref || '(缺省)') + ' path=' + (d.path || '(工作区)'));
+  const decls = checkoutDecls(job.steps, { ...ctx, env: job.env });
+  for (const d of decls) {
+    console.log('CHECKOUT step ' + d.index + ' repository=' + (d.repository || '(本仓)') + ' ref=' + (d.ref || '(缺省)') + ' path=' + (d.path || '(工作区)') + (d.unknown.length ? ' unknown=' + d.unknown.join(',') : ''));
+  }
   for (let k = 0; k < plan.length; k++) {
-    if (plan[k].status !== 'run') continue;
-    const gaps = materialGaps(plan[k].env, decls);
+    const p = plan[k];
+    if (p.status !== 'run') continue;
+    const preceding = decls.filter((d) => d.index < p.index);
+    const unresolved = preceding.filter((d) => d.upstream && d.unknown.length && (!d.dir || Object.values(p.env).some((v) => isAbsolute(v) && inside(d.dir, resolve(v)))));
+    if (unresolved.length) {
+      const unknown = [...new Set(unresolved.flatMap((d) => d.unknown))];
+      plan[k] = { index: p.index, name: p.name, status: 'insufficient', reason: 'checkout-expression', unknown, removed: p.removed };
+      continue;
+    }
+    const gaps = materialGaps(p.env, preceding, worktree);
     if (!gaps.length) continue;
-    plan[k] = { index: plan[k].index, name: plan[k].name, status: 'insufficient', reason: 'material', missing: gaps, removed: plan[k].removed };
-    for (const g of gaps) console.log('MATERIAL step ' + plan[k].index + ' missing ' + g.path + ' (env ' + g.env + '; checkout step ' + g.checkout + ' ' + g.repository + '@' + (g.ref || '(缺省)') + ')');
+    plan[k] = { index: p.index, name: p.name, status: 'insufficient', reason: 'material', missing: gaps, removed: p.removed };
+    for (const g of gaps) console.log('MATERIAL step ' + p.index + ' ' + (g.reason || 'missing') + ' ' + g.path + ' (env ' + g.env + '; checkout step ' + g.checkout + ' ' + g.repository + '@' + (g.ref || '(缺省)') + ')');
   }
   const results = [];
   for (const p of plan) {

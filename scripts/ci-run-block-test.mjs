@@ -5,7 +5,7 @@
  *   node scripts/ci-run-block-test.mjs
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { SOCKET_ROOT_MAX, UsageError, checkoutDecls, classify, expand, materialGaps, parseArgs, runtimeTooLong, stripShallowFetch, summarize } from './ci-run-block.mjs';
 
@@ -200,11 +200,12 @@ console.log('二b、端到端：上游材料预检（合成 workflow，材料只
   mkdirSync(base, { recursive: true });
   try {
     const up = join(base, 'up'), a = join(up, 'src', 'a.ts'), b = join(up, 'src', 'b.ts');
-    writeFileSync(join(base, 'wf.yml'), [
-      'jobs:', '  mat:', '    runs-on: ubuntu-latest', '    steps:',
-      '      - uses: actions/checkout@v4', '        with:', '          repository: example/up', '          ref: abc123', '          path: ' + rel + '/up',
-      '      - name: uses material', '        env:', '          SRC: $' + '{{ github.workspace }}/' + rel + '/up/src/a.ts',
-      '        run: test -f "$SRC" && echo material-ok', ''].join('\n'));
+    const workflow = (path, source = rel + '/up/src/a.ts') => writeFileSync(join(base, 'wf.yml'), [
+      'env:', '  TOP: ' + rel, 'jobs:', '  mat:', '    runs-on: ubuntu-latest', '    env:', '      UP: $' + '{{ env.TOP }}/up', '    steps:',
+      '      - uses: actions/checkout@v4', '        with:', '          repository: example/up', '          ref: abc123', '          path: ' + path,
+      '      - name: uses material', '        env:', '          SRC: $' + '{{ github.workspace }}/' + source,
+      '        run: node "$SRC"', ''].join('\n'));
+    workflow(rel + '/up');
     const run = (o) => { const r = spawnSync(process.execPath, [join(ROOT, 'scripts/ci-run-block.mjs'), '--worktree', ROOT, '--workflow', rel + '/wf.yml', '--job', 'mat', '--step', '2', '--out', join(base, o)], { encoding: 'utf8' }); return { code: r.status, out: (r.stdout ?? '') + (r.stderr ?? '') }; };
     const r1 = run('o1');
     ok('缺主文件：执行前列出 checkout 声明（仓、提交、路径），点名所缺路径，这一步记 insufficient:material 不跑（没有步骤日志），INCOMPLETE 退出 3',
@@ -214,10 +215,51 @@ console.log('二b、端到端：上游材料预检（合成 workflow，材料只
     const r2 = run('o2');
     ok('主文件在、相对依赖缺：只点名依赖 b.ts，仍不跑、INCOMPLETE', r2.code === 3 && r2.out.includes('MATERIAL step 2 missing ' + b) && !r2.out.includes('missing ' + a) && !existsSync(join(base, 'o2', 'step-002.log')), r2);
     writeFileSync(b, 'export const b = 1;\n');
+    writeFileSync(a, "import './b.ts';\nconsole.log('material-ok');\n");
     const r3 = run('o3');
     const res = JSON.parse(readFileSync(join(base, 'o3', 'results.json'), 'utf8'));
     ok('材料齐全：照常执行、PASS 退出 0；results.json 带上 checkout 声明',
       r3.code === 0 && !r3.out.includes('MATERIAL ') && readFileSync(join(base, 'o3', 'step-002.log'), 'utf8').includes('material-ok') && res.checkouts.some((d) => d.repository === 'example/up' && d.ref === 'abc123'), r3);
+    const samples = [
+      ['注释里的假 import', "// import './line-comment.ts';\n/* export * from './block-comment.ts'; */"],
+      ['字符串和模板里的假 import', "const quoted = \"import './quoted.ts'\"; const template = `export * from './template.ts'`;"],
+      ['只作类型的 import 和 export', "import type { T } from './type-only.ts';\nexport type { U } from './types.ts';"],
+    ];
+    for (const [idx, [label, input]] of samples.entries()) {
+      writeFileSync(a, input + "\nconsole.log('material-ok');\n");
+      const out = 'text-' + idx;
+      const r = run(out);
+      const log = join(base, out, 'step-002.log');
+      ok(label + '：材料齐全，实际执行', r.code === 0 && !r.out.includes('MATERIAL ') && existsSync(log) && readFileSync(log, 'utf8').includes('material-ok'), r);
+    }
+    writeFileSync(a, "import('./no-runtime-module.ts', {});\n");
+    const dyn = run('dynamic');
+    ok('带选项的字面量动态 import 缺文件时在执行前停下', dyn.code === 3 && dyn.out.includes('missing ' + join(up, 'src', 'no-runtime-module.ts')) && !existsSync(join(base, 'dynamic', 'step-002.log')), dyn);
+
+    const outside = join(base, 'other');
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'marker.ts'), "import './only-listed-if-read.ts';\n");
+    symlinkSync(join(outside, 'marker.ts'), join(up, 'src', 'linked.ts'));
+    workflow(rel + '/up', rel + '/up/src/linked.ts');
+    const link = run('symlink');
+    ok('指向声明根外的符号链接报告边界错误，无步骤日志', link.code === 3 && link.out.includes('MATERIAL step 2 outside-root ' + join(up, 'src', 'linked.ts'))
+      && !link.out.includes('only-listed-if-read.ts') && !existsSync(join(base, 'symlink', 'step-002.log')), link);
+    renameSync(up, join(base, 'original-up'));
+    symlinkSync(outside, up, 'dir');
+    workflow(rel + '/up', rel + '/up/marker.ts');
+    const rootLink = run('root-symlink');
+    ok('checkout 目录被符号链接替换也在读取前拒绝', rootLink.code === 3 && rootLink.out.includes('outside-root ' + join(up, 'marker.ts'))
+      && !rootLink.out.includes('only-listed-if-read.ts') && !existsSync(join(base, 'root-symlink', 'step-002.log')), rootLink);
+    rmSync(up);
+
+    workflow('$' + '{{ env.UP }}', '$' + '{{ env.UP }}/src/a.ts');
+    const merged = run('merged-env');
+    ok('checkout.path 与 run.env 使用同一份 workflow、job env，缺料记 INCOMPLETE', merged.code === 3 && merged.out.includes('path=' + rel + '/up')
+      && merged.out.includes('missing ' + a) && !existsSync(join(base, 'merged-env', 'step-002.log')), merged);
+    workflow('$' + '{{ env.UNKNOWN_UP }}');
+    const unknown = run('unknown-path');
+    ok('无从展开的上游 checkout.path 单独报告，受影响步骤不执行', unknown.code === 3 && /CHECKOUT step 1 .*unknown=env.UNKNOWN_UP/.test(unknown.out)
+      && /STEP 2 insufficient:checkout-expression/.test(unknown.out) && !existsSync(join(base, 'unknown-path', 'step-002.log')), unknown);
   } finally { rmSync(base, { recursive: true, force: true }); }
 }
 console.log('\nci-run-block-test: ' + pass + ' passed / ' + fail + ' failed');
