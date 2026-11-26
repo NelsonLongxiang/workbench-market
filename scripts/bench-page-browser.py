@@ -461,7 +461,10 @@ with sync_playwright() as p:
     pgn = ctx.new_page(); pgn.goto(f'{M}/use/{CARD}'); pgn.wait_for_selector('[data-testid=use-top-back]')
     pgn.locator('[data-testid=use-top-back]').hover(); pgn.wait_for_selector('.ant-tooltip >> text=返回上一页')
     check('「上一页」悬停写明是返回上一页', pgn.locator('.ant-tooltip', has_text='返回上一页').count() >= 1)
-    pgn.locator('[data-testid=use-top-back]').click(); pgn.wait_for_function("() => location.pathname === '/'")
+    # 等它回到全景；等不到不在这里抛错，由下面的断言带着当时的地址报（「上一页」坏了要落成一条 ✗，不是脚本崩掉）
+    pgn.locator('[data-testid=use-top-back]').click()
+    try: pgn.wait_for_function("() => location.pathname === '/'", timeout=10000)
+    except Exception: pass
     check('新标签直接打开 /use/<id>：「上一页」回全景，不离开站点', pgn.url.startswith(M) and urlparse(pgn.url).path == '/', pgn.url)
     pgn.close(); mode['entry'] = 'ok'
 
