@@ -26,12 +26,22 @@ import { delimiter, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const SHALLOW_FETCH = /^\s*git\s+fetch\b[^\n#]*\s--depth(?:=|\s)/;
-const INSTALL = /(^|[\s;&|(])(pnpm\s+(i|install)\b|npm\s+(i|install|ci)\b|pip3?\s+install\b|python3?\s+-m\s+pip\s+install\b|npx\s+playwright\s+install\b|apt-get\b|brew\s+install\b)/m;
-const DIAGNOSTIC_IF = /\b(failure|always|cancelled)\s*\(\s*\)/;
+/**
+ * 剔完以后对剩下的文本再查一遍：任何形式的浅取（复合命令、子 shell、git -C、环境变量前缀、续行、--deepen、--shallow-*、--unshallow）
+ * 都认出来，这一步不跑（insufficient:shallow-fetch）。宁可不跑，也不放过一个会改写共享 Git 的命令。
+ */
+export const SHALLOW_ANYWHERE = /\bgit\b[^\n]*?\bfetch\b[^\n]*?(?:\s|^)--(?:depth|deepen|shallow-since|shallow-exclude|unshallow)\b/;
+/** 安装类命令：认得出的都不跑。包管理器后面隔着选项（-C dir、--filter x、--prefix x）再跟 install/ci/add 的也算 */
+const INSTALL = /(^|[\s;&|(])(?:(?:pnpm|npm|yarn|pipx|pip[0-9.]*|brew|apt-get|apt)\b[^\n;&|]*?\s(?:i|install|ci|add)(?=\s|$)|(?:python[0-9.]*\s+-m\s+pip|npx|pnpm\s+(?:exec|dlx))\s+[^\n;&|]*?\binstall\b|playwright\s+install\b)/m;
+/** 只在失败、取消时才跑的诊断步骤：本机不求值，记「未触发」。always() 在 CI 里恒跑，不算这一类（记材料不足） */
+const DIAGNOSTIC_IF = /^\s*(?:\$\{\{\s*)?(failure|cancelled)\s*\(\s*\)\s*(?:\}\})?\s*$|^\s*(?:\$\{\{\s*)?(failure|cancelled)\s*\(\s*\)\s*(\|\||&&)/;
 const EXPR = /\$\{\{\s*([^}]*?)\s*\}\}/g;
 export const SOCKET_ROOT_MAX = 80;
 
 export class UsageError extends Error {}
+
+/** 短 runtime 根的长度上限：恰好 SOCKET_ROOT_MAX 字节照收，多一个字节就拒 */
+export function runtimeTooLong(path) { return Buffer.byteLength(path) > SOCKET_ROOT_MAX; }
 
 /** 解析命令行。值缺失、未知参数、必需参数缺失都是用法错误 */
 export function parseArgs(argv) {
@@ -93,6 +103,8 @@ export function classify(step, index, baseEnv, ctx) {
   const env = { ...baseEnv };
   for (const [k, v] of Object.entries(step.env ?? {})) env[k] = expand(v, { ...ctx, env }, unknown);
   const { run, removed } = stripShallowFetch(step.run);
+  // 续行拼回一行再查，免得 git \<换行> fetch --depth 漏过
+  if (SHALLOW_ANYWHERE.test(run.replace(/\\\n\s*/g, ' '))) return { ...out, status: 'insufficient', reason: 'shallow-fetch', removed };
   const text = expand(run, { ...ctx, env }, unknown);
   const workdir = step['working-directory'] ? expand(step['working-directory'], { ...ctx, env }, unknown) : null;
   if (unknown.size) return { ...out, status: 'insufficient', reason: 'expression', unknown: [...unknown], removed };
@@ -159,7 +171,7 @@ export async function main(argv) {
   if (o.runtime) {
     runtime = realpathSync(resolve(o.runtime));
     if (!statSync(runtime).isDirectory()) throw new UsageError('--runtime-dir 要是已有的目录');
-    if (runtime.length > SOCKET_ROOT_MAX) throw new UsageError('--runtime-dir 太长（' + runtime.length + ' 字节，上限 ' + SOCKET_ROOT_MAX + '），本机 socket 会超限');
+    if (runtimeTooLong(runtime)) throw new UsageError('--runtime-dir 太长（' + Buffer.byteLength(runtime) + ' 字节，上限 ' + SOCKET_ROOT_MAX + '），本机 socket 会超限');
   }
   const require = createRequire(join(worktree, 'server/package.json'));
   let parseYaml;

@@ -7,7 +7,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { SOCKET_ROOT_MAX, UsageError, classify, expand, parseArgs, stripShallowFetch, summarize } from './ci-run-block.mjs';
+import { SOCKET_ROOT_MAX, UsageError, classify, expand, parseArgs, runtimeTooLong, stripShallowFetch, summarize } from './ci-run-block.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
 let pass = 0, fail = 0;
@@ -39,6 +39,35 @@ console.log('一、执行前的核对（纯函数）');
   };
   ok('分类：actions 不跑；failure() 这类诊断条件记未触发；别的 if 记材料不足；安装不跑；未知表达式（run 或步骤 env 里）材料不足；只有浅取的步骤剔完不跑；普通 run 照跑',
     J(got) === J({ action: 'not-run:action', diag: 'not-run:not-triggered', cond: 'insufficient:condition', install: 'not-run:install', pip: 'not-run:install', secret: 'insufficient:expression', stepEnvSecret: 'insufficient:expression', onlyFetch: 'not-run:shallow-fetch-only', plain: 'run:' }), got);
+  // #1084 B1：剔完以后任何形式残留的浅取都不跑（不论在行首、复合命令、子 shell、续行里，还是 --deepen、--shallow-*）
+  const shallow = {
+    chained: 'echo a && git fetch --no-tags --depth=1 origin main',
+    semicolon: 'echo a; git fetch --depth 1 origin main',
+    subshell: '(git fetch --depth=1 origin main)',
+    ifThen: 'if true; then git fetch --deepen=1 origin; fi',
+    dashC: 'git -C /some/dir fetch --depth=1 origin main',
+    envPrefix: 'GIT_TRACE=1 git fetch --depth=1 origin main',
+    continued: 'git \\\n  fetch --depth=1 origin main',
+    depthAtEnd: 'git fetch origin main --depth=1',
+    since: 'git fetch --shallow-since=2020-01-01 origin',
+    exclude: 'git fetch --shallow-exclude=v1 origin',
+    unshallow: 'git fetch --unshallow origin',
+  };
+  const shallowGot = Object.fromEntries(Object.entries(shallow).map(([k, run]) => [k, c({ name: k, run })]));
+  ok('浅取的各种写法（复合命令、子 shell、if、git -C、环境变量前缀、反斜杠续行、--depth 在行尾、--deepen、--shallow-since/exclude、--unshallow）：一律不跑。行首那种剔掉后记 shallow-fetch-only，其余记 insufficient:shallow-fetch',
+    shallowGot.depthAtEnd === 'not-run:shallow-fetch-only' && Object.entries(shallowGot).filter(([k]) => k !== 'depthAtEnd').every(([, v]) => v === 'insufficient:shallow-fetch'), shallowGot);
+  ok('普通 fetch 照跑；行首那一种照旧剔掉后不跑', c({ name: 'f2', run: 'git fetch origin main' }) === 'run:' && c({ name: 'f3', run: 'git fetch --no-tags --depth=1 origin main\necho ok' }) === 'run:');
+  const inst = ['pnpm -C server install', 'pnpm --filter web install', 'pnpm exec playwright install chromium', 'playwright install --with-deps', 'npm --prefix x ci', 'yarn install', 'pnpm add left-pad', 'pipx install x', 'pip3.11 install x', 'python3 -m pip install -r r.txt'];
+  const instGot = Object.fromEntries(inst.map((run) => [run, c({ name: 'i', run })]));
+  const notInst = ['pnpm --filter web typecheck', 'pnpm test', 'node scripts/install-check-test.mjs', 'npm run build'];
+  const notInstGot = Object.fromEntries(notInst.map((run) => [run, c({ name: 'n', run })]));
+  ok('安装：包管理器隔着选项再跟 install/ci/add、pnpm exec 或裸 playwright install、pipx、pip3.11、python -m pip 都认出来不跑；typecheck、test、脚本名里带 install、npm run 照跑',
+    Object.values(instGot).every((v) => v === 'not-run:install') && Object.values(notInstGot).every((v) => v === 'run:'), [instGot, notInstGot]);
+  const ifs = { always: c({ name: 'a', if: 'always()', run: 'x' }), notCancelled: c({ name: 'nc', if: '!cancelled()', run: 'x' }), failure: c({ name: 'f', if: 'failure()', run: 'x' }), wrapped: c({ name: 'w', if: '$' + '{{ failure() }}', run: 'x' }), failureAnd: c({ name: 'fa', if: "failure() && steps.x.outcome == 'failure'", run: 'x' }) };
+  ok('条件：always()、!cancelled() 在 CI 里会跑，本机不求值，记材料不足；failure()、cancelled() 开头的诊断才记未触发',
+    J(ifs) === J({ always: 'insufficient:condition', notCancelled: 'insufficient:condition', failure: 'not-run:not-triggered', wrapped: 'not-run:not-triggered', failureAnd: 'not-run:not-triggered' }), ifs);
+  ok('短 runtime 根恰好 ' + SOCKET_ROOT_MAX + ' 字节照收，多 1 字节就拒（按字节算，中文按 UTF-8）',
+    runtimeTooLong('/' + 'a'.repeat(SOCKET_ROOT_MAX - 1)) === false && runtimeTooLong('/' + 'a'.repeat(SOCKET_ROOT_MAX)) === true && runtimeTooLong('/' + '中'.repeat(27)) === true);
   const r = classify({ name: 'e', env: { X: '$' + '{{ env.BASE }}-x' }, run: 'echo "$X"' }, 2, { BASE: 'b' }, ctx);
   ok('步骤 env 可以引用 job 层 env；run 本身逐字不改', r.status === 'run' && r.env.X === 'b-x' && r.run === 'echo "$X"', r);
   const S = (...st) => summarize(st.map((status) => ({ status })));
@@ -75,6 +104,8 @@ console.log('二、端到端（合成 workflow，在本仓库 tmp/ 下）');
     '        run: exit 7',
     '      - name: python-step',
     '        run: python -c "import sys; print(sys.version_info[0])"',
+    '      - name: signal-step',
+    '        run: kill -TERM $$',
     '      - name: diag',
     '        if: failure()',
     '        run: echo diag',
@@ -92,8 +123,9 @@ console.log('二、端到端（合成 workflow，在本仓库 tmp/ 下）');
   const o2 = join(base, 'o2');
   const r2 = run('--out', o2);
   const res2 = results(o2).results;
-  ok('全部步骤：有一步退出 7 就是 FAIL 退出 1；每步按身份记：action 未跑、失败那步记真实退出码 7、诊断步骤未触发，没被算成通过',
-    r2.code === 1 && /RUNBLOCK status=FAIL/.test(r2.out) && res2.find((x) => x.name === 'fail-step')?.exit === 7 && res2.find((x) => x.index === 1)?.reason === 'action' && res2.find((x) => x.name === 'diag')?.reason === 'not-triggered',
+  ok('全部步骤：有一步退出 7 就是 FAIL 退出 1；每步按身份记：action 未跑、失败那步记真实退出码 7、被信号杀掉的那步记 SIGTERM 且算失败、诊断步骤未触发，没被算成通过',
+    r2.code === 1 && /RUNBLOCK status=FAIL/.test(r2.out) && res2.find((x) => x.name === 'fail-step')?.exit === 7 && res2.find((x) => x.index === 1)?.reason === 'action' && res2.find((x) => x.name === 'diag')?.reason === 'not-triggered'
+    && res2.find((x) => x.name === 'signal-step')?.status === 'fail' && res2.find((x) => x.name === 'signal-step')?.signal === 'SIGTERM',
     [r2.code, res2.map((x) => x.index + ':' + x.status + ':' + (x.reason ?? x.exit))]);
 
   const o3 = join(base, 'o3');
