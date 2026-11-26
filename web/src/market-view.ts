@@ -61,7 +61,7 @@ export function usableIcon(icon: unknown): string | null {
   return Array.from(s).length <= 2 ? s : null;
 }
 
-const HEALTH: Record<string, string> = { up: '在线', down: '离线', unknown: '还没检查过' }; // 和管理工作台那页的说法一致
+const HEALTH: Record<string, string> = { up: '在线', down: '离线', unknown: '还没检查过', pending: '待对应' }; // 和管理工作台那页的说法一致
 export function healthLabel(status: unknown): string {
   return HEALTH[String(status)] ?? '还没检查过';
 }
@@ -80,7 +80,7 @@ export function workbenchCards(list: unknown, origin = ''): MarketCard[] {
         name: w.name, caption: String(w.category ?? '').trim(),
         description: String(w.description ?? '').trim(),
         tags: Array.isArray(w.tags) ? w.tags.filter((t) => typeof t === 'string' && t.trim()).slice(0, 3) : [],
-        usage: cardHealthKey(w.last_status, w.last_error, w.url, origin) === 'pending' ? '待对应' : healthLabel(w.last_status),
+        usage: healthLabel(cardHealthKey(w.last_status, w.last_error, w.url, origin)),
         ...(typeof w.last_checked_at === 'string' && w.last_checked_at.trim() ? { checkedAt: w.last_checked_at.trim() } : {}),
         href: `/use/${w.id}`, action: '打开' as const,
       };

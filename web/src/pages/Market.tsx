@@ -6,6 +6,8 @@ import type { ActionType, ProColumns } from '@ant-design/pro-components';
 import { ProTable } from '@ant-design/pro-components';
 import Markdown from 'react-markdown';
 import { api } from '../api';
+import { cardHealthKey } from '../bench-link-view';
+import { healthLabel } from '../market-view';
 import type { Workbench, WorkbenchType } from '../types';
 import { loginLabel } from '../portal-logins';
 import StatusBadge, { fmtCheckedAt } from '../components/StatusBadge';
@@ -83,7 +85,9 @@ export default function Market() {
     setBusyId(id);
     try {
       const w = await api.checkOne(id);
-      if (w.last_status === 'up') message.success(`${w.name} 在线（${w.last_latency_ms}ms）`);
+      const status = cardHealthKey(w.last_status, w.last_error, w.url, window.location.origin);
+      if (status === 'pending') message.info(`${w.name} ${healthLabel(status)}`);
+      else if (status === 'up') message.success(`${w.name} 在线（${w.last_latency_ms}ms）`);
       else message.error(`${w.name} 离线：${w.last_error || '未知原因'}`);
     } catch (e) {
       message.error(`检测失败：${(e as Error).message}`);
