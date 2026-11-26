@@ -4,6 +4,23 @@
 FROM scratch AS wm-extensions
 COPY deploy/no-extensions/ /
 
+# ygl-trees 装进市场镜像（观察者落地 T7，乙方案）：经验库、统一待办、MCP 上游调它的命令行，不再要宿主挂 CLI 进来。
+# 版本和依赖图用 deploy/ygl-trees 那份锁文件（和独立的 ygl 镜像同一份，版本、integrity 先核对），登记在 tech-route.json 的 deps.image。
+# 装完当场加载一次原生模块、跑一次 --version：新版 npm 可能不跑 better-sqlite3 的安装脚本，宁可构建失败也不出一个调不起来的镜像
+FROM node:24-bookworm AS ygl
+ARG YGL_TREES_VERSION=0.126.0
+ARG YGL_TREES_INTEGRITY=sha512-5PsRg2FtFuJf6njSNHP2V80krrw3v7aZHImh11L7buw4r8AYxZTxrwusuEl/VucNzAbbWuvv3oKnBdrR50jSjw==
+ARG NPM_REGISTRY=https://registry.npmjs.org/
+ENV npm_config_update_notifier=false
+WORKDIR /opt/ygl
+COPY deploy/ygl-trees/package.json deploy/ygl-trees/package-lock.json ./
+RUN test "$(node -p 'require("./package-lock.json").packages["node_modules/ygl-trees"].version')" = "${YGL_TREES_VERSION}" \
+ && test "$(node -p 'require("./package-lock.json").packages["node_modules/ygl-trees"].integrity')" = "${YGL_TREES_INTEGRITY}" \
+ && npm config set registry "$NPM_REGISTRY" \
+ && npm ci --omit=dev --ignore-scripts=false --no-audit --no-fund \
+ && node -e "const D=require('better-sqlite3'); new D(':memory:').close()" \
+ && test "$(node node_modules/ygl-trees/dist/bundle/bin.cjs --version)" = "${YGL_TREES_VERSION}"
+
 FROM node:24-bookworm AS build
 WORKDIR /app
 # P0-2：构建期 registry 可换（离线/内网镜像站）
@@ -24,8 +41,16 @@ FROM node:24-bookworm
 WORKDIR /app
 COPY --from=build /app /app
 COPY --from=build /opt/wm-extensions /opt/wm-extensions
+# ygl-trees：root 所有、只读；入口由 WM_YGL_CLI 指过去（部署方仍可用同名环境变量改指别处）。
+# 工作区不在镜像里：部署方把正式工作区挂到 YGL_HOME（缺省 /var/lib/ygl，见下）；没挂时经验库显示「未接入」，统一待办不读 ygl
+COPY --from=ygl /opt/ygl /opt/ygl
+ENV WM_YGL_CLI=/opt/ygl/node_modules/ygl-trees/dist/bundle/bin.cjs
+# 库源挂载点：正式 ygl-trees 工作区挂到 /var/lib/ygl（目录里要有 ygl-trees.db；经验库会读、「记成经验」会写，所以要可写）。
+# 没挂时目录不存在，经验库显示「未接入」，启动自检行 warn 点名「库源没挂上」
+ENV YGL_HOME=/var/lib/ygl
 # P1-5：非 root 运行（数据目录属主 node）；扩展目录保持 root 所有、只读
-RUN mkdir -p /data && chown -R node:node /app /data
+# /var/lib/ygl 也建好并交给 node：命名卷首次挂载会带上镜像里挂载点的属主，否则卷目录属 root、node 写不进（#1106 评审 N1）
+RUN mkdir -p /data /var/lib/ygl && chown -R node:node /app /data /var/lib/ygl
 ENV DATA_DIR=/data
 ENV NODE_ENV=production
 EXPOSE 9800

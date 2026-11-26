@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 事项的期限和附件（web/src/work-item-extras.ts）：字段没到不画、格式不对当没有、链接只认本站 /api/、大小怎么说。 */
-import { listPriorityTag, priorityColor, priorityEditable, priorityErrorText, priorityOf, PRIORITIES, dueSavedText, listDueTag, attachmentsOf, attachProblem, uploadedId, dueEditable, dueErrorText, dueLabel, dueOf, hasDueField, overdueOf, safeFileUrl, sizeLabel, uploadErrorText, ATTACH_MAX_BYTES } from '../web/src/work-item-extras.ts';
+import { listPriorityTag, priorityColor, priorityEditable, priorityErrorText, priorityOf, PRIORITIES, dueSavedText, listDueTag, attachmentsOf, attachProblem, uploadedId, dueEditable, dueErrorText, dueLabel, dueStatus, agoText, endedLine, dueOf, hasDueField, overdueOf, safeFileUrl, sizeLabel, uploadErrorText, ATTACH_MAX_BYTES } from '../web/src/work-item-extras.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -10,6 +10,19 @@ ok('期限：YYYY-MM-DD 才认；没有、空、null、格式不对都当没有�
   && dueOf({}) === null && dueOf({ due: '' }) === null && dueOf({ due: null }) === null && dueOf({ due: '11/30' }) === null && dueOf(null) === null && dueOf({ due: 20261130 }) === null);
 ok('期限说离今天多远：还有 N 天 / 今天到期 / 过了 N 天', dueLabel('2026-11-30', '2026-11-12') === '2026-11-30（还有 18 天）' && dueLabel('2026-11-12', '2026-11-12') === '2026-11-12（今天到期）'
   && dueLabel('2026-11-10', '2026-11-12') === '2026-11-10（过了 2 天）' && dueLabel('2026-12-01', '2026-11-30') === '2026-12-01（还有 1 天）');
+// #1091：过期和结局要一起读
+const TD = '2026-11-26';
+ok('#1091 过期写「已过期 N 天（期限 MM-DD）」：没结束的照 overdue 或本地已过那天', J(dueStatus('2026-11-19', TD, 'progress', true)) === J({ text: '已过期 7 天（期限 11-19）', overdue: true })
+  && J(dueStatus('2026-11-19', TD, 'progress', false)) === J({ text: '已过期 7 天（期限 11-19）', overdue: true }) && J(dueStatus('2026-11-26', TD, 'progress', true)) === J({ text: '已过期（期限 11-26）', overdue: true }));
+ok('#1091 期限过了、对方放弃（终态 overdue=false）：也算过期，天数照算；没办成、撤回同样', J(dueStatus('2026-11-19', TD, 'dropped', false)) === J({ text: '已过期 7 天（期限 11-19）', overdue: true })
+  && dueStatus('2026-11-19', TD, 'failed', false).overdue && dueStatus('2026-11-19', TD, 'cancelled', false).overdue);
+ok('#1091 已办结不算过期；没到期照原来的说法；跨年写全日期', J(dueStatus('2026-11-19', TD, 'done', false)) === J({ text: '2026-11-19（过了 7 天）', overdue: false })
+  && J(dueStatus('2026-11-30', TD, 'dropped', false)) === J({ text: '2026-11-30（还有 4 天）', overdue: false }) && dueStatus('2025-12-30', '2026-01-02', 'waiting', false).text === '已过期 3 天（期限 2025-12-30）');
+const NOW = Date.parse('2026-11-26T12:00:00Z');
+ok('#1091 多久以前：服务端 UTC 时间；刚刚 / 分钟 / 小时 / 天；读不出是 null', agoText('2026-11-25 11:00:00', NOW) === '1 天前' && agoText('2026-11-26 09:30:00', NOW) === '2 小时前' && agoText('2026-11-26T11:55:00Z', NOW) === '5 分钟前'
+  && agoText('2026-11-26 11:59:30', NOW) === '刚刚' && agoText('2026-11-27 00:00:00', NOW) === '刚刚' && agoText('昨天', NOW) === null);
+ok('#1091 结束了：把时间和是什么事放一句（「对方 1 天前放弃」）；没结束或时间读不出不写', endedLine('dropped', '2026-11-25 11:00:00', NOW) === '对方 1 天前放弃' && endedLine('done', '2026-11-25 11:00:00', NOW) === '1 天前办结'
+  && endedLine('failed', '2026-11-26 10:00:00', NOW) === '2 小时前报告没办成' && endedLine('cancelled', '2026-11-26 11:59:59', NOW) === '刚刚撤回' && endedLine('progress', '2026-11-25 11:00:00', NOW) === null && endedLine('dropped', null, NOW) === null);
 ok('取件链接只认本站 /api/ 相对地址：外链、带协议、// 开头、带 .. 的都不认', safeFileUrl('/api/work-items/wi-1/files/3') === '/api/work-items/wi-1/files/3'
   && safeFileUrl('https://x.test/a') === null && safeFileUrl('//x.test/api/a') === null && safeFileUrl('javascript:alert(1)') === null && safeFileUrl('/api/../admin') === null && safeFileUrl('/files/a') === null && safeFileUrl(5) === null);
 const list = attachmentsOf({ attachments: [

@@ -7,6 +7,7 @@
   · 安排一件事：选文件就传（PUT /api/work-items/attachments/<名字>，原始字节、带摘要头），传上的写大小、没传上的写原因、能去掉；安排时带 attachments:[id]。
 数据全是合成的。"""
 import json, re, sys
+from datetime import date, datetime, timedelta, timezone
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M = cfg['base']
@@ -48,6 +49,10 @@ DETAILS = {'1': item(1, due='2099-12-31', overdue=False, attachments=ATT), '2': 
 def with_priority(d, pr, can):
     d = dict(d); d['priority'] = pr; d['can'] = {**d['can'], 'priority': can}; return d
 DETAILS.update({'7': with_priority(item(7), 'P1', True), '8': with_priority(item(8), 'P0', False), '9': with_priority(item(9), 'P2', True)})
+# #1091：期限 7 天前、对方 1 天前放弃（终态，服务端给 overdue=false）——详情要同时写过期天数和放弃时间
+DUE7 = (date.today() - timedelta(days=7)).isoformat()
+DROPPED_AT = (datetime.now(timezone.utc) - timedelta(days=1, hours=1)).strftime('%Y-%m-%d %H:%M:%S')
+DETAILS['10'] = item(10, state='dropped', due=DUE7, overdue=False, updated_at=DROPPED_AT)
 DETAIL = re.compile(r'/api/work-items/wi-syn-(\d+)$')
 prio_posts = []
 def on_priority(route):
@@ -108,7 +113,9 @@ with sync_playwright() as p:
     check('一部分已告诉、一部分还没派出（两个都有）：合成一句说清', any(m.strip() == '期限改成 2099-11-30；已告诉在办的席位，还没派出的派出时会带上新期限' for m in msgs), msgs)
     DUE_REPLY.update(notified=1, pending_release=False)
     open_item(3)
-    check('过期了：照服务端的 overdue 标「已过期」', pg.locator('[data-testid=work-item-overdue]').inner_text().strip() == '已过期')
+    # #1091：过期那一行写「已过期 N 天（期限 MM-DD）」，不再只是一个「已过期」标签
+    ov = pg.locator('[data-testid=work-item-overdue]')
+    check('过期了：照服务端的 overdue 写「已过期…（期限 …）」', ov.count() == 1 and ov.inner_text().strip().startswith('已过期') and '（期限 ' in ov.inner_text(), ov.all_inner_texts())
     open_item(4)
     check('期限是 null：写「不限」，建立人能「加一个」', pg.locator('[data-testid=work-item-due]').inner_text().strip() == '不限' and pg.locator('[data-testid=work-item-due-edit]').inner_text().strip() == '加一个')
     pg.locator('[data-testid=work-item-due-edit]').click(); inp = pg.locator('[data-testid=work-item-due-editor] input'); inp.click(); inp.fill('2099-01-01'); inp.press('Enter')
@@ -118,6 +125,10 @@ with sync_playwright() as p:
     check('改期限被拒（404）：说只有建立人能改', pg.locator('.ant-message-notice', has_text='只有建立人能改期限').count() >= 1)
     open_item(5)
     check('事项结束了：期限照写，没有「改」', pg.locator('[data-testid=work-item-due]').count() == 1 and pg.locator('[data-testid=work-item-due-edit]').count() == 0)
+    open_item(10)
+    ended = pg.locator('[data-testid=work-item-ended]'); ov = pg.locator('[data-testid=work-item-overdue]')
+    check('#1091 期限过了、对方放弃：标题旁写「对方 1 天前放弃」，期限写「已过期 7 天（期限 MM-DD）」，两者都在', ended.count() == 1 and ended.inner_text().strip() == '对方 1 天前放弃'
+          and ov.count() == 1 and ov.inner_text().strip() == f'已过期 7 天（期限 {DUE7[5:]}）', (ended.all_inner_texts(), ov.all_inner_texts()))
     open_item(6)
     check('服务端说不能改（can.due 为假：不是建立人，或管理员）：期限照写，没有「改」', pg.locator('[data-testid=work-item-due]').count() == 1 and pg.locator('[data-testid=work-item-due-edit]').count() == 0)
     # 优先级（#941 第 1a 步）
