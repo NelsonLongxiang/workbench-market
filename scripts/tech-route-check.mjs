@@ -199,7 +199,9 @@ function unregisteredBySource(repo) {
   }
   return files;
 }
-const outsideServices = (f) => f !== 'server/src/db.ts' && !f.startsWith('server/src/services/');
+// 库由调用方注入的模块的建表只放这一个文件（属主 2026-11-26 批准）：两条归属规则对它与 db.ts 同等放过，内容另由 injected-schema-ddl-only 红线守着
+const INJECTED_SCHEMA = 'server/src/db-schema-injected.ts';
+const outsideServices = (f) => f !== 'server/src/db.ts' && f !== INJECTED_SCHEMA && !f.startsWith('server/src/services/');
 
 // 身份的具体实现只许待在登录提供方目录里；目录之外的 server 文件都算核心。
 const PROVIDERS_DIR = 'server/src/login-providers/';
@@ -357,7 +359,7 @@ const RULES = [
   {
     id: 'schema-only-in-db', what: 'db.ts 之外的建表、改表语句', target: 0, proposed: 'budget',
     measure: (repo) => {
-      const outside = repo.server().filter((f) => f !== 'server/src/db.ts');
+      const outside = repo.server().filter((f) => f !== 'server/src/db.ts' && f !== INJECTED_SCHEMA);
       const creates = repo.perFile(outside, RE.create), alters = repo.perFile(outside, RE.alter);
       const files = { ...creates };
       for (const [f, n] of Object.entries(alters)) files[f] = (files[f] || 0) + n;
@@ -561,6 +563,32 @@ const RULES = [
       clean: { 'server/src/foo.ts': "export const A = { X: 'x' } as const;\n" },
       dirty: { 'server/src/foo.ts': 'enum A { X }\nnamespace N {}\nclass C { constructor(private x: number) {} }\n' }, expect: 3,
     },
+  },
+  {
+    id: 'injected-schema-ddl-only', what: '注入库建表模块（db-schema-injected.ts）里出现普通查询、导入主库或自开库', target: 0, proposed: 'redline',
+    measure: (repo) => {
+      if (!repo.server().includes(INJECTED_SCHEMA)) return { total: 0, items: [], note: '模块不在' };
+      // 先去掉注释：注释里写到这些写法（比如说明「不自己 new DatabaseSync」）不是代码
+      const text = repo.read(INJECTED_SCHEMA).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"])\/\/[^\n]*/g, '$1'), items = [];
+      for (const m of text.matchAll(/\.prepare\(/g)) items.push('prepare@' + m.index);
+      for (const m of text.matchAll(/import\s+(?!type\b)[^;]*?from\s+['"][^'"]*\/db\.ts['"]/g)) items.push('import-db@' + m.index);
+      for (const m of text.matchAll(/import\(\s*['"][^'"]*\/db\.ts['"]\s*\)/g)) items.push('dynamic-import-db@' + m.index);
+      for (const m of text.matchAll(/new\s+DatabaseSync\b/g)) items.push('new-db@' + m.index);
+      for (const m of text.matchAll(/\.exec\(\s*(['"`])\s*([A-Za-z]+)/g)) if (!/^(CREATE|ALTER)$/i.test(m[2])) items.push('non-ddl-exec@' + m.index);
+      for (const m of text.matchAll(/\.exec\(\s*(?![\s'"`])/g)) items.push('exec-non-literal@' + m.index);
+      return { total: items.length, items: items.map((i) => INJECTED_SCHEMA + ' ' + i) };
+    },
+    sample: {
+      clean: { 'server/src/db-schema-injected.ts': "import type { DatabaseSync } from 'node:sqlite';\nexport function f(db: DatabaseSync) { db.exec('CREATE TABLE IF NOT EXISTS t (id)'); }\n" },
+      dirty: { 'server/src/db-schema-injected.ts': "import { db } from './db.ts';\ndb.prepare('SELECT 1');\ndb.exec('DELETE FROM t');\n" }, expect: 3,
+    },
+    cases: [
+      { label: '自己开库也不行', files: { 'server/src/db-schema-injected.ts': "import { DatabaseSync } from 'node:sqlite';\nconst d = new DatabaseSync(':memory:');\n" }, expect: 1 },
+      { label: 'exec 的参数不是字面量（看不出是不是建表）', files: { 'server/src/db-schema-injected.ts': "export function f(db, sql) { db.exec(sql); }\n" }, expect: 1 },
+      { label: '动态引入主库', files: { 'server/src/db-schema-injected.ts': "export async function f() { await import('./db.ts'); }\n" }, expect: 1 },
+      { label: '注释里提到这些写法不算', files: { 'server/src/db-schema-injected.ts': "/** 不导入 db.ts、不自己 new DatabaseSync、不放 db.prepare */\n// db.exec(sql) 也不行\nexport function f(db) { db.exec('CREATE TABLE IF NOT EXISTS t (id)'); }\n" }, expect: 0 },
+      { label: '改表与拼接起头的建表都算 DDL', files: { 'server/src/db-schema-injected.ts': "export function f(db) { db.exec('ALTER TABLE t ADD COLUMN c'); db.exec(\n  'CREATE TABLE IF NOT EXISTS u (' + 'id)'); }\n" }, expect: 0 },
+    ],
   },
   {
     id: 'services-no-express', what: '引用 express 的领域服务', target: 0, proposed: 'redline',

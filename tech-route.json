@@ -536,6 +536,17 @@
       }
     },
     {
+      "id": "injected-schema-ddl-only",
+      "tier": "redline",
+      "proposed": "redline",
+      "what": "注入库建表模块（db-schema-injected.ts）里出现普通查询、导入主库或自开库",
+      "target": 0,
+      "baseline": {
+        "total": 0,
+        "items": []
+      }
+    },
+    {
       "id": "services-no-express",
       "tier": "redline",
       "proposed": "redline",
@@ -629,7 +640,9 @@
       "proposed": "count",
       "what": "技能跟随：对外契约变动未更新技能的快照",
       "target": null,
-      "baseline": { "total": 0 }
+      "baseline": {
+        "total": 0
+      }
     },
     {
       "id": "surface-snapshots",

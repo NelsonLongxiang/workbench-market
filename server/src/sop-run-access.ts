@@ -7,6 +7,7 @@ import {identity,SESSION_COOKIE,type ViewerResult} from './identity.ts';
 const soleSessionEntry=(cookie:string)=>{const all=String(cookie??'').split(';').map(c=>c.trim()).filter(c=>c.startsWith(SESSION_COOKIE+'='));return all.length===1&&/^[A-Za-z0-9_.=-]{16,512}$/.test(all[0].slice(SESSION_COOKIE.length+1))?all[0]:'';};
 import {parse as parseYaml} from 'yaml';
 import {validateReadonlySop} from './sop-readonly-channel.ts';
+import {ensureSopRunAccessSchema} from './db-schema-injected.ts';
 import {assembleReadonlySop,type FrozenSopSource} from './sop-readonly-assembly.ts';
 type ResolveViewer = (cookieHeader:string)=>Promise<ViewerResult>;
 // Existing run upload hard ceilings: single50MiB / run20 files / run200MiB. Stored MIME is declared, not content-authenticated.
@@ -21,9 +22,7 @@ const hash = (s:string) => createHash('sha256').update(s).digest('hex');
 export function createSopRunAccess(deps:Deps) {
   const {db}=deps, now=deps.now??Date.now, viewer:ResolveViewer=deps.viewer??((cookie)=>identity().resolveViewer(cookie));
   // Only callers constructing this unmounted service initialize this table. Existing app startup unchanged.
-  db.exec('CREATE TABLE IF NOT EXISTS sop_run_access (run_id INTEGER PRIMARY KEY, target_id INTEGER NOT NULL, sop_version INTEGER NOT NULL, owner_subject TEXT NOT NULL, assignee_subject TEXT NOT NULL, acl_revision INTEGER NOT NULL, manifest_sha256 TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0)');
-  db.exec('CREATE TABLE IF NOT EXISTS sop_run_revisions (run_id INTEGER PRIMARY KEY, revision INTEGER NOT NULL, data_sha256 TEXT NOT NULL)');
-  db.exec('CREATE TABLE IF NOT EXISTS sop_channel_files (id TEXT PRIMARY KEY,run_id INTEGER NOT NULL,step TEXT NOT NULL,field_key TEXT NOT NULL,request_id TEXT NOT NULL,mime TEXT NOT NULL,size INTEGER NOT NULL,body BLOB NOT NULL,UNIQUE(run_id,step,request_id))');
+  ensureSopRunAccessSchema(db); // 建表在 db-schema-injected.ts（注入库模块的建表只放那里）
   const secret=randomBytes(32), records=new Map<string,CapRecord>(), sessions=new Map<string,{epoch:number;generation:number;subject:string|null}>();
   const mac=(s:string)=>createHmac('sha256',secret).update(s).digest('base64url');
   const cookieKey=(cookie:string) => {
