@@ -5,7 +5,7 @@
   四、撤销：二次确认后行变已撤销、撤销按钮没了，请求是 DELETE；之后拿这枚令牌请求一律 401；
   五、非属主：卡片说只有属主，没有「签发令牌」。"""
 import json, re, sys
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, expect
 
 cfg = json.load(open(sys.argv[1]))
 M = cfg['base']
@@ -15,6 +15,15 @@ def check(n, c, x=''):
     if c: ok += 1; print('  ✓', n)
     else: fail += 1; print('  ✗', n, x)
 TOKEN = re.compile(r'^wmu_[A-Za-z0-9_-]{43}$')
+
+# 勾作用域：像人一样点一下，再等勾选状态到位（expect 自带重试），不用 Locator.check()。
+# antd 5 的 Checkbox.Group 受控时把 value 经 useEffect 抄进内部状态，框里的勾比表单状态晚一两帧（约 12～17 毫秒）才画上；
+# check() 在点完的那一刻就读 checked，读到旧值会报「Clicking the checkbox did not change its state」（#1071 browser-security）。
+# 表单状态（下面的「说法」与签发请求）在点击当下就已更新，这里核的是用户最终看到的勾。
+def tick(pg, value, on):
+    box = pg.locator(f'[data-testid=pt-draft-scopes] input[value="{value}"]')
+    box.click()
+    (expect(box).to_be_checked if on else expect(box).not_to_be_checked)(timeout=5000)
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -40,11 +49,11 @@ with sync_playwright() as p:
     issue = pg.locator('[data-testid=pt-issue]')
     check('没填之前「签发」不能点，说名字怎么写', issue.is_disabled() and '名字' in pg.locator('[data-testid=pt-draft-problem]').inner_text())
     pg.locator('[data-testid=pt-draft-name]').fill('laptop wm')
-    pg.locator('[data-testid=pt-draft-scopes] input[value=view]').check()
+    tick(pg, 'view', True)
     pg.wait_for_function("() => document.querySelector('[data-testid=pt-draft-problem]')?.textContent.includes('台')")
     check('选了按台的作用域却没选台：不能点，说要选台', issue.is_disabled())
-    pg.locator('[data-testid=pt-draft-scopes] input[value=view]').uncheck()
-    pg.locator('[data-testid=pt-draft-scopes] input[value=report-dimensions]').check()
+    tick(pg, 'view', False)
+    tick(pg, 'report-dimensions', True)
     pg.wait_for_function("() => document.querySelector('[data-testid=pt-issue]')?.disabled === false")
     check('只选报告维度、不选台：可以签', not issue.is_disabled())
 
@@ -67,7 +76,7 @@ with sync_playwright() as p:
     print('三、名字重复')
     pg.locator('[data-testid=pt-new]').click(); pg.wait_for_selector('.ant-modal [data-testid=pt-draft-name]')
     pg.locator('[data-testid=pt-draft-name]').fill('laptop wm')
-    pg.locator('[data-testid=pt-draft-scopes] input[value=report-dimensions]').check()
+    tick(pg, 'report-dimensions', True)
     pg.locator('[data-testid=pt-issue]').click(); pg.wait_for_selector('.ant-modal [data-testid=pt-issue-err]')
     check('对话框里照服务端说「此令牌名称已使用」，对话框不关、不出原文', '此令牌名称已使用' in pg.locator('.ant-modal [data-testid=pt-issue-err]').inner_text()
           and pg.locator('[data-testid=pt-fresh]').count() == 0 and pg.locator('[data-testid=pt-err]').count() == 0)
