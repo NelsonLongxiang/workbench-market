@@ -2,6 +2,11 @@
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 
+/** 某个 caller_session 的有效 SOP 准入绑定（admits / both、没撤）上人填的取卡根地址，去重、按绑定 id 顺序 */
+export function sopAdmitNotifyUrls(agentNode: string): string[] {
+  return (db.prepare("SELECT DISTINCT notify_url FROM bindings WHERE agent_node = ? AND target_type = 'sop' AND direction IN ('admits','both') AND revoked_at = '' AND notify_url != '' ORDER BY id").all(agentNode) as { notify_url: string }[]).map((r) => r.notify_url);
+}
+
 export class BindingService extends Service {
   constructor(ctx: any) {
     super(ctx, 'binding');

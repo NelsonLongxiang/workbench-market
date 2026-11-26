@@ -91,7 +91,7 @@ D5 按设计稿第 4 节的推荐定了下列各项，本规格照此实现：
    另：DNS 重绑定（判时公网、连时回环）不访问回环服务；解析结果公网与回环混合时 400；解析超过 10 秒、持续滴字节超过 10 秒都 504；`image/svg+xml` 415；图库前缀下的完整链接同样不许 `..`、`%2f` 拐出前缀。
 7. 视图（查询期校验，与第五节一致）：`image` 列按值筛选（`eq`、`in`、`contains`、`prefix` 等）、排序、分组、`min`/`max`/`sum`/`avg` 报 400；判空（`is_null`、`not_null`）、`count`、`count_distinct`、选出来照常。
 8. 报告：`image` 节点引用参数、字段、数据行都能冻结出链接加哈希；报告作来源时同样按引用判；引用的列不是 `image` 类型时编译报错；报告页显示走代取路由；只有 `report-read` 的读者从报告页实际加载到图。注意现行 `report-compile.ts` 的模板参数只认 `month`、槽列类型没有 `image`，PR C 要补参数与槽列的类型契约，不能只删拒 image 节点的那一行。 PR C 验收另补：读报告时按冻结的哈希核对取回的图，**哈希不符就显示「图片已变」占位、不显示新图**；哈希相符照常显示。
-   落实（PR C）：模板参数类型 `month`、`image` 两种，槽列多 `image`；节点写成 `{ id, type: 'image', src: <一个引用>, alt: 1～200 字 }`，引用 `month` 参数或非 image 列报 `image_source_type`，值不是合规链接报 `invalid_image_ref`；一份报告最多 20 个图片节点，不能放进栅格。生成时每张图经代取同一处取一次、记 sha256，取不到不出报告（`report_image_unavailable`）。代取路由带 `report=<编号>` 时按报告作来源判（`report-read`、报告属于这个台、冻结正文里有这条链接），取回的图哈希不符回 409 `image_changed`，报告页显示「图片已变」。
+   落实（PR C）：模板参数类型 `month`、`image` 两种，槽列多 `image`；节点写成 `{ id, type: 'image', src: <一个引用>, alt: 1～200 字 }`，引用 `month` 参数或非 image 列报 `image_source_type`，值不是合规链接报 `invalid_image_ref`；一份报告最多 20 个图片节点，不能放进栅格（#1081 起：最多 100 个，和 repeat 的 max_items 上限一致，冻结取回的图片总字节最多 64MB，同一链接只算一次；超了报 `image_limit`，details 第二项写明 `count` 或 `bytes`；栅格的格子里可以放 image）。生成时每张图经代取同一处取一次、记 sha256，取不到不出报告（`report_image_unavailable`）。代取路由带 `report=<编号>` 时按报告作来源判（`report-read`、报告属于这个台、冻结正文里有这条链接），取回的图哈希不符回 409 `image_changed`，报告页显示「图片已变」。
 9. 页面：表格和记录卡里图片列出缩略图；取不到显示占位；单测核源码里没有内联样式和写死的颜色。
 
 测试用合成数据和一个测试脚本自己在本机回环上起的假图库，不碰外网。
