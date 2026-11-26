@@ -389,7 +389,7 @@ try {
         && smuggle.isError && (other.isError || other.rpcError !== null),
       'R3 MCP 会话生成：producer 是 mcp:会话名、记 AI；AI 反驳记 AI、位置 mcp，不算未处理的反驳；带来源的拒；没授予的台调不到',
       { made: made.text?.slice(0, 200), ai: aiDispute.json?.response, got: got.json?.claims?.[0]?.open_dispute, listed: listed.json?.reports?.length, smuggle: smuggle.isError, other: other.text?.slice(0, 80) });
-    check(got.json?.names?.producer === 'synth-report-seat' && listed.json?.names?.actors?.['mcp:synth-report-seat'] === 'synth-report-seat'
+    check(got.json?.names?.producer_label === 'synth-report-seat' && listed.json?.names?.actors?.['mcp:synth-report-seat'] === 'synth-report-seat'
       && got.json?.report?.subject_name === '合成登记对象' && listed.json?.reports?.[0]?.subject_name === '合成登记对象'
       && got.json?.report?.subject === 'card:synth-orders@mcp', 'R3b 清单和详情读回登记对象名与提交会话名，保留原对象键');
     // 人在 AI 那份上反驳：算；报告被更正之后旧报告上的不算

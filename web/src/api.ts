@@ -482,7 +482,7 @@ export type ReportRead = {
 /** 报告给人看的名字（#937）：服务端取不到给 null，页面写「未命名」，不显示内部标识 */
 export type ReportPositionPart = { role: string | null; scope: string | null };
 export type ReportNames = {
-  dimension: string | null; producer?: string | null; actors: Record<string, string | null>;
+  dimension: string | null; producer_label?: string | null; actors: Record<string, string | null>;
   positions: Record<string, ReportPositionPart[] | 'mcp' | 'builtin'>;
   sources: { slot: string; view: string | null; block: string | null }[];
 };

@@ -149,7 +149,7 @@ function OneReport({ cardId, reportId, entry, column }: { cardId: string; report
       <header className="wm-rp-doc-head">
         <div className="wm-rp-doc-dim" data-testid="report-dimension">{nameOr(names.dimension)}<span className="wm-rp-meta"> · 模板第 {rep.template_version} 版 · <SubjectName subject={rep.subject} name={rep.subject_name} /></span></div>
         <div className="wm-rp-meta" data-testid="report-producer">
-          {timeText(rep.created_at)} 生成 · 产出方 {(names.producer === undefined ? names.actors[rep.producer] : names.producer) || '未署名'} <Tag color={rep.producer_kind === 'ai' ? 'purple' : undefined}>{actorKindText(rep.producer_kind)}</Tag>
+          {timeText(rep.created_at)} 生成 · 产出方 {(names.producer_label === undefined ? names.actors[rep.producer] : names.producer_label) || '未署名'} <Tag color={rep.producer_kind === 'ai' ? 'purple' : undefined}>{actorKindText(rep.producer_kind)}</Tag>
         </div>
         {rep.superseded_by !== null ? <Alert type="warning" showIcon data-testid="report-superseded" message={<>这份报告已被更正，<Link to={`${base}?report=${rep.superseded_by}`}>看更正后的那份</Link></>} /> : null}
         {rep.supersedes !== null ? <div className="wm-rp-meta" data-testid="report-supersedes">更正了 <Link to={`${base}?report=${rep.supersedes}`}>报告 #{rep.supersedes}</Link></div> : null}

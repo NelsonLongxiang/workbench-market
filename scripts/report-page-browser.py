@@ -88,7 +88,7 @@ def read(id):
     whole = [x for x in rs if x['claim_key'] == '']
     meta = {k: v for k, v in r.items() if k != 'claims'} | {'superseded_by': superseded_by(id)}
     names = {'dimension': DIM_NAMES.get(r['dimension_id']), 'actors': {a: ACTOR_NAMES.get(a) for a in {r['producer'], *[x['responder'] for x in rs]}},
-             'producer': '合成报告会话' if id == 2 else ACTOR_NAMES.get(r['producer']),
+             'producer_label': '合成报告会话' if id == 2 else ACTOR_NAMES.get(r['producer']),
              'positions': {x['position']: POSITIONS.get(x['position'], []) for x in rs}, 'sources': [{'slot': 'orders', 'view': '经营看板', 'block': '本月订单'}]}
     return {'names': names, 'report': meta, 'claims': claims, 'responses': whole, 'gate': {'open_dispute_blocks_acceptance': True}, 'template': TEMPLATE,
             'open_disputes': sum(1 for c in claims if c['open_dispute']) + (1 if head and open_dispute(rs, '') else 0)}

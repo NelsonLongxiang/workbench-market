@@ -225,7 +225,7 @@ export async function readReport(s: BenchStore, idIn: unknown, actor?: string) {
   const allResponses = [...claims.flatMap((c) => c.responses), ...whole];
   const names = {
     dimension: dimensionName(meta.dimension_id),
-    producer: producerName(meta.producer, getBench(s.slug)),
+    producer_label: producerName(meta.producer, getBench(s.slug)),
     actors: Object.fromEntries([...new Set([meta.producer, ...allResponses.map((x) => x.responder)])].map((a) => [a, actorName(a)])),
     positions: Object.fromEntries([...new Set(allResponses.map((x) => x.position))].map((p) => [p, positionParts(p)])),
     sources: srcs.map((x) => {
