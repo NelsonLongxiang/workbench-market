@@ -6,7 +6,7 @@ import { KeyOutlined } from '@ant-design/icons';
 import { listBenchViews } from '../api';
 import { issuePersonalToken, listPersonalTokens, revokePersonalToken, type SourceResult } from '../personal-tokens-api';
 import {
-  NAME_HINT, NAME_MAX, ONE_TIME_NOTE, SCOPE_NOTE, limitsOf, scopesOf, actionProblem, benchesLabel, draftProblem, expiryLabel, issueBody, issuedOf, lastUsedLabel, listProblem,
+  HTTPS_GUIDANCE, NAME_HINT, NAME_MAX, ONE_TIME_NOTE, SCOPE_NOTE, limitsOf, scopesOf, actionProblem, benchesLabel, draftProblem, expiryLabel, issueBody, issuedOf, lastUsedLabel, listProblem,
   needsBench, newDraft, scopesLabel, stateTag, tokenState, tokensOf, type TokenDraft, type TokenRow,
 } from '../personal-tokens-view';
 
@@ -79,6 +79,7 @@ export default function PersonalTokensCard() {
     <Card title={<span><KeyOutlined /> 个人令牌</span>} className="wm-w-full wm-pt-card" data-testid="pt-card"
       extra={ok ? <Button type="primary" size="small" data-testid="pt-new" onClick={() => { setErr(null); setIssueErr(null); setDraft(newDraft(limits)); setOpen(true); }}>签发令牌</Button> : null}>
       <Typography.Paragraph type="secondary">在终端里用属主身份办事（wm user …），不借已登录的浏览器。{SCOPE_NOTE}</Typography.Paragraph>
+      {problem?.text !== HTTPS_GUIDANCE && <Typography.Paragraph type="secondary" data-testid="pt-https-note">{HTTPS_GUIDANCE}</Typography.Paragraph>}
       {fresh && (
         <Alert className="wm-acc-alert" type="success" showIcon data-testid="pt-fresh"
           message={<span>「{fresh.name}」的令牌：<Typography.Text code copyable data-testid="pt-fresh-token">{fresh.token}</Typography.Text></span>}

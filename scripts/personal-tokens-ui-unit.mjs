@@ -32,6 +32,11 @@ ok('签发应答：只认 wmu_ 加 43 位的原文，读 personal_token；没有
 ok('清单读不到：401 请先登录、403 分清非属主/非 HTTPS/非同源会话、404 还没上线、别的稍后再试', listProblem({ status: 401 }).text.includes('请先登录') && listProblem({ status: 403, body: { error: 'personal_token_owner_required' } }).text.includes('属主') && listProblem({ status: 403, body: { error: 'personal_token_surface_denied' } }).text.includes('HTTPS')
   && listProblem({ status: 403, body: { error: 'personal_token_owner_session_required' } }).text.includes('本人的登录') && listProblem({ status: 404 }).type === 'info' && listProblem({ status: 500 }).text.includes('稍后') && listProblem({ status: 200 }) === null && listProblem(null) === null);
 ok('清单 403 带中文句子时照说（如拿令牌访问：这个接口不接受个人令牌），已知代号的说法优先', listProblem({ status: 403, body: { error: 'personal_token_route_denied', message: '这个接口不接受个人令牌' } }).text === '这个接口不接受个人令牌' && listProblem({ status: 403, body: { error: 'personal_token_surface_denied', message: 'x 中' } }).text.includes('HTTPS'));
+ok('正式地址 403：清单和签发失败都说要用 HTTPS 及向谁确认地址', ['list', 'action'].every((where) => {
+  const refusal = { status: 403, body: { error: 'personal_token_surface_denied', message: '请从市场的正式地址打开个人令牌设置。' } };
+  const text = where === 'list' ? listProblem(refusal).text : actionProblem(refusal);
+  return text.includes('HTTPS') && text.includes('部署维护方');
+}));
 ok('操作没办成：服务端中文句子照说（名字重了），代号不露；撤销 404、断网各有说法；204 算办成', actionProblem({ status: 409, body: { error: 'personal_token_name_taken', message: '此令牌名称已使用，请换一个名字' } }) === '此令牌名称已使用，请换一个名字'
   && actionProblem({ status: 404, body: { error: 'personal_token_missing' } }).includes('找不到') && actionProblem({ status: 403, body: { error: 'forbidden' } }) === '你的账号现在不能做这一步。' && actionProblem({ status: 0, body: null }).includes('连不上') && actionProblem({ status: 204, body: null }) === null);
 const CAT = { available_scopes: [{ id: 'bench:read', label: '读取台数据', description: '查询数据' }, { id: 'report-dimensions', label: '管理报告维度', description: '维度模板' }], limits: { default_expires_in_days: 14, min_expires_in_days: 2, max_expires_in_days: 60 } };
