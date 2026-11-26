@@ -131,11 +131,22 @@
 
 ## 三、模板的形状
 
-沿用 P0 的四块（`parameters`、`fields`、`slots`、`body`），去掉 P0 里调用方给的来源证据，多三块：
+生产模板使用 `schema_version` 2 或 3。两版都包含 `title`、`parameters`、`fields`、`slots`、`body`、`claims`、`responses`、`gate`。v2 正文沿用节点数组。v3 正文采用 json-render 的平铺结构，由服务端在生成报告时解析。
 
 ```json
 {
-  "schema_version": 2,
+  "schema_version": 3,
+  "title": "经营报告",
+  "parameters": {},
+  "fields": { "summary": { "required": true, "max_length": 500 } },
+  "slots": {},
+  "body": {
+    "root": "main",
+    "elements": {
+      "main": { "type": "document", "props": {}, "children": ["summary"] },
+      "summary": { "type": "text", "props": { "content": { "ref": { "scope": "field", "name": "summary" } } } }
+    }
+  },
   "claims": [
     { "kind": "conclusion", "label": "结论", "min": 1, "max": 3 },
     { "kind": "risk", "label": "风险", "min": 0, "max": 10 }
@@ -149,6 +160,20 @@
 - `responses`：这个维度允许哪几种回应。`reason_required` 只能是 `true`（属主：认可、反驳要有理由）；写成别的拒。
 - `gate`：属主定的「验收不强制报告、由维度的模板声明」。这一步只存、只算状态，不接验收。
 - 论断的正文从哪来：生成请求里给，按 `claims` 校验。论断的 `basis` 指向的数据槽和行键必须在这份报告里，指不到的拒。
+
+v3 元素的 ID 由 `elements` 的键给出，`children` 按顺序列 ID。每个元素只能从根到达一次。根可用 `document` 包多块，其他元素仍用封面、章节、文字、网格、重复、数据视图、分页和图片节点。节点参数写在 `props`，章节、网格和重复的子项写在 `children`。服务端拒绝不可达元素、环、未知类型、未知字段和事件。
+
+v3 的 `title` 和 `content` 支持以下指令，可按需嵌套。其他 props 保留原节点契约。
+
+| 指令 | 形状与含义 |
+| --- | --- |
+| `$format` | `{"$format":"percent","value":0.12,"locale":"zh-CN"}`。接受 `date`、`number`、`percent`、`currency`。日期用 UTC，接受 ISO 日期、带时区时间或毫秒时间戳。缺省地区 `zh-CN`，货币可用 `currency` 指定三字母代码，缺省 CNY。 |
+| `$count` | `{"$count":{"ref":{"scope":"slot","name":"orders"}}}`，取数组项数或文字长度。 |
+| `$join` | `{"$join":["甲","乙"],"separator":"、"}`，用分隔符合并数组。 |
+| `$concat` | `{"$concat":["共 ",{"$count":[1,2]}," 项"]}`，顺序拼接值。 |
+| `$math` | `{"$math":"divide","a":2,"b":4}`。二元操作为 `add`、`subtract`、`multiply`、`divide`、`mod`、`min`、`max`。单元操作 `round`、`floor`、`ceil`、`abs` 只收 `a`。操作数和结果须为有限数字。 |
+
+引用可读参数、文字字段、重复的当前行或这份报告已校验的数据槽。加 `column` 取得该槽的一列。不指定列的槽引用用于计数。引用值只当数据处理。服务端拒绝缺失引用、越界表达式和不合规的值，指令结果随报告冻结成普通正文，已存正文保持原格式。
 
 `kind` 的判法：`claims`、`responses`、`gate`、`slots`（列和类型）、`parameters` 这几块和这个维度某个**复核过的**版本完全一样，就是 `layout`；否则是 `criteria`。不和上一版比（第二节第 1 小节，#926 独立验收）。
 

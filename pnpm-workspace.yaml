@@ -1,6 +1,9 @@
 packages:
   - server
   - web
+peerDependencyRules:
+  allowedVersions:
+    '@json-render/react>react': '18'
 allowBuilds:
   esbuild: true
 minimumReleaseAgeExclude:

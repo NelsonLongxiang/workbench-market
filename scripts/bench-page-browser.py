@@ -55,6 +55,10 @@ def view_result(view, params):
         for blk in blocks[1:]: blk.pop('span', None)
         blocks += [{'type': 'progress', 'title': '本周完成度', 'value': 'v', 'total': 20, 'data': {'columns': [{'name': 'v', 'type': 'integer'}], 'rows': [{'v': 5}]}}]
         blocks += [{'type': 'table', 'title': '明细', 'span': 12, 'data': {'columns': [{'name': 'site', 'type': 'text'}, {'name': 'n', 'type': 'integer'}], 'rows': rows}}]
+    if mode.get('stat_render') == 'broken':
+        del blocks[1]['data']['rows']
+    if mode.get('stat_render') == 'recovered':
+        blocks[1]['data']['rows'] = [{'v': 71}]
     return {'title': ENTRY['title'], 'version': 5, 'view': {'key': view, 'title': vt}, 'params': params, 'blocks': blocks}
 
 log = {'entry': 0, 'render': [], 'form': [], 'title': []}
@@ -244,6 +248,26 @@ with sync_playwright() as p:
     pg.wait_for_timeout(800)  # 证明「没有发生」的那段时间（有意的固定等待，见 #954）
     check('入口这次读不到（500）：页面保持现状不换，正文照常重新取数，不整页报错', len(log['render']) > r2 and pg.locator('[data-testid=bench-page-title]').inner_text() == '合成巡检总览·三' and pg.locator('[data-testid=use-entry-error]').count() == 0, (len(log['render']) - r2))
     mode['entry'] = 'ok'
+
+    print('块渲染失败与页内恢复')
+    pg.goto(f'{M}/use/{CARD}')
+    pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    pg.evaluate('window.renderRecoveryPage = true')
+    siblings = pg.locator('[data-bb=progress][data-bb-state=ready]')
+    siblings.evaluate('(node) => { window.renderRecoverySibling = node }')
+    before = pg.locator('.wm-dash-grid > .wm-bb').count()
+    mode['stat_render'] = 'broken'
+    pg.locator('[data-testid=bench-page-refresh]').click()
+    failed = pg.locator('[data-bb=render-error][data-bb-state=error]')
+    failed.wait_for()
+    check('坏块在原位置显示提示，健康块仍在', '本月巡检' in failed.inner_text() and '这一块暂时无法显示' in failed.inner_text()
+          and pg.locator('.wm-dash-grid > .wm-bb').count() == before and siblings.count() == 1)
+    mode['stat_render'] = 'recovered'
+    pg.locator('[data-testid=bench-page-refresh]').click()
+    pg.wait_for_function("() => document.querySelector('[data-bb=stat][data-bb-state=ready] .wm-num')?.textContent.includes('71')")
+    check('原组件类型和序号在同文档内恢复，健康块没有重挂', failed.count() == 0 and pg.evaluate('window.renderRecoveryPage')
+          and siblings.evaluate('(node) => node === window.renderRecoverySibling') and pg.locator('.wm-dash-grid > .wm-bb').count() == before)
+    mode.pop('stat_render', None)
 
     print('七、改台名（#905）')
     mode['render'] = 'ok'; mode['entry'] = 'ok'
