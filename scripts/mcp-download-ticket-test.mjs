@@ -263,6 +263,32 @@ try {
   const tokens = [once, p3, pc, pr, pu, prr, dp, gp, rebuilt].map((p) => p.split('/').pop());
   ok('调用记录里有取件（rest/ticket_download，记在发票的会话名下），也有拒绝的原因', calls.status === 200 && /rest\/ticket_download/.test(rows) && /dl-reader/.test(rows) && /dl-revoke/.test(rows) && /session revoked or replaced|grant withdrawn|app replaced|file gone/.test(rows), 'status=' + calls.status);
   ok('调用记录和服务日志里找不到任何一张票的原文', tokens.every((k) => !rows.includes(k) && !log.includes(k)), tokens.filter((k) => rows.includes(k) || log.includes(k)).join(','));
+
+  // 审计的 ok 标志要和结果对得上：取件成功的行 ok=1、没有错误；拒绝的行 ok=0、有原因（把拒绝记成成功必须红）
+  const callRows = Array.isArray(calls.body) ? calls.body : (calls.body?.calls ?? calls.body?.rows ?? []);
+  const dl = callRows.filter((r) => r.method === 'rest/ticket_download');
+  const dlOk = dl.filter((r) => Number(r.ok) === 1), dlBad = dl.filter((r) => Number(r.ok) === 0);
+  ok('取件的审计行：ok=1 的都没有错误、ok=0 的都有原因，两种都有', dl.length > 0 && dlOk.length > 0 && dlBad.length > 0 && dlOk.every((r) => r.error === '') && dlBad.every((r) => r.error !== '') && dl.every((r) => r.session_name !== '(download-ticket)'), J([dl.length, dlOk.length, dlBad.length]));
+  // 没有票可对的请求（编造的、用完的、过期的、撤销的）：有界聚合，不记在任何会话名下，没有票和路径
+  const rej = callRows.filter((r) => r.method === 'rest/ticket_download_rejected');
+  ok('没有票的请求留痕：一分钟窗口里（前面已有二十多次这样的请求）只有一行聚合，ok=0、会话名是占位、有次数', rej.length === 1 && Number(rej[0].ok) === 0 && rej[0].session_name === '(download-ticket)' && /^\d+ request\(s\) with no valid download ticket/.test(rej[0].error) && Number(rej[0].duration_ms) === 0, J(rej));
+  const rejText = rej.length === 1 ? [rej[0].session_name, rej[0].method, rej[0].tool, rej[0].error, rej[0].channel].join(' ') : '';
+  ok('聚合行里没有票、路径、来源地址（会话名、方法、错误、通道里）', rej.length === 1 && !/downloads\/|[A-Za-z0-9_-]{40,}|127\.0\.0\.1|::1/.test(rejText) && tokens.every((k) => !J(rej).includes(k)));
+  const before = (await call('GET', '/api/mcp/calls?limit=500', undefined, AT)).body;
+  for (let n = 0; n < 12; n++) await get('/api/mcp-rest/downloads/' + String.fromCharCode(65 + n).repeat(43));
+  const after = (await call('GET', '/api/mcp/calls?limit=500', undefined, AT)).body;
+  const cnt = (b) => (Array.isArray(b) ? b : (b?.calls ?? b?.rows ?? [])).filter((r) => r.method === 'rest/ticket_download_rejected').length;
+  ok('再来十二次没有票的请求：窗口内不再多写行（有界）', cnt(before) === 1 && cnt(after) === 1, J([cnt(before), cnt(after)]));
+  // 票不进采纳统计的键：成功用过的票的路径（下载、上传）折叠成 :ticket
+  const upT = await tool(reader.token, 'app_files_upload', { slug: 'dl-app', name: 'via-ticket.txt', size: 5, sha256: sha(Buffer.from('hello')) });
+  const upPath = upT.payload?.upload_path ?? upT.payload?.upload_url ?? '';
+  const upTok = upPath ? pathOf(upPath.startsWith('http') ? upPath : BASE + upPath).split('/').pop() : '';
+  const upPut = upTok ? await fetch(BASE + '/api/mcp-rest/uploads/' + upTok, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: Buffer.from('hello') }) : null;
+  ok('准备：上传票直传成功（用来核统计里的上传票路径）', upPut?.status === 201, J([upT.text.slice(0, 160), upPut?.status]));
+  const stats = await call('GET', '/api/stats', undefined, AT);
+  const statsText = J(stats.body ?? '');
+  const endpoints = (stats.body?.endpoints ?? []).map((e) => e.endpoint);
+  ok('统计里：下载票、上传票的路径折叠成 :ticket，找不到任何一张票的原文', stats.status === 200 && endpoints.includes('/api/mcp-rest/downloads/:ticket') && (!upTok || endpoints.includes('/api/mcp-rest/uploads/:ticket')) && [...tokens, upTok, tok].filter(Boolean).every((k) => !statsText.includes(k)), J([stats.status, endpoints.filter((e) => /mcp-rest\/(down|up)/.test(e))]));
 } catch (e) {
   fail++;
   console.log('  ✗ 跑不下去：' + (e?.stack ?? e));

@@ -2313,6 +2313,25 @@ async function openDownloadTicket(t: DownloadTicket): Promise<DownloadOpen> {
   if ((String(f.sha256 || '') || await fileSha256(abs)) !== t.sha256) return deny('file replaced');
   return { ok: true, sess, abs, file: { name: String(f.original_name), mime: String(f.mime), size: f.size } };
 }
+/**
+ * 没有这张下载票的请求（编造的、写法不对、过期、用完、撤销了：这几种从仓里看不出区别，应答也不分）没有会话可记。
+ * 为了让拒绝也留痕又不被外面的请求灌满：进有界的聚合——每分钟至多往 mcp_calls 写一行（会话名是固定的占位 DOWNLOAD_REJECT_SESSION，
+ * ok=0，error 里只有这一分钟前后累计的次数），行里没有票、路径、来源地址；窗口里的其余请求只加次数，下一行带走。
+ */
+const DOWNLOAD_REJECT_SESSION = '(download-ticket)';
+const DOWNLOAD_REJECT_WINDOW_MS = 60_000;
+let downloadRejected = 0, downloadRejectedAt = 0;
+function noteDownloadRejected(): void {
+  downloadRejected += 1;
+  const now = Date.now();
+  if (!MCP_GATEWAY_ON || now - downloadRejectedAt < DOWNLOAD_REJECT_WINDOW_MS) return;
+  const n = downloadRejected;
+  downloadRejected = 0; downloadRejectedAt = now;
+  try {
+    svc<McpService>('mcp').callInsertStmt()
+      .run(DOWNLOAD_REJECT_SESSION, 'rest/ticket_download_rejected', 'app_files_list', 0, `${n} request(s) with no valid download ticket since the last record`, 0, sha256Hex('{}'), 'rest', '', '', '');
+  } catch { /* 审计写不进去不影响应答 */ }
+}
 /** 申请上传票时的公共校验：size 正整数且不超上限，sha256 必带 */
 function ticketSizeSha(args: any, max: number): { size: number; sha256: string } {
   const size = Number(args?.size);
@@ -4208,7 +4227,7 @@ async function mcpRestRunReadable(req: express.Request, sess: McpSess | null, ru
 }
 const runIdParam = (v: unknown): number => { if (!/^\d+$/.test(String(v))) throw new HttpError(404, `run not found: ${v}`); return Number(v); };
 registerMcpRestRoutes(http, { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader,
-  takeUploadTicket: (token) => uploadTickets.take(token), uploadTicketSession, takeDownloadTicket: (token) => downloadTickets.take(token), dropDownloadTicket: (token) => downloadTickets.drop(token), openDownloadTicket, skillStageIncomingPath, skillStageFromFile, mcpByRef, mcpResultAccess });
+  takeUploadTicket: (token) => uploadTickets.take(token), uploadTicketSession, takeDownloadTicket: (token) => downloadTickets.take(token), dropDownloadTicket: (token) => downloadTickets.drop(token), openDownloadTicket, noteDownloadRejected, skillStageIncomingPath, skillStageFromFile, mcpByRef, mcpResultAccess });
 import { goPrefix, moduleProxy, stripSessionIdCookie, verifyPortalSessionStrip } from './portal.ts';
 import { registerPortalRoutes } from './routes/portal.ts';
 import { stripIncoming as stripPortalForward, verifyPortalForwardStrip, useMarketTokenCheck } from './portal-forward-headers.ts';

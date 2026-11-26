@@ -41,8 +41,14 @@ root.effect(() => {
   return () => { clearInterval(flushTimer); };
 }, 'endpoint-stats.flush(5s)');
 
-/** 路径规范化：数字段折叠为 :id（/api/sop/runs/42 → /api/sop/runs/:id） */
+/**
+ * 路径规范化：数字段折叠为 :id（/api/sop/runs/42 → /api/sop/runs/:id）。
+ * 票就是凭据：上传票、下载票的路径段（/api/mcp-rest/uploads/<票>、/api/mcp-rest/downloads/<票>）折叠为 :ticket，
+ * 成功请求的票不会作为 endpoint_stats 的键落库、也不会在统计视图里露出（用票之后它还能再用几次，或者别人在 2 分钟内看到统计就能取件）。
+ */
 export function normalizeEndpoint(pathname: string): string {
+  const ticket = /^(\/api\/mcp-rest\/(?:uploads|downloads))\/[^/]+(\/.*)?$/.exec(pathname);
+  if (ticket) return `${ticket[1]}/:ticket${ticket[2] ?? ''}`;
   return pathname
     .split('/')
     .map((seg) => (/^\d+$/.test(seg) ? ':id' : seg))

@@ -69,6 +69,8 @@ export interface McpRestDeps {
   takeDownloadTicket: (token: unknown) => DownloadTicket | null;
   dropDownloadTicket: (token: unknown) => void;
   openDownloadTicket: (t: DownloadTicket) => Promise<{ ok: true; sess: McpSess | null; abs: string; file: { name: string; mime: string; size: number } } | { ok: false; sess: McpSess | null; why: string }>;
+  /** 没有这张票的请求：进有界的拒绝聚合（不带票、不带来源） */
+  noteDownloadRejected: () => void;
   skillStageIncomingPath: () => string;
   skillStageFromFile: (tmpAbs: string, size: number, sha: string) => Record<string, unknown>;
   /** 大结果给引用（渐进开放第 5 步）：结果大就换成引用；拿引用去取时按会话和原工具再判一次 */
@@ -84,7 +86,7 @@ const DOWNLOAD_TICKET_DECIDES = '下载票本身就是凭据（2 分钟、限次
 const UPLOAD_TICKET_DECIDES = '上传票本身就是凭据（只能用一次、10 分钟过期），用票时再核发票的会话和授权，不是登录身份的结论';
 
 export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void {
-  const { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader, takeUploadTicket, uploadTicketSession, skillStageIncomingPath, skillStageFromFile, mcpByRef, mcpResultAccess, takeDownloadTicket, dropDownloadTicket, openDownloadTicket } = deps;
+  const { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader, takeUploadTicket, uploadTicketSession, skillStageIncomingPath, skillStageFromFile, mcpByRef, mcpResultAccess, takeDownloadTicket, dropDownloadTicket, openDownloadTicket, noteDownloadRejected } = deps;
   app.get('/openapi.json', { action: 'mcp-rest.openapi', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, serveMcpOpenApi);
   app.get('/api/mcp-rest/openapi.json', { action: 'mcp-rest.openapi', kind: 'read', statusNotVerdict: MCP_SESSION_DECIDES }, serveMcpOpenApi);
   // 拿引用去取大结果（渐进开放第 5 步）：只给建它的会话；按原工具再判一次授权。别的会话的、过期的、不存在的同一个 404
@@ -245,8 +247,9 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
     const t0 = Date.now();
     const gone = () => res.status(404).json({ error: '下载票不存在、已用完、已过期或已失效：重新调 app_files_list 申请一张' });
     const t = takeDownloadTicket(req.params.ticket);
-    // 没有票就没有会话可记，所以不进审计；有票的，下面每一步都记在发票的会话名下，只记编号、不记票
-    if (!t) return gone();
+    // 没有这张票（编造的、写法不对、过期、用完、撤销了）就没有会话可记：不记在任何会话名下，进有界的拒绝聚合（每分钟至多一行、只有次数，
+    // 没有票的原文、路径和来源）；有票的，下面每一步都记在发票的会话名下，只记编号、不记票。应答照旧同一句 404，不分是哪一种
+    if (!t) { noteDownloadRejected(); return gone(); }
     const auditArgs = { ticket: t.ref, slug: t.slug, file_id: t.fileId, use: t.uses, of: t.maxUses };
     let opened: Awaited<ReturnType<typeof openDownloadTicket>>;
     try { opened = await openDownloadTicket(t); } catch (e) { opened = { ok: false, sess: null, why: 'check failed: ' + String((e as Error)?.message ?? e).slice(0, 120) }; }
