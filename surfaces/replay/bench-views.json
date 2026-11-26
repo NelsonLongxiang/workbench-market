@@ -4518,7 +4518,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "241", "etag": "W/\"f1-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "274", "etag": "W/\"112-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "binding": {
                 "dimension_id": "monthly",
@@ -4527,7 +4527,8 @@
                 "slots": { "orders": { "view": "overview", "block": 2, "params": {}, "columns": { "id": "id", "amount": "amount" } } },
                 "created_by": "user:alpha",
                 "created_at": 1893456000000,
-                "disabled": true
+                "disabled": true,
+                "disabled_reason": "合成停用"
               }
             }
           }

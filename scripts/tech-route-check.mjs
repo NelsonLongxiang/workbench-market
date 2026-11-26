@@ -88,12 +88,29 @@ function readmeTreeShorthand(readme) {
   return out;
 }
 
+// 第 1 步先在第 13 篇登记新增文件；等清零时统一回填 README。
+const PG_STEP_ONE_PLAN = 'docs/productization/13-database-plan.md';
+const PG_STEP_ONE_HEADING = '### 第 1 步分批目录登记';
+function pgStepOneFiles(plan) {
+  const lines = plan.split(/\r?\n/);
+  const start = lines.indexOf(PG_STEP_ONE_HEADING);
+  if (start < 0) return new Set();
+  const end = lines.findIndex((line, index) => index > start && /^#{1,3} /.test(line));
+  const files = lines.slice(start + 1, end === -1 ? undefined : end);
+  return new Set(files.flatMap((line) => {
+    const row = /^\| #\d+ \| `(server\/src\/(?:[\w-]+\/)*[\w-]+\.ts)` \| [^|]+ \|\s*$/.exec(line);
+    return row ? [row[1]] : [];
+  }));
+}
+
 /** server 文件算不算 README 提到了：根 README 写了文件名（或「名字/」）；或在「目录」块的简写清单里；
  *  或它所在的子目录自带 README.md 写了文件名，且根 README 提到了这个子目录（「子目录名/」） */
 function readmeMentions(repo) {
   const readme = repo.read('README.md');
   const shorthand = new Set(readmeTreeShorthand(readme));
+  const pgFiles = pgStepOneFiles(repo.read(PG_STEP_ONE_PLAN));
   return (f) => {
+    if (pgFiles.has(f)) return true;
     if (readme.includes(basename(f)) || readme.includes(`${basename(f, '.ts')}/`) || shorthand.has(f)) return true;
     const dir = dirname(f);
     if (dir === 'server/src' || !readme.includes(`${basename(dir)}/`)) return false;
@@ -392,7 +409,7 @@ const RULES = [
     measure: (repo) => typecheck(repo),
   },
   {
-    id: 'readme-tree', what: 'README 没提到的 server 文件', target: 0, proposed: 'budget',
+    id: 'readme-tree', what: '目录未登记的 server 文件（README 或第 13 篇换库登记）', target: 0, proposed: 'budget',
     measure: (repo) => {
       const mentioned = readmeMentions(repo);
       const items = repo.server().filter((f) => !mentioned(f));
@@ -403,6 +420,8 @@ const RULES = [
       dirty: { 'server/src/foo.ts': '', 'README.md': '目录：bar.ts\n' }, expect: 1,
     },
     cases: [
+      { label: '第 13 篇换库登记按完整路径计覆盖', files: { 'server/src/services/access.ts': '', [PG_STEP_ONE_PLAN]: PG_STEP_ONE_HEADING + '\n\n| #1125 | `server/src/services/access.ts` | 注入库读写。 |\n' }, expect: 0 },
+      { label: '第 13 篇的其它段落和同名异路径不计覆盖', files: { 'server/src/routes/access.ts': '', 'server/src/other.ts': '', [PG_STEP_ONE_PLAN]: PG_STEP_ONE_HEADING + '\n\n| #1125 | `server/src/services/access.ts` | 注入库读写。 |\n\n## 六、其它\n| #1125 | `server/src/other.ts` | 不属于本表。 |\n' }, expect: 2 },
       { label: '「目录」块里目录行的「·」简写清单算提到', files: { 'server/src/services/app.ts': '', 'server/src/services/app-data.ts': '', 'README.md': '## 目录\n\n```\nserver/src/services/  app·app-data（域服务）\n```\n' }, expect: 0 },
       { label: '简写清单里没有的照算', files: { 'server/src/services/app.ts': '', 'server/src/services/cookie.ts': '', 'README.md': '## 目录\n\n```\nserver/src/services/  app·sop（域服务）\n```\n' }, expect: 1 },
       { label: '简写只认「目录」块里的目录行，正文里的「·」不算', files: { 'server/src/services/app.ts': '', 'README.md': '说明：server/src/services/  app·sop\n' }, expect: 1 },
@@ -582,7 +601,8 @@ const RULES = [
     id: 'deps-registered', what: '没登记的运行时依赖', target: 0, proposed: 'redline',
     measure: (repo, list) => {
       const items = [];
-      for (const [name, file] of [['root', 'package.json'], ['server', 'server/package.json'], ['web', 'web/package.json']]) {
+      // image：市场镜像里另装的（deploy/ygl-trees 那份锁文件，Dockerfile.market 装进 /opt/ygl），一样要登记
+      for (const [name, file] of [['root', 'package.json'], ['server', 'server/package.json'], ['web', 'web/package.json'], ['image', 'deploy/ygl-trees/package.json']]) {
         let deps = {};
         try { deps = JSON.parse(repo.read(file) || '{}').dependencies || {}; } catch { /* 坏的 package.json 当作没有依赖 */ }
         const known = new Set(list?.deps?.[name] || []);
@@ -853,7 +873,7 @@ function tightenBaseline(old, m, tier) {
 }
 
 function writeList(root, rows, previous, mode) {
-  const packages = { root: 'package.json', server: 'server/package.json', web: 'web/package.json' };
+  const packages = { root: 'package.json', server: 'server/package.json', web: 'web/package.json', image: 'deploy/ygl-trees/package.json' };
   const deps = previous?.deps || Object.fromEntries(Object.entries(packages).map(([k, f]) => {
     try { return [k, Object.keys(JSON.parse(readFileSync(join(root, f), 'utf8')).dependencies || {}).sort()]; } catch { return [k, []]; }
   }));

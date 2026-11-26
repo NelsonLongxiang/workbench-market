@@ -60,7 +60,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `A2A_ORIGIN_CLAIM_UNBOUND`（v1 未绑定调用方签名兼容窗：`off`=停发 `X-A2A-Caller-Sig`，缺省继续发；v1 不绑路由，未升级对端上可被剥 Sig2 重放，全舰队升级后应设 `off`）
 - `WM_A2A_MEMBER_PROVENANCE`（缺省 `on`：市场名片声明 `canvasMemberProvenance`——a2a-net 0.8 起，对钉了公钥的画布成员只往声明了它的宿主转发，不声明则席位的回执到不了市场；声明即承诺：名片只列本节点自己服务、互不重复的句柄 `market/<8 hex>`，发给它们的消息只在本节点投递、查无或有歧义一律 404，句柄只由本节点密钥签发；`off`=不声明，名片与之前完全相同；其它值拒绝启动）
 - `WM_A2A_PROGRESS_RECEIPTS`（缺省 `on`：市场名片声明 `progressReceipts`——宿主只给声明了它的调用方发进展回执 `progress-<task>-<n>`；市场收下后只记录、给事项页做「正在处理」提示和子项，不结清原派工、不推事项状态；`off`=不声明，宿主不发进展；其它值拒绝启动）
-- `WM_A2A_TEAM_ROSTER`（缺省 `on`：市场名片声明 `teamRoster`——a2a-net next/0.8 的宿主只给声明了它的画布远端成员推团队名册 `[A2A roster]`，市场照规矩收（投递过的宿主、Sig3、节点键取自验过签的公钥）；`off` 时不声明、入站名册一律不收；其它值拒绝启动）
+- `WM_A2A_TEAM_ROSTER`（缺省 `on`：市场名片声明 `teamRoster`——a2a-net next/0.8 的宿主只给声明了它的画布远端成员推团队名册 `[A2A roster]`，市场照规矩收（投递过的宿主，或已登记 active 且钉住公钥的宿主；仍须 Sig3、固定公钥及节点指纹验证）；`off` 时不声明、入站名册一律不收；其它值拒绝启动）
 - `WM_A2A_DIRECTED_SEATS`（缺省 `on`：市场名片声明 `directedSeats`——宿主只认声明了它的远端成员发来的指名派工行；「安排一件事」带 `seat_id` 时派工正文第一行写指名（对端宿主没声明就退回整队派发并留痕）；`off` 时不声明，带 `seat_id` 的安排 400；其它值拒绝启动）
 - `WM_PROPOSAL_ROSTER_GONE_HOURS`（缺省 `24`：关系的提议指向的团队，在节点照常报名册的情况下连续不在名册超过这么多小时，提议才失效；短暂掉出又回来的不收，节点整个停推的只走总期限；1～720 的整数，别的值拒绝启动）
 - `WM_PROPOSAL_TTL_DAYS`（缺省 `14`：关系的提议（部门负责人、团队负责人、团队认领）超过这么多天没人处理就失效，目标不在了的也失效；每小时收一轮，失效的在提议人那里留 7 天；1～365 的整数，别的值拒绝启动）
@@ -105,8 +105,9 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `WM_EXTENSIONS_DIR`（扩展挂载点·绝对路径·缺省不加载任何扩展·见「扩展」）
 - `WM_EXTENSION_ROUTES`（扩展路由没报动作时怎么办·缺省 `warn`：照旧能跑，启动日志逐条点名并计数；`enforce`：有没报动作的扩展路由就拒绝启动，阶段六切换判定时打开；其它值拒绝启动·见「扩展」）
 - `YGL_MAX_PROJECTS`（统一待办读 ygl-trees 的 active 项目数上限·缺省 200·超出部分在 `degraded_projects` 报 cap-exceeded）
-- `WM_YGL_CLI`（ygl-trees 入口文件 `dist/bundle/bin.cjs` 的绝对路径·可选·不设时照旧在 node 同目录、PNPM_HOME、APPDATA/npm 下找·相对路径拒绝启动·统一待办、经验库、MCP 上游都经它找入口）
-- `WM_KNOWLEDGE_SYNC_MINUTES`（经验库从 ygl-trees 同步目录的间隔·分钟·缺省 10·`0` 不同步·不是 0～1440 的整数拒绝启动·同步等启动自检通过才开始）
+- `WM_YGL_CLI`（ygl-trees 入口文件 `dist/bundle/bin.cjs` 的绝对路径·可选·不设时照旧在 node 同目录、PNPM_HOME、APPDATA/npm 下找·相对路径拒绝启动·统一待办、经验库、MCP 上游都经它找入口。市场镜像（`deploy/Dockerfile.market`）已装好 ygl-trees（版本按 `deploy/ygl-trees` 的锁文件），并把它设成 `/opt/ygl/node_modules/ygl-trees/dist/bundle/bin.cjs`；部署方要用别处的就照旧设这个变量改指）
+- `WM_KNOWLEDGE_SYNC_MINUTES`（经验库从 ygl-trees 同步目录的间隔·分钟·缺省 10·`0` 不同步·不是 0～1440 的整数拒绝启动·同步等启动自检通过才开始。上线后要确认它不是 `0`，否则经验库只显示已经同步过的；也要确认挂上的库源不是空卷，否则同样不会同步）
+- `YGL_HOME`（ygl-trees 工作区目录·绝对路径·可选·经验库（`library list` 四类：claim 依据、note 经验、skill 方法、check 检查）和统一待办从这里读；不设或目录不在时，经验库显示「未接入」、统一待办不读 ygl。市场镜像里缺省 `/var/lib/ygl`（挂载点；镜像不带工作区）：部署方把正式工作区挂到这里（卷来源在 `deploy/docker-compose.yml` 的 market 服务里改），目录里要有 `ygl-trees.db`、要可写。启动时有一行 `[knowledge] 经验库接入：…` 报入口、库源（有没有库文件、能不能写）和同步周期，缺哪样 warn 点名。MCP 上游的 `ygl_home` 不能和它是同一个目录）
 - `WM_KNOWLEDGE_WRITE_RETRY_SECONDS`（「记成经验」写 ygl-trees 没写上时的重试间隔·秒·缺省 60·按次数翻倍、封顶 6 小时·`0` 不自动重试·不是 0～3600 的整数拒绝启动）
 - `YGL_TOTAL_BUDGET_MS`（ygl-trees 源总预算·缺省 8000·超预算未读的报 budget-exhausted；两项非整数或越界都回落缺省）。
 - `WM_PORTAL_OBSERVE`（显式1才记录被动聚合，管理员读`/api/content/observation`；coverageVerified仍false），见[装配说明（已归档）](docs/archive/content-foundations-integration-296.md)。设置键：`run_upload_require_token`（`1`=SOP run 文件上传要令牌·缺省关=旧直传语义）。。凭据库：`WM_VAULT_PATH`（库文件·缺省 `DATA_DIR/vault/default.json`；指向 `$DSH_HOME/vault/default.json` 即与 DSH 插件共用——插件开着时同时写会丢更新）
@@ -396,6 +397,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   design-standard.ts（MCP design_standard 工具的 design token 标准只读读取）
   design-tokens-css.ts（DESIGN.md 生成的 tokens.css 服务端出口）
   endpoint-stats.ts（端点数）
+  endpoint-key.ts（端点计数的键：带 :ticket 参数的路由按路由模板记键，票的路径不进统计；没有路由对象时按 URL 折叠上传、下载票段，不分大小写）
   errors.ts（错误类型）
   eval.ts（#178 jev 评估客户端）
   extensions.ts（扩展挂载点·WM_EXTENSIONS_DIR）
@@ -414,7 +416,6 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   red-lines.ts（红线清单：越不过去的规则，每条写明在哪儿管着、哪个对抗组盯着；scripts/red-lines-test.mjs 核对每条都有带 [red-line:<id>] 的对抗例）
   judgment.ts（判定：Cordis 事件 `judgment/judge`，内置监听器照六步判·scopedVerdict 认 dept:<x>、area:<x>：领域 x 在、没撤时两种都认（dept: 只限过渡清单 DEPT_AREA_TRANSITIONAL 里的台、经验库动作），领域撤了都不认，还没迁的部门照旧只认 dept:；areaVerdict 是领域自己的动作）
   grant-scope-view.ts（授予范围的展示口径：scope_name（部门名、领域名）和 scope_effect（all / area / dept / none），给授予列表、单条、/api/auth/me、以某人的身份看用；只用于展示，不参与放行）
-  layerfs-shadow.ts（LayerFS 影子发布结果持久化：只回写 commit_id 为空的版本行，失败标记后可重试）
   skill-shadow.ts（技能影子副本：推一版（migrate-layerfs 和补推共用，推完读回摘要一致才记 succeeded）、定时补推（挂在根上下文上随之停·对外断开时整轮跳过、不记失败·LayerFS 没配置不做·连不上这一轮停下、日志只在通断变化时打·异常的版本退避·二进制记 skipped））
   login-gate.ts（全站登录门 WM_LOGIN_GATE：enforce 时页面 302 登录、API 401）
   mcp-tools.ts（MCP 工具注册表）
@@ -430,6 +431,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   portal-access.ts（门户按台访问范围 all/admin/listed、凭据默认收紧、HTTP/WS同判与审计）
   skill-snap-path.ts（技能快照的磁盘相对路径，只此一处：`skill-snapshots/<encodeURIComponent(全 slug)>/v<n>`；服务端发布和 scripts/skill-import.mjs、scripts/skill-upload-one.mjs 写快照都用它，snapshot_path 存这个相对形，跨源同名技能各有各的目录，#183、#810）
   upload-tickets.ts（MCP 上传票：先申请、再直传——票只存 sha256、只能用一次、10 分钟过期、每会话 20 张、全局 1000 张，只在内存里；发票在 skill_file_put / app_files_upload 不带内容时，用票在 PUT /api/mcp-rest/uploads/<票>）
+  download-tickets.ts（MCP 附件短时下载票：app_files_list 带 ticket_for_id 申请——只读、只绑一份文件和发票的会话，票只存 sha256、2 分钟过期、默认 1 次最多 5 次、每会话 20 张、全局 1000 张，只在内存里；用票在 GET /api/mcp-rest/downloads/<票>，用票时再核会话、授权、台和文件）
   upload-file-name.ts（上传文件名的统一规则：台文件的 base64、上传票、REST 原始字节、两个 multipart 入口、工作项附件、SOP 运行文件共用，技能包路径和台与 SOP 源码发布的路径逐段用；拒路径分隔符、控制字符、DEL、方向控制符）
   redis.ts（Redis 连接和 SOP 执行实例的热态：连接只有这一条；SOP 的读写经共用状态层的 sop 句柄，只碰 wm:sop: 开头的键）
   request-person.ts  这个请求是哪个人：只经身份服务认请求带的登录凭据（登录提供方的会话或市场会话），主体须是启用的人；认不出就是没有，调用方照常放行（任务中心建录入、发布用）
@@ -461,6 +463,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   tasks.ts（定时任务）
   upload-integrity.ts（上传应答的核对结果：调用方带了期望的 sha256 / size 且对上才会存，应答写明 integrity 与 next，agent 不必下载回读；MCP 上传与 REST 上传共用）
   url-admission.ts（#258 R3 业务 URL 登记准入单核·WM_REGISTER_URL_ALLOWLIST）
+  knowledge-startup.ts（经验库接入的启动自检行：ygl-trees 入口、YGL_HOME 与 ygl-trees.db、同步周期，缺哪样 warn 点名，#894）
   ygl-cli.ts（调 ygl-trees 的命令行：找入口（WM_YGL_CLI 或几处安装目录）、无 shell 调用、按 --json 契约读结果；统一待办、经验库、MCP 上游共用）
   vault-api.ts（凭据库 REST 面：17 条路由经 HTTP 服务注册，报动作 vault.*（管理类）；除状态外声明面门——服务端持有主密码时只在控制面或凭据库专用域名开放）
   vault/（dsh-vault 存储层引入件·见其 README）
@@ -501,7 +504,9 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   bench-sweep.ts（台库的清扫：Cordis 服务 `benchSweep`·起来 1 分钟后一次、之后每天一次、随根上下文停·没有登记的库文件先备份再删·.deleted/ 里过了 30 天的备份删掉·Redis 里卡片已不在的台的键清掉）
   attention.ts（「关注」：Cordis 服务 `attention`·各来源注册提供方、可撤销·汇总当前这个人的条目和各类条数）
   binding.ts（A2A 人工绑定）
-  sop-run-access-store.ts（SOP 运行写通道的语句：库由调用方注入、不导入主库；口径在 sop-run-access.ts）
+  endpoint-stats-store.ts（端点命中计数的存取；表在 db.ts，计数口径在 endpoint-stats.ts）
+  layerfs-shadow.ts（LayerFS 影子发布结果持久化：只回写 commit_id 为空的版本行，失败标记后可重试）
+  read-grants.ts（待办读授权的存取：ygl-trees 项目授权与 SOP 运行读授权的运行号）
   change-request.ts（人审变更请求；detailOf 给审核卡片看内容所需的最少字段：版本从几到几、目标版本说明、删除连带几个版本几个文件、不可恢复）
   custom-role.ts（自定义角色：Cordis 服务 `customRoles`·从内置预设复制、改、删、属主放行、导出·每步留痕·带来管理类或决定类权限的要属主放行）
   department.ts（部门：Cordis 服务 `departments`·部门清单、负责人、成员归属、职能代号·部门标识即授予范围 dept:<标识>·还有没结束的部门授予时不能删）
@@ -751,6 +756,7 @@ MCP 自带一套 REST：不说 MCP 协议的客户端（普通脚本、按 OpenA
 | `POST {rest_base}/apps/{slug}/files` | `app_files_upload` | multipart：字段 `file`，可选 `note`、`created_by`、`sha256`（期望的 sha256，也可放请求头 `X-Content-SHA256`，两处都带须一致） |
 | `GET {rest_base}/apps/{slug}/files` | `app_files_list` | 列文件，倒序分页（`limit`、`before_id`），带 `quota` |
 | `GET {rest_base}/apps/{slug}/files/{id}` | `app_files_list` | 二进制下载 |
+| `GET {rest_base}/downloads/{票}` | 不用会话令牌，票本身是凭据 | 附件短时下载票的取件：票由 `app_files_list` 带 `ticket_for_id`（文件 id）申请，只读、只绑那一份文件和发票的会话，2 分钟、默认 1 次（`max_uses` 最多 5，Range 和条件请求各算一次）；用票时再核会话、授权、台和文件，对不上一律同一句 404；`revoke_ticket` 提前撤销 |
 | `GET {rest_base}/apps/{slug}/data` | `app_data_list` | 读台数据（分页） |
 | `GET {rest_base}/sop/runs/{id}` | `sop_run_get` | 结果与 sop_run_get 相同；没有 run 读授权时只返回元数据 |
 | `GET {rest_base}/sop/runs/{id}/files[/{fileId}]` | `sop_run_get` + 该 run 的读授权 | 附件列表与下载 |

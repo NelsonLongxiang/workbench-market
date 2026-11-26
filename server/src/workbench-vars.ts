@@ -10,7 +10,7 @@
 //     外部台没有按台令牌，只有管理员能读写。匿名一律 403。
 import { createHash, timingSafeEqual } from 'node:crypto';
 import type express from 'express';
-import { db } from './db.ts';
+import { withImmediateTx } from './db.ts';
 import { defineConfig, str } from './config.ts';
 import { svc } from './context.ts';
 import { HttpError } from './errors.ts';
@@ -123,10 +123,7 @@ function conflict(scope: Scope, key: string, message: string, code: string, stat
   throw new HttpError(status, message, { code, workbench_id: scope.id, key, current_revision: cur?.revision ?? 0, current: cur ? view(cur) : null });
 }
 
-function tx<T>(fn: () => T): T {
-  db.exec('BEGIN IMMEDIATE');
-  try { const out = fn(); db.exec('COMMIT'); return out; } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 已回滚 */ } throw e; }
-}
+const tx = withImmediateTx;
 
 /** 主库这一种存法（缺省）：整段同步，事务里不让出事件循环。对外的 listVars 等是异步的，存法换成台库时也是这几个入口 */
 function listVarsMain(scope: Scope, prefix = '') {

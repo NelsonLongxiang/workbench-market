@@ -15,6 +15,24 @@ function responsibilityError(status: number, code: string, message: string): nev
   throw new HttpError(status, message, { code });
 }
 
+/** skill_search 的审计行（显式写 at，与 McpService.callInsert 不是同一句） */
+export function insertSkillSearchAudit(needDigest: string): void {
+  db.prepare("INSERT INTO mcp_calls (at, session_name, method, tool, ok, error, duration_ms, args_sha256) VALUES (datetime('now'), ?, 'tools/call', 'skill_search', 1, '', 0, ?)").run('skill_search', needDigest);
+}
+
+/** MCP 权限申请的写事务：BEGIN IMMEDIATE，fn 成功提交，抛错回滚并原样抛出（fn 必须同步） */
+export function inAccessRequestTx<T>(fn: () => T): T {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const out = fn();
+    db.exec('COMMIT');
+    return out;
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+
 export class McpService extends Service {
   constructor(ctx: any) {
     super(ctx, 'mcp');
