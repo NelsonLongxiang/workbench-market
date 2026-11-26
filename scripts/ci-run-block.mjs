@@ -6,6 +6,10 @@
  *        [--runtime-dir <短路径>] [--python <已有的 python 命令>] [--step <序号>]... [--step-name <名字片段>]... [--plan] [--review-env]
  *
  * 执行前先核每一步（--plan 只核不跑）：
+ *   - 上游材料预检（执行前）：列出 actions/checkout 声明的 repository、ref、path（CHECKOUT 行）。步骤 env（含 job、workflow 层）里
+ *     落在某个上游 checkout 目录内的路径逐个核对在不在；是 .ts/.mjs/.js 的再顺着相对 import 查依赖（只在该目录内，import type 不算）。
+ *     缺了就把这一步记 insufficient:material，执行前打印 MATERIAL 行点名所缺路径，汇总落成 INCOMPLETE。只读本地文件：
+ *     不取凭据、不联网、不去 checkout 或安装、不改 run 原文；材料要由人按 workflow 钉住的提交自行备好；
  *   - uses（actions）不跑，记 not-run:action；带 if 的步骤不求值：failure()/always()/cancelled() 这类诊断条件记 not-run:not-triggered，其余记 insufficient:condition；
  *   - 安装类命令（pnpm/npm install、npm ci、pip install、playwright install、apt-get、brew install）不跑，记 not-run:install；
  *   - env 合并 workflow、job、步骤三层。表达式 env.X 展开；github.workspace 取工作树，runner.temp 取输出根下的 runner-temp；
@@ -22,7 +26,7 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { delimiter, isAbsolute, join, resolve } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const SHALLOW_FETCH = /^\s*git\s+fetch\b[^\n#]*\s--depth(?:=|\s)/;
@@ -113,6 +117,49 @@ export function classify(step, index, baseEnv, ctx) {
   return { ...out, run: text, env, removed, workdir };
 }
 
+/** actions/checkout 的声明：repository（缺省是本仓）、ref、path（相对工作区展开成绝对目录）。本仓那份就是工作树本身，不算上游材料 */
+export function checkoutDecls(steps, ctx) {
+  const out = [];
+  steps.forEach((s, i) => {
+    if (typeof s.uses !== 'string' || !/^actions\/checkout@/.test(s.uses)) return;
+    const w = s.with ?? {}, unknown = new Set();
+    const path = w.path != null ? expand(String(w.path), ctx, unknown) : '';
+    out.push({ index: i + 1, repository: w.repository != null ? String(w.repository) : '', ref: w.ref != null ? String(w.ref) : '', path, dir: path ? resolve(ctx.workspace, path) : ctx.workspace, upstream: w.repository != null && path !== '', unknown: [...unknown] });
+  });
+  return out;
+}
+
+const SOURCE = /\.(?:m?[jt]s|cjs)$/;
+const REL_IMPORT = /(?:^|[^\w.$])(?:import|export)\s+(?!type\b)(?:[^'"`;]*?\sfrom\s*)?['"](\.{1,2}\/[^'"]+)['"]|import\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g;
+/** 一个上游文件及其相对依赖里缺的那些（只顺着 root 目录内的相对引入走；import type 运行时会被擦掉，不算） */
+export function missingWithDeps(file, root) {
+  const missing = [], seen = new Set(), todo = [file];
+  while (todo.length) {
+    const f = todo.pop();
+    if (seen.has(f)) continue;
+    seen.add(f);
+    if (!existsSync(f)) { missing.push(f); continue; }
+    if (!SOURCE.test(f) || !statSync(f).isFile()) continue;
+    for (const m of readFileSync(f, 'utf8').matchAll(REL_IMPORT)) {
+      const t = resolve(dirname(f), m[1] ?? m[2]);
+      if (t === root || t.startsWith(root + sep)) todo.push(t);
+    }
+  }
+  return missing;
+}
+
+/** 步骤 env 里落在某个上游 checkout 目录内的路径：缺了哪些（连同相对依赖），带上是哪一步 checkout、哪个仓、哪个提交声明的 */
+export function materialGaps(stepEnv, decls) {
+  const ups = decls.filter((d) => d.upstream), gaps = [];
+  for (const [k, v] of Object.entries(stepEnv ?? {})) {
+    if (typeof v !== 'string' || !isAbsolute(v)) continue;
+    const d = ups.find((u) => v === u.dir || v.startsWith(u.dir + sep));
+    if (!d) continue;
+    for (const path of missingWithDeps(resolve(v), d.dir)) gaps.push({ env: k, path, checkout: d.index, repository: d.repository, ref: d.ref });
+  }
+  return gaps;
+}
+
 /** 读 workflow，取出 job 的步骤和合并好的 env（workflow 层再 job 层） */
 export function loadJob(text, job, parseYaml, ctx) {
   const doc = parseYaml(text);
@@ -192,6 +239,16 @@ export async function main(argv) {
   const chosen = job.steps.map((s, i) => [s, i + 1]).filter(([s, i]) => (!o.steps.length && !o.names.length) || o.steps.includes(i) || o.names.some((n) => String(s.name ?? '').includes(n)));
   if (!chosen.length) throw new UsageError('没有选中任何步骤');
   const plan = chosen.map(([s, i]) => (job.unknown.length ? { index: i, name: s.name ?? '', status: 'insufficient', reason: 'job-env-expression', unknown: job.unknown, removed: [] } : classify(s, i, job.env, ctx)));
+  // 上游材料预检：执行前列出 checkout 声明，缺料的步骤记 insufficient:material 并点名所缺路径（只读本地文件，不取、不装、不联网）
+  const decls = checkoutDecls(job.steps, ctx);
+  for (const d of decls) console.log('CHECKOUT step ' + d.index + ' repository=' + (d.repository || '(本仓)') + ' ref=' + (d.ref || '(缺省)') + ' path=' + (d.path || '(工作区)'));
+  for (let k = 0; k < plan.length; k++) {
+    if (plan[k].status !== 'run') continue;
+    const gaps = materialGaps(plan[k].env, decls);
+    if (!gaps.length) continue;
+    plan[k] = { index: plan[k].index, name: plan[k].name, status: 'insufficient', reason: 'material', missing: gaps, removed: plan[k].removed };
+    for (const g of gaps) console.log('MATERIAL step ' + plan[k].index + ' missing ' + g.path + ' (env ' + g.env + '; checkout step ' + g.checkout + ' ' + g.repository + '@' + (g.ref || '(缺省)') + ')');
+  }
   const results = [];
   for (const p of plan) {
     if (p.status !== 'run') { results.push(p); continue; }
@@ -208,7 +265,7 @@ export async function main(argv) {
   for (const r of results) for (const line of r.removed ?? []) console.log('STRIPPED step ' + r.index + ': ' + line);
   const sum = summarize(results);
   const resultsFile = join(out, 'results.json');
-  writeFileSync(resultsFile, JSON.stringify({ worktree, head: git(worktree, 'rev-parse', 'HEAD').stdout.trim(), job: o.job, workflow: o.workflow, plan: o.plan, summary: sum, results }, null, 2));
+  writeFileSync(resultsFile, JSON.stringify({ worktree, head: git(worktree, 'rev-parse', 'HEAD').stdout.trim(), job: o.job, workflow: o.workflow, plan: o.plan, checkouts: decls, summary: sum, results }, null, 2));
   console.log('RUNBLOCK status=' + sum.status + ' selected=' + sum.selected + ' passed=' + sum.passed + ' failed=' + sum.failed + ' not_run=' + sum.not_run + ' results=' + resultsFile);
   return sum.code;
 }
