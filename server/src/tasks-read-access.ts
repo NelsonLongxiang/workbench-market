@@ -1,5 +1,5 @@
 /** #324: a fresh verified identity is not a source-wide task grant. */
-import { db } from './db.ts';
+import { activeTaskSourceProjects, grantedRunIds, insertTaskSourceGrant, revokeTaskSourceGrants } from './services/read-grants.ts';
 import { identity } from './identity.ts';
 import { runGrantActive } from './sop-read-auth.ts';
 import { taskWorkspaceKey, type TasksReadScope } from './tasks.ts';
@@ -14,9 +14,9 @@ export async function tasksReadAccess(adminOk: boolean, cookie: string): Promise
   const subject = who.viewer.sub;
   try {
     const workspace = taskWorkspaceKey();
-    const projects = workspace ? (db.prepare("SELECT DISTINCT project FROM task_source_read_grants WHERE subject=? AND source='ygl-trees' AND workspace_sha256=? AND revoked_at='' AND datetime(expires_at)>datetime('now')").all(subject, workspace) as { project: string }[]).map(r => r.project) : [];
+    const projects = workspace ? activeTaskSourceProjects(subject, workspace) : [];
     // Match the run-detail authority: newest unrevoked grant decides expiry.
-    const runs = (db.prepare("SELECT DISTINCT run_id FROM sop_run_read_grants WHERE subject=? AND revoked_at=''").all(subject) as { run_id: number }[]).map(r => Number(r.run_id)).filter(id => runGrantActive(id, subject));
+    const runs = grantedRunIds(subject).filter(id => runGrantActive(id, subject));
     return { ok: true, scope: { subject, admin: false, yglProjects: projects, marketRunIds: runs, a2a: false } };
   } catch { return { ok: false, http: 503, error: 'tasks_authority_unavailable' }; }
 }
@@ -35,11 +35,11 @@ export function createTaskSourceGrant(body: unknown): boolean {
   if (!input || !workspace || typeof expires !== 'string' || !/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(expires)) return false;
   const date = new Date(expires.replace(' ', 'T') + 'Z');
   if (!Number.isFinite(date.getTime()) || date <= new Date() || date.toISOString().slice(0, 19).replace('T', ' ') !== expires) return false;
-  db.prepare("INSERT INTO task_source_read_grants(subject,source,project,workspace_sha256,expires_at,granted_by) VALUES(?,'ygl-trees',?,?,?,'admin')").run(input.subject, input.project, workspace, expires);
+  insertTaskSourceGrant(input.subject, input.project, workspace, expires);
   return true;
 }
 export function revokeTaskSourceGrant(body: unknown): number | null {
   const input = grantInput(body);
   if (!input) return null;
-  return Number(db.prepare("UPDATE task_source_read_grants SET revoked_at=datetime('now') WHERE subject=? AND source='ygl-trees' AND project=? AND revoked_at=''").run(input.subject, input.project).changes);
+  return revokeTaskSourceGrants(input.subject, input.project);
 }

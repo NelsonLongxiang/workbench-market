@@ -141,6 +141,8 @@ import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-
 import { UploadTickets, UPLOAD_TICKET_TTL_MS, type UploadTicket } from './upload-tickets.ts';
 import { uploadNameOk, UPLOAD_NAME_INVALID } from './upload-file-name.ts';
 import { loadConfig } from './config.ts';
+import { knowledgeStartupLine, knowledgeStartupState } from './knowledge-startup.ts';
+import { Config as KnowledgeConfig } from './services/knowledge.ts';
 import { Config as SessionPolicyConfig, sessionRenewal, type SessionLife } from './session-policy.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, workbenchIdOf, reportHotVarKeys, reportHotPending, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
 import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
@@ -4258,6 +4260,10 @@ const goServer = registerSurface(app, 'market', PORT, () => {
   const counts = svc<WorkbenchService>('workbench').count() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
   if (SURFACE_PORTS.control) console.log(`[workbench-market] control http://127.0.0.1:${SURFACE_PORTS.control}  （可选的独立管理端口；管理写在业务面凭口令或站内管理员同样可做）`);
+  { // 经验库接入自检（#894、#1089）：入口、库源、同步周期缺哪样就 warn 点名，不拒绝启动
+    const k = knowledgeStartupLine(knowledgeStartupState(loadConfig(KnowledgeConfig).syncMinutes));
+    if (k.level === 'warn') console.warn(k.line); else console.log(k.line);
+  }
   // The listener exists but HTTP/market WS remain gated until anonymous safety checks pass.
 });
 
