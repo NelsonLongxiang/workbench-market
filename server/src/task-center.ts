@@ -3,10 +3,9 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { db, tableColumns } from './db.ts';
 import { assignableTeams, initWorkbenchEvents, recordTaskCenterEvent } from './workbench-events.ts';
 import { svc } from './context.ts';
-import type { TaskCenterService } from './services/task-center.ts';
+import { centerSwitchValue, insertTaskCenterSeed, taskCenterSeedApp, type TaskCenterService } from './services/task-center.ts';
 import type { SettingService } from './services/setting.ts';
 import { COCKPIT_ID_MAX, itemIdForEvent, PRIORITIES, priorityOf, type WorkItemService } from './services/work-item.ts';
 import type { CockpitService } from './services/cockpit.ts';
@@ -23,13 +22,10 @@ export const taskCenterSteps = [
 ];
 export function initializeTaskCenter(appsRoot: string) {
   initWorkbenchEvents(); // 发布与工作台事件同事务：任务中心在哪里初始化，事件表就在哪里建
-  const cols = tableColumns('tasks') as {name:string}[];
-  if (!cols.some(c=>c.name==='intake_run_id')) db.exec('ALTER TABLE tasks ADD COLUMN intake_run_id INTEGER REFERENCES sop_runs(id)');
-  if (!cols.some(c=>c.name==='template_version')) db.exec('ALTER TABLE tasks ADD COLUMN template_version INTEGER');
-  db.exec('DROP INDEX IF EXISTS idx_tasks_material; CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_intake_run ON tasks(intake_run_id) WHERE intake_run_id IS NOT NULL');
+  // tasks 的补列与收件索引在 db.ts（和 tasks 表放在一起）
   // task_center_events 的建表和只增触发器在 db.ts
   // task_events 的三道只增触发器（改、删、覆盖）在 db.ts，和表放在一起
-  const existing = db.prepare("SELECT * FROM apps WHERE slug='task-center'").get() as any;
+  const existing = taskCenterSeedApp();
   if (existing) {
     if (existing.kind !== 'sop') throw new Error('task-center seed slug is occupied by a non-SOP app');
     return; // manual versions/status are authoritative; never overwrite on restart
@@ -38,16 +34,10 @@ export function initializeTaskCenter(appsRoot: string) {
   const dir = join(appsRoot,'task-center','v1');
   mkdirSync(dir,{recursive:true});
   writeFileSync(join(dir,'sop.yaml'),manifest); // no app record: repair an orphan initial seed file
-  db.exec('BEGIN IMMEDIATE');
-  try {
-    const a=db.prepare("INSERT INTO apps(slug,title,description,created_by,kind,status,a2a_node8) VALUES('task-center','任务中心','人工发布录入任务','system:seed','sop','published',?)").run(randomBytes(4).toString('hex'));
-    db.prepare("INSERT INTO app_versions(app_id,version,file_count,total_bytes,created_by,changelog) VALUES(?,1,1,?,'system:seed','内置任务录入模板 v1')").run(a.lastInsertRowid,Buffer.byteLength(manifest));
-    db.exec('COMMIT');
-  } catch(e) {db.exec('ROLLBACK');throw e;}
+  insertTaskCenterSeed(randomBytes(4).toString('hex'), Buffer.byteLength(manifest));
 }
 export function taskCenterPolicy() {
-  const row = db.prepare("SELECT value FROM task_center_policy WHERE key='center_switch'").get() as {value:string}|undefined;
-  return {agent_dispatch_enabled: row?.value === 'on'};
+  return {agent_dispatch_enabled: centerSwitchValue() === 'on'};
 }
 /** #309 phase2：公开任务列表/未授权详情只回显式元数据，不带 payload_json/内部路径/未来新增列。 */
 export function taskListView(row: any) {

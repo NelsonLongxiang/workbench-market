@@ -4,24 +4,17 @@
  * 设计（零业务侵入 K2）：
  * - 一个 app.use 中间件在 res.finish 时按「规范化端点」计数（路径参数折叠为 :id）
  * - SQLite 表 endpoint_stats(endpoint, day, hits)，主键 (endpoint, day)——跨重启持久（K1）
- * - 本模块自持存储（同 a2a.ts 模块自有边界先例）；index.ts 不出现 db.prepare
+ * - 存取在 services/endpoint-stats-store.ts，表在 db.ts 建；本模块只管计数口径与批量冲刷
  * - GET /api/stats 只读暴露 per-endpoint 总量 + 按日分桶（K3）
  */
 import type express from 'express';
-import { db } from './db.ts';
+import { addEndpointHits, endpointHitRows } from './services/endpoint-stats-store.ts';
 import { isStartupProbeRequest } from './startup-security-self-probe.ts';
 import { root } from './root-context.ts';
+import { endpointKey, normalizeEndpoint } from './endpoint-key.ts';
 
-db.exec(`CREATE TABLE IF NOT EXISTS endpoint_stats (
-  endpoint TEXT NOT NULL,
-  day TEXT NOT NULL,
-  hits INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (endpoint, day)
-)`);
-
-const UPSERT = db.prepare('INSERT INTO endpoint_stats (endpoint, day, hits) VALUES (?, ?, ?) ON CONFLICT(endpoint, day) DO UPDATE SET hits = hits + excluded.hits');
 function flushRows(rows: [string, string, number][]) {
-  for (const [endpoint, day, hits] of rows) UPSERT.run(endpoint, day, hits);
+  addEndpointHits(rows);
 }
 
 /** 内存累计 + 5s 批量落库：避免每命中同步写放大（token-smoke 直连读库曾撞 database is locked）。挂在根上下文的 effect 上，卸载时一起停 */
@@ -41,13 +34,7 @@ root.effect(() => {
   return () => { clearInterval(flushTimer); };
 }, 'endpoint-stats.flush(5s)');
 
-/** 路径规范化：数字段折叠为 :id（/api/sop/runs/42 → /api/sop/runs/:id） */
-export function normalizeEndpoint(pathname: string): string {
-  return pathname
-    .split('/')
-    .map((seg) => (/^\d+$/.test(seg) ? ':id' : seg))
-    .join('/');
-}
+export { normalizeEndpoint, endpointKey };
 
 /** 计数中间件：只记 GET/POST 等业务请求，跳过静态资源与 stats 自身（防自增噪声） */
 export function endpointStatsMiddleware(): express.RequestHandler {
@@ -69,7 +56,7 @@ export function endpointStatsMiddleware(): express.RequestHandler {
         if (!url.startsWith('/api/') && !isPortal) return; // 统一待办页（/tasks）已退役（#664），不再单列
         if (isPortal && res.statusCode >= 400) return; // 门户 4xx/5xx 不计入活跃
         if (url === '/api/stats') return; // 自身不计
-        const key = `${normalizeEndpoint(url)}|${new Date().toISOString().slice(0, 10)}`;
+        const key = `${endpointKey(req.route?.path, url)}|${new Date().toISOString().slice(0, 10)}`;
         pending.set(key, (pending.get(key) ?? 0) + 1);
       } catch { /* 计数失败不影响业务 */ }
     });
@@ -83,7 +70,7 @@ export function statsPayload(): { endpoints: { endpoint: string; total: number; 
     pending.clear();
     try { flushRows(rows2); } catch { /* 忽略 */ }
   }
-  const rows = db.prepare('SELECT endpoint, day, hits FROM endpoint_stats ORDER BY endpoint, day').all() as { endpoint: string; day: string; hits: number }[];
+  const rows = endpointHitRows();
   const map = new Map<string, { endpoint: string; total: number; by_day: Record<string, number> }>();
   for (const r of rows) {
     let e = map.get(r.endpoint);

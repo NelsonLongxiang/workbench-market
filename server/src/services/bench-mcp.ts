@@ -13,7 +13,9 @@ import { BenchError } from '../bench-query.ts';
 import { BENCH_SLUG_RE } from './bench-store-core.ts';
 import { benchStore, type BenchStore } from './bench-store.ts';
 import { benchAliases, cardSlug, getBench, resolveBenchRef, unopenedCard } from './bench-registry.ts';
-import { BENCH_TOOL_DEFS, BENCH_TOOL_NAMES } from '../bench-mcp-tools.ts';
+import { BENCH_TOOL_DEFS, BENCH_TOOL_NAMES, REPORT_PREFLIGHT_TOOLS } from '../bench-mcp-tools.ts';
+import { svc } from '../context.ts';
+import { DIMENSION_ID_RE, type ReportDimensionService } from './report-dimension.ts';
 import { generateReport, listReports, readReport, respondReport, type ReportImageConfig } from './bench-report.ts';
 
 export const BENCH_REQUEST_HOURLY_MAX = 10;
@@ -63,13 +65,18 @@ function toolList(raw: unknown, allowEmpty: boolean): string[] {
 // —— 授予 ——
 /** 这个会话在这个台上有没有这个工具的授予 */
 export function hasBenchGrant(sessionId: number, bench: string, toolName: string): boolean {
-  return !!db.prepare('SELECT 1 FROM bench_mcp_grants WHERE session_id = ? AND bench = ? AND tool = ?').get(sessionId, bench, toolName);
+  const inherited = REPORT_PREFLIGHT_TOOLS.has(toolName) ? 'report_generate' : toolName;
+  return !!db.prepare('SELECT 1 FROM bench_mcp_grants WHERE session_id = ? AND bench = ? AND tool IN (?, ?)').get(sessionId, bench, toolName, inherited);
 }
 /** 这个会话的全部授予：工具 → 台的清单（access_info 用） */
 export function benchGrantsOf(sessionId: number): Map<string, string[]> {
   const out = new Map<string, string[]>();
   for (const r of db.prepare('SELECT tool, bench FROM bench_mcp_grants WHERE session_id = ? ORDER BY tool, bench').all(sessionId) as Row[]) {
     const k = String(r.tool); out.set(k, [...(out.get(k) ?? []), String(r.bench)]);
+  }
+  const generation = out.get('report_generate');
+  if (generation) for (const tool of REPORT_PREFLIGHT_TOOLS) {
+    out.set(tool, [...new Set([...(out.get(tool) ?? []), ...generation])].sort());
   }
   return out;
 }
@@ -278,11 +285,33 @@ export async function benchToolTarget(on: boolean, sessionId: number | null, too
   if (!getBench(bench)) return null;
   return benchStore(bench);
 }
+/** 维度不存在、未绑定或不在台的领域范围内，返回和台授权失败相同的协议结果。 */
+export class BenchToolScopeError extends Error {}
+
+async function readReportPreflight(s: BenchStore, tool: string, args: Row) {
+  const id = args.dimension;
+  if (typeof id !== 'string' || !DIMENSION_ID_RE.test(id)) throw new BenchError('invalid', 'dimension 要是报告维度的标识');
+  const binding = await s.reportBindingGet(id);
+  const bench = getBench(s.slug);
+  const service = svc<ReportDimensionService>('reportDimensions');
+  const dimension = binding && bench ? service.get(id) : null;
+  if (!binding || !bench || !dimension || (dimension.area_id !== null && dimension.area_id !== bench.department_id)) throw new BenchToolScopeError();
+  if (tool === 'report_binding_get') return { binding };
+  if (tool === 'report_dimension_get') return { dimension, templates: service.templates(id) };
+  const version = args.version === undefined ? dimension.active_version : int(args.version);
+  if (version === null) throw new BenchError('not_found', '这个维度还没有生效的模板');
+  if (version === undefined || version < 1 || version > 999999999) throw new BenchError('invalid', 'version 要是从 1 起的整数，最多 9 位');
+  const template = service.template(id, version);
+  if (!template) throw new BenchError('not_found', '这个维度没有指定的模板版本');
+  return { dimension_id: id, template };
+}
+
 /** 执行一个工具。actor 写进留痕（mcp:<会话名>） */
 export async function runBenchTool(s: BenchStore, toolName: string, input: unknown, actor: string, at: number, fence?: import('./bench-store-core.ts').MainStoreFence, images: ReportImageConfig = { galleryBase: null }): Promise<unknown> {
   const a = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Row;
   const extra = Object.keys(a).filter((k) => !(KEYS.get(toolName) ?? []).includes(k));
   if (extra.length) throw new BenchError('invalid', `${toolName} 不认识这些参数：${extra.map((k) => k.slice(0, 40)).join('、')}`);
+  if (REPORT_PREFLIGHT_TOOLS.has(toolName)) return readReportPreflight(s, toolName, a);
   const ctx = { actor, at, idemKey: text(a.idempotency_key), note: text(a.note) };
   const dataset = () => need(text(a.dataset), 'dataset（数据集名）');
   switch (toolName) {

@@ -86,3 +86,24 @@ export class TaskCenterService extends Service {
     db.prepare('INSERT INTO work_item_requests (requester, idem_key, body_sha256, task_id, event_id, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(r.requester, r.key, r.sha256, r.taskId, r.eventId, r.at);
   }
 }
+
+/** 内置任务中心种子台（slug=task-center）那一行；没有就是 undefined */
+export function taskCenterSeedApp(): any {
+  return db.prepare("SELECT * FROM apps WHERE slug='task-center'").get();
+}
+
+/** 在同一个写事务里写入内置任务中心种子台和它的 v1 版本；出错回滚并原样抛出 */
+export function insertTaskCenterSeed(node8: string, manifestBytes: number): void {
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    const a=db.prepare("INSERT INTO apps(slug,title,description,created_by,kind,status,a2a_node8) VALUES('task-center','任务中心','人工发布录入任务','system:seed','sop','published',?)").run(node8);
+    db.prepare("INSERT INTO app_versions(app_id,version,file_count,total_bytes,created_by,changelog) VALUES(?,1,1,?,'system:seed','内置任务录入模板 v1')").run(a.lastInsertRowid,manifestBytes);
+    db.exec('COMMIT');
+  } catch(e) {db.exec('ROLLBACK');throw e;}
+}
+
+/** 任务中心总开关（task_center_policy 的 center_switch）的原值；没设是 undefined */
+export function centerSwitchValue(): string | undefined {
+  const row = db.prepare("SELECT value FROM task_center_policy WHERE key='center_switch'").get() as {value:string}|undefined;
+  return row?.value;
+}
