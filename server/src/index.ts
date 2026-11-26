@@ -130,7 +130,7 @@ import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
 import { ADMIN_TOKEN_KEY, markWmSkillsRebuilt, settingValue, type SettingService } from './services/setting.ts';
 import type { BindingService } from './services/binding.ts';
-import { recordLayerFsShadowOutcome, recordLayerFsSkillShadowOutcome } from './layerfs-shadow.ts';
+import { recordLayerFsShadowOutcome, recordLayerFsSkillShadowOutcome } from './services/layerfs-shadow.ts';
 import { db, getSettings, dataDir, appendOnlySelfCheck, rowToWorkbench, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
 (globalThis as any).__wmDb = db; // #94 v3 S1：tasks.ts 直读 change_requests 桥
 import { assertHttpUrl, composeProbeUrl, probe } from './health.ts';
