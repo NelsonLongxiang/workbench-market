@@ -31,13 +31,14 @@ export const SHALLOW_FETCH = /^\s*git\s+fetch\b[^\n#]*\s--depth(?:=|\s)/;
 /**
  * 剔完以后对剩下的文本再查一遍（文本兜底，见文件头）：git ... fetch|pull 后面出现会改写浅仓状态的选项就整步不跑
  * （insufficient:shallow-fetch）。选项名可以带引号，也可以是 git 接受的缩写（--dep=1 即 --depth、--dee 即 --deepen、
- * --shallow-*、--unsh 即 --unshallow）。复合命令、子 shell、git -C、环境变量前缀、续行都在这一行文本里，照样认得出。
+ * --shallow-*、--un 即 --unshallow）。复合命令、子 shell、git -C、环境变量前缀、续行都在这一行文本里，照样认得出。
  */
-export const SHALLOW_ANYWHERE = /\bgit\b[^\n]*?\b(?:fetch|pull)\b[^\n]*?(?:\s|^)['"]?--(?:dep|dee|shallow|unsh)[a-z-]*/;
+export const SHALLOW_ANYWHERE = /\bgit\b[^\n]*?\b(?:fetch|pull)\b[^\n]*?(?:\s|^)['"]?--(?:dep|dee|shallow|un)[a-z-]*/;
 
 /**
- * 浅取复查看的文本：续行拼回一行，去掉不会执行的文字——行内注释（引号外、行首或空白后的 #），以及不含命令替换的
- * echo/printf 段（按 ; & | && || 切段）。认不准的一律留着，宁可多拒。
+ * 浅取复查看的文本：续行拼回一行，去掉不会执行的文字——行内注释（引号外、行首或空白后的 #），以及纯文字的
+ * echo/printf 段（按 ; & && || 切段）。只要这一行有管道、重定向、进程替换或命令替换（| < > <( >( $( 反引号），
+ * echo/printf 的内容可能被交给 shell 或写成脚本再跑，这一行就一段也不剔。认不准的一律留着，宁可多拒。
  */
 export function executableText(run) {
   return String(run).replace(/\\\n\s*/g, ' ').split('\n').map((line) => {
@@ -49,8 +50,10 @@ export function executableText(run) {
       else if (ch === '\\') i++;
       else if (ch === '#' && (i === 0 || /\s/.test(line[i - 1]))) { cut = i; break; }
     }
-    return line.slice(0, cut).split(/(\|\||&&|[;|&])/)
-      .map((seg) => (/^\s*(?:echo|printf)\b/.test(seg) && !/\$\(|\x60/.test(seg) ? '' : seg)).join('');
+    const code = line.slice(0, cut);
+    if (/\$\(|\x60|[<>]|(?:^|[^|])\|(?!\|)/.test(code)) return code;
+    return code.split(/(\|\||&&|[;&])/)
+      .map((seg) => (/^\s*(?:echo|printf)\b/.test(seg) ? '' : seg)).join('');
   }).join('\n');
 }
 
@@ -58,30 +61,25 @@ export function executableText(run) {
 const VALUE_OPTS = new Set(['-C', '--dir', '--filter', '-F', '--prefix', '-w', '--workspace', '--cwd']);
 
 /**
- * 安装类命令：按段（换行、; & | && || 和括号）取命令名和子命令判断，认得出的都不跑。
+ * 安装类命令：按段（换行、; & | && || 和括号）切开，在段里**任意位置**找包管理器，从它那里取子命令判断，认得出的都不跑。
+ * 所以前缀与包装不影响（time、env、nohup、timeout 60、exec、xargs、!、corepack、retry 4、sudo timeout 240 …）。
  * 包管理器隔着选项（-C dir、--filter x、--prefix x）再跟 install/i/ci/add 的算；npm run ci、pnpm test -- add 不算。
+ * playwright 后面跟 install…（install、install-deps）在哪都算；apt、apt-get 在哪都算。认不准的偏向「算安装、不跑」。
  */
 export function isInstall(run) {
   for (const seg of String(run).replace(/\\\n\s*/g, ' ').split(/\n|\|\||&&|[;|&()]/)) {
-    const t = seg.trim().split(/\s+/).filter(Boolean);
-    let i = 0;
-    while (i < t.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t[i]) || t[i] === 'sudo' || t[i] === 'command')) i++;
-    const cmd = t[i];
-    if (!cmd) continue;
-    const rest = t.slice(i + 1);
-    let j = 0;
-    while (j < rest.length && rest[j].startsWith('-')) j += VALUE_OPTS.has(rest[j]) ? 2 : 1;
-    const sub = rest[j];
-    const playwrightInstall = (from) => { const k = rest.indexOf('playwright', from); return k >= 0 && /^install/.test(rest[k + 1] ?? ''); };
-    if (cmd === 'playwright' && /^install/.test(rest[0] ?? '')) return true;
-    if (cmd === 'apt' || cmd === 'apt-get') return true;
-    if ((cmd === 'brew' || /^pip(?:x|[0-9.]*)$/.test(cmd)) && sub === 'install') return true;
-    if (/^python[0-9.]*$/.test(cmd) && rest[0] === '-m' && rest[1] === 'pip' && rest[2] === 'install') return true;
-    if (cmd === 'npx' && playwrightInstall(0)) return true;
-    if (cmd === 'pnpm' || cmd === 'npm' || cmd === 'yarn') {
-      if (sub === undefined && cmd === 'yarn') return true;
-      if (['i', 'install', 'ci', 'add'].includes(sub)) return true;
-      if (['exec', 'dlx'].includes(sub) && playwrightInstall(j + 1)) return true;
+    const t = seg.trim().split(/\s+/).filter(Boolean).map((w) => w.replace(/^['"]+|['"]+$/g, ''));
+    for (let i = 0; i < t.length; i++) {
+      const cmd = t[i], rest = t.slice(i + 1);
+      if (cmd === 'playwright' && /^install/.test(rest[0] ?? '')) return true;
+      if (cmd === 'apt' || cmd === 'apt-get') return true;
+      let j = 0;
+      while (j < rest.length && rest[j].startsWith('-')) j += VALUE_OPTS.has(rest[j]) ? 2 : 1;
+      const sub = rest[j];
+      if ((cmd === 'brew' || /^pip(?:x|[0-9.]*)$/.test(cmd)) && sub === 'install') return true;
+      if (/^python[0-9.]*$/.test(cmd) && rest[0] === '-m' && rest[1] === 'pip' && rest[2] === 'install') return true;
+      if (cmd === 'yarn' && sub === undefined) return true;
+      if ((cmd === 'pnpm' || cmd === 'npm' || cmd === 'yarn') && ['i', 'install', 'ci', 'add'].includes(sub)) return true;
     }
   }
   return false;

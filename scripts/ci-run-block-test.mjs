@@ -105,6 +105,17 @@ console.log('一b、文本兜底加固（#1084 评审的非阻断观察）');
     hashInQuotes: 'echo "#x" && git fetch origin main',
   };
   const allowedGot = Object.fromEntries(Object.entries(allowed).map(([k, run]) => [k, c(run)]));
+  const viaShell = {
+    procSubIn: 'echo <(git fetch --depth=1 origin main)',
+    procSubOut: "printf '%s' >(git fetch --depth=1 origin main)",
+    echoPipeBash: 'echo "git fetch --depth=1 origin main" | bash',
+    printfPipeSh: "printf 'git fetch --depth=1 origin main\\n' | sh",
+    echoToScript: 'echo "git fetch --depth=1 origin main" > x.sh; bash x.sh',
+    unPrefix: 'git fetch --un origin',
+  };
+  const viaShellGot = Object.fromEntries(Object.entries(viaShell).map(([k, run]) => [k, c(run)]));
+  ok('#1097 B1：echo/printf 的内容经进程替换、管道交给 shell、写成脚本再跑时照样拒（这一行一段也不剔）；--un 也认作 --unshallow',
+    Object.values(viaShellGot).every((v) => v === 'insufficient:shallow-fetch'), viaShellGot);
   ok('注释里、不含命令替换的 echo/printf 文字里提到浅取不误拒；普通 fetch、pull 照跑',
     Object.values(allowedGot).every((v) => v === 'run:'), allowedGot);
   const inst = ['pnpm exec playwright install-deps', 'npx playwright install-deps chromium', 'pnpm dlx playwright install chromium', 'yarn', 'npm i', 'sudo apt-get update'];
@@ -114,6 +125,18 @@ console.log('一b、文本兜底加固（#1084 评审的非阻断观察）');
   ok('安装：pnpm exec / npx 的 playwright install-deps、dlx、裸 yarn、npm i、apt-get 都认出；npm run ci、npm run add、pnpm test -- add、git add、pip --version 不算安装',
     Object.values(instGot).every(Boolean) && !Object.values(notInstGot).some(Boolean), [instGot, notInstGot]);
   ok('真实 job 那条 pnpm install --frozen-lockfile 仍判安装、不跑', c('pnpm install --frozen-lockfile') === 'not-run:install');
+  const wrapped = ['time pnpm install', 'env CI=1 pnpm install', 'echo a | xargs -n1 pnpm install', 'nohup pnpm install &', 'timeout 60 npm ci', 'exec npm ci', '! pnpm install', 'corepack pnpm install', 'npx pnpm install', 'npm exec -- pnpm install', 'bash -c "cd x && pnpm install"'];
+  const wrappedGot = Object.fromEntries(wrapped.map((r) => [r, isInstall(r)]));
+  ok('#1097 B2：命令名前有前缀或包装（time、env、xargs、nohup、timeout、exec、!、corepack、npx pnpm、npm exec --、bash -c）照样认作安装',
+    Object.values(wrappedGot).every(Boolean), wrappedGot);
+  const step9 = [
+    'retry 4 python -m pip install --retries 5 "playwright==${PLAYWRIGHT_VERSION}" \\',
+    '  || fail "pip 装 playwright 四次都没成"',
+    'retry 4 python -m playwright install chromium || fail "下载 Chromium 四次都没成"',
+    'sudo timeout 240 apt-get install -y --no-install-recommends $missing',
+  ].join('\n');
+  ok('#1097 B2：真实 ci.yml browser-security 第 9 步（retry 4 python -m pip install、retry 4 python -m playwright install、sudo timeout 240 apt-get）判安装、不跑',
+    c(step9) === 'not-run:install' && isInstall('retry 4 python -m pip install x') && isInstall('retry 4 python -m playwright install chromium') && isInstall('sudo timeout 240 apt-get install -y x'));
   const outer = ['--worktree', 'w', '--review-env', '--out', 'o', '--step', '2', '--step-name', 'x'];
   const inner = innerArgs(outer);
   const po = parseArgs(outer), pi = parseArgs(inner);
