@@ -98,8 +98,8 @@ try {
   // 工具目录以后再变（加了、删了工具），这一条会红：那时照这里的做法重抓基准，把那一次加的、删的写进期望
   {
     const { readFileSync } = await import('node:fs');
-    // 报告的四个工具（报告第 1 步 PR C）：有意新增，按目录里的位置放回基准再比
-    const ADDED = ['invoke', 'result_read', 'report_list', 'report_get', 'report_generate', 'report_respond'];
+    // 有意新增的报告工具，按目录里的位置放回历史基准再比。
+    const ADDED = ['invoke', 'result_read', 'report_list', 'report_get', 'report_generate', 'report_dimension_get', 'report_template_get', 'report_binding_get', 'report_respond'];
     // 有意改了参数表的工具：去掉这次加的那一处，应当和基准一字不差；放回基准时用现在的那一项
     // dataset_query：查询描述加了 current_only（公共区的数据集只取每条更正链最新那行）
     // view_put：从历史基准到当下已新增 records、dag、gantt 和 flow（若流程图已合入）。

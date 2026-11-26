@@ -832,7 +832,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "12281", "etag": "W/\"2ff9-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "12462", "etag": "W/\"30ae-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -899,6 +899,7 @@
                   { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.mcp-rest.result-ref-anonymous", "surface": "market", "method": "GET", "path": "/api/mcp-rest/results/AAAAAAAAAAAAAAAAAAAAAA", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.bench-mcp.report-preflight-anonymous", "surface": "market", "method": "POST", "path": "/api/mcp-rest/tools/report_template_get", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.capability.anonymous-invoke", "surface": "market", "method": "POST", "path": "/api/mcp-rest/capabilities/probe.read", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.mcp-rest.ticket-upload-forged", "surface": "market", "method": "PUT", "path": "/api/mcp-rest/uploads/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "verdict": "pass", "status": 404, "reason": null },
                   { "id": "market.mcp-rest.ticket-download-forged", "surface": "market", "method": "GET", "path": "/api/mcp-rest/downloads/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "verdict": "pass", "status": 404, "reason": null },
@@ -940,7 +941,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "11721", "etag": "W/\"2dc9-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "11902", "etag": "W/\"2e7e-<指纹>\"", "vary": "Origin, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "ok": true,
               "service": "workbench-market-server",
@@ -1007,6 +1008,7 @@
                   { "id": "market.workbench-vars.anonymous-read-missing", "surface": "market", "method": "GET", "path": "/api/workbenches/999999999999/vars", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.sop-run.anonymous-write", "surface": "market", "method": "PUT", "path": "/api/sop/runs/999999999", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.mcp-rest.result-ref-anonymous", "surface": "market", "method": "GET", "path": "/api/mcp-rest/results/AAAAAAAAAAAAAAAAAAAAAA", "verdict": "pass", "status": 401, "reason": null },
+                  { "id": "market.bench-mcp.report-preflight-anonymous", "surface": "market", "method": "POST", "path": "/api/mcp-rest/tools/report_template_get", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.capability.anonymous-invoke", "surface": "market", "method": "POST", "path": "/api/mcp-rest/capabilities/probe.read", "verdict": "pass", "status": 401, "reason": null },
                   { "id": "market.mcp-rest.ticket-upload-forged", "surface": "market", "method": "PUT", "path": "/api/mcp-rest/uploads/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "verdict": "pass", "status": 404, "reason": null },
                   { "id": "market.mcp-rest.ticket-download-forged", "surface": "market", "method": "GET", "path": "/api/mcp-rest/downloads/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "verdict": "pass", "status": 404, "reason": null },

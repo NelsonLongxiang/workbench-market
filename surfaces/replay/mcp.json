@@ -287,7 +287,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "19635", "etag": "W/\"4cb3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "20175", "etag": "W/\"4ecf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "name": "access_info", "description": "查本会话的权限：会话名、已授权工具、工具目录（本地 + 上游聚合；默认只给索引——每项是名字、一行说明、category=read/write/admin、granted，不带参数表）、本会话提过的权限申请及状态（通用申请编号 mcp-N，台的申请 bench-N）。要某个工具的参数表和完整说明，带 tool（没批的工具也取得到）；带 ref 只回这一条申请；带 full: true 回整份目录连参数表（大，只在确实要全量时用）。三者一次只能给一个。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。", "category": "read", "always_allowed": true },
               { "name": "invoke", "description": "调用已声明的领域能力。先用 access_info 找目标与参数，决定类只会提交待人确认的提案。", "category": "write", "always_allowed": true },
@@ -343,6 +343,9 @@
               { "name": "report_list", "description": "[数据视图·必须限定到台] 这个台上的报告清单（不带正文），可按维度、事物筛；superseded_by 是被哪一份更正了", "category": "read" },
               { "name": "report_get", "description": "[数据视图·必须限定到台] 读一份报告：冻结的成品、来源（视图版本、哈希、行数）、论断（各带回应和有没有未处理的反驳）、对整份报告的回应、验收声明", "category": "read" },
               { "name": "report_generate", "description": "[数据视图·必须限定到台] 按这个台对维度的绑定生成并冻结一份报告：服务端取数、核模板、核论断；来源和产出方由服务端填，不要自己给。取不全、列类型不合、论断不合模板都拒", "category": "write" },
+              { "name": "report_dimension_get", "description": "[数据视图·必须限定到台] 读本台已绑定的报告维度及模板版本清单，含生效版本", "category": "read" },
+              { "name": "report_template_get", "description": "[数据视图·必须限定到台] 读本台已绑定维度的模板正文和摘要；省略 version 时取生效版", "category": "read" },
+              { "name": "report_binding_get", "description": "[数据视图·必须限定到台] 读本台对这个维度的最新绑定，含模板版本、数据槽和停用原因", "category": "read" },
               { "name": "report_respond", "description": "[数据视图·必须限定到台] 对一份报告的一条论断表态：认可、反驳或补充，理由必填；claim_key 不写是对整份报告。改主意就带 supersedes 接自己上一条", "category": "write" }
             ]
           }
