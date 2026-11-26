@@ -1,6 +1,6 @@
 ---
 name: wm-data-views
-version: 0.5.0
+version: 0.6.0
 description: 工作台市场·数据视图——不写 HTML 做一个工作台：把数据放进台自己的数据集，写一份视图描述，页面由市场的组件（统计卡、表格、记录卡、柱线饼、进度、筛选栏、表单）画出来。当需要「建一个看数据的台」「更新台里的数据」「给台加一张图或一张表」「改台的页面」「台里的数据写不进去、图不出来」时使用。
 ---
 
@@ -60,7 +60,8 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
     { "name": "day", "type": "date", "label": "日期" },
     { "name": "region", "type": "text", "label": "区" },
     { "name": "status", "type": "text", "label": "状态", "values": { "done": "已完成", "late": "已超期" } },
-    { "name": "amount", "type": "decimal", "label": "金额" }
+    { "name": "amount", "type": "decimal", "label": "金额" },
+    { "name": "photo", "type": "image", "label": "照片" }
   ] }
 ```
 
@@ -68,10 +69,12 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
 
 列上再写 `"required": true` 就是必填（主键列自动必填，不用写）。`values` 是取值说明：每个取值是什么业务意思（「超期」对应 `late`），接手的人靠它知道口径，有这类列就写上。主键想让服务端分配就写 `"auto": true`（见 references/datasets.md）。
 
+照片列用 `image`，值写完整 HTTP(S) 链接。市场配置了图库前缀时，也可用图库内相对路径。把这列选进表格或记录卡，市场会显示可点开的缩略图。浏览器经市场的图片代取路由加载，服务端先核当前读者权限及这份视图是否确实引用了链接。写法和查询限制见 [数据集参考](references/datasets.md)。
+
 **② 写数据**：四种写法，按数据的性质选一种（见下表）。下面这批用整份替换写进去。
 
 ```json rows:orders
-[ { "id": 1, "day": "2026-01-05", "region": "东区", "status": "done", "amount": 1200.5 },
+[ { "id": 1, "day": "2026-01-05", "region": "东区", "status": "done", "amount": 1200.5, "photo": "https://example.com/order-1.png" },
   { "id": 2, "day": "2026-01-20", "region": "南区", "status": "late", "amount": 860 },
   { "id": 3, "day": "2026-02-02", "region": "东区", "status": "done", "amount": 15 } ]
 ```
@@ -91,7 +94,7 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
     "tone_rules": [ { "col": "amount", "op": "<", "value": 100, "tone": "danger" } ] },
   { "type": "table", "title": "明细",
     "query": { "dataset": "orders", "filter": [ { "col": "region", "op": "=", "value": "$region" } ], "sort": [ { "col": "day", "dir": "desc" } ], "limit": 200 },
-    "columns": ["status", "id", "day", "region", "amount"],
+    "columns": ["status", "id", "day", "region", "amount", "photo"],
     "value_labels": { "status": { "done": { "text": "已完成", "tone": "success" }, "late": { "text": "已超期", "tone": "danger" } } } }
 ] } ] }
 ```
@@ -151,6 +154,8 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
 4. 改坏了：`view_rollback` 让旧版本重新生效（只移指针，不丢任何版本）。
 
 保存时会核对：组件类型认得、键不多不少、引用的数据集和列存在、查询合法、`$参数` 在同一个视图的筛选栏里声明过。不合格不产生新版本，逐条说明哪里不对。
+
+第十二次上线起，浏览器用 json-render 渲染数据视图。写视图仍使用原来的 JSON、组件、`view_put` 参数和版本规则。组件目录 [views.md](references/views.md) 在该版本起由服务端契约生成，契约检查会核对目录和 JSON Schema。
 
 ## 做好以后：告诉人去哪打开
 

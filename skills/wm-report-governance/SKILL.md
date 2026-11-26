@@ -1,6 +1,6 @@
 ---
 name: wm-report-governance
-version: 0.1.0
+version: 0.2.0
 description: 工作台市场报告治理。使用通用调用或 REST 提出绑定、领域维度登记和模板发布请求，查询本人会话的提案。
 ---
 
@@ -21,3 +21,15 @@ description: 工作台市场报告治理。使用通用调用或 REST 提出绑�
 请人复核用 `review-invite`，单独申请该维度的 `report.governance-review-invite`。参数为 `dimension`、`version`、`body_sha256`、`criteria_sha256`、`invitees`（1～5 位有权非作者）。同键重放不会重复产生站内待办。返回的 `i-` 编号可用 `report.governance-result` 查询。复核本人从站内待办查看精确版本并提交复核。
 
 激活或回退模板用 `dimension-activate`，单独申请该维度的 `report.governance-dimension-activate`。指定 `dimension`、目标 `version`、正文和判据摘要、`expected_active_version`（尚无时写 null）、实际复核所在的 `review_version`。经授权本人确认后才会移动指针。
+
+## 属主本人激活判据类模板
+
+通常由作者以外的有权人复核判据。同一维度中，当前仍为有效属主的自然人本人发版、本人激活，且相同判据的所有版本都由本人发布时，可以直接用有权人的站内会话请求 `POST /api/report-dimensions/<维度>/activate`，正文为 `{ "version": 2 }`，此处的 2 替换为目标版本。服务端每次重核当前身份、授予和作者集合。豁免只记在本次激活的维度和版本上，不能当复核记录借给别人或其他版本。激活提案仍按目录要求填复核来源。
+
+## 变更报告槽的来源
+
+保存视图收到 409「现行报告数据槽改了来源」时，请有停用权限的活跃自然人处理。先读本台绑定 `GET /api/bench-views/<台>/reports/<维度>/binding`，记下当前绑定版本和各槽位。然后向同路径加 `/stop` 发 POST，正文填 `{ "base": 1, "reason": "调整报告数据槽来源" }`，把 1 换成刚读到的绑定版本。停用产生下一版绑定，此时该维度暂不能生成新报告。
+
+保存变更后的视图，重新读绑定，再用停用版的最新版本作 `base` 重绑。保留模板要求的槽名和列契约，把槽映射到当前视图块、参数和列。用原绑定的 PUT 路径，或按当前能力目录提出绑定。读回新绑定，确认已启用、模板版本和来源正确，再恢复生成。
+
+编写模板、检查数据槽和生成报告，用 [wm-reports](../wm-reports/SKILL.md)。
