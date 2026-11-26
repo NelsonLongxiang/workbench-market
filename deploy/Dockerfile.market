@@ -42,9 +42,12 @@ WORKDIR /app
 COPY --from=build /app /app
 COPY --from=build /opt/wm-extensions /opt/wm-extensions
 # ygl-trees：root 所有、只读；入口由 WM_YGL_CLI 指过去（部署方仍可用同名环境变量改指别处）。
-# 工作区不在镜像里：部署方挂卷并给 YGL_HOME（绝对路径；不给时经验库显示「未接入」，统一待办不读 ygl）
+# 工作区不在镜像里：部署方把正式工作区挂到 YGL_HOME（缺省 /var/lib/ygl，见下）；没挂时经验库显示「未接入」，统一待办不读 ygl
 COPY --from=ygl /opt/ygl /opt/ygl
 ENV WM_YGL_CLI=/opt/ygl/node_modules/ygl-trees/dist/bundle/bin.cjs
+# 库源挂载点：正式 ygl-trees 工作区挂到 /var/lib/ygl（目录里要有 ygl-trees.db；经验库会读、「记成经验」会写，所以要可写）。
+# 没挂时目录不存在，经验库显示「未接入」，启动自检行 warn 点名「库源没挂上」
+ENV YGL_HOME=/var/lib/ygl
 # P1-5：非 root 运行（数据目录属主 node）；扩展目录保持 root 所有、只读
 RUN mkdir -p /data && chown -R node:node /app /data
 ENV DATA_DIR=/data
