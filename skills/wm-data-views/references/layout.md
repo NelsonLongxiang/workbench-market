@@ -57,19 +57,19 @@
     { "name": "decision", "type": "text", "label": "上一轮裁决", "required": true },
     { "name": "next_step", "type": "text", "label": "下一步", "required": true,
       "values": { "queue": "排进初评", "decide": "初评已出，待人定", "wait": "等出报告", "skip": "暂不看" } },
-    { "name": "report_url", "type": "text", "label": "报告" },
+    { "name": "review_link", "type": "text", "label": "报告" },
     { "name": "updated_at", "type": "datetime", "label": "更新于", "required": true }
   ] }
 ```
 
 ```json rows:picks
 [
-  { "asin": "SAMPLE01", "title": "合成样品 · 有机棉床笠", "market_entry": "crib-sheets", "price": 39.95, "monthly_sales": 5977, "margin_pct": 45.0, "entry_rank": 1, "band_rank": 1, "margin_band": "≥20%", "decision": "GO", "next_step": "queue", "report_url": null, "updated_at": "2026-01-20T10:00:00Z" },
-  { "asin": "SAMPLE02", "title": "合成样品 · 速干洗碗巾", "market_entry": "dish-towels", "price": 34.0, "monthly_sales": 7134, "margin_pct": 31.2, "entry_rank": 1, "band_rank": 1, "margin_band": "≥20%", "decision": "GO", "next_step": "decide", "report_url": "https://example.com/reports/2", "updated_at": "2026-01-20T10:00:00Z" },
-  { "asin": "SAMPLE03", "title": "合成样品 · 超细纤维抹布", "market_entry": "dish-towels", "price": 12.99, "monthly_sales": 6348, "margin_pct": 14.6, "entry_rank": 2, "band_rank": 2, "margin_band": "10–20%", "decision": "CONDITIONAL", "next_step": "queue", "report_url": null, "updated_at": "2026-01-20T10:00:00Z" },
-  { "asin": "SAMPLE04", "title": "合成样品 · 手持按摩器", "market_entry": "handheld-massager", "price": 29.99, "monthly_sales": 3964, "margin_pct": 6.1, "entry_rank": 1, "band_rank": 3, "margin_band": "0–10%", "decision": "GO", "next_step": "skip", "report_url": null, "updated_at": "2026-01-20T10:00:00Z" },
-  { "asin": "SAMPLE05", "title": "合成样品 · 化妆刷套装", "market_entry": "kabuki-brushes", "price": 9.99, "monthly_sales": 2210, "margin_pct": -4.2, "entry_rank": 1, "band_rank": 4, "margin_band": "亏损", "decision": "UNREVIEWED", "next_step": "skip", "report_url": null, "updated_at": "2026-01-20T10:00:00Z" },
-  { "asin": "SAMPLE06", "title": "合成样品 · 旅行收纳袋", "market_entry": "travel-organizers", "price": null, "monthly_sales": null, "margin_pct": null, "entry_rank": null, "band_rank": 5, "margin_band": "未算", "decision": "UNREVIEWED", "next_step": "skip", "report_url": null, "updated_at": "2026-01-20T10:00:00Z" }
+  { "asin": "SAMPLE01", "title": "合成样品 · 有机棉床笠", "market_entry": "crib-sheets", "price": 39.95, "monthly_sales": 5977, "margin_pct": 45.0, "entry_rank": 1, "band_rank": 1, "margin_band": "≥20%", "decision": "GO", "next_step": "queue", "review_link": null, "updated_at": "2026-01-20T10:00:00Z" },
+  { "asin": "SAMPLE02", "title": "合成样品 · 速干洗碗巾", "market_entry": "dish-towels", "price": 34.0, "monthly_sales": 7134, "margin_pct": 31.2, "entry_rank": 1, "band_rank": 1, "margin_band": "≥20%", "decision": "GO", "next_step": "decide", "review_link": "https://example.com/reports/2", "updated_at": "2026-01-20T10:00:00Z" },
+  { "asin": "SAMPLE03", "title": "合成样品 · 超细纤维抹布", "market_entry": "dish-towels", "price": 12.99, "monthly_sales": 6348, "margin_pct": 14.6, "entry_rank": 2, "band_rank": 2, "margin_band": "10–20%", "decision": "CONDITIONAL", "next_step": "queue", "review_link": null, "updated_at": "2026-01-20T10:00:00Z" },
+  { "asin": "SAMPLE04", "title": "合成样品 · 手持按摩器", "market_entry": "handheld-massager", "price": 29.99, "monthly_sales": 3964, "margin_pct": 6.1, "entry_rank": 1, "band_rank": 3, "margin_band": "0–10%", "decision": "GO", "next_step": "skip", "review_link": null, "updated_at": "2026-01-20T10:00:00Z" },
+  { "asin": "SAMPLE05", "title": "合成样品 · 化妆刷套装", "market_entry": "kabuki-brushes", "price": 9.99, "monthly_sales": 2210, "margin_pct": -4.2, "entry_rank": 1, "band_rank": 4, "margin_band": "亏损", "decision": "UNREVIEWED", "next_step": "skip", "review_link": null, "updated_at": "2026-01-20T10:00:00Z" },
+  { "asin": "SAMPLE06", "title": "合成样品 · 旅行收纳袋", "market_entry": "travel-organizers", "price": null, "monthly_sales": null, "margin_pct": null, "entry_rank": null, "band_rank": 5, "margin_band": "未算", "decision": "UNREVIEWED", "next_step": "skip", "review_link": null, "updated_at": "2026-01-20T10:00:00Z" }
 ]
 ```
 
@@ -108,7 +108,7 @@
       "title_col": "title", "badges": ["next_step", "decision"],
       "fields": ["asin", "market_entry", "margin_pct", "monthly_sales", "price"],
       "details": ["margin_band"], "date_col": "updated_at",
-      "links": [ { "col": "report_url", "label": "打开初评报告" } ],
+      "links": [ { "col": "review_link", "label": "打开初评报告" } ],
       "value_labels": {
         "next_step": { "queue": { "text": "排进初评", "tone": "warning" }, "decide": { "text": "待你定", "tone": "danger" }, "wait": "等出报告", "skip": "暂不看" },
         "decision": { "GO": { "text": "上轮 GO", "tone": "success" }, "CONDITIONAL": { "text": "上轮有条件", "tone": "warning" }, "UNREVIEWED": "上轮未裁" } },
