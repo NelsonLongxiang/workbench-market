@@ -448,8 +448,13 @@ with sync_playwright() as p:
     pg.locator('[data-testid=bench-page-tab]', has_text='巡检明细').click(); pg.wait_for_function("() => new URLSearchParams(location.search).get('v') === 'vk-rows'")
     pg.locator('[data-testid=bench-page-tab]', has_text='巡检看板').click(); pg.wait_for_function("() => new URLSearchParams(location.search).get('v') !== 'vk-rows'")
     pg.locator('[data-testid=bench-page-reports]').click(); pg.wait_for_selector('[data-testid=report-page]')
-    check('报告页面包屑：全景 / 台名 / 报告，当前一级不能点', pg.locator('[data-testid=use-crumb-home]').count() == 1 and pg.locator('a[data-testid=use-crumb-bench]').inner_text().strip() == '合成·巡检台'
-          and pg.locator('[data-testid=use-crumb-reports]').inner_text().strip() == '报告' and pg.locator('a[data-testid=use-crumb-reports]').count() == 0)
+    # 台名要等入口取完才换上（之前是占位「这个台」）；等不到由下面的断言带着当时的字报
+    try: pg.wait_for_function("() => document.querySelector('a[data-testid=use-crumb-bench]')?.textContent.trim() === '合成·巡检台'", timeout=10000)
+    except Exception: pass
+    crumb = lambda sel: pg.locator(sel).inner_text().strip() if pg.locator(sel).count() else None
+    check('报告页面包屑：全景 / 台名 / 报告，当前一级不能点', pg.locator('[data-testid=use-crumb-home]').count() == 1 and crumb('a[data-testid=use-crumb-bench]') == '合成·巡检台'
+          and crumb('[data-testid=use-crumb-reports]') == '报告' and pg.locator('a[data-testid=use-crumb-reports]').count() == 0,
+          (crumb('[data-testid=use-crumb-home]'), crumb('a[data-testid=use-crumb-bench]'), crumb('[data-testid=use-crumb-reports]')))
     pg.locator('[data-testid=use-crumb-home]').click(); pg.wait_for_function("() => location.pathname === '/'")
     check('切两个页签再进报告，点「全景」一次就回到首页', urlparse(pg.url).path == '/', pg.url)
     pg.goto(f'{M}/use/{CARD}/reports'); pg.wait_for_selector('a[data-testid=use-crumb-bench]')
