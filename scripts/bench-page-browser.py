@@ -83,6 +83,7 @@ def on_bv(route):
         if mode['entry'] == 'v2': return fake(route, ENTRY2)
         if mode['entry'] == 'v3': return fake(route, ENTRY3)
         if mode['entry'] == 'mgr': return fake(route, mgr_entry())
+        if mode['entry'] == 'reports': return fake(route, {**ENTRY, 'can': {'reports': True}})
         if mode['entry'] == 'hold': held_entry.append((route, mgr_entry())); return None  # 应答照发出那一刻的名字，由测试晚些放行
         return fake(route, ENTRY)
     if rest == 'render':
@@ -438,6 +439,32 @@ with sync_playwright() as p:
           (rec.locator('.wm-bb-truncated').all_inner_texts(), rec.locator('[data-testid=rec-count]').all_inner_texts()))
     mode['records'] = 'off'
 
+    print('十、顶栏（#1098）')
+    mode['render'] = 'ok'; mode['entry'] = 'reports'
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    crumbs = [x.inner_text().strip() for x in pg.locator('.wm-use-crumbs li').all() if x.inner_text().strip() not in ('/', '')]
+    check('台页顶栏：「上一页」、市场标识、面包屑「全景 / 台名」', pg.locator('[data-testid=use-top-back]').inner_text().strip() == '上一页' and pg.locator('[data-testid=use-top-logo]').count() == 1
+          and pg.locator('[data-testid=use-crumb-home]').inner_text().strip() == '全景' and pg.locator('[data-testid=bench-page-name]').inner_text().strip() == '合成·巡检台', crumbs)
+    pg.locator('[data-testid=bench-page-tab]', has_text='巡检明细').click(); pg.wait_for_function("() => new URLSearchParams(location.search).get('v') === 'vk-rows'")
+    pg.locator('[data-testid=bench-page-tab]', has_text='巡检看板').click(); pg.wait_for_function("() => new URLSearchParams(location.search).get('v') !== 'vk-rows'")
+    pg.locator('[data-testid=bench-page-reports]').click(); pg.wait_for_selector('[data-testid=report-page]')
+    check('报告页面包屑：全景 / 台名 / 报告，当前一级不能点', pg.locator('[data-testid=use-crumb-home]').count() == 1 and pg.locator('a[data-testid=use-crumb-bench]').inner_text().strip() == '合成·巡检台'
+          and pg.locator('[data-testid=use-crumb-reports]').inner_text().strip() == '报告' and pg.locator('a[data-testid=use-crumb-reports]').count() == 0)
+    pg.locator('[data-testid=use-crumb-home]').click(); pg.wait_for_function("() => location.pathname === '/'")
+    check('切两个页签再进报告，点「全景」一次就回到首页', urlparse(pg.url).path == '/', pg.url)
+    pg.goto(f'{M}/use/{CARD}/reports'); pg.wait_for_selector('a[data-testid=use-crumb-bench]')
+    pg.locator('a[data-testid=use-crumb-bench]').click(); pg.wait_for_selector('[data-testid=bench-page]')
+    check('报告页面包屑的台名：回到这个台的页面', urlparse(pg.url).path == f'/use/{CARD}', pg.url)
+    pg.locator('[data-testid=bench-page-tab]', has_text='巡检明细').click(); pg.wait_for_function("() => new URLSearchParams(location.search).get('v') === 'vk-rows'")
+    pg.locator('[data-testid=use-top-back]').click(); pg.wait_for_function("() => new URLSearchParams(location.search).get('v') !== 'vk-rows'")
+    check('站内有上一页：「上一页」退一步（回到切页签之前）', urlparse(pg.url).path == f'/use/{CARD}' and q_of(pg).get('v') != 'vk-rows', pg.url)
+    pgn = ctx.new_page(); pgn.goto(f'{M}/use/{CARD}'); pgn.wait_for_selector('[data-testid=use-top-back]')
+    pgn.locator('[data-testid=use-top-back]').hover(); pgn.wait_for_selector('.ant-tooltip >> text=返回上一页')
+    check('「上一页」悬停写明是返回上一页', pgn.locator('.ant-tooltip', has_text='返回上一页').count() >= 1)
+    pgn.locator('[data-testid=use-top-back]').click(); pgn.wait_for_function("() => location.pathname === '/'")
+    check('新标签直接打开 /use/<id>：「上一页」回全景，不离开站点', pgn.url.startswith(M) and urlparse(pgn.url).path == '/', pgn.url)
+    pgn.close(); mode['entry'] = 'ok'
+
     print('五、入口')
     mode['entry'] = '403'; pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('.wm-use-frame')
     check('入口 403（只带管理口令、跨站）：照原来嵌页面，不拦成提示页、不进视图台页面', pg.locator('[data-testid=bench-page]').count() == 0 and pg.locator('.wm-use-frame').count() == 1)
@@ -451,6 +478,7 @@ with sync_playwright() as p:
     seen = []
     pg.on('response', lambda r: seen.append((urlparse(r.url).path, r.status)) if '/entry' in r.url else None)
     pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('.wm-use-frame')
+    check('#1098 嵌入使用页也有顶栏：「上一页」和面包屑「全景」', pg.locator('[data-testid=use-top-back]').count() == 1 and pg.locator('[data-testid=use-crumb-home]').count() == 1)
     check('没有台的卡片：实例里真的入口回 404，照原来嵌页面（顶栏是卡片名）', (f'/api/bench-views/{CARD}/entry', 404) in seen and '合成·嵌页台' in pg.locator('.wm-use-bar').inner_text() and pg.locator('[data-testid=bench-page]').count() == 0, seen)
     pg.goto(f'{M}/use/99999'); pg.wait_for_selector('text=工作台不存在')
     check('不存在的卡片：入口一样回 404，照原来说「工作台不存在」', ('/api/bench-views/99999/entry', 404) in seen, seen)
