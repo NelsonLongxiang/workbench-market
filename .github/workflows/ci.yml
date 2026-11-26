@@ -648,6 +648,8 @@ jobs:
         run: node scripts/embed-guard-unit.mjs
       - name: 事项的期限和附件单测（纯函数——字段没到不画、链接只认本站 /api/、大小怎么说；单列一步）
         run: node scripts/work-item-extras-unit.mjs
+      - name: 台和主页卡片的对应（#1086：本站台页面地址显示「待对应」不判离线、对应卡片的结果说法；同源卡片巡检不探测、对应后在线）
+        run: node scripts/bench-link-ui-unit.mjs && node scripts/bench-card-health-test.mjs
       - name: 「团队」页单测（纯函数——团队状态、负责人、成员归谁用、计数、空和读不到的说法、建部门校验；单列一步）
         run: node scripts/team-ui-unit.mjs
       - name: 领域页单测（列表整形和排序·负责人那一行·建领域的校验·迁移结果的说法·指定负责人停在哪一步）

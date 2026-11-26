@@ -9,6 +9,7 @@ import { ApiOutlined, ArrowLeftOutlined, InfoCircleOutlined, ReloadOutlined } fr
 import { BenchView, type ViewResult } from '../bench-blocks/BenchView';
 import { getBenchView, submitBenchForm, type BenchEntry } from '../api';
 import { useChangePoll } from '../bench-change-poll';
+import BenchLink from './BenchLink';
 import { BENCH_VIEWS_OFF, benchViewError, isBenchViewsOff } from '../cockpit-frame-view';
 import { afterReload, formError, pageTitle, paramsFromQuery, pollAction, shouldRefreshEntry, toQuery, viewFromQuery, type PollAction } from '../bench-page-view';
 import BenchRename from './BenchRename';
@@ -87,6 +88,7 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
         <Typography.Title level={5} className="wm-use-title" data-testid="bench-page-name">{entry.bench.title}</Typography.Title>
         <div className="wm-bp-bar-extra">
           <BenchRename cardId={cardId} entry={entry} refreshEntry={refreshEntry} />
+          <BenchLink cardId={cardId} entry={entry} refreshEntry={refreshEntry} />
           <ReportsLink cardId={cardId} entry={entry} />
           {entry.can.mcp ? <Link to={`/bench-mcp/${encodeURIComponent(entry.bench.slug)}`} data-testid="bench-page-mcp"><Button type="text" size="small" icon={<ApiOutlined />}>MCP 授权</Button></Link> : null}
           <Link to={`/market/wb/${encodeURIComponent(cardId)}`} data-testid="bench-page-detail"><Button type="text" size="small" icon={<InfoCircleOutlined />}>详情</Button></Link>

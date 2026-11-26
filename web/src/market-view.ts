@@ -4,8 +4,9 @@
  *
  * 「连接器」只给管理员（MCP 上游的名字、状态、工具数是部署内部信息，GET /api/mcp/upstreams 只给管理员）；别人这一类整个不出现。
  * 原型里的「质量评级」没有数据来源，不出现（不造字母）。
- * 只能 import type：scripts/market-ui-unit.mjs 用 Node 直接加载这个文件。
+ * 只能 import type，或带 .ts 后缀引别的纯函数文件：scripts/market-ui-unit.mjs 用 Node 直接加载这个文件。
  */
+import { cardHealthKey } from './bench-link-view.ts';
 import type { SopApp, SopRun, Workbench } from './types';
 
 export type MarketKind = '工作台' | '流程' | '技能' | '连接器';
@@ -65,7 +66,8 @@ export function healthLabel(status: unknown): string {
   return HEALTH[String(status)] ?? '还没检查过';
 }
 
-export function workbenchCards(list: unknown): MarketCard[] {
+/** origin：页面的来源（地址是本站 /use/<台> 的卡片显示「待对应」，#1086）；不传当不知道 */
+export function workbenchCards(list: unknown, origin = ''): MarketCard[] {
   if (!Array.isArray(list)) return [];
   return (list as Workbench[])
     .filter((w) => w && typeof w === 'object' && w.enabled !== false && typeof w.name === 'string' && Number.isInteger(w.id))
@@ -78,7 +80,7 @@ export function workbenchCards(list: unknown): MarketCard[] {
         name: w.name, caption: String(w.category ?? '').trim(),
         description: String(w.description ?? '').trim(),
         tags: Array.isArray(w.tags) ? w.tags.filter((t) => typeof t === 'string' && t.trim()).slice(0, 3) : [],
-        usage: healthLabel(w.last_status),
+        usage: cardHealthKey(w.last_status, w.last_error, w.url, origin) === 'pending' ? '待对应' : healthLabel(w.last_status),
         ...(typeof w.last_checked_at === 'string' && w.last_checked_at.trim() ? { checkedAt: w.last_checked_at.trim() } : {}),
         href: `/use/${w.id}`, action: '打开' as const,
       };

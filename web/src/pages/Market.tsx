@@ -107,6 +107,7 @@ export default function Market() {
             latency={w.last_latency_ms}
             error={w.last_error}
             checkedAt={w.last_checked_at}
+            url={w.url}
           />
           {w.last_checked_at ? <RelTime value={w.last_checked_at} /> : null}
         </Flex>
@@ -380,7 +381,7 @@ export default function Market() {
                     : detail.access === 'listed' ? `管理员和：${(detail.access_logins ?? []).map(loginLabel).join('、')}`
                     : '登录即可',
                 },
-                { key: 'status', label: '状态', children: <StatusBadge status={detail.last_status} latency={detail.last_latency_ms} error={detail.last_error} checkedAt={detail.last_checked_at} /> },
+                { key: 'status', label: '状态', children: <StatusBadge status={detail.last_status} latency={detail.last_latency_ms} error={detail.last_error} checkedAt={detail.last_checked_at} url={detail.url} /> },
                 { key: 'category', label: '分类', children: detail.category || '-' },
                 { key: 'tags', label: '标签', children: detail.tags.length ? detail.tags.join('、') : '-' },
                 { key: 'path', label: '探测路径', children: detail.health_path || '类型默认' },
