@@ -1,6 +1,6 @@
 ---
 name: wm-data-views
-version: 0.6.0
+version: 0.7.0
 description: 工作台市场·数据视图——不写 HTML 做一个工作台：把数据放进台自己的数据集，写一份视图描述，页面由市场的组件（统计卡、表格、记录卡、柱线饼、进度、筛选栏、表单）画出来。当需要「建一个看数据的台」「更新台里的数据」「给台加一张图或一张表」「改台的页面」「台里的数据写不进去、图不出来」时使用。
 ---
 
@@ -79,7 +79,7 @@ access_request { "tools": ["dataset_list@bench:12", "dataset_query@bench:12"], "
   { "id": 3, "day": "2026-02-02", "region": "东区", "status": "done", "amount": 15 } ]
 ```
 
-**③ 写视图描述**（`view_put`）：页面上放什么。每种组件有哪些键、哪些必填、上限多少，以 `references/view-doc-schema.json` 为准（`view_put` 的参数说明里不列全）。
+**③ 写视图描述**（`view_put`）：页面上放什么。动手前先读 [数据视图设计指南](references/layout.md)，写好规划卡：谁看、看完做什么决定、一行代表什么、什么时候算做完，再按「筛选、数、图、清单、明细」从上到下摆块。每种组件有哪些键、哪些必填、上限多少，以 `references/view-doc-schema.json` 为准（`view_put` 的参数说明里不列全）。
 
 ```json view-doc
 { "title": "订单台", "views": [ { "key": "overview", "title": "总览", "blocks": [
