@@ -47,8 +47,9 @@ root.effect(() => {
  * 成功请求的票不会作为 endpoint_stats 的键落库、也不会在统计视图里露出（用票之后它还能再用几次，或者别人在 2 分钟内看到统计就能取件）。
  */
 export function normalizeEndpoint(pathname: string): string {
-  const ticket = /^(\/api\/mcp-rest\/(?:uploads|downloads))\/[^/]+(\/.*)?$/.exec(pathname);
-  if (ticket) return `${ticket[1]}/:ticket${ticket[2] ?? ''}`;
+  // Express matches routes without regard to case (no caseSensitive), so /API/MCP-REST/Downloads/<ticket> reaches the same route: fold on any case, key in the canonical one (#1080 review)
+  const ticket = /^\/api\/mcp-rest\/(uploads|downloads)\/[^/]+(\/.*)?$/i.exec(pathname);
+  if (ticket) return `/api/mcp-rest/${ticket[1]!.toLowerCase()}/:ticket${ticket[2] ?? ''}`;
   return pathname
     .split('/')
     .map((seg) => (/^\d+$/.test(seg) ? ':id' : seg))

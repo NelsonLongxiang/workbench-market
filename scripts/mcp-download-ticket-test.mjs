@@ -285,10 +285,16 @@ try {
   const upTok = upPath ? pathOf(upPath.startsWith('http') ? upPath : BASE + upPath).split('/').pop() : '';
   const upPut = upTok ? await fetch(BASE + '/api/mcp-rest/uploads/' + upTok, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: Buffer.from('hello') }) : null;
   ok('准备：上传票直传成功（用来核统计里的上传票路径）', upPut?.status === 201, J([upT.text.slice(0, 160), upPut?.status]));
+  // Express routes without regard to case: a mixed-case path reaches the same route and must fold to the same key
+  const mc = await issue(reader, 'dl-app', fid2, { max_uses: 2 });
+  const mcTok = pathOf(mc.payload.download_url).split('/').pop();
+  const mcGet = await get('/api/mcp-rest/DownLoads/' + mcTok);
+  ok('准备：大小写混写的路径也到同一条路由（取件成功）', mcGet.status === 200 || mcGet.status === 206, J([mcGet.status]));
+  tokens.push(mcTok);
   const stats = await call('GET', '/api/stats', undefined, AT);
   const statsText = J(stats.body ?? '');
   const endpoints = (stats.body?.endpoints ?? []).map((e) => e.endpoint);
-  ok('统计里：下载票、上传票的路径折叠成 :ticket，找不到任何一张票的原文', stats.status === 200 && endpoints.includes('/api/mcp-rest/downloads/:ticket') && (!upTok || endpoints.includes('/api/mcp-rest/uploads/:ticket')) && [...tokens, upTok, tok].filter(Boolean).every((k) => !statsText.includes(k)), J([stats.status, endpoints.filter((e) => /mcp-rest\/(down|up)/.test(e))]));
+  ok('统计里：下载票、上传票的路径折叠成 :ticket，找不到任何一张票的原文', stats.status === 200 && endpoints.includes('/api/mcp-rest/downloads/:ticket') && (!upTok || endpoints.includes('/api/mcp-rest/uploads/:ticket')) && [...tokens, upTok, tok].filter(Boolean).every((k) => !statsText.toLowerCase().includes(k.toLowerCase())) && !endpoints.some((e) => /downloads/i.test(e) && e !== '/api/mcp-rest/downloads/:ticket'), J([stats.status, endpoints.filter((e) => /mcp-rest\/(down|up)/.test(e))]));
 } catch (e) {
   fail++;
   console.log('  ✗ 跑不下去：' + (e?.stack ?? e));

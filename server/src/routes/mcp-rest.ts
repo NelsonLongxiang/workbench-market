@@ -15,6 +15,7 @@ import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
+import { isStartupProbeRequest } from '../startup-security-self-probe.ts';
 import { dataDir, type AppRow, type SopRunRow } from '../db.ts';
 import type { AppDataService } from '../services/app-data.ts';
 import type { SopService } from '../services/sop.ts';
@@ -249,7 +250,8 @@ export function registerMcpRestRoutes(app: HttpService, deps: McpRestDeps): void
     const t = takeDownloadTicket(req.params.ticket);
     // 没有这张票（编造的、写法不对、过期、用完、撤销了）就没有会话可记：不记在任何会话名下，进有界的拒绝聚合（每分钟至多一行、只有次数，
     // 没有票的原文、路径和来源）；有票的，下面每一步都记在发票的会话名下，只记编号、不记票。应答照旧同一句 404，不分是哪一种
-    if (!t) { noteDownloadRejected(); return gone(); }
+    // (the startup self-probe's forged-ticket request has its own credential-free audit and must not write business MCP audit)
+    if (!t) { if (!isStartupProbeRequest(req)) noteDownloadRejected(); return gone(); }
     const auditArgs = { ticket: t.ref, slug: t.slug, file_id: t.fileId, use: t.uses, of: t.maxUses };
     let opened: Awaited<ReturnType<typeof openDownloadTicket>>;
     try { opened = await openDownloadTicket(t); } catch (e) { opened = { ok: false, sess: null, why: 'check failed: ' + String((e as Error)?.message ?? e).slice(0, 120) }; }
