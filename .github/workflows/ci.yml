@@ -209,6 +209,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/bench-mcp-ui-browser.mjs
+      - name: 设置页「个人令牌」真实闭环（#1063：属主签发·原文只显示一次·不进存储与地址·不带管理口令·刷新后看不到·名字重复照说·撤销后 401·非属主只见说明；个人令牌接口不截）
+        env:
+          PYTHON: python
+        run: node scripts/personal-tokens-browser.mjs
       - name: 原生表格完整导出与来源详情（合成真实接口、实际浏览器下载、4833与1650全匹配、撤权与跨源拒绝）
         env:
           PYTHON: python
@@ -626,6 +630,8 @@ jobs:
         run: node scripts/report-template-p0-test.mjs && node scripts/report-template-p0-store-test.mjs
       - name: 「谁能做什么」页单测（纯函数——授予的状态、范围、期限，待核准，按人排的表，矩阵格子；单列一步）
         run: node scripts/access-ui-unit.mjs
+      - name: 设置页「个人令牌」单测（纯函数——清单、状态与期限、签发表单核对、出错说法；原文不落地、不带管理口令；单列一步）
+        run: node scripts/personal-tokens-ui-unit.mjs
       - name: 「经验库」页单测（纯数据——四类的先后和说法、认不出的类别不露代号；单列一步）
         run: node scripts/knowledge-ui-unit.mjs
       - name: 「记成经验」单测（纯函数——缺省档不落全公司·要交什么·能不能交·办完的说法·我处理过的·拍板人；单列一步）

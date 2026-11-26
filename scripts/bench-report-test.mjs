@@ -969,6 +969,59 @@ try {
     const lost = await srv.call('GET', '/api/report-governance/proposals/' + id, { headers: bearer });
     check(moved.status === 200 && movedBack.status === 200 && lost.status === 403, 'RG4 台范围改绑再回转不会恢复旧会话批准', { moved: moved.status, movedBack: movedBack.status, lost });
   }
+  console.log('V3 平铺报告正文');
+  {
+    const name = 'report-v3';
+    const conv = (content) => tpl({ schema_version: 3, body: {
+      root: 'main', elements: {
+        main: { type: 'document', props: {}, children: ['summary', 'numbers'] },
+        summary: { type: 'section', props: { title: '合成报告' }, children: ['count'] },
+        count: { type: 'text', props: { content } },
+        numbers: { type: 'text', props: { content: { $join: { ref: { scope: 'slot', name: 'orders', column: 'id' } }, separator: ' / ' } } },
+      },
+    } });
+    const count = { $count: { ref: { scope: 'slot', name: 'orders' } } };
+    const valid = conv({ $concat: ['订单 ', count, ' 条，率 ',
+      { $format: 'percent', locale: 'en-US', value: { $math: 'divide', a: count, b: 4 } },
+      '，日期 ', { $format: 'date', locale: 'en-US', value: '2026-11-02T00:01:00Z' },
+      '，摘要 ', { ref: { scope: 'field', name: 'summary' } },
+    ] });
+    const cycle = structuredClone(valid);
+    cycle.body.elements.summary.children.push('main');
+    const stray = structuredClone(valid);
+    stray.body.elements.stray = { type: 'text', props: { content: '孤立' } };
+    const event = structuredClone(valid);
+    event.body.elements.count.on = { press: 'write' };
+    await cli('POST', '/api/report-dimensions', { id: name, title: '合成平铺报告' });
+    const rejected = [];
+    for (const item of [cycle, stray, event, conv({ $state: '/inputs/fields/summary' }), conv({ $count: [], $concat: [] })]) {
+      rejected.push((await pub(name, { body: item })).status);
+    }
+    check(rejected.every((status) => status === 400), 'V3a 发布拒循环、孤立元素、事件和非白名单或混写指令', rejected);
+    const oldVersion = await pub(name, { body: tpl() });
+    const review = await srv.call('POST', '/api/report-dimensions/' + name + '/templates/1/review', { ...sys, body: {} });
+    const nextVersion = await pub(name, { body: valid });
+    const act = await cli('POST', '/api/report-dimensions/' + name + '/activate', { version: 2 });
+    check(oldVersion.status === 201 && review.status === 200 && nextVersion.status === 201 && nextVersion.json?.template?.kind === 'layout' && act.status === 200,
+      'V3b 判据相同的 v3 只换版式，继承 v2 的复核', { old: oldVersion.status, review: review.status, next: nextVersion.json, active: act.status });
+    await rows([{ id: 1, day: '2026-11-03', amount: 1 }, { id: 2, day: '2026-11-09', amount: 2 }]);
+    const bound = await bind(boss, BINDING, 0, name);
+    const request = G({ dimension: name, subject: 'card:v3-freeze', inputs: { ...INPUTS, fields: { summary: '{"$math":"add","a":5,"b":9}' } } });
+    const filled = await gen(boss, request);
+    const frozen = filled.json?.report?.body;
+    const nextRows = await rows([{ id: 1, day: '2026-11-03', amount: 10 }]);
+    const loaded = await bv(boss, 'GET', '/synth-orders/reports/' + filled.json?.report?.id);
+    check(bound.status === 200 && filled.status === 201 && nextRows.status === 200 && loaded.status === 200 && frozen?.schema_version === 2 &&
+      frozen.body?.[0]?.children?.[0]?.content === '订单 2 条，率 50%，日期 11/02/2026，摘要 {"$math":"add","a":5,"b":9}' &&
+      frozen.body?.[1]?.content === '1 / 2' && JSON.stringify(loaded.json?.report?.body) === JSON.stringify(frozen),
+      'V3c 服务端冻结五种指令，数据字段只作文字、改行后冻结正文保持', { bound: bound.status, filled: filled.status, nextRows: nextRows.status, frozen });
+    const arithmetic = await pub(name, { body: conv({ $math: 'divide', a: 1, b: 0 }) });
+    const a3 = await cli('POST', '/api/report-dimensions/' + name + '/activate', { version: 3 });
+    const b3 = await bind(boss, BINDING, 1, name);
+    const noReport = await gen(boss, request);
+    check(arithmetic.status === 201 && a3.status === 200 && b3.status === 200 && noReport.status === 400 && noReport.text.includes('invalid_expression_number'),
+      'V3d 运行期非有限算术报400，不冻结半份报告', { published: arithmetic.status, activate: a3.status, binding: b3.status, generate: noReport.text });
+  }
   db.close();
 } catch (e) {
   fail++;

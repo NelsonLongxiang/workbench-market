@@ -20,7 +20,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1972", "etag": "W/\"7b4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2032", "etag": "W/\"7f0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -32,6 +32,7 @@
                 "/api/auth/logout",
                 "/api/attention/answer",
                 "/api/a2a/seat-token",
+                "/^[/]api[/]owner[/]personal-tokens(?:[/][0-9a-f-]{36})?$/",
                 "/^\\/api\\/apps\\/[a-z0-9-]{1,64}\\/(data|files)(\\/|$)/",
                 "/^\\/api\\/sop\\/runs(\\/\\d+(\\/(finish|files|files\\/refs))?)?$/",
                 "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",
@@ -72,7 +73,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1972", "etag": "W/\"7b4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2032", "etag": "W/\"7f0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -84,6 +85,7 @@
                 "/api/auth/logout",
                 "/api/attention/answer",
                 "/api/a2a/seat-token",
+                "/^[/]api[/]owner[/]personal-tokens(?:[/][0-9a-f-]{36})?$/",
                 "/^\\/api\\/apps\\/[a-z0-9-]{1,64}\\/(data|files)(\\/|$)/",
                 "/^\\/api\\/sop\\/runs(\\/\\d+(\\/(finish|files|files\\/refs))?)?$/",
                 "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",
@@ -192,7 +194,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1972", "etag": "W/\"7b4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "2032", "etag": "W/\"7f0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "added": [],
               "removed": [],
@@ -204,6 +206,7 @@
                 "/api/auth/logout",
                 "/api/attention/answer",
                 "/api/a2a/seat-token",
+                "/^[/]api[/]owner[/]personal-tokens(?:[/][0-9a-f-]{36})?$/",
                 "/^\\/api\\/apps\\/[a-z0-9-]{1,64}\\/(data|files)(\\/|$)/",
                 "/^\\/api\\/sop\\/runs(\\/\\d+(\\/(finish|files|files\\/refs))?)?$/",
                 "/^\\/api\\/workbench-events\\/wbe-[0-9a-f]{16}\\/decision$/",

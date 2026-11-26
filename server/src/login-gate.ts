@@ -138,7 +138,7 @@ export function trustedProxyCheck(entries: readonly string[]): { verdict: 'pass'
   return { verdict: ranges.length ? 'warn' : 'pass', ranges };
 }
 let proxyCache: { raw: string; list: BlockList } | null = null;
-function trustedPeer(peer: string): boolean {
+export function trustedPeer(peer: string): boolean {
   if (peer === '127.0.0.1' || peer === '::1') return true;
   const raw = String(process.env.WM_TRUSTED_PROXIES ?? '');
   if (!raw.trim()) return false;

@@ -84,9 +84,14 @@ function oldVerdict(status: number): 'allow' | 'deny' | 'skip-404' | 'uncertain'
 
 /** 谁在请求（比对和切换开关共用一个口径）：先后顺序见文件头 */
 export type ActorOf = (req: express.Request) => Promise<{ actor: JudgedActor }>;
-export function actorResolver(deps: Pick<CompareDeps, 'adminTokenOk'>): ActorOf {
+export function actorResolver(deps: Pick<CompareDeps, 'adminTokenOk'> & { requestPrincipal?: (req: express.Request) => string | undefined }): ActorOf {
   const resolve = identity().cachedResolver({ ttlMs: 60_000, max: 1000 });
   return async function actorOf(req: express.Request): Promise<{ actor: JudgedActor }> {
+    const principal = deps.requestPrincipal?.(req);
+    if (principal) {
+      const p = principals().get(principal);
+      return { actor: p ? { type: 'principal', id: p.id, kind: p.kind, status: p.status, owner: p.owner } : { type: 'builtin', name: 'anonymous' } };
+    }
     if (deps.adminTokenOk(req)) return { actor: { type: 'builtin', name: 'admin-token' } };
     const cookie = String(req.headers.cookie ?? '');
     if (cookie) {

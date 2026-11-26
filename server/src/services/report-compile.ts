@@ -2,7 +2,7 @@
  * 报告的编排（docs/report-step1.md 第三节；报告第 1 步 PR B）：模板 + 台的绑定 + 台库按绑定取回的数 + 输入 + 论断 → 冻结的报告。纯函数，不碰库。
  *
  * 由 P0 的技术试验（web/src/report-template/p0.ts）改写而来，规矩照搬，差别：
- *   · 模板是第二版（schema_version 2，维度的模板，services/report-dimension.ts 已核过顶层、论断、回应、验收声明这几块）；
+ *   · 模板可用第二版节点数组，或第三版平铺正文和冻结时求值的指令；
  *   · 绑定只说「数据槽对应本台哪份视图的哪个块、参数和列怎么对应」；数据来源的视图版本、视图描述的 sha256、行数由台库填（ReportSlotData），
  *     不再收调用方给的「夹具证据」（P0 文档写明那些不是生产授权）；
  *   · 论断（第三节）随报告一起核、一起冻结：类别、条数照模板；依据（basis）指的数据槽、行要在这份报告里；
@@ -13,6 +13,9 @@
 import { createHash } from 'node:crypto';
 import { imageRefOk } from '../bench-query.ts';
 import type { ReportSlotData } from './bench-store-core.ts';
+import { compileV3Body, ReportError, type ReportText } from './report-body-v3.ts';
+
+export { ReportError };
 
 export type Ref = { ref: { scope: 'parameter' | 'field' | 'row'; name: string } };
 type SlotCol = { name: string; type: string; label: string; nullable?: boolean };
@@ -21,10 +24,11 @@ type Node = {
   id: string; type: string; title?: unknown; content?: unknown; children?: Node[]; items?: Node[]; columns?: number[];
   data?: string; row_key?: string[]; max_items?: number; component?: string; props?: Record<string, unknown>; src?: unknown; alt?: unknown;
 };
-export type TemplateV2 = {
-  schema_version: 2; title: string; parameters: Record<string, { type: string; required: boolean }>; fields: Record<string, { required: boolean; max_length: number }>;
-  slots: Record<string, Slot>; body: Node[]; claims: { kind: string; label: string; min: number; max: number }[];
+type TemplateFields = {
+  title: string; parameters: Record<string, { type: string; required: boolean }>; fields: Record<string, { required: boolean; max_length: number }>;
+  slots: Record<string, Slot>; claims: { kind: string; label: string; min: number; max: number }[];
 };
+export type ReportTemplate = TemplateFields & ({ schema_version: 2; body: Node[] } | { schema_version: 3; body: unknown });
 export type Inputs = { parameters: Record<string, string>; fields: Record<string, string> };
 /** 一个数据槽的绑定：本台第几份视图（键）、第几个块，筛选参数从哪个输入来，槽的列对应块的哪一列 */
 export type SlotBinding = { view: string; block: number; params: Record<string, Ref>; columns: Record<string, string> };
@@ -41,11 +45,6 @@ export type ImageNode = ResolvedNode & { type: 'image'; src: string; alt: string
 export const IMAGE_NODES_MAX = 20;
 export type FrozenBody = { schema_version: 2; title: string; inputs: Inputs; body: ResolvedNode[] };
 
-/** 拒收：code 是对外的错误代号（路由前面加 report_），path 说是哪一处 */
-export class ReportError extends Error {
-  code: string; path: string;
-  constructor(code: string, path: string) { super(`${code} at ${path}`); this.name = 'ReportError'; this.code = code; this.path = path; }
-}
 const fail: (code: string, path: string) => never = (code, path) => { throw new ReportError(code, path); };
 const obj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const own = (v: object, k: string) => Object.hasOwn(v, k);
@@ -62,7 +61,7 @@ const jsonCopy = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 export const sha256 = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex');
 
 /** 核数据槽的声明（模板里），回规范化的槽表 */
-function slotsOf(t: TemplateV2): Record<string, Slot> {
+function slotsOf(t: ReportTemplate): Record<string, Slot> {
   if (!obj(t.slots) || Object.keys(t.slots).length > 24) fail('invalid_slot', '/slots');
   for (const [name, slot] of Object.entries(t.slots)) {
     id(name, '/slots/' + name); keys(slot, ['columns', 'key', 'max_rows', 'completeness'], '/slots/' + name);
@@ -81,7 +80,7 @@ function slotsOf(t: TemplateV2): Record<string, Slot> {
 }
 
 /** 核输入（参数、文字字段），回一份复制 */
-export function prepareInputs(t: TemplateV2, input: unknown): Inputs {
+export function prepareInputs(t: ReportTemplate, input: unknown): Inputs {
   if (!obj(input) || !obj(input.parameters) || !obj(input.fields)) fail('invalid_inputs', '/inputs');
   keys(input, ['parameters', 'fields'], '/inputs');
   const params = input.parameters as Record<string, unknown>, fields = input.fields as Record<string, unknown>;
@@ -130,7 +129,7 @@ function renderText(v: unknown, path: string, input: Inputs, row?: Record<string
  *   · row：repeat 里当前那一行的一列，这一列在槽里要是 image 类型。
  * 引用的东西不是图片（参数、列的类型不对）报 image_source_type；值不是合规链接报 invalid_image_ref；没有值报 missing_reference
  */
-function imageSource(t: TemplateV2, v: unknown, path: string, input: Inputs, row?: { values: Record<string, unknown>; columns: BlockColumn[] }): string {
+function imageSource(t: ReportTemplate, v: unknown, path: string, input: Inputs, row?: { values: Record<string, unknown>; columns: BlockColumn[] }): string {
   if (!obj(v) || !obj(v.ref)) return fail('invalid_reference', path);
   keys(v, ['ref'], path); keys(v.ref, ['scope', 'name'], path);
   const { scope, name } = v.ref as { scope: unknown; name: unknown };
@@ -168,7 +167,7 @@ export function imageNodesOf(nodes: ResolvedNode[] | unknown): ImageNode[] {
  * 核台的绑定（绑的时候核一次，生成时再核一次：模板和绑定都可能变）：模板的每个数据槽都要绑、不多绑；
  * 每个槽：view 是视图的键，block 是 0～39 的块号，params 的值只能是参数、文字字段的引用（行引用没有意义），columns 盖住槽的每一列
  */
-export function checkBinding(t: TemplateV2, b: unknown): Binding {
+export function checkBinding(t: ReportTemplate, b: unknown): Binding {
   const slots = slotsOf(t);
   if (!obj(b)) fail('invalid_binding', '/binding');
   keys(b, Object.keys(slots), '/binding');
@@ -195,7 +194,7 @@ export function checkBinding(t: TemplateV2, b: unknown): Binding {
 }
 
 /** 生成时按绑定和输入算出每个槽要取什么：筛选参数从输入里取值，按槽的 max_rows 取（多一行由台库标 truncated） */
-export function slotSpecs(t: TemplateV2, b: Binding, input: Inputs): { slot: string; view: string; block: number; params: Record<string, string>; limit: number }[] {
+export function slotSpecs(t: ReportTemplate, b: Binding, input: Inputs): { slot: string; view: string; block: number; params: Record<string, string>; limit: number }[] {
   return Object.entries(slotsOf(t)).map(([name, slot]) => {
     const sb = b[name];
     const params: Record<string, string> = {};
@@ -205,7 +204,7 @@ export function slotSpecs(t: TemplateV2, b: Binding, input: Inputs): { slot: str
 }
 
 /** 冻结：核每个槽取回的数（完整、列类型、行键），展开文档结构，核论断。回成品、来源、论断 */
-export function materialize(t: TemplateV2, b: Binding, data: ReportSlotData[], input: Inputs, claimsIn: unknown): { body: FrozenBody; sources: SourceMeta[]; claims: FrozenClaim[] } {
+export function materialize(t: ReportTemplate, b: Binding, data: ReportSlotData[], input: Inputs, claimsIn: unknown): { body: FrozenBody; sources: SourceMeta[]; claims: FrozenClaim[] } {
   const slots = slotsOf(t);
   const slotData: Record<string, BlockData> = Object.create(null);
   const sources: SourceMeta[] = [];
@@ -259,7 +258,10 @@ export function materialize(t: TemplateV2, b: Binding, data: ReportSlotData[], i
       if (n.type === 'grid') validateNodes(n.items, depth + 1);
     }
   };
-  validateNodes(t.body);
+  const nodes = t.schema_version === 3 ? compileV3Body(t.body) as Node[] : t.body;
+  validateNodes(nodes);
+  const bodyText = (v: unknown, path: string, row?: Record<string, unknown>) =>
+    t.schema_version === 3 ? (v as ReportText)({ ...input, row, slots: slotData }) : renderText(v, path, input, row);
   const renderNodes = (nodes: Node[], suffix = '', row?: Record<string, unknown>, rowCols?: BlockColumn[]): ResolvedNode[] => nodes.flatMap((n) => {
     if (++expanded > 1000) return fail('expanded_limit', '/body');
     const path = '/body/' + n.id, base = { id: n.id + suffix, type: n.type };
@@ -269,9 +271,9 @@ export function materialize(t: TemplateV2, b: Binding, data: ReportSlotData[], i
       const max = bounded(n.max_items, 1, 100, path + '/max_items'); if (d.rows.length > max) return fail('repeat_limit', path);
       return d.rows.flatMap((r) => renderNodes(n.children ?? [], suffix + '/' + encodeURIComponent(JSON.stringify(n.row_key?.map((k) => r[k]))), r, d.columns));
     }
-    if (n.type === 'cover') return [{ ...base, title: renderText(n.title, path + '/title', input, row), content: n.content ? renderText(n.content, path + '/content', input, row) : '' }];
-    if (n.type === 'text') return [{ ...base, content: renderText(n.content, path + '/content', input, row) }];
-    if (n.type === 'section') return [{ ...base, title: renderText(n.title, path + '/title', input, row), children: renderNodes(n.children ?? [], suffix, row, rowCols) }];
+    if (n.type === 'cover') return [{ ...base, title: bodyText(n.title, path + '/title', row), content: n.content ? bodyText(n.content, path + '/content', row) : '' }];
+    if (n.type === 'text') return [{ ...base, content: bodyText(n.content, path + '/content', row) }];
+    if (n.type === 'section') return [{ ...base, title: bodyText(n.title, path + '/title', row), children: renderNodes(n.children ?? [], suffix, row, rowCols) }];
     if (n.type === 'image') {
       if (++images > IMAGE_NODES_MAX) return fail('image_limit', path);
       const src = imageSource(t, n.src, path + '/src', input, row && rowCols ? { values: row, columns: rowCols } : undefined);
@@ -297,12 +299,12 @@ export function materialize(t: TemplateV2, b: Binding, data: ReportSlotData[], i
     }
     return [base];
   });
-  const body: FrozenBody = { schema_version: 2, title: t.title, inputs: jsonCopy(input), body: renderNodes(t.body) };
+  const body: FrozenBody = { schema_version: 2, title: t.title, inputs: jsonCopy(input), body: renderNodes(nodes) };
   return { body, sources, claims: checkClaims(t, claimsIn, slotData) };
 }
 
 /** 核论断（第三节）：类别只能是模板声明的；每类条数在 min～max 里；正文 1～4000 字；依据指的槽要有行键，行要在这份报告里。claim_key 是「类别-序号」 */
-function checkClaims(t: TemplateV2, claimsIn: unknown, slotData: Record<string, BlockData>): FrozenClaim[] {
+function checkClaims(t: ReportTemplate, claimsIn: unknown, slotData: Record<string, BlockData>): FrozenClaim[] {
   if (!Array.isArray(claimsIn) || claimsIn.length > 200) fail('invalid_claims', '/claims');
   const decl = new Map(t.claims.map((c) => [c.kind, c]));
   const count = new Map<string, number>();

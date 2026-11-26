@@ -32,8 +32,8 @@ registerHooks({load(url,ctx,next){const loaded=next(url,ctx);if(!mutation||!url.
 const replace=(from,to)=>{if(!s.includes(from))throw Error('mutation anchor missing: '+mutation);s=s.replace(from,to);};
 if(mutation==='portal-session-strip')replace("c.split('=')[0].trim() !== ODOO_SESSION_COOKIE","c.split('=')[0].trim() !== 'not-' + ODOO_SESSION_COOKIE");
 if(mutation==='portal-access-validation')replace("  if (b.access !== undefined || b.access_logins !== undefined) {","  if (false && (b.access !== undefined || b.access_logins !== undefined)) {");
-if(mutation==='login-gate')replace('app.use(loginGate.middleware);','app.use((_q,_s,n)=>n());');
-if(mutation==='login-gate-apps')replace('app.use(loginGate.middleware);',"app.use((q,s,n)=>q.path.startsWith('/apps/')?n():loginGate.middleware(q,s,n));");
+if(mutation==='login-gate')replace('app.use((req, res, next) => personalTokenOf(req) ? next() : loginGate.middleware(req, res, next));','app.use((_q,_s,n)=>n());');
+if(mutation==='login-gate-apps')replace('app.use((req, res, next) => personalTokenOf(req) ? next() : loginGate.middleware(req, res, next));',"app.use((q,s,n)=>q.path.startsWith('/apps/')?n():loginGate.middleware(q,s,n));");
 if(mutation==='a2a-direct-unsigned')replace("    if (A2A_DIRECT_SIG !== 'off') {","    if (false) {");
 if(mutation==='mcp-auth')replace('  if (!MCP_GATEWAY_ON) return null;','  if (true || !MCP_GATEWAY_ON) return null;');
 if(mutation==='browser-write')replace("  if (p.startsWith('/api/')) {","  if (false && p.startsWith('/api/')) {");

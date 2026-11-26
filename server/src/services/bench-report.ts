@@ -17,7 +17,7 @@ import type { MainStoreFence, ReportResponseRow } from './bench-store-core.ts';
 import type { ReportDimensionService } from './report-dimension.ts';
 import type { GrantService } from './grant.ts';
 import { createHash } from 'node:crypto';
-import { ReportError, actorKindOf, checkBinding, imageNodesOf, materialize, prepareInputs, sha256, slotSpecs, type FrozenBody, type TemplateV2 } from './report-compile.ts';
+import { ReportError, actorKindOf, checkBinding, imageNodesOf, materialize, prepareInputs, sha256, slotSpecs, type FrozenBody, type ReportTemplate } from './report-compile.ts';
 import { fetchImage, ImageError } from '../bench-image.ts';
 import type { PrincipalService } from './principal.ts';
 import { scopeView } from '../grant-scope-view.ts';
@@ -68,7 +68,7 @@ export function positionParts(pos: string): PositionPart[] | 'mcp' | 'builtin' {
 }
 
 /** 这个台能用的维度和它生效的模板：维度不存在 404；撤了的、还没有生效模板的、属于别的领域的 409 */
-export function usableDimension(bench: BenchEntry, dimension: unknown): { id: string; version: number; sha256: string; template: TemplateV2 } {
+export function usableDimension(bench: BenchEntry, dimension: unknown): { id: string; version: number; sha256: string; template: ReportTemplate } {
   if (typeof dimension !== 'string' || !DIM_RE.test(dimension)) throw new BenchError('invalid', 'dimension 要是报告维度的标识');
   const d = dims().get(dimension);
   if (!d) throw new BenchError('not_found', `没有报告维度 ${dimension}`);
@@ -77,7 +77,7 @@ export function usableDimension(bench: BenchEntry, dimension: unknown): { id: st
   if (d.active_version === null) throw new BenchError('conflict', `报告维度 ${dimension} 还没有生效的模板`);
   const t = dims().template(dimension, d.active_version);
   if (!t) throw new BenchError('conflict', `报告维度 ${dimension} 的生效模板读不到`);
-  return { id: dimension, version: d.active_version, sha256: t.sha256, template: t.body as TemplateV2 };
+  return { id: dimension, version: d.active_version, sha256: t.sha256, template: t.body as ReportTemplate };
 }
 /** 编排的拒收转成 400（details 里是 report_<代号>，说是哪一处），别的照原样抛 */
 export function compiled<T>(fn: () => T): T {

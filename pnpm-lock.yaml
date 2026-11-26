@@ -63,6 +63,12 @@ importers:
       '@ant-design/pro-components':
         specifier: ^2.8.0
         version: 2.8.10(antd@5.29.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(rc-field-form@2.7.1(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@json-render/core':
+        specifier: 0.23.2
+        version: 0.23.2(zod@4.3.6)
+      '@json-render/react':
+        specifier: 0.23.2
+        version: 0.23.2(react@18.3.1)(zod@4.3.6)
       ahooks:
         specifier: ^3.8.4
         version: 3.10.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -93,6 +99,9 @@ importers:
       react-router-dom:
         specifier: ^6.30.0
         version: 6.30.6(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      zod:
+        specifier: 4.3.6
+        version: 4.3.6
     devDependencies:
       '@types/react':
         specifier: ^18.3.12
@@ -603,6 +612,16 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
+  '@json-render/core@0.23.2':
+    resolution: {integrity: sha512-2BRXjS2uWLLmlPnlw9kvtCYJFSmnYqBhUyqf6dx7MheKhedGoz80rf4s0XTdGDVue2MLwnFqpcamcEnHi1HLeQ==}
+    peerDependencies:
+      zod: ^4.0.0
+
+  '@json-render/react@0.23.2':
+    resolution: {integrity: sha512-DzHB+UekHk5acxjFU2+qleFhCncOmYLEZXXQT6D3hlE0PsJ/kKEb2be0WfwqFJ0ypDC0DQmnKp3/pQDlW64oAQ==}
+    peerDependencies:
+      react: ^19.2.3
+
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     resolution: {integrity: sha512-oTXEIha4SsuXdTA4Iyskj0kpdx2yVXdhd75c2v3xGrHFfVMsbhTPZU/nMPL4sWKo4pBHm3aucLaqGlF696dTyQ==}
     engines: {node: ^22.20 || ^24.12 || >=25}
@@ -611,7 +630,7 @@ packages:
     libc: [glibc]
 
   '@nelsonlongxiang/dsh-open-a2a-net@0.6.25':
-    resolution: {integrity: sha512-pAsBHltueIVFvgJu3xpjbj3tMITs0xY03N1yW30PAIFaZ9kaeYBXSAIZJipppPppdsI4Pli1IY8bVKaBAkgJng==, tarball: https://registry.npmjs.org/@nelsonlongxiang/dsh-open-a2a-net/-/dsh-open-a2a-net-0.6.25.tgz}
+    resolution: {integrity: sha512-pAsBHltueIVFvgJu3xpjbj3tMITs0xY03N1yW30PAIFaZ9kaeYBXSAIZJipppPppdsI4Pli1IY8bVKaBAkgJng==}
     engines: {pnpm: '>=11.24 <12'}
     peerDependencies:
       '@deepseek-ai/cordis': '>=4.0.1'
@@ -2239,6 +2258,9 @@ packages:
     resolution: {integrity: sha512-7dSzzRQ++CKnNI/krKnYRV7JKKPUXMEh61soaHKg9mrWEhzFWhFnxPxGl+69cD1Ou63C13NUPCnmIcrvqCuM6w==}
     engines: {node: '>=12'}
 
+  zod@4.3.6:
+    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+
   zrender@6.1.0:
     resolution: {integrity: sha512-oEGMDB6pOP2S6OwRR4PdVv610zrjnA3Bh+JnSG12fYJlBKjtNAoEb5fSUoCOOINlH96I2fU38/A2UpRKs67xYQ==}
 
@@ -2804,6 +2826,17 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
+
+  '@json-render/core@0.23.2(zod@4.3.6)':
+    dependencies:
+      zod: 4.3.6
+
+  '@json-render/react@0.23.2(react@18.3.1)(zod@4.3.6)':
+    dependencies:
+      '@json-render/core': 0.23.2(zod@4.3.6)
+      react: 18.3.1
+    transitivePeerDependencies:
+      - zod
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
@@ -4692,6 +4725,8 @@ snapshots:
       string-width: 4.2.3
       y18n: 5.0.8
       yargs-parser: 21.1.1
+
+  zod@4.3.6: {}
 
   zrender@6.1.0:
     dependencies:
