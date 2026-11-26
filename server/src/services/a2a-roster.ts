@@ -25,6 +25,12 @@ export function deliveredPeerZone(root: string): string | null {
   return row?.peer_zone ?? null;
 }
 
+/** 首次投递前也接收已登记且钉钥的宿主名册；验签仍由入站分支完成。 */
+export function registeredRosterZone(root: string): string | null {
+  const row = db.prepare("SELECT zone FROM a2a_peers WHERE root_url = ? AND status = 'active' AND public_key <> ''").get(root) as { zone: string } | undefined;
+  return row?.zone ?? null;
+}
+
 /** 这个根地址在此刻有效的名册里报的是哪个区（名册视图已经排除停用、换钥匙、同号冲突的宿主）；没有返回 null */
 export function liveRosterZone(root: string): string | null {
   if (root === '') return null;

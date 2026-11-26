@@ -208,8 +208,11 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       // 大结果的引用（GET /api/mcp-rest/results/<编号>）只给建它的会话：远程匿名拿一个编出来的编号来，必须 401、取不到任何东西。
       // 网关关着（本机开发）时没有会话可认，这一行不跑
       ...(gatewayOn ? [{ id: 'market.mcp-rest.result-ref-anonymous', target: m, surface: 'market' as const, method: 'GET', path: `/api/mcp-rest/results/${'A'.repeat(22)}`, headers: REMOTE_ANON, status: 401 }] : []),
+      ...(gatewayOn && benchViews ? [{ id: 'market.bench-mcp.report-preflight-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/mcp-rest/tools/report_template_get', body: '{"bench":"wm-self-probe","dimension":"probe"}', headers: REMOTE_ANON, status: 401 }] : []),
       ...(gatewayOn ? [{ id: 'market.capability.anonymous-invoke', target: m, surface: 'market' as const, method: 'POST', path: '/api/mcp-rest/capabilities/probe.read', body: '{}', headers: REMOTE_ANON, status: 401 }] : []),
       { id: 'market.mcp-rest.ticket-upload-forged', target: m, surface: 'market', method: 'PUT', path: `/api/mcp-rest/uploads/${'A'.repeat(43)}`, body: '{}', headers: REMOTE_ANON, status: 404 },
+      // 附件下载票的取件（GET /api/mcp-rest/downloads/<票>）同理：编出来的票必须 404、什么内容都不给。门坏了会回 200（给了文件）或 304
+      { id: 'market.mcp-rest.ticket-download-forged', target: m, surface: 'market', method: 'GET', path: `/api/mcp-rest/downloads/${'A'.repeat(43)}`, headers: REMOTE_ANON, status: 404 },
       { id: 'market.a2a-seat-token.forged', target: m, surface: 'market', method: 'POST', path: '/api/a2a/seat-token', body: `{"v":1,"root":"https://wm-self-probe.invalid","host":"00000000","seat_id":"wm-self-probe","ts":1,"nonce":"wm-self-probe-nonce-0000","aud":"https://wm-self-probe.invalid","sig":"${'A'.repeat(86)}=="}`, headers: REMOTE_ANON, status: 401 },
       { id: 'market.login-flow.unsigned-event', target: m, surface: 'market', method: 'POST', path: '/login/feishu/events', body: '{"schema":"2.0"}', headers: REMOTE_ANON, status: 401 },
       // 团队的决策卡（观察者落地 T8）：/a2a/direct 上的这条分流不跟 WM_A2A_DIRECT_SIG 的 accept 走——不带签名的卡在任何配置下都必须 401、不落库。
@@ -218,6 +221,7 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       { id: 'market.login-flow.forged-callback', target: m, surface: 'market', method: 'GET', path: '/login/feishu/callback?state=wm-self-probe-forged-state-000000000000000&code=x', headers: REMOTE_ANON, status: 400 },
       // Login gate (enforce only): fixed synthetic slug, so a bypass shows up as 404/200 instead of the login redirect
       ...(loginGate === 'enforce' ? [
+        { id: 'market.a2a-roster.unsigned', target: m, surface: 'market', method: 'POST', path: '/a2a/direct', body: JSON.stringify({ team: 'market/00000000', caller_session: 'dsh-host-selfprobe', message: '[A2A roster] 00000000 2000-01-01T00:00:00.000Z\n{"host":"00000000","seats":[]}' }), headers: REMOTE_ANON, status: 401 },
         { id: 'market.login-gate.page', target: m, surface: 'market', method: 'GET', path: '/', headers: REMOTE_ANON, status: 302, login: true },
         { id: 'market.login-gate.app', target: m, surface: 'market', method: 'GET', path: '/apps/wm-self-probe/', headers: REMOTE_ANON, status: 302, login: true },
         { id: 'market.login-gate.api', target: m, surface: 'market', method: 'GET', path: '/api/apps', headers: REMOTE_ANON, status: 401 },

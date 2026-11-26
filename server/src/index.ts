@@ -89,7 +89,7 @@ import { registerTaskRoutes } from './routes/tasks.ts';
 import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './routes/bench-views.ts';
 import { registerKnowledgeRoutes } from './routes/knowledge.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
-import { benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, hasBenchGrant, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
+import { BenchToolScopeError, benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, hasBenchGrant, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
 import { captureBenchStorageFence, resolveBenchRef } from './services/bench-registry.ts';
 import { cardDeleterOf, checkCardDeletable, deleteCardWithBench, type CardDeleter } from './bench-card-delete.ts';
 import { BenchError } from './bench-query.ts';
@@ -118,17 +118,17 @@ import { registerSopRunAccessRoutes } from './routes/sop-run-access.ts';
 import type { WorkbenchService } from './services/workbench.ts';
 import { workItemStuckHoursFromEnv, type WorkItemService } from './services/work-item.ts';
 import type { SopService } from './services/sop.ts';
-import type { McpService } from './services/mcp.ts';
-import type { ChangeRequestService } from './services/change-request.ts';
+import { inAccessRequestTx, insertSkillSearchAudit, type McpService } from './services/mcp.ts';
+import { insertMcpChangeRequest, mcpChangeRequestsByStatus, type ChangeRequestService } from './services/change-request.ts';
 import type { TaskCenterService } from './services/task-center.ts';
-import type { RemoteAllowService } from './services/remote-allow.ts';
-import { SkillService } from './services/skill.ts';
-import type { AppService } from './services/app.ts';
+import { allowNotifyBindings, insertAllowSnapshot, latestAllowSnapshot, type RemoteAllowService } from './services/remote-allow.ts';
+import { deleteSkillRows, insertDownloadTicket, markSkillVersionShadowSkipped, purgeDownloadTicketsExpiredBefore, SkillService } from './services/skill.ts';
+import { appVersionTotalBytes, type AppService } from './services/app.ts';
 import { Config as AppDataConfig, type AppDataService } from './services/app-data.ts';
 import type { GrantService } from './services/grant.ts';
 import type { CookieService } from './services/cookie.ts';
 import type { CockpitService } from './services/cockpit.ts';
-import { ADMIN_TOKEN_KEY, type SettingService } from './services/setting.ts';
+import { ADMIN_TOKEN_KEY, markWmSkillsRebuilt, settingValue, type SettingService } from './services/setting.ts';
 import type { BindingService } from './services/binding.ts';
 import { recordLayerFsShadowOutcome, recordLayerFsSkillShadowOutcome } from './services/layerfs-shadow.ts';
 import { db, getSettings, dataDir, appendOnlySelfCheck, rowToWorkbench, type WorkbenchRow, type TypeRow, type CockpitRow, type PanelConfig, type AppRow, type AppVersionRow, type SopRunRow } from './db.ts';
@@ -139,8 +139,11 @@ import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
 import { UploadTickets, UPLOAD_TICKET_TTL_MS, type UploadTicket } from './upload-tickets.ts';
+import { DownloadTickets, DOWNLOAD_TICKET_TTL_MS, DOWNLOAD_TICKET_USES_DEFAULT, DOWNLOAD_TICKET_USES_MAX, type DownloadTicket } from './download-tickets.ts';
 import { uploadNameOk, UPLOAD_NAME_INVALID } from './upload-file-name.ts';
 import { loadConfig } from './config.ts';
+import { knowledgeStartupLine, knowledgeStartupState } from './knowledge-startup.ts';
+import { Config as KnowledgeConfig } from './services/knowledge.ts';
 import { Config as SessionPolicyConfig, sessionRenewal, type SessionLife } from './session-policy.ts';
 import { createWorkbenchVars, dropWorkbenchVars, mcpVarsGet, mcpVarsSet, workbenchIdOf, reportHotVarKeys, reportHotPending, setVarsStoreMode, startHotVarsFlush, flushHotVars, Config as VarsConfig } from './workbench-vars.ts';
 import { registerWorkbenchVarsRoutes } from './routes/workbench-vars.ts';
@@ -260,7 +263,7 @@ const loginGate = createLoginGate({
   varsAppTokenOk: (req) => workbenchVars.appTokenWrite(req),
   runCapOk: async (kind, runId, presented) => {
     if (kind === 'read') return (await authorizeRunRead({ cap: presented }, runId)).authorized;
-    const row = db.prepare('SELECT status, upload_token FROM sop_runs WHERE id = ?').get(runId) as { status: string; upload_token: string } | undefined;
+    const row = svc<SopService>('sop').runWriteCredential(runId);
     const want = String(row?.upload_token ?? '');
     return row?.status === 'running' && want.length > 0 && want.length === presented.length && timingSafeEqual(Buffer.from(want), Buffer.from(presented));
   },
@@ -576,13 +579,13 @@ function computeAllowDiff() {
   const cur = remoteAllowSnapshot();
   let prev: string[] | null = null;
   try {
-    const row = db.prepare('SELECT snapshot FROM remote_allow_state ORDER BY id DESC LIMIT 1').get() as { snapshot: string } | undefined;
-    if (row) prev = JSON.parse(row.snapshot);
+    const snapshot = latestAllowSnapshot();
+    if (snapshot !== undefined) prev = JSON.parse(snapshot);
   } catch { prev = null; }
   const added = prev === null ? [] : cur.filter((p) => !prev!.includes(p));
   const removed = prev === null ? [] : prev!.filter((p) => !cur.includes(p));
   if (prev === null || added.length > 0 || removed.length > 0) {
-    db.prepare('INSERT INTO remote_allow_state (snapshot) VALUES (?)').run(JSON.stringify(cur));
+    insertAllowSnapshot(JSON.stringify(cur));
   }
   return { added, removed, current: cur };
 }
@@ -596,7 +599,7 @@ function announceAllowDiff(): void {
   setTimeout(() => {
     if (outboundOff()) { noteBlocked('allow-notify'); console.warn('[S3-notify] 对外已断开：豁免面变更通知不发'); return; }
     try {
-      const nts = db.prepare("SELECT target_slug, agent_node, notify_url FROM bindings WHERE direction IN ('notify','both') AND revoked_at = '' AND notify_url != ''").all() as { target_slug: string; agent_node: string; notify_url: string }[];
+      const nts = allowNotifyBindings();
       for (const nt of nts) {
         a2aSendOutbound(a2aKeyPath(), { baseUrl: nt.notify_url, team: nt.agent_node }, JSON.stringify({
           type: 'remote-allow-changed', added: lastAllowDiff.added, removed: lastAllowDiff.removed,
@@ -1278,7 +1281,7 @@ function publishAppBody(b: any, source?: { repo: string; path: string; commit: s
   if (existing && !force) {
     const prev = svc<AppService>('app').versionsMax(existing.id) as { v: number | null };
     if (prev.v !== null && prev.v > 0) {
-      const prevRow = db.prepare('SELECT total_bytes FROM app_versions WHERE app_id = ? AND version = ?').get(existing.id, prev.v) as { total_bytes?: number } | undefined;
+      const prevRow = appVersionTotalBytes(existing.id, prev.v);
       const prevBytes = prevRow?.total_bytes ?? 0;
       const newBytes = files.reduce((s, f) => s + Buffer.byteLength(f.content, 'utf8'), 0);
       if (prevBytes > 0 && newBytes < prevBytes * 0.5) {
@@ -1435,9 +1438,7 @@ function executeSkillDelete(slug: string): void {
   const row = S.skillBySlug(slug);
   if (!row) throw new HttpError(404, `skill not found: ${slug}`);
   for (const v of S.versionsBySkill(row.id) as any[]) { try { rmSync(resolveSnap(v.snapshot_path), { recursive: true, force: true }); } catch { /* 已不在 */ } }
-  db.prepare('DELETE FROM install_ledger WHERE skill_id = ?').run(row.id);
-  db.prepare('DELETE FROM skill_versions WHERE skill_id = ?').run(row.id);
-  db.prepare('DELETE FROM skills WHERE id = ?').run(row.id);
+  deleteSkillRows(row.id);
 }
 registerChangeRequestRoutes(http, { adminGuard, wrap, bad, activateAppVersion, deleteAppCascade, executeSkillRollback, executeSkillDelete, cardDeleter: (req) => cardDeleterOf(req, (r) => adminHeaderOk(r)) });
 
@@ -1804,7 +1805,7 @@ function sopRunStartCore(slugRaw: string, startedByRaw: string, requester: strin
   const id = Number(r.lastInsertRowid);
   // P0：run-scoped 上传令牌（启动签发·Runner 页内嵌·files POST 必带）
   const uploadToken = randomBytes(32).toString('hex');
-  try { db.prepare('UPDATE sop_runs SET upload_token = ? WHERE id = ?').run(uploadToken, id); } catch { /* 列缺=降级 */ }
+  try { svc<SopService>('sop').runSetUploadToken(id, uploadToken); } catch { /* 列缺=降级 */ }
   // Lazy Redis initialization under the per-run queue avoids racing a new save or finish.
   // #309 phase2：创建即得 run 级读能力（明文仅此一次；库内只存摘要）
   const readCapability = issueRunReadCap(id);
@@ -2088,7 +2089,7 @@ function runFileQuota(runId: number) {
 function runFileWriteGate(req: express.Request, runId: number): void {
   const row = sopRunRow(runId);
   if (row.status !== 'running') throw new HttpError(409, `run ${runId} 已 ${row.status}，不可再关联文件`);
-  const strict = (() => { try { const r = db.prepare("SELECT value FROM settings WHERE key = 'run_upload_require_token'").get() as { value?: string } | undefined; return String(r?.value ?? '') === '1'; } catch { return false; } })();
+  const strict = (() => { try { return String(settingValue('run_upload_require_token') ?? '') === '1'; } catch { return false; } })();
   if (strict && !adminHeaderOk(req)) {
     const presented = String(req.headers['x-run-upload-token'] ?? '').trim();
     const expected = String((row as any).upload_token ?? '');
@@ -2236,6 +2237,101 @@ function uploadTicketSession(t: UploadTicket): McpSess | null | 'denied' {
   const ok = t.kind === 'app_file' ? mcpToolAllowsApp(sess, 'app_files_upload', t.slug ?? '') : mcpToolScope(sess, 'skill_file_put') !== null;
   return ok ? sess : 'denied';
 }
+// ---------- MCP 附件短时下载票（见 download-tickets.ts）----------
+const downloadTickets = new DownloadTickets();
+/** 发票者：调用方会话由 callTool 的 subject 给出（mcp:<会话名>；网关关着时是 anonymous）。别的调用方不发票、也不撤票 */
+function downloadTicketOwner(subject: string): { sessionId: number | null; session: string | null } {
+  const name = subject.startsWith('mcp:') ? subject.slice(4) : subject === 'anonymous' && !MCP_GATEWAY_ON ? null : undefined;
+  if (name === undefined) throw new HttpError(403, '下载票只发给 MCP 会话');
+  if (name === null) return { sessionId: null, session: null };
+  const row = svc<McpService>('mcp').sessionActiveByName(name) as { id: number } | undefined;
+  if (!row) throw new HttpError(403, '下载票只发给有效的 MCP 会话');
+  return { sessionId: row.id, session: name };
+}
+/**
+ * 发票：app_files_list 对这个台的授权在分发前已核过（mcpInvokeTool），这里只核文件属于这个台、没删、盘上在，
+ * 并把台、文件的当前样子（编号、建台时刻、大小、sha256、落盘位置）绑进票。
+ */
+async function issueDownloadTicket(a: AppRow, args: any, subject: string, origin: string): Promise<Record<string, unknown>> {
+  const owner = downloadTicketOwner(subject);
+  const fileId = Number(args?.ticket_for_id);
+  if (!Number.isSafeInteger(fileId) || fileId <= 0) throw new HttpError(400, 'ticket_for_id 是文件 id（正整数，来自 app_files_list 的 items[].id）');
+  const maxUses = args?.max_uses === undefined || args.max_uses === null || args.max_uses === '' ? DOWNLOAD_TICKET_USES_DEFAULT : Number(args.max_uses);
+  if (!Number.isSafeInteger(maxUses) || maxUses < 1 || maxUses > DOWNLOAD_TICKET_USES_MAX) throw new HttpError(400, `max_uses 是 1 到 ${DOWNLOAD_TICKET_USES_MAX} 的整数（默认 ${DOWNLOAD_TICKET_USES_DEFAULT}）`);
+  // 别的台的文件、不存在的、已删的：同一句 404，不说是哪一种
+  const f = await svc<AppDataService>('appData').fileById(fileId, a.slug);
+  const abs = f ? join(dataDir, f.storage_path) : '';
+  if (!f || !existsSync(abs) || statSync(abs).size !== f.size) throw new HttpError(404, `file not found: ${fileId}`);
+  const sha256 = String(f.sha256 || '') || await fileSha256(abs);
+  const { token, ref, expiresAt } = downloadTickets.issue({ ...owner, slug: a.slug, appId: a.id, appCreatedAt: a.created_at, fileId: f.id, size: f.size, sha256, storagePath: String(f.storage_path), maxUses });
+  const path = `/api/mcp-rest/downloads/${token}`;
+  const url = `${origin.replace(/\/+$/, '')}${path}`;
+  return {
+    download_url: url,
+    download_path: path,
+    ticket: token,
+    ticket_ref: ref,
+    method: 'GET',
+    file: { id: f.id, name: f.original_name, mime: f.mime, size: f.size, sha256 },
+    max_uses: maxUses,
+    expires_at: new Date(expiresAt).toISOString(),
+    expires_in_seconds: Math.round(DOWNLOAD_TICKET_TTL_MS / 1000),
+    curl: `curl -fsS -o <本地文件> '${url}'`,
+    next: `在 shell 里直接 GET download_url（${Math.round(DOWNLOAD_TICKET_TTL_MS / 60000)} 分钟内、最多 ${maxUses} 次，不用会话令牌；只能取这一份文件，别的一概不行）。每次请求都算一次，带 Range 续传、If-None-Match 也各算一次，所以要续传就多申请几次的额度。应答里的 sha256 就是 file.sha256，取完对一下。不再需要时用 app_files_list {slug, revoke_ticket: "${ref}"} 撤销。`,
+  };
+}
+/** 撤票：只有发票的会话能撤，别人的、不存在的、已用完的都是 revoked:false（不说是哪一种） */
+function revokeDownloadTicket(args: any, subject: string): Record<string, unknown> {
+  const owner = downloadTicketOwner(subject);
+  const ref = typeof args?.revoke_ticket === 'string' ? args.revoke_ticket.trim() : '';
+  return { ticket_ref: ref.slice(0, 16), revoked: downloadTickets.revoke(ref, owner.sessionId, owner.session) };
+}
+type DownloadOpen = { ok: true; sess: McpSess | null; abs: string; file: { name: string; mime: string; size: number } } | { ok: false; sess: McpSess | null; why: string };
+/** 用票时再问一次：发票的会话还在不在（同一个编号、没被吊销）、对这个台的 app_files_list 授权还在不在、台和文件还是不是发票时的那一个 */
+async function openDownloadTicket(t: DownloadTicket): Promise<DownloadOpen> {
+  let sess: McpSess | null = t.session === null ? null : { id: t.sessionId!, name: t.session, grants: [] };
+  const deny = (why: string): DownloadOpen => ({ ok: false, sess, why });
+  if (t.session === null) { if (MCP_GATEWAY_ON) return deny('gateway turned on since issue'); }
+  else {
+    const mcp = svc<McpService>('mcp');
+    const row = mcp.sessionActiveByName(t.session) as { id: number; name: string; grants: string } | undefined;
+    if (!row || row.id !== t.sessionId) return deny('ticket session revoked or replaced');
+    if (!mcp.sessionOwnerEnabled(row.id)) return deny('ticket session owner disabled');
+    let grants: string[] = [];
+    try { grants = JSON.parse(row.grants || '[]'); } catch { grants = []; }
+    sess = { id: row.id, name: row.name, grants };
+    if (!mcpToolAllowsApp(sess, 'app_files_list', t.slug)) return deny('app_files_list grant withdrawn');
+  }
+  let a: AppRow;
+  try { a = getApp(t.slug); } catch { return deny('app gone'); }
+  if (a.id !== t.appId || a.created_at !== t.appCreatedAt) return deny('app replaced');
+  const f = await svc<AppDataService>('appData').fileById(t.fileId, t.slug);
+  if (!f) return deny('file gone');
+  if (f.size !== t.size || f.storage_path !== t.storagePath) return deny('file replaced');
+  const abs = join(dataDir, f.storage_path);
+  if (!existsSync(abs) || statSync(abs).size !== t.size) return deny('file missing on disk');
+  if ((String(f.sha256 || '') || await fileSha256(abs)) !== t.sha256) return deny('file replaced');
+  return { ok: true, sess, abs, file: { name: String(f.original_name), mime: String(f.mime), size: f.size } };
+}
+/**
+ * 没有这张下载票的请求（编造的、写法不对、过期、用完、撤销了：这几种从仓里看不出区别，应答也不分）没有会话可记。
+ * 为了让拒绝也留痕又不被外面的请求灌满：进有界的聚合——每分钟至多往 mcp_calls 写一行（会话名是固定的占位 DOWNLOAD_REJECT_SESSION，
+ * ok=0，error 里只有这一分钟前后累计的次数），行里没有票、路径、来源地址；窗口里的其余请求只加次数，下一行带走。
+ */
+const DOWNLOAD_REJECT_SESSION = '(download-ticket)';
+const DOWNLOAD_REJECT_WINDOW_MS = 60_000;
+let downloadRejected = 0, downloadRejectedAt = 0;
+function noteDownloadRejected(): void {
+  downloadRejected += 1;
+  const now = Date.now();
+  if (!MCP_GATEWAY_ON || now - downloadRejectedAt < DOWNLOAD_REJECT_WINDOW_MS) return;
+  const n = downloadRejected;
+  downloadRejected = 0; downloadRejectedAt = now;
+  try {
+    svc<McpService>('mcp').callInsertStmt()
+      .run(DOWNLOAD_REJECT_SESSION, 'rest/ticket_download_rejected', 'app_files_list', 0, `${n} request(s) with no valid download ticket since the last record`, 0, sha256Hex('{}'), 'rest', '', '', '');
+  } catch { /* 审计写不进去不影响应答 */ }
+}
 /** 申请上传票时的公共校验：size 正整数且不超上限，sha256 必带 */
 function ticketSizeSha(args: any, max: number): { size: number; sha256: string } {
   const size = Number(args?.size);
@@ -2342,8 +2438,8 @@ function skillDownloadIssue(slugIn: unknown, versionIn: unknown, issuedTo: strin
   const { row, target } = skillVersionDir(slugIn, versionIn);
   const id = randomBytes(32).toString('hex');
   const exp = Date.now() + SKILL_DL_TTL_MS;
-  db.prepare('DELETE FROM skill_download_tickets WHERE expires_at < ?').run(Date.now() - 86400_000); // 过期一天的票顺手清掉
-  db.prepare('INSERT INTO skill_download_tickets (id, slug, version, issued_to, expires_at) VALUES (?, ?, ?, ?, ?)').run(skillTicketKey(id), row.slug, target.version, issuedTo, exp);
+  purgeDownloadTicketsExpiredBefore(Date.now() - 86400_000); // 过期一天的票顺手清掉
+  insertDownloadTicket(skillTicketKey(id), row.slug, target.version, issuedTo, exp);
   const name = skillPkgDir(row.slug);
   const url = `${base}/api/skills/dl/${id}`;
   const pkgSha = createHash('sha256').update(skillPackage(row, target, skillVersionDir(row.slug, target.version).dir)).digest('hex');
@@ -2466,7 +2562,7 @@ async function skillPublishCore(slugIn: unknown, files: any, changelogIn: unknow
   // Skill shadow remains non-blocking; its per-version outcome is durable/retryable like app publishing.
   // LayerFS 契约 v1 只收文本：含二进制的版本不推影子，记 skipped（与 migrate-layerfs 的留档不迁同义）
   const binary = blobs.find((f) => !isUtf8Bytes(f.content));
-  if (binary) db.prepare("UPDATE skill_versions SET shadow_status='skipped', shadow_error=? WHERE skill_id=? AND version=? AND commit_id=''").run(`含非 UTF-8（二进制）文件 ${binary.path}：LayerFS 契约只收文本，不推影子`, row.id, nextVer);
+  if (binary) markSkillVersionShadowSkipped(`含非 UTF-8（二进制）文件 ${binary.path}：LayerFS 契约只收文本，不推影子`, row.id, nextVer);
   else void layerfsPublish(LAYERFS_SKILLS_PROJECT, blobs.map((f) => ({ path: f.path, content: f.content.toString('utf8') })), `[skill-publish] ${slug} v${nextVer}`, `skill/${slug}`).then((out) => {
     try { recordLayerFsSkillShadowOutcome(db, Number(row.id), nextVer, out); }
     catch (e) { console.warn(`[S2-shadow] outcome persistence failed: ${slug} v${nextVer}: ${String((e as Error).message).slice(0,100)}`); }
@@ -2504,7 +2600,7 @@ async function rebuildWmSkills(trigger: string): Promise<{ ok: boolean; deleted_
     const out = await layerfsPublish(LAYERFS_SKILLS_PROJECT, files, `[rebuild] ${sk.slug} v${latest.version}`, `skill/${sk.slug}`);
     if (out) { S.versionMigrated(out.commit_id, latest.id); republished++; }
   }
-  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_wm_skills_rebuild', datetime('now'))").run();
+  markWmSkillsRebuilt();
   console.log(`[S4-rebuild] ${trigger}: deleted=${deleted} republished=${republished} cleared=${cleared}`);
   return { ok: true, deleted_project: deleted, republished, cleared_stale: cleared };
 }
@@ -2512,8 +2608,8 @@ async function rebuildWmSkills(trigger: string): Promise<{ ok: boolean; deleted_
 void (async function scheduleMonthlyRebuild() {
   const check = async () => {
     try {
-      const row = db.prepare("SELECT value FROM settings WHERE key = 'last_wm_skills_rebuild'").get() as { value?: string } | undefined;
-      const last = row?.value ? Date.parse(row.value.replace(' ', 'T') + 'Z') : 0;
+      const lastRaw = settingValue('last_wm_skills_rebuild');
+      const last = lastRaw ? Date.parse(lastRaw.replace(' ', 'T') + 'Z') : 0;
       if (Date.now() - last >= 30 * 24 * 3600 * 1000) await rebuildWmSkills('monthly-auto');
     } catch { /* 调度失败不阻运行 */ }
   };
@@ -3087,7 +3183,7 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
         const cur = SkillService.currentOf(s, vs)?.version ?? null;
         return { slug: s.slug, short_name: skillShortName(s.slug), name: s.name, layer: s.layer, description: String(s.description ?? ''), confidence: pv, version: cur, install_plan: { slug: s.slug, version: cur } };
       });
-      try { db.prepare("INSERT INTO mcp_calls (at, session_name, method, tool, ok, error, duration_ms, args_sha256) VALUES (datetime('now'), ?, 'tools/call', 'skill_search', 1, '', 0, ?)").run('skill_search', need_digest); } catch { /* 审计失败不阻 */ }
+      try { insertSkillSearchAudit(need_digest); } catch { /* 审计失败不阻 */ }
       const _total = { candidates_total: candidatesTotal, top_n: topN }; // #007 总量披露（恒报·含未截断）
       return items.length ? { need_digest, ..._total, items } : { need_digest, ..._total, items: [], note: `库里有 ${candidatesTotal} 个技能，没有置信度大于 0.7 的；换个说法再搜，或用 skills_list 按关键词看全部、用 skill_read 读正文` };
     }
@@ -3154,13 +3250,12 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
       if (op === 'rollback' && typeof args?.target_version !== 'number') bad('rollback 需 target_version（数字）');
       if (kind === 'app') getApp(slug);
       else if (!svc<SkillService>('skill').skillBySlug(slug)) throw new HttpError(404, `skill not found: ${slug}`);
-      const info = db.prepare("INSERT INTO change_requests (kind, slug, op, target_version, reason, source, requested_by) VALUES (?, ?, ?, ?, ?, 'mcp', ?)")
-        .run(kind, slug, op, op === 'rollback' ? Number(args?.target_version) : null, String(args?.reason ?? '').slice(0, 500), String(args?.requested_by ?? 'mcp-agent'));
+      const info = insertMcpChangeRequest(kind, slug, op, op === 'rollback' ? Number(args?.target_version) : null, String(args?.reason ?? '').slice(0, 500), String(args?.requested_by ?? 'mcp-agent'));
       return { id: Number(info.lastInsertRowid), kind, slug, op, target_version: args?.target_version ?? null, status: 'pending', note: '请求已建——批准前状态不变（人经 /api/change-requests/:id/approve 口令+reviewed_by 批准执行）' };
     }
     case 'change_requests': {
       const status = typeof args?.status === 'string' ? args.status : 'pending';
-      return db.prepare('SELECT id, kind, slug, op, target_version, reason, status, requested_by, created_at FROM change_requests WHERE status = ? ORDER BY id DESC LIMIT 50').all(status);
+      return mcpChangeRequestsByStatus(status);
     }
     case 'sop_publish': {
       const a = sopTransition(String(args?.slug), ['draft', 'deprecated'], 'published', '发布');
@@ -3245,6 +3340,16 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
     }
     case 'app_files_list': {
       const a = getApp(String(args?.slug ?? ''));
+      // 下载票（#1055）：同一个工具、同一个按台的授权，不另设常驻工具。ticket_for_id 申请一张票，revoke_ticket 撤一张；都不和翻页混用
+      const asksTicket = args?.ticket_for_id !== undefined && args?.ticket_for_id !== null;
+      const asksRevoke = args?.revoke_ticket !== undefined && args?.revoke_ticket !== null;
+      if (asksTicket || asksRevoke) {
+        if (asksTicket && asksRevoke) throw new HttpError(400, 'ticket_for_id 和 revoke_ticket 一次只能给一个');
+        if (args?.limit !== undefined || args?.before_id !== undefined) throw new HttpError(400, '申请或撤销下载票时不翻页：不要带 limit / before_id');
+        if (asksRevoke && args?.max_uses !== undefined) throw new HttpError(400, 'max_uses 只在申请下载票时用');
+        return asksTicket ? await issueDownloadTicket(a, args, subject, origin) : revokeDownloadTicket(args, subject);
+      }
+      if (args?.max_uses !== undefined) throw new HttpError(400, 'max_uses 只在申请下载票（ticket_for_id）时用');
       const limit = pageLimit(args?.limit);
       const beforeId = pageBeforeId(args?.before_id);
       const rows = beforeId > 0
@@ -3735,8 +3840,7 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
   if ([...reason].length > ACCESS_REASON_MAX) bad(`reason 超过 ${ACCESS_REASON_MAX} 字`);
   const toolsJson = JSON.stringify(wanted);
   const mcp = svc<McpService>('mcp');
-  db.exec('BEGIN IMMEDIATE');
-  try {
+  return inAccessRequestTx(() => {
     const dup = mcp.accessRequestPendingSame(s.id, toolsJson) as AccessRequestRow | undefined;
     let out;
     if (dup) out = { ok: true, duplicate: true, request: accessRequestForSession(dup) };
@@ -3745,12 +3849,8 @@ async function mcpAccessTool(name: string, args: any, sess: McpSess | null, orig
       const r = mcp.accessRequestInsert(s.id, toolsJson, reason) as unknown as { lastInsertRowid: number | bigint };
       out = { ok: true, duplicate: false, request: accessRequestForSession(mcp.accessRequestById(Number(r.lastInsertRowid)) as AccessRequestRow) };
     }
-    db.exec('COMMIT');
     return { ...out, next: accessNext(out.request.ref) };
-  } catch (e) {
-    db.exec('ROLLBACK');
-    throw e;
-  }
+  });
 }
 
 /** 审批人：站内管理员记主体，口令记 admin-token（口令本身不落库）。历史留痕里的 odoo:<登录名> 不改 */
@@ -3872,6 +3972,10 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
       mcpAudit(sess, channel, 'tools/call', toolName, true, '', Date.now() - t0, args);
       return { kind: 'ok', out, upstream: false };
     } catch (e: any) {
+      if (e instanceof BenchToolScopeError) {
+        mcpAudit(sess, channel, 'tools/call', toolName, false, 'not granted: report dimension scope', Date.now() - t0, args);
+        return { kind: 'not_granted' };
+      }
       const err = benchToolError(e);
       mcpAudit(sess, channel, 'tools/call', toolName, false, String(err.message).slice(0, 200), Date.now() - t0, args);
       return { kind: 'error', error: err, upstream: false };
@@ -4072,7 +4176,7 @@ async function fileSha256(abs: string): Promise<string> {
   return hex;
 }
 /** 二进制下载：强 ETag = sha256、If-None-Match → 304、单段 Range（bytes=a-b / a- / -n）→ 206、越界 416；安全头同现有下载（attachment + nosniff） */
-async function sendStoredFile(req: express.Request, res: express.Response, f: { abs: string; size: number; mime: string; name: string; sha256?: string; onSha?: (sha: string) => void }): Promise<void> {
+async function sendStoredFile(req: express.Request, res: express.Response, f: { abs: string; size: number; mime: string; name: string; sha256?: string; onSha?: (sha: string) => void; noStore?: boolean }): Promise<void> {
   if (!existsSync(f.abs)) throw new HttpError(404, 'stored file missing on disk');
   const size = statSync(f.abs).size;
   // 入库时存了 sha256 就直接用；存量行（浏览器上传等未存的）算一次后经 onSha 回写
@@ -4085,7 +4189,7 @@ async function sendStoredFile(req: express.Request, res: express.Response, f: { 
   res.setHeader('etag', etag);
   res.setHeader('x-content-sha256', sha);
   res.setHeader('accept-ranges', 'bytes');
-  res.setHeader('cache-control', 'private, no-cache');
+  res.setHeader('cache-control', f.noStore ? 'no-store' : 'private, no-cache'); // 票的地址本身就是凭据，不进任何缓存
   const inm = String(req.headers['if-none-match'] ?? '');
   if (inm && inm.split(',').map((x) => x.trim()).some((x) => x === etag || x === '*')) { res.status(304).end(); return; }
   let start = 0, end = size - 1;
@@ -4117,7 +4221,7 @@ async function mcpRestRunReadable(req: express.Request, sess: McpSess | null, ru
 }
 const runIdParam = (v: unknown): number => { if (!/^\d+$/.test(String(v))) throw new HttpError(404, `run not found: ${v}`); return Number(v); };
 registerMcpRestRoutes(http, { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader,
-  takeUploadTicket: (token) => uploadTickets.take(token), uploadTicketSession, skillStageIncomingPath, skillStageFromFile, mcpByRef, mcpResultAccess });
+  takeUploadTicket: (token) => uploadTickets.take(token), uploadTicketSession, takeDownloadTicket: (token) => downloadTickets.take(token), dropDownloadTicket: (token) => downloadTickets.drop(token), openDownloadTicket, noteDownloadRejected, skillStageIncomingPath, skillStageFromFile, mcpByRef, mcpResultAccess });
 import { goPrefix, moduleProxy, stripSessionIdCookie, verifyPortalSessionStrip } from './portal.ts';
 import { registerPortalRoutes } from './routes/portal.ts';
 import { stripIncoming as stripPortalForward, verifyPortalForwardStrip, useMarketTokenCheck } from './portal-forward-headers.ts';
@@ -4258,6 +4362,10 @@ const goServer = registerSurface(app, 'market', PORT, () => {
   const counts = svc<WorkbenchService>('workbench').count() as { n: number };
   console.log(`[workbench-market] server  http://127.0.0.1:${PORT}  (workbenches: ${counts.n}, web-dist: ${existsSync(webDist) ? 'served' : 'none'}, portal: /go/<id>/)`);
   if (SURFACE_PORTS.control) console.log(`[workbench-market] control http://127.0.0.1:${SURFACE_PORTS.control}  （可选的独立管理端口；管理写在业务面凭口令或站内管理员同样可做）`);
+  { // 经验库接入自检（#894、#1089）：入口、库源、同步周期缺哪样就 warn 点名，不拒绝启动
+    const k = knowledgeStartupLine(knowledgeStartupState(loadConfig(KnowledgeConfig).syncMinutes));
+    if (k.level === 'warn') console.warn(k.line); else console.log(k.line);
+  }
   // The listener exists but HTTP/market WS remain gated until anonymous safety checks pass.
 });
 

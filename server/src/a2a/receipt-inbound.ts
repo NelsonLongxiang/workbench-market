@@ -24,7 +24,7 @@ import { followupOf, followupsOfDelivery, followupsOfPeerSince, recordFollowup }
 import { deliveryTarget, isNoticeTask, queueReply, replyKindOfTask } from '../services/a2a-replies.ts';
 import { kickWorkbenchEvents, logDeliveryFact } from '../workbench-events.ts';
 import { noteA2aError } from './errors.ts';
-import { deliveredPeerZone, recordRoster, type RosterSeat } from '../services/a2a-roster.ts';
+import { deliveredPeerZone, registeredRosterZone, recordRoster, type RosterSeat } from '../services/a2a-roster.ts';
 import { noteRoster } from './roster-stats.ts';
 import { cleanArtifacts } from '../services/work-item.ts';
 import { peerCard } from './peer-card.ts';
@@ -448,7 +448,7 @@ async function handleRoster(req: Req, message: string, deps: { audiences: () => 
   const head = /^\[A2A roster\] ([0-9a-f]{8}) (\S{10,40})$/.exec(nl < 0 ? message : message.slice(0, nl));
   if (!head) { noteRoster('malformed'); return null; }
   const root = originOf(header(req, 'x-a2a-caller-url'));
-  const zone = deliveredPeerZone(root);
+  const zone = deliveredPeerZone(root) ?? registeredRosterZone(root);
   if (!zone) { noteRoster('not_delivered_peer'); return null; }
   const now = deps.now?.() ?? Date.now();
   const verdict = await verifyReceiptSigner(req, req.rawBody ?? Buffer.alloc(0), { task_id: '', kind: 'delivery', event_id: '', delivery_id: 0, peer_root: root, peer_zone: zone }, deps.audiences(), now);
