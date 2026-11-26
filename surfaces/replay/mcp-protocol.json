@@ -720,7 +720,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "27113", "etag": "W/\"69e9-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "28048", "etag": "W/\"6d90-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "jsonrpc": "2.0",
               "id": 2,
@@ -923,10 +923,17 @@
                   },
                   {
                     "name": "app_files_list",
-                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。下载票：交给只管取件的工具时，不要把会话令牌给它——带 ticket_for_id（文件 id）申请一张只读的短时下载票（2 分钟、默认 1 次、max_uses 最多 5；只绑这一份文件，不能列文件、读台数据或上传），应答里的 download_url 直接 GET 即得文件字节；revoke_ticket（应答里的 ticket_ref）提前撤销。申请和撤销都沿用本工具对这个台的授权，不带 limit / before_id。",
                     "inputSchema": {
                       "type": "object",
-                      "properties": { "slug": { "type": "string" }, "limit": { "type": "integer", "description": "条数（默认 50，上限 200）" }, "before_id": { "type": "integer" } },
+                      "properties": {
+                        "slug": { "type": "string" },
+                        "limit": { "type": "integer", "description": "条数（默认 50，上限 200）" },
+                        "before_id": { "type": "integer" },
+                        "ticket_for_id": { "type": "integer", "description": "申请这份文件的短时下载票（文件 id，来自列表的 items[].id）；不和 limit / before_id / revoke_ticket 同用" },
+                        "max_uses": { "type": "integer", "description": "只在申请下载票时用：这张票最多能取几次（1 到 5，默认 1；Range、条件请求也各算一次）" },
+                        "revoke_ticket": { "type": "string", "description": "撤销自己发的下载票：填应答里的 ticket_ref（dt-xxxxxxxx）" }
+                      },
                       "required": ["slug"],
                       "additionalProperties": false
                     }

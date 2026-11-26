@@ -396,6 +396,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   design-standard.ts（MCP design_standard 工具的 design token 标准只读读取）
   design-tokens-css.ts（DESIGN.md 生成的 tokens.css 服务端出口）
   endpoint-stats.ts（端点数）
+  endpoint-key.ts（端点计数的键：带 :ticket 参数的路由按路由模板记键，票的路径不进统计；没有路由对象时按 URL 折叠上传、下载票段，不分大小写）
   errors.ts（错误类型）
   eval.ts（#178 jev 评估客户端）
   extensions.ts（扩展挂载点·WM_EXTENSIONS_DIR）
@@ -430,6 +431,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   portal-access.ts（门户按台访问范围 all/admin/listed、凭据默认收紧、HTTP/WS同判与审计）
   skill-snap-path.ts（技能快照的磁盘相对路径，只此一处：`skill-snapshots/<encodeURIComponent(全 slug)>/v<n>`；服务端发布和 scripts/skill-import.mjs、scripts/skill-upload-one.mjs 写快照都用它，snapshot_path 存这个相对形，跨源同名技能各有各的目录，#183、#810）
   upload-tickets.ts（MCP 上传票：先申请、再直传——票只存 sha256、只能用一次、10 分钟过期、每会话 20 张、全局 1000 张，只在内存里；发票在 skill_file_put / app_files_upload 不带内容时，用票在 PUT /api/mcp-rest/uploads/<票>）
+  download-tickets.ts（MCP 附件短时下载票：app_files_list 带 ticket_for_id 申请——只读、只绑一份文件和发票的会话，票只存 sha256、2 分钟过期、默认 1 次最多 5 次、每会话 20 张、全局 1000 张，只在内存里；用票在 GET /api/mcp-rest/downloads/<票>，用票时再核会话、授权、台和文件）
   upload-file-name.ts（上传文件名的统一规则：台文件的 base64、上传票、REST 原始字节、两个 multipart 入口、工作项附件、SOP 运行文件共用，技能包路径和台与 SOP 源码发布的路径逐段用；拒路径分隔符、控制字符、DEL、方向控制符）
   redis.ts（Redis 连接和 SOP 执行实例的热态：连接只有这一条；SOP 的读写经共用状态层的 sop 句柄，只碰 wm:sop: 开头的键）
   request-person.ts  这个请求是哪个人：只经身份服务认请求带的登录凭据（登录提供方的会话或市场会话），主体须是启用的人；认不出就是没有，调用方照常放行（任务中心建录入、发布用）
@@ -750,6 +752,7 @@ MCP 自带一套 REST：不说 MCP 协议的客户端（普通脚本、按 OpenA
 | `POST {rest_base}/apps/{slug}/files` | `app_files_upload` | multipart：字段 `file`，可选 `note`、`created_by`、`sha256`（期望的 sha256，也可放请求头 `X-Content-SHA256`，两处都带须一致） |
 | `GET {rest_base}/apps/{slug}/files` | `app_files_list` | 列文件，倒序分页（`limit`、`before_id`），带 `quota` |
 | `GET {rest_base}/apps/{slug}/files/{id}` | `app_files_list` | 二进制下载 |
+| `GET {rest_base}/downloads/{票}` | 不用会话令牌，票本身是凭据 | 附件短时下载票的取件：票由 `app_files_list` 带 `ticket_for_id`（文件 id）申请，只读、只绑那一份文件和发票的会话，2 分钟、默认 1 次（`max_uses` 最多 5，Range 和条件请求各算一次）；用票时再核会话、授权、台和文件，对不上一律同一句 404；`revoke_ticket` 提前撤销 |
 | `GET {rest_base}/apps/{slug}/data` | `app_data_list` | 读台数据（分页） |
 | `GET {rest_base}/sop/runs/{id}` | `sop_run_get` | 结果与 sop_run_get 相同；没有 run 读授权时只返回元数据 |
 | `GET {rest_base}/sop/runs/{id}/files[/{fileId}]` | `sop_run_get` + 该 run 的读授权 | 附件列表与下载 |

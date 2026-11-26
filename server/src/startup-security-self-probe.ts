@@ -211,6 +211,8 @@ export function createStartupSecurityProbe({ timeoutMs = 1500, listenWaitMs = LI
       ...(gatewayOn && benchViews ? [{ id: 'market.bench-mcp.report-preflight-anonymous', target: m, surface: 'market' as const, method: 'POST', path: '/api/mcp-rest/tools/report_template_get', body: '{"bench":"wm-self-probe","dimension":"probe"}', headers: REMOTE_ANON, status: 401 }] : []),
       ...(gatewayOn ? [{ id: 'market.capability.anonymous-invoke', target: m, surface: 'market' as const, method: 'POST', path: '/api/mcp-rest/capabilities/probe.read', body: '{}', headers: REMOTE_ANON, status: 401 }] : []),
       { id: 'market.mcp-rest.ticket-upload-forged', target: m, surface: 'market', method: 'PUT', path: `/api/mcp-rest/uploads/${'A'.repeat(43)}`, body: '{}', headers: REMOTE_ANON, status: 404 },
+      // 附件下载票的取件（GET /api/mcp-rest/downloads/<票>）同理：编出来的票必须 404、什么内容都不给。门坏了会回 200（给了文件）或 304
+      { id: 'market.mcp-rest.ticket-download-forged', target: m, surface: 'market', method: 'GET', path: `/api/mcp-rest/downloads/${'A'.repeat(43)}`, headers: REMOTE_ANON, status: 404 },
       { id: 'market.a2a-seat-token.forged', target: m, surface: 'market', method: 'POST', path: '/api/a2a/seat-token', body: `{"v":1,"root":"https://wm-self-probe.invalid","host":"00000000","seat_id":"wm-self-probe","ts":1,"nonce":"wm-self-probe-nonce-0000","aud":"https://wm-self-probe.invalid","sig":"${'A'.repeat(86)}=="}`, headers: REMOTE_ANON, status: 401 },
       { id: 'market.login-flow.unsigned-event', target: m, surface: 'market', method: 'POST', path: '/login/feishu/events', body: '{"schema":"2.0"}', headers: REMOTE_ANON, status: 401 },
       // 团队的决策卡（观察者落地 T8）：/a2a/direct 上的这条分流不跟 WM_A2A_DIRECT_SIG 的 accept 走——不带签名的卡在任何配置下都必须 401、不落库。

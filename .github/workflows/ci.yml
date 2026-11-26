@@ -566,7 +566,7 @@ jobs:
       - name: 登录门上线演练（enforce 隔离实例：MCP/健康/A2A/SOP/台与门户/生命周期/运维/回滚逐类真实请求）
         run: node scripts/login-gate-rollout-check.mjs
       - name: MCP 权限可见与自助申请（access_info 全目录·access_request 去重限频·管理员批准并集/驳回不动 grants/吊销不能批·app_data_submit 与 REST 同核契约校验·匿名 401）
-        run: node scripts/mcp-access-smoke.mjs && node scripts/mcp-grant-scope-smoke.mjs && node scripts/mcp-newcomer-test.mjs && node scripts/mcp-upload-ticket-test.mjs && node scripts/mcp-app-files-name-test.mjs
+        run: node scripts/mcp-access-smoke.mjs && node scripts/mcp-grant-scope-smoke.mjs && node scripts/mcp-newcomer-test.mjs && node scripts/mcp-upload-ticket-test.mjs && node scripts/mcp-download-ticket-test.mjs && node scripts/mcp-app-files-name-test.mjs
       - name: 渐进开放第 0 步的两个测量脚本（上下文占用在隔离实例上量得出数字·频次报告只读、不输出会话名和参数）
         run: node scripts/mcp-context-size.mjs --check && node scripts/mcp-usage-report.mjs --self-test
       - name: 大结果给引用（两条通道一致·只给建它的会话·取时按原工具再判授权·分段读·过期·留痕·测试限值只在测试环境认）

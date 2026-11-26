@@ -345,6 +345,7 @@
       "POST /api/mcp-rest/tools/:name  <- <anonymous>",
       "PUT /api/mcp-rest/apps/:slug/files/:name  <- <anonymous>",
       "PUT /api/mcp-rest/uploads/:ticket  <- <anonymous>",
+      "GET /api/mcp-rest/downloads/:ticket  <- <anonymous>",
       "POST /api/mcp-rest/apps/:slug/files  <- <anonymous>",
       "GET /api/mcp-rest/apps/:slug/files  <- <anonymous>",
       "GET /api/mcp-rest/apps/:slug/files/:id  <- <anonymous>",
