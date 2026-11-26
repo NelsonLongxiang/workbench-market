@@ -361,6 +361,8 @@ jobs:
         run: node scripts/mutation-run-test.mjs
       - name: 轻量工作树依赖复用自测
         run: node --test scripts/worktree-review-env-test.mjs
+      - name: 本机 CI 复放入口单测（scripts/ci-run-block.mjs：只剔共享浅取·actions、安装、诊断步骤不跑·未知表达式不猜·全跑全过才退出 0；夹具只在 tmp/）
+        run: node scripts/ci-run-block-test.mjs
       - name: tsc (web)
         run: pnpm --filter web typecheck
       - name: server 语法核（esbuild）
