@@ -7,7 +7,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { UsageError, classify, expand, parseArgs, stripShallowFetch, summarize } from './ci-run-block.mjs';
+import { SOCKET_ROOT_MAX, UsageError, classify, expand, parseArgs, stripShallowFetch, summarize } from './ci-run-block.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
 let pass = 0, fail = 0;
@@ -113,7 +113,8 @@ console.log('二、端到端（合成 workflow，在本仓库 tmp/ 下）');
 
   const bad = {
     noPython: run('--out', join(base, 'o6'), '--python', 'no-such-python-for-ci-run-block').code,
-    longRuntime: run('--out', join(base, 'o7'), '--runtime-dir', base).code,
+    // 不依赖仓库在哪：专门建一个肯定超过上限的目录（CI 机器上仓库路径比本机短）
+    longRuntime: (() => { const long = join(base, 'r'.repeat(SOCKET_ROOT_MAX)); mkdirSync(long, { recursive: true }); return run('--out', join(base, 'o7'), '--runtime-dir', long).code; })(),
     trackedOut: run('--out', join(ROOT, 'scripts')).code,
     noJob: spawnSync(process.execPath, [join(ROOT, 'scripts/ci-run-block.mjs'), '--worktree', ROOT, '--out', join(base, 'o8'), '--workflow', 'tmp/ci-run-block-test-' + process.pid + '/wf.yml', '--job', 'ghost'], { encoding: 'utf8' }).status,
     notRoot: spawnSync(process.execPath, [join(ROOT, 'scripts/ci-run-block.mjs'), '--worktree', join(ROOT, 'scripts'), '--out', join(base, 'o9')], { encoding: 'utf8' }).status,
