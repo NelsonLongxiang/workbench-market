@@ -270,13 +270,24 @@ function typecheck(repo) {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
-/** 这次改动了哪些文件（相对 main；新增、修改、改名都算）。取不到对比基准就返回 null。 */
-function changedFiles(repo) {
+/** 这次改动了哪些文件。需要核对外部契约时，删除和改名的旧路径也纳入。 */
+function changedFiles(repo, includeRemoved = false) {
+  const filter = includeRemoved ? ['--no-renames', '--diff-filter=AMD'] : ['--diff-filter=AMR'];
   for (const range of [['origin/main...HEAD'], ['origin/main', 'HEAD'], ['FETCH_HEAD', 'HEAD']]) {
-    const r = spawnSync('git', ['diff', '--name-only', '--diff-filter=AMR', ...range], { cwd: repo.root, encoding: 'utf8' });
-    if (r.status === 0) return r.stdout.split('\n').filter(Boolean).filter((f) => existsSync(join(repo.root, f)));
+    const r = spawnSync('git', ['diff', '--name-only', '-z', ...filter, ...range], { cwd: repo.root, encoding: 'utf8' });
+    if (r.status === 0) return r.stdout.split('\0').filter((f) => f && (includeRemoved || existsSync(join(repo.root, f))));
   }
   return null;
+}
+
+const VIEW_SCHEMA = 'skills/wm-data-views/references/view-doc-schema.json';
+const SKILL_SURFACES = new Set(['surfaces/routes.json', 'surfaces/actions.json', 'surfaces/mcp-tools.json', 'surfaces/schema.json', VIEW_SCHEMA]);
+
+function skillFollowup(files) {
+  if (files === null) return { total: 0, skipped: '取不到对比基准（origin/main）' };
+  const skillsChanged = files.some((f) => f.startsWith('skills/') && f !== VIEW_SCHEMA);
+  const items = skillsChanged ? [] : files.filter((f) => SKILL_SURFACES.has(f));
+  return { total: items.length, items, ...(items.length ? { note: '对外契约有变化，请核对对应技能' } : {}) };
 }
 
 /**
@@ -631,6 +642,10 @@ const RULES = [
     },
   },
   {
+    id: 'skill-followup', what: '技能跟随：对外契约变动未更新技能的快照', target: null, proposed: 'count',
+    measure: (repo) => skillFollowup(changedFiles(repo, true)),
+  },
+  {
     id: 'surface-snapshots', what: '与快照不一致的对外面（路由、动作、MCP 工具、表结构）', target: 0, proposed: 'redline',
     measure: (repo) => {
       if (flag('--no-boot')) return { total: 0, skipped: '按 --no-boot 跳过' };
@@ -892,6 +907,13 @@ function selftest() {
       } finally { rmSync(root, { recursive: true, force: true }); }
     }
   }
+  const snapshots = [...SKILL_SURFACES];
+  const followup = skillFollowup(snapshots);
+  check(followup.total === snapshots.length && followup.items.join() === snapshots.join(), '技能跟随：对外快照逐项点名，生成的视图 Schema 不算技能更新');
+  check(skillFollowup([...snapshots, 'skills/wm-data-views/SKILL.md']).total === 0, '技能跟随：更新任一技能文件就不提示');
+  check(skillFollowup(['docs/fix.md', 'surfaces/replay/mcp.json']).total === 0, '技能跟随：普通文档和回放不触发');
+  check(skillFollowup(null).skipped, '技能跟随：缺少对比基准时标未量');
+  check(!verdict({ tier: 'count' }, followup, { live: followup.total, over: followup.items, delta: followup.total }, true).fail, '技能跟随：严格模式仍只提示');
   const rule = (tier, baseline, target = 0) => ({ id: 'x', tier, target, baseline });
   const m = { total: 3, files: { 'a.ts': 2, 'b.ts': 1 } };
   const same = compare(rule('budget', { total: 3, files: { 'a.ts': 2, 'b.ts': 1 } }), m);
