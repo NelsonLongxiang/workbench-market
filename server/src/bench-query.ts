@@ -58,7 +58,7 @@ export function galleryPathOk(p: string): boolean {
  */
 /** #1095 列的显示格式（写法见 server/src/value-format.ts 的 columnNumberSpec，只用于整数列、小数列）；detail_only：只在行详情里显示 */
 export type ColumnFormat = Record<string, unknown>;
-export type ColumnDef = { name: string; type: BenchColumnType; label: string; required: boolean; values?: Record<string, string>; auto?: true; system?: true; format?: ColumnFormat; detail_only?: true };
+export type ColumnDef = { name: string; type: BenchColumnType; label: string; required: boolean; values?: Record<string, string>; auto?: true; system?: true; format?: ColumnFormat; scale?: number; detail_only?: true };
 
 /**
  * 来源列（公共区：领域之间的产出物）。只在建数据集时由服务端带 provenance 开关加上，普通的定义建不出来（列名必须小写字母开头）；
@@ -82,9 +82,9 @@ export type DatasetDef = {
   row_count: number; data_bytes: number; created_at: number; updated_at: number; updated_by: string;
 };
 /** labeled：这一列有人起过说明名（数据集列定义的 label、聚合的 label）；没有时 label 退回列名。只在服务端内部用，不进应答 */
-export type OutColumn = { name: string; type: BenchColumnType; label: string; role: 'dimension' | 'measure'; labeled?: boolean; format?: ColumnFormat; detail_only?: true };
+export type OutColumn = { name: string; type: BenchColumnType; label: string; role: 'dimension' | 'measure'; labeled?: boolean; format?: ColumnFormat; scale?: number; detail_only?: true };
 /** #1095 原样选出、按它分组的列带上列定义里的格式和「只在行详情」 */
-const carry = (c: ColumnDef): Pick<OutColumn, 'format' | 'detail_only'> => ({ ...(c.format ? { format: c.format } : {}), ...(c.detail_only ? { detail_only: true as const } : {}) });
+const carry = (c: ColumnDef): Pick<OutColumn, 'format' | 'scale' | 'detail_only'> => ({ ...(c.format ? { format: c.format } : {}), ...(c.scale !== undefined ? { scale: c.scale } : {}), ...(c.detail_only ? { detail_only: true as const } : {}) });
 /** 应答里的列：去掉内部用的 labeled */
 export const publicColumn = ({ labeled: _l, ...c }: OutColumn): OutColumn => c;
 export type QueryPlan = { dataset: string; columns: OutColumn[]; params: string[]; sql: string; args: unknown[]; limit: number };
@@ -292,7 +292,10 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
       const type: BenchColumnType = fn === 'count' || fn === 'count_distinct' ? 'integer' : fn === 'avg' ? 'decimal' : c.type;
       selects.push(`${expr} AS ${quoted(mo.as as string)}`);
       // #1095 合计、平均、最小、最大和原列同一个量纲：沿用原列的格式；计数不沿用
-      columns.push({ name: mo.as as string, type, label, role: 'measure', labeled, ...((fn === 'sum' || fn === 'avg' || fn === 'min' || fn === 'max') && c.format ? { format: c.format } : {}) });
+      const inheritsFormat = fn === 'sum' || fn === 'avg' || fn === 'min' || fn === 'max';
+      columns.push({ name: mo.as as string, type, label, role: 'measure', labeled,
+        ...(inheritsFormat && c.format ? { format: c.format } : {}),
+        ...(inheritsFormat && c.scale !== undefined ? { scale: c.scale } : {}) });
     });
   } else {
     const picked = q.select === undefined ? readable : strList(q.select, 'select', BENCH_LIMITS.columns).map((s) => colOf(s, 'select'));

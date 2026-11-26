@@ -29,6 +29,7 @@ console.log('四、数据视图的块怎么用');
 const AMT = { name: 'amount', type: 'decimal', label: '金额', format: { decimals: 2, unit: '万' } };
 ok('列配了 format：按它写（表格的格子、统计卡同一个函数）；没配原样写；配得不对回落原样；不是数写「-」', fmtColumnNumber(7000, AMT) === '0.70万' && cellText(171000, 'number', AMT) === '17.10万'
   && fmtColumnNumber(1.5, { name: 'x' }) === '1.5' && fmtColumnNumber(1.5, { format: { decimals: 99 } }) === '1.5' && fmtColumnNumber(null, AMT) === '-' && cellText(null, 'number', AMT) === '-');
+ok('没有 format 时小数列按 scale 补位，显式 format 优先', fmtColumnNumber(1.5, { scale: 2 }) === '1.50' && fmtColumnNumber(1.5, { scale: 2, format: { decimals: 1 } }) === '1.5');
 ok('主表不放只在行详情里显示的列', JSON.stringify(mainColumns([{ name: 'a' }, { name: 'raw', detail_only: true }, { name: 'b', detail_only: false }]).map((c) => c.name)) === JSON.stringify(['a', 'b']));
 const cards = recordCards({ columns: [{ name: 't', type: 'text' }, AMT, { name: 'raw', type: 'text', detail_only: true }], rows: [{ t: '合成', amount: 7000, raw: '7000.000000001' }] }, { title_col: 't', fields: ['amount', 'raw'], details: [] });
 ok('记录卡：数按列的格式写；写在 fields 里的只在详情列挪到展开后的详情里', cards[0].fields.map((f) => f.name + '=' + f.text).join() === 'amount=0.70万' && cards[0].details.map((f) => f.name + '=' + f.text).join() === 'raw=7000.000000001', JSON.stringify(cards[0]));

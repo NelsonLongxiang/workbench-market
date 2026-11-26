@@ -9,7 +9,7 @@ export type BlockColType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' 
 /** 表格里这一列按什么画；不给就按列的类型推（数字 → number，时间 → time，其余 → text） */
 export type CellKind = 'text' | 'number' | 'time' | 'date' | 'bool' | 'person' | 'seat' | 'status' | 'image';
 /** format：#1095 列的显示格式（写法见 server/src/value-format.ts 的 columnNumberSpec）；detail_only：只在行详情里显示，主表不占列 */
-export type BlockColumn = { name: string; type: BlockColType; label?: string; role?: string; display?: CellKind; format?: Record<string, unknown>; detail_only?: boolean };
+export type BlockColumn = { name: string; type: BlockColType; label?: string; role?: string; display?: CellKind; format?: Record<string, unknown>; scale?: number; detail_only?: boolean };
 export type BlockData = { columns: BlockColumn[]; rows: Record<string, unknown>[]; truncated?: boolean };
 export type BlockError = { code: string; message?: string };
 
@@ -65,15 +65,20 @@ export function imageSrc(ref: unknown, src: ImageSource | null | undefined): str
 }
 
 /** #1095 数据视图里的数：列配了 format 按它写（和报告共用一个实现）；没配（或配得不对）原样写，只加千分位，不截断、不补零。不是数写「-」 */
-export function fmtColumnNumber(v: unknown, col?: { format?: unknown } | null): string {
-  if (col && col.format !== undefined) { const s = columnNumberSpec(col.format); if (s.ok) return formatNumber(v, s.spec) ?? '-'; }
+type ColumnNumberStyle = Pick<BlockColumn, 'scale'> & { format?: unknown };
+export function fmtColumnNumber(v: unknown, col?: ColumnNumberStyle | null): string {
+  const format = col?.format ?? (col?.scale === undefined ? undefined : { decimals: col.scale });
+  if (format !== undefined) {
+    const parsed = columnNumberSpec(format);
+    if (parsed.ok) return formatNumber(v, parsed.spec) ?? '-';
+  }
   return plainNumber(v) ?? '-';
 }
 /** 主表里占列的：去掉只在行详情里显示的 */
 export const mainColumns = <C extends { detail_only?: boolean }>(cols: C[]): C[] => cols.filter((c) => !c.detail_only);
 
 /** 格子里的文字（人、席位、状态、时间由组件自己画，这里给不出的返回原文）；数按这一列的格式写 */
-export function cellText(v: unknown, kind: CellKind, col?: { format?: unknown } | null): string {
+export function cellText(v: unknown, kind: CellKind, col?: ColumnNumberStyle | null): string {
   if (v === null || v === undefined || v === '') return '-';
   if (kind === 'number') return fmtColumnNumber(v, col);
   if (kind === 'bool') return v === true ? '是' : v === false ? '否' : '-';

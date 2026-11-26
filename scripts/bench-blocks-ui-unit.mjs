@@ -80,6 +80,13 @@ const allowed = new Set([...T.series, T.muted, ...Object.values(T.tones), T.text
 for (const [name, o] of [['柱', c.cartesianOption('bar', model, T, { stacked: true })], ['横向柱', c.cartesianOption('bar', model, T, { horizontal: true })], ['线', c.cartesianOption('line', model, T, { area: true })], ['饼', c.pieOption([{ name: 'a', value: 1 }], T, { donut: true })]]) {
   ok(`${name}：出现的色值都是递进来的 token，没有图表库自带的颜色`, hexes(o).every((h) => allowed.has(h)) && o.color === T.series && o.textStyle.fontFamily === 'F', hexes(o));
 }
+const amountText = (n) => v.fmtColumnNumber(n, { format: { unit: '万', decimals: 2 } });
+const ratioText = (n) => v.fmtColumnNumber(n, { format: { percent: true, decimals: 2 } });
+const formatted = c.cartesianOption('bar', model, T, { horizontal: true, valueFmt: amountText });
+ok('图表数值轴和提示使用列格式', formatted.xAxis.axisLabel.formatter(7000) === '0.70万' && formatted.tooltip.valueFormatter(7000) === '0.70万');
+const mixed = c.cartesianOption('bar', model, T, { seriesFmt: [amountText, ratioText] });
+ok('混合量纲共用原数值轴，各系列提示保留列格式', !mixed.yAxis.axisLabel.formatter && mixed.series[0].tooltip.valueFormatter(7000) === '0.70万'
+  && mixed.series[1].tooltip.valueFormatter(0.15) === '15.00%');
 let o = c.cartesianOption('bar', model, T, { horizontal: true });
 ok('横向柱：类目在纵轴，从上往下排', o.yAxis.type === 'category' && o.yAxis.inverse === true && o.xAxis.type === 'value');
 ok('只有一个系列时不画图例；多个时画', c.cartesianOption('bar', { categories: ['a'], series: [model.series[0]] }, T).legend.show === false && o.legend.show === true);

@@ -216,5 +216,13 @@ with sync_playwright() as p:
     t5 = docs(pg).inner_text()
     check('回应者名字、范围名取不到：写「未命名」「领域成员（未命名）」，不写 user:beta、area-member@area:zeta、xss-dim',
           '领域成员（未命名）' in t5 and not any(k in t5 for k in ['user:', 'area-member', '@area', 'xss-dim', 'zeta']), t5[-300:])
+    REPORTS[4]['body']['body'].append({
+        'id': 'frozen-stat', 'type': 'data-view', 'component': 'stat', 'props': {'value': 'amount'},
+        'display_text': '21.10%', 'data': {'columns': [{'name': 'amount', 'type': 'decimal', 'label': '比率'}], 'rows': [{'amount': 0.211}]},
+    })
+    pg.goto(f'{M}/use/{CARD}/reports?report=4')
+    stat = docs(pg).locator('[data-node=frozen-stat] strong')
+    stat.wait_for()
+    check('报告统计卡直接显示冻结文本「21.10%」', stat.inner_text().strip() == '21.10%', stat.inner_text())
     b.close()
 print(f'\nreport-page-browser: {ok} 过 / {fail} 败'); sys.exit(1 if fail else 0)
