@@ -67,7 +67,7 @@ const ENDED_EVENT: Record<string, (ago: string) => string> = {
   done: (a) => `${a}办结`, failed: (a) => `${a}报告没办成`, dropped: (a) => `对方 ${a}放弃`, cancelled: (a) => `${a}撤回`,
 };
 export function endedLine(state: string, at: string | null | undefined, nowMs: number): string | null {
-  const f = ENDED_EVENT[state];
+  const f = ENDED_EVENT[state] as ((ago: string) => string) | undefined; // 没结束的状态查不到
   const ago = f && at ? agoText(at, nowMs) : null;
   return f && ago ? f(ago) : null;
 }
