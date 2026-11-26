@@ -89,7 +89,7 @@ import { registerTaskRoutes } from './routes/tasks.ts';
 import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './routes/bench-views.ts';
 import { registerKnowledgeRoutes } from './routes/knowledge.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
-import { benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, hasBenchGrant, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
+import { BenchToolScopeError, benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, hasBenchGrant, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
 import { captureBenchStorageFence, resolveBenchRef } from './services/bench-registry.ts';
 import { cardDeleterOf, checkCardDeletable, deleteCardWithBench, type CardDeleter } from './bench-card-delete.ts';
 import { BenchError } from './bench-query.ts';
@@ -139,6 +139,7 @@ import { designStandard } from './design-standard.ts';
 import { mountVault } from './vault-api.ts';
 import { expectedSha256, uploadIntegrity, type UploadIntegrity } from './upload-integrity.ts';
 import { UploadTickets, UPLOAD_TICKET_TTL_MS, type UploadTicket } from './upload-tickets.ts';
+import { DownloadTickets, DOWNLOAD_TICKET_TTL_MS, DOWNLOAD_TICKET_USES_DEFAULT, DOWNLOAD_TICKET_USES_MAX, type DownloadTicket } from './download-tickets.ts';
 import { uploadNameOk, UPLOAD_NAME_INVALID } from './upload-file-name.ts';
 import { loadConfig } from './config.ts';
 import { knowledgeStartupLine, knowledgeStartupState } from './knowledge-startup.ts';
@@ -2238,6 +2239,101 @@ function uploadTicketSession(t: UploadTicket): McpSess | null | 'denied' {
   const ok = t.kind === 'app_file' ? mcpToolAllowsApp(sess, 'app_files_upload', t.slug ?? '') : mcpToolScope(sess, 'skill_file_put') !== null;
   return ok ? sess : 'denied';
 }
+// ---------- MCP 附件短时下载票（见 download-tickets.ts）----------
+const downloadTickets = new DownloadTickets();
+/** 发票者：调用方会话由 callTool 的 subject 给出（mcp:<会话名>；网关关着时是 anonymous）。别的调用方不发票、也不撤票 */
+function downloadTicketOwner(subject: string): { sessionId: number | null; session: string | null } {
+  const name = subject.startsWith('mcp:') ? subject.slice(4) : subject === 'anonymous' && !MCP_GATEWAY_ON ? null : undefined;
+  if (name === undefined) throw new HttpError(403, '下载票只发给 MCP 会话');
+  if (name === null) return { sessionId: null, session: null };
+  const row = svc<McpService>('mcp').sessionActiveByName(name) as { id: number } | undefined;
+  if (!row) throw new HttpError(403, '下载票只发给有效的 MCP 会话');
+  return { sessionId: row.id, session: name };
+}
+/**
+ * 发票：app_files_list 对这个台的授权在分发前已核过（mcpInvokeTool），这里只核文件属于这个台、没删、盘上在，
+ * 并把台、文件的当前样子（编号、建台时刻、大小、sha256、落盘位置）绑进票。
+ */
+async function issueDownloadTicket(a: AppRow, args: any, subject: string, origin: string): Promise<Record<string, unknown>> {
+  const owner = downloadTicketOwner(subject);
+  const fileId = Number(args?.ticket_for_id);
+  if (!Number.isSafeInteger(fileId) || fileId <= 0) throw new HttpError(400, 'ticket_for_id 是文件 id（正整数，来自 app_files_list 的 items[].id）');
+  const maxUses = args?.max_uses === undefined || args.max_uses === null || args.max_uses === '' ? DOWNLOAD_TICKET_USES_DEFAULT : Number(args.max_uses);
+  if (!Number.isSafeInteger(maxUses) || maxUses < 1 || maxUses > DOWNLOAD_TICKET_USES_MAX) throw new HttpError(400, `max_uses 是 1 到 ${DOWNLOAD_TICKET_USES_MAX} 的整数（默认 ${DOWNLOAD_TICKET_USES_DEFAULT}）`);
+  // 别的台的文件、不存在的、已删的：同一句 404，不说是哪一种
+  const f = await svc<AppDataService>('appData').fileById(fileId, a.slug);
+  const abs = f ? join(dataDir, f.storage_path) : '';
+  if (!f || !existsSync(abs) || statSync(abs).size !== f.size) throw new HttpError(404, `file not found: ${fileId}`);
+  const sha256 = String(f.sha256 || '') || await fileSha256(abs);
+  const { token, ref, expiresAt } = downloadTickets.issue({ ...owner, slug: a.slug, appId: a.id, appCreatedAt: a.created_at, fileId: f.id, size: f.size, sha256, storagePath: String(f.storage_path), maxUses });
+  const path = `/api/mcp-rest/downloads/${token}`;
+  const url = `${origin.replace(/\/+$/, '')}${path}`;
+  return {
+    download_url: url,
+    download_path: path,
+    ticket: token,
+    ticket_ref: ref,
+    method: 'GET',
+    file: { id: f.id, name: f.original_name, mime: f.mime, size: f.size, sha256 },
+    max_uses: maxUses,
+    expires_at: new Date(expiresAt).toISOString(),
+    expires_in_seconds: Math.round(DOWNLOAD_TICKET_TTL_MS / 1000),
+    curl: `curl -fsS -o <本地文件> '${url}'`,
+    next: `在 shell 里直接 GET download_url（${Math.round(DOWNLOAD_TICKET_TTL_MS / 60000)} 分钟内、最多 ${maxUses} 次，不用会话令牌；只能取这一份文件，别的一概不行）。每次请求都算一次，带 Range 续传、If-None-Match 也各算一次，所以要续传就多申请几次的额度。应答里的 sha256 就是 file.sha256，取完对一下。不再需要时用 app_files_list {slug, revoke_ticket: "${ref}"} 撤销。`,
+  };
+}
+/** 撤票：只有发票的会话能撤，别人的、不存在的、已用完的都是 revoked:false（不说是哪一种） */
+function revokeDownloadTicket(args: any, subject: string): Record<string, unknown> {
+  const owner = downloadTicketOwner(subject);
+  const ref = typeof args?.revoke_ticket === 'string' ? args.revoke_ticket.trim() : '';
+  return { ticket_ref: ref.slice(0, 16), revoked: downloadTickets.revoke(ref, owner.sessionId, owner.session) };
+}
+type DownloadOpen = { ok: true; sess: McpSess | null; abs: string; file: { name: string; mime: string; size: number } } | { ok: false; sess: McpSess | null; why: string };
+/** 用票时再问一次：发票的会话还在不在（同一个编号、没被吊销）、对这个台的 app_files_list 授权还在不在、台和文件还是不是发票时的那一个 */
+async function openDownloadTicket(t: DownloadTicket): Promise<DownloadOpen> {
+  let sess: McpSess | null = t.session === null ? null : { id: t.sessionId!, name: t.session, grants: [] };
+  const deny = (why: string): DownloadOpen => ({ ok: false, sess, why });
+  if (t.session === null) { if (MCP_GATEWAY_ON) return deny('gateway turned on since issue'); }
+  else {
+    const mcp = svc<McpService>('mcp');
+    const row = mcp.sessionActiveByName(t.session) as { id: number; name: string; grants: string } | undefined;
+    if (!row || row.id !== t.sessionId) return deny('ticket session revoked or replaced');
+    if (!mcp.sessionOwnerEnabled(row.id)) return deny('ticket session owner disabled');
+    let grants: string[] = [];
+    try { grants = JSON.parse(row.grants || '[]'); } catch { grants = []; }
+    sess = { id: row.id, name: row.name, grants };
+    if (!mcpToolAllowsApp(sess, 'app_files_list', t.slug)) return deny('app_files_list grant withdrawn');
+  }
+  let a: AppRow;
+  try { a = getApp(t.slug); } catch { return deny('app gone'); }
+  if (a.id !== t.appId || a.created_at !== t.appCreatedAt) return deny('app replaced');
+  const f = await svc<AppDataService>('appData').fileById(t.fileId, t.slug);
+  if (!f) return deny('file gone');
+  if (f.size !== t.size || f.storage_path !== t.storagePath) return deny('file replaced');
+  const abs = join(dataDir, f.storage_path);
+  if (!existsSync(abs) || statSync(abs).size !== t.size) return deny('file missing on disk');
+  if ((String(f.sha256 || '') || await fileSha256(abs)) !== t.sha256) return deny('file replaced');
+  return { ok: true, sess, abs, file: { name: String(f.original_name), mime: String(f.mime), size: f.size } };
+}
+/**
+ * 没有这张下载票的请求（编造的、写法不对、过期、用完、撤销了：这几种从仓里看不出区别，应答也不分）没有会话可记。
+ * 为了让拒绝也留痕又不被外面的请求灌满：进有界的聚合——每分钟至多往 mcp_calls 写一行（会话名是固定的占位 DOWNLOAD_REJECT_SESSION，
+ * ok=0，error 里只有这一分钟前后累计的次数），行里没有票、路径、来源地址；窗口里的其余请求只加次数，下一行带走。
+ */
+const DOWNLOAD_REJECT_SESSION = '(download-ticket)';
+const DOWNLOAD_REJECT_WINDOW_MS = 60_000;
+let downloadRejected = 0, downloadRejectedAt = 0;
+function noteDownloadRejected(): void {
+  downloadRejected += 1;
+  const now = Date.now();
+  if (!MCP_GATEWAY_ON || now - downloadRejectedAt < DOWNLOAD_REJECT_WINDOW_MS) return;
+  const n = downloadRejected;
+  downloadRejected = 0; downloadRejectedAt = now;
+  try {
+    svc<McpService>('mcp').callInsertStmt()
+      .run(DOWNLOAD_REJECT_SESSION, 'rest/ticket_download_rejected', 'app_files_list', 0, `${n} request(s) with no valid download ticket since the last record`, 0, sha256Hex('{}'), 'rest', '', '', '');
+  } catch { /* 审计写不进去不影响应答 */ }
+}
 /** 申请上传票时的公共校验：size 正整数且不超上限，sha256 必带 */
 function ticketSizeSha(args: any, max: number): { size: number; sha256: string } {
   const size = Number(args?.size);
@@ -3247,6 +3343,16 @@ async function callTool(name: string, args: any, subject = 'anonymous', origin =
     }
     case 'app_files_list': {
       const a = getApp(String(args?.slug ?? ''));
+      // 下载票（#1055）：同一个工具、同一个按台的授权，不另设常驻工具。ticket_for_id 申请一张票，revoke_ticket 撤一张；都不和翻页混用
+      const asksTicket = args?.ticket_for_id !== undefined && args?.ticket_for_id !== null;
+      const asksRevoke = args?.revoke_ticket !== undefined && args?.revoke_ticket !== null;
+      if (asksTicket || asksRevoke) {
+        if (asksTicket && asksRevoke) throw new HttpError(400, 'ticket_for_id 和 revoke_ticket 一次只能给一个');
+        if (args?.limit !== undefined || args?.before_id !== undefined) throw new HttpError(400, '申请或撤销下载票时不翻页：不要带 limit / before_id');
+        if (asksRevoke && args?.max_uses !== undefined) throw new HttpError(400, 'max_uses 只在申请下载票时用');
+        return asksTicket ? await issueDownloadTicket(a, args, subject, origin) : revokeDownloadTicket(args, subject);
+      }
+      if (args?.max_uses !== undefined) throw new HttpError(400, 'max_uses 只在申请下载票（ticket_for_id）时用');
       const limit = pageLimit(args?.limit);
       const beforeId = pageBeforeId(args?.before_id);
       const rows = beforeId > 0
@@ -3874,6 +3980,10 @@ async function mcpInvokeTool(sess: McpSess | null, toolName: string, args: any, 
       mcpAudit(sess, channel, 'tools/call', toolName, true, '', Date.now() - t0, args);
       return { kind: 'ok', out, upstream: false };
     } catch (e: any) {
+      if (e instanceof BenchToolScopeError) {
+        mcpAudit(sess, channel, 'tools/call', toolName, false, 'not granted: report dimension scope', Date.now() - t0, args);
+        return { kind: 'not_granted' };
+      }
       const err = benchToolError(e);
       mcpAudit(sess, channel, 'tools/call', toolName, false, String(err.message).slice(0, 200), Date.now() - t0, args);
       return { kind: 'error', error: err, upstream: false };
@@ -4074,7 +4184,7 @@ async function fileSha256(abs: string): Promise<string> {
   return hex;
 }
 /** 二进制下载：强 ETag = sha256、If-None-Match → 304、单段 Range（bytes=a-b / a- / -n）→ 206、越界 416；安全头同现有下载（attachment + nosniff） */
-async function sendStoredFile(req: express.Request, res: express.Response, f: { abs: string; size: number; mime: string; name: string; sha256?: string; onSha?: (sha: string) => void }): Promise<void> {
+async function sendStoredFile(req: express.Request, res: express.Response, f: { abs: string; size: number; mime: string; name: string; sha256?: string; onSha?: (sha: string) => void; noStore?: boolean }): Promise<void> {
   if (!existsSync(f.abs)) throw new HttpError(404, 'stored file missing on disk');
   const size = statSync(f.abs).size;
   // 入库时存了 sha256 就直接用；存量行（浏览器上传等未存的）算一次后经 onSha 回写
@@ -4087,7 +4197,7 @@ async function sendStoredFile(req: express.Request, res: express.Response, f: { 
   res.setHeader('etag', etag);
   res.setHeader('x-content-sha256', sha);
   res.setHeader('accept-ranges', 'bytes');
-  res.setHeader('cache-control', 'private, no-cache');
+  res.setHeader('cache-control', f.noStore ? 'no-store' : 'private, no-cache'); // 票的地址本身就是凭据，不进任何缓存
   const inm = String(req.headers['if-none-match'] ?? '');
   if (inm && inm.split(',').map((x) => x.trim()).some((x) => x === etag || x === '*')) { res.status(304).end(); return; }
   let start = 0, end = size - 1;
@@ -4119,7 +4229,7 @@ async function mcpRestRunReadable(req: express.Request, sess: McpSess | null, ru
 }
 const runIdParam = (v: unknown): number => { if (!/^\d+$/.test(String(v))) throw new HttpError(404, `run not found: ${v}`); return Number(v); };
 registerMcpRestRoutes(http, { wrap, serveMcpOpenApi, mcpGatewaySession, mcpAudit, mcpRegisteredNames, MCP_REST_DENIED_HINT, mcpInvokeTool, mcpPublicOrigin, mcpRestSession, mcpToolAllowsApp, mcpRestRun, bad, getApp, appFilesQuota, APP_FILES_MAX, UPLOAD_MAX, uploadMonthDir, uploadFileName, appFileStoreCore, MCP_REST_BASE, upload, fixFileName, fileSha256, sendStoredFile, restFileItem, mcpRestRunReadable, runIdParam, sopRunRow, runReadCapHeader,
-  takeUploadTicket: (token) => uploadTickets.take(token), uploadTicketSession, skillStageIncomingPath, skillStageFromFile, mcpByRef, mcpResultAccess });
+  takeUploadTicket: (token) => uploadTickets.take(token), uploadTicketSession, takeDownloadTicket: (token) => downloadTickets.take(token), dropDownloadTicket: (token) => downloadTickets.drop(token), openDownloadTicket, noteDownloadRejected, skillStageIncomingPath, skillStageFromFile, mcpByRef, mcpResultAccess });
 import { goPrefix, moduleProxy, stripSessionIdCookie, verifyPortalSessionStrip } from './portal.ts';
 import { registerPortalRoutes } from './routes/portal.ts';
 import { stripIncoming as stripPortalForward, verifyPortalForwardStrip, useMarketTokenCheck } from './portal-forward-headers.ts';

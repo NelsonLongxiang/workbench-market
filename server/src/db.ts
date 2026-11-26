@@ -851,6 +851,8 @@ CREATE TABLE IF NOT EXISTS owner_personal_tokens (
   UNIQUE (principal, name)
 );
 `);
+// #1064：令牌交给谁代办（'' 不代办，'assistant' 团队助理）。只影响留痕署名，作用域与业务授权照旧。
+addColumnIfMissing('owner_personal_tokens', "delegate TEXT NOT NULL DEFAULT '' CHECK (delegate IN ('', 'assistant'))");
 
 // 阶段七：席位用签名换短期 MCP 令牌（services/seat-tokens.ts）。
 //   a2a_seat_subjects：每个席位（host, seat_id）一个长期的授权主体，挂 mcp_sessions 的一行；grants、按台批的授予都记在它上面，跨令牌轮换保留。

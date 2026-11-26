@@ -7,11 +7,11 @@ import { requestPerson } from '../request-person.ts';
 import { personalAuthorization } from '../portal-forward-headers.ts';
 import { resolveBenchRef } from '../services/bench-registry.ts';
 import type { GrantService } from '../services/grant.ts';
-import { authenticatePersonalToken, issuePersonalToken, listPersonalTokens, PERSONAL_TOKEN_LIMITS, PERSONAL_TOKEN_SCOPES, markPersonalTokenUsed, revokePersonalToken, type PersonalToken, type Scope } from '../services/owner-personal-tokens.ts';
+import { authenticatePersonalToken, issuePersonalToken, listPersonalTokens, PERSONAL_TOKEN_DELEGATES, PERSONAL_TOKEN_LIMITS, PERSONAL_TOKEN_SCOPES, markPersonalTokenUsed, revokePersonalToken, type PersonalToken, type Scope } from '../services/owner-personal-tokens.ts';
 
 const personal = new WeakMap<express.Request, PersonalToken & { authorizedBench?: string }>();
 export const personalTokenOf = (req: express.Request) => personal.get(req);
-export const personalTokenAuditName = (t: PersonalToken) => '属主（令牌 ' + t.name + '）';
+export const personalTokenAuditName = (t: PersonalToken) => '属主（令牌 ' + t.name + (t.delegate === 'assistant' ? '·助理代办' : '') + '）';
 
 const benchRoutes: [string, RegExp, Scope][] = [
   ['POST', /^query$/, 'bench:read'],
@@ -56,7 +56,7 @@ export function personalTokenAdmission(isVaultHost: (req: express.Request) => bo
     if (!current) return invalid();
     const target = targetOf(req.method, req.path);
     if (!target) return send(403, 'personal_token_route_denied', '这个接口不接受个人令牌');
-    if (!current.scopes.includes(target.scope)) return send(403, 'personal_token_scope_denied', '缺少作用域 ' + target.scope);
+    if (!current.scopes.includes(target.scope)) return send(403, 'personal_token_scope_denied', '缺少作用域 ' + target.scope + '（' + (PERSONAL_TOKEN_SCOPES.find(s => s.id === target.scope)?.label ?? target.scope) + '），请属主在设置页重新签发并勾选');
     if (target.bench && !current.benches.includes(target.bench)) return send(403, 'personal_token_bench_denied', '令牌没有这个台的 ' + target.scope + ' 作用域');
     if (!markPersonalTokenUsed(current.id)) return invalid();
     personal.set(req, { ...current, authorizedBench: target.bench });
@@ -80,7 +80,7 @@ export function registerPersonalTokenRoutes(app: HttpService, isVaultHost: (req:
       if (!svc<GrantService>('grants').isOwner(principal)) return res.status(403).json({ error: 'personal_token_owner_required', message: '只有属主能管理个人令牌。' });
       return fn(req, res, principal);
     })().catch(next); };
-  app.get('/api/owner/personal-tokens', { action: 'auth.personal-token-list', kind: 'read', statusNotVerdict: '只认属主本人登录' }, guard((_req, res, principal) => res.json({ personal_tokens: listPersonalTokens(principal), available_scopes: PERSONAL_TOKEN_SCOPES, limits: PERSONAL_TOKEN_LIMITS })));
+  app.get('/api/owner/personal-tokens', { action: 'auth.personal-token-list', kind: 'read', statusNotVerdict: '只认属主本人登录' }, guard((_req, res, principal) => res.json({ personal_tokens: listPersonalTokens(principal), available_scopes: PERSONAL_TOKEN_SCOPES, available_delegates: PERSONAL_TOKEN_DELEGATES, limits: PERSONAL_TOKEN_LIMITS })));
   app.post('/api/owner/personal-tokens', { action: 'auth.personal-token-issue', kind: 'decide', statusNotVerdict: '只认同源属主本人登录' }, guard((req, res, principal) => res.status(201).json(issuePersonalToken(principal, req.body))));
   app.delete('/api/owner/personal-tokens/:id', { action: 'auth.personal-token-revoke', kind: 'decide', statusNotVerdict: '只认同源属主本人登录' }, guard((req, res, principal) => {
     const id = String(req.params.id ?? '');
