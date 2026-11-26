@@ -20,7 +20,7 @@ import { createHash, createPublicKey, verify as edVerify } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { TLSSocket } from 'node:tls';
 import { verifyCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
-import { db } from './db.ts';
+import { sopAdmitNotifyUrls } from './services/binding.ts';
 import { claimSignatureOnce } from './services/a2a-receipts.ts';
 
 export type DirectSigMode = 'require' | 'accept' | 'off';
@@ -146,8 +146,7 @@ export function createDirectSigVerifier(deps: {
 
   /** 登记的取卡地址：该 caller_session 的有效准入绑定上人填的根地址（去重，最多 3 个） */
   function registeredSources(callerSession: string): string[] {
-    const rows = db.prepare("SELECT DISTINCT notify_url FROM bindings WHERE agent_node = ? AND target_type = 'sop' AND direction IN ('admits','both') AND revoked_at = '' AND notify_url != '' ORDER BY id").all(callerSession) as { notify_url: string }[];
-    return rows.map((r) => r.notify_url).filter((u) => originOf(u) !== '').slice(0, MAX_SOURCES);
+    return sopAdmitNotifyUrls(callerSession).filter((u) => originOf(u) !== '').slice(0, MAX_SOURCES);
   }
 
   async function loadCard(source: string, fresh: boolean): Promise<Card | null> {
