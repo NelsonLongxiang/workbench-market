@@ -26,9 +26,9 @@ curl -X POST http://127.0.0.1:9800/api/bindings -H 'Content-Type: application/js
 
 ## 先观察，后自动
 
-安排时不要先过目（`review: false`），并且中心总开关 `center_switch` 和设置里的员工直派 `staff_direct_dispatch` 都开着，事件一建就投递。
+中心总开关 `center_switch` 开启时，整队派发的派单人若有放行权，事件一建就投递，事项 `submit` 留痕写「派单人有放行权，免过目」。普通员工仍要显式给 `review: false`，且设置 `staff_direct_dispatch` 已开启，才能直派。
 
-否则投递记为 `held`：只记录「本来会派给谁」，不发出去。由团队的负责人放行；团队没有负责人时，持有管理层授予的人代办（留痕记 `acting_for: team-lead`）：
+其余投递记为 `held`。属主可放行任何队的 held 单，事件和事项留痕写「属主放行」。有负责人的团队照旧由负责人放行，没有负责人时持有管理层授予的人代办（留痕记 `acting_for: team-lead`）。个人过目仍由建立人处理，属主也保有放行权。
 
 ```bash
 curl -X POST http://127.0.0.1:9800/api/work-items/<事项编号>/release -H 'Sec-Fetch-Site: same-origin' -H 'Cookie: <负责人的会话>'

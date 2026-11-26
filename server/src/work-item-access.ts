@@ -104,9 +104,13 @@ export const segmentBound = (ms: number): string => msSqlTime(Math.ceil(ms / 100
 export function itemTeams(item: Pick<WorkItemRow, 'id' | 'source_ref'>): TeamKey[] {
   const ev = eventOfItem(item);
   if (!ev) return [];
+  return teamsForDeliveries(svc<WorkItemService>('workItems').deliveryTargets(ev));
+}
+
+function teamsForDeliveries(deliveries: readonly { team: string; url: string }[]): TeamKey[] {
   const hostOf = new Map(rosterHosts().map((r) => [r.peer_root, r.host]));
   const out: TeamKey[] = [];
-  for (const d of svc<WorkItemService>('workItems').deliveryTargets(ev)) {
+  for (const d of deliveries) {
     if (!d.team.includes('/canvas/')) continue;
     let root = '';
     try { root = new URL(d.url).origin; } catch { continue; }
@@ -250,13 +254,26 @@ export const canRelease = (item: WorkItemRow, viewer: WorkItemViewer): boolean =
 
 /**
  * 谁能放行这件事项（规范 14 第九节，只有这一处；不看事项现在是不是 held，那是 releasable 的事）：
- *   建立人勾了「先给我过目」（review_by = requester）：建立人本人（启用的人）放行，别人都不放
+ *   启用的人持有全局属主授予，可以放行任何队。
+ *   建立人勾了「先给我过目」（review_by = requester）：除属主外只给建立人本人（启用的人）放行
  *   其余：事项交给的团队的负责人（relationOf 里有 team-lead）；
  *         这些团队都没有在职负责人（包括名册里还换不出团队的）时，持有管理层授予的人代办（管理口令、没有授予的身份来源管理员不算），acting_for 记 team-lead
  * 系统管理员（只过了管理门、不是管理层）不放行。返回 null 是不能放；acting_for 为空串是本人的事，不是代办
  */
-export function releaseRole(item: WorkItemRow, viewer: WorkItemViewer): { acting_for: '' | 'team-lead' } | null {
+function isReleaseOwner(principal: string | null, person: boolean): boolean {
+  return person && svc<GrantService>('grants').heldAdmin(principal) === 'owner';
+}
+
+/** 整队派发使用和手动放行同一份属主、团队负责人及空缺代办规则。 */
+export function canDispatchWithoutReview(principal: string, team: string, url: string): boolean {
+  const person = isActivePerson(principal);
+  return person && (isReleaseOwner(principal, person) || leadRoleForTeams(teamsForDeliveries([{ team, url }]), principal, person) !== null);
+}
+
+type ReleaseRole = { acting_for: '' | 'team-lead'; owner?: true };
+export function releaseRole(item: WorkItemRow, viewer: WorkItemViewer): ReleaseRole | null {
   const p = viewer.principal;
+  if (isReleaseOwner(p, viewer.person)) return { acting_for: '', owner: true };
   if (item.review_by === 'requester') return p && viewer.person && isCreator(item, p) ? { acting_for: '' } : null;
   return teamLeadRole(item, viewer);
 }
@@ -265,13 +282,15 @@ export function releaseRole(item: WorkItemRow, viewer: WorkItemViewer): { acting
  * 负责人这一层（放行和「停太久冒给谁」共用，只有这一处）：事项交给的团队的负责人本人（acting_for 为空串）；
  * 这些团队都没有在职负责人（包括名册里还换不出团队的）时，持有管理层授予的人代办（acting_for 记 team-lead）。不认管理门。返回 null 是不归他
  */
-export function teamLeadRole(item: WorkItemRow, viewer: WorkItemViewer): { acting_for: '' | 'team-lead' } | null {
-  const p = viewer.principal;
-  const teams = itemTeams(item);
-  if (p && viewer.person && teams.some((t) => relationOf({ principal: p }, { team: t }).relations.includes('team-lead'))) return { acting_for: '' };
+export function teamLeadRole(item: WorkItemRow, viewer: WorkItemViewer): ReleaseRole | null {
+  return leadRoleForTeams(itemTeams(item), viewer.principal, viewer.person);
+}
+
+function leadRoleForTeams(teams: readonly TeamKey[], principal: string | null, person: boolean): ReleaseRole | null {
+  if (principal && person && teams.some((t) => relationOf({ principal }, { team: t }).relations.includes('team-lead'))) return { acting_for: '' };
   const vacant = teams.every((t) => svc<TeamService>('teams').leads(t).length === 0);
   // 代办只认持有管理层授予的主体，不认管理门（读的 isManagement 认，写不扩过去）
-  return vacant && holdsManagementGrant(viewer.principal) ? { acting_for: 'team-lead' } : null;
+  return vacant && holdsManagementGrant(principal) ? { acting_for: 'team-lead' } : null;
 }
 
 /**
@@ -310,7 +329,7 @@ export const ITEM_DECISIONS = ['answer', 'reply', 'verify', 'return', 'release']
 export type ItemDecision = (typeof ITEM_DECISIONS)[number];
 /** 代谁办：空串是本人的事；creator 是替建立人做（负责人退回、管理层代办）；team-lead 是替负责人放行（团队没有负责人时管理层代办） */
 export type ActingFor = '' | 'creator' | 'team-lead';
-export type DecisionVerdict = { ok: true; acting_for: ActingFor; as: 'creator' | 'lead' | 'management' } | { ok: false; status: 401 | 403 | 404; error: string };
+export type DecisionVerdict = { ok: true; acting_for: ActingFor; as: 'creator' | 'lead' | 'management' | 'owner' } | { ok: false; status: 401 | 403 | 404; error: string };
 
 /**
  * 事项上替人做决定的动作谁能做（只有这一处；不看事情此刻在不在等，那是 canOf 和各入口的事）：
@@ -329,7 +348,7 @@ export function itemDecisionVerdict(item: WorkItemRow | undefined, viewer: WorkI
   if (action === 'release') {
     const r = releaseRole(item, viewer);
     if (!r) return no;
-    return { ok: true, acting_for: r.acting_for, as: r.acting_for ? 'management' : item.review_by === 'requester' ? 'creator' : 'lead' };
+    return { ok: true, acting_for: r.acting_for, as: r.owner ? 'owner' : r.acting_for ? 'management' : item.review_by === 'requester' ? 'creator' : 'lead' };
   }
   const p = viewer.principal;
   const creatorCheck = p && viewer.person && isCreator(item, p) ? svc<WorkItemService>('workItems').creatorCheck(item.id, p) : null;

@@ -70,7 +70,7 @@ try {
     };
     const out = { lead: mk('合成：交给有负责人的团队', ${JSON.stringify(TEAM)}), vacant: mk('合成：交给没有负责人的团队', ${JSON.stringify(VACANT)}),
       requester: mk('合成：建立人自己过目', ${JSON.stringify(TEAM)}, { handoff: 'own-seat', reviewBy: 'requester', directedSeatId: 'seat-0000000b' }),
-      withdrawn: mk('合成：会被撤回', ${JSON.stringify(TEAM)}) };
+      owner: mk('合成：属主放行别的负责人的单', ${JSON.stringify(TEAM)}), withdrawn: mk('合成：会被撤回', ${JSON.stringify(TEAM)}) };
     console.log('SEEDED ' + JSON.stringify(out));
     process.exit(0);`], { env, encoding: 'utf8' });
   const m = /SEEDED (.*)/.exec(seed.stdout);
@@ -248,6 +248,27 @@ try {
     check(show(d) === show({ 建立人: { can: true, turn: true }, 负责人: { can: false, turn: false }, 管理层: { can: false, turn: false } }), '建立人自己过目：建立人 can、turn 都真；负责人、管理层都不能', show(d));
     const l = await release(I.requester.item, WHO.负责人), g = await release(I.requester.item, WHO.管理层), c = await release(I.requester.item, WHO.建立人);
     check(l.status === 403 && g.status === 403 && c.status === 200 && show(factOf(I.requester.item)) === show([{ actor: 'user:alpha', acting_for: null }]), '放行入口：负责人、管理层 403；建立人 200，留痕记建立人', show({ l: l.status, g: g.status, c: c.body }));
+  }
+  // ---------- #1143 属主可以放行别的负责人的 held 单 ----------
+  {
+    const d = await call('POST', '/api/grants', {}, { principal: 'user:root-admin', role: 'owner', scope: '*', reason: '合成：属主跨队放行' });
+    const gid = d.body?.grant?.id;
+    await call('POST', `/api/grants/${gid}/submit`, {}, {});
+    const a = await call('POST', `/api/grants/${gid}/approve`, {}, {});
+    if (a.status !== 200) throw new Error('合成属主授予失败：' + show(a));
+    const ownerBefore = await detail(I.owner.item, WHO.管理层);
+    const leadBefore = await detail(I.owner.item, WHO.负责人);
+    const ownerGlance = (await glances(WHO.管理层)).find(x => x.source_id === I.owner.item);
+    const denial = await release(I.owner.item, WHO.建立人);
+    const cross = await release(I.owner.item, { ...WHO.管理层, 'sec-fetch-site': 'cross-site' });
+    const done = await release(I.owner.item, WHO.管理层);
+    const duplicate = await release(I.owner.item, WHO.管理层);
+    const reason = (sql, id) => q(sql, id).map(r => JSON.parse(r.detail).reason);
+    const eventReason = reason("SELECT detail FROM workbench_event_log WHERE event_id = ? AND action = 'released'", I.owner.event);
+    const itemReason = reason("SELECT detail FROM work_item_log WHERE item_id = ? AND fact = 'release'", I.owner.item);
+    check(ownerBefore.can && leadBefore.can && ownerGlance?.answer_via && denial.status === 403 && cross.status === 403 && done.status === 200
+      && duplicate.body?.duplicate === true && show(eventReason) === show(['属主放行']) && show(itemReason) === show(['属主放行']),
+      '属主跨队可见且能放行，原负责人仍可见；普通员工及跨站仍拒，事件与事项各记一次「属主放行」', show({ ownerBefore, leadBefore, denial: denial.status, cross: cross.status, done, duplicate, eventReason, itemReason }));
   }
   // ---------- 没放过、已经不在等过目 ----------
   {
