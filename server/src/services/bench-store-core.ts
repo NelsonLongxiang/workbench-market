@@ -1164,7 +1164,8 @@ export class BenchStoreCore {
       if (selected.length !== names.length) throw new BenchError('conflict', '列定义已改变，请刷新后重新导出');
       await this.tableRead(target); // Detect writes by a different process during a paged export; never publish mixed generations.
       return { version: x.version, view: x.view.key, title: String(x.block.title ?? x.view.title), params: x.params, revision: x.revision,
-        columns: selected.map(c => publicColumn({ ...c, label: Object.hasOwn(labels, c.name) ? labels[c.name] : c.labeled ? c.label : '' })), rows, row_count: rows.length, truncated: false };
+        columns: selected.map(c => publicColumn({ ...c, label: Object.hasOwn(labels, c.name) ? labels[c.name] : c.labeled ? c.label : '' })), rows, row_count: rows.length, truncated: false,
+        value_labels: isObj(x.block.value_labels) ? x.block.value_labels as Record<string, unknown> : undefined };
     });
   }
 

@@ -44,5 +44,31 @@ try{
  const nullIndex=grouped.blocks[0].data.rows.findIndex(r=>r.tag===null);const nullDetail=await store.tableRow(gt,nullIndex,grouped.blocks[0].data.rows[nullIndex],true);assert.deepEqual(nullDetail.source_rows.map(r=>r.id),[3]);pass('null grouping drills only into null source rows');
  const emptyDoc={title:'空',views:[{key:'empty',title:'空',blocks:[{type:'table',query:{dataset:'groups',filter:[{col:'batch',op:'=',value:'missing'}]}}]}]};await store.putView(emptyDoc,{...ctx(),base:3,note:'empty'});const empty=await store.renderView();assert.equal((await store.tableExport(empty.blocks[0].table_context)).row_count,0);pass('empty matching result exports header-only with honest zero count');
  assert.equal(tableDigest({b:2,a:1}),tableDigest({a:1,b:2}));pass('read digest ignores object key insertion order');
+  // CSV export must carry the same value wording the page shows (value_labels), without losing the raw value.
+  const statusLabels={status:{not_confirmed:'业务接受待确认',accepted:'业务接受已确认'},level:{high:{text:'高',tone:'danger'}}};
+  const statusDoc={title:'状态',views:[{key:'status',title:'状态',blocks:[
+    {type:'table',title:'证据',query:{dataset:'status_rows',select:['id','status','level','note'],sort:[{col:'id'}]},value_labels:statusLabels},
+    {type:'table',title:'无对照',query:{dataset:'status_rows',select:['id','status'],sort:[{col:'id'}]}}]}]};
+  await store.defineDataset({name:'status_rows',title:'合成状态',key:['id'],columns:[{name:'id',type:'integer',label:'行号'},{name:'status',type:'text',label:'业务接受证据状态'},{name:'level',type:'text',label:'等级'},{name:'note',type:'text',label:'备注'}]},ctx());
+  await store.replace('status_rows',[{id:1,status:'not_confirmed',level:'high',note:'=HYPERLINK("x")'},{id:2,status:'accepted',level:'low',note:'plain'},{id:3,status:'unmapped_x',level:'high',note:'third'}],ctx());
+  await store.putView(statusDoc,{...ctx(),base:4,note:'valuelabels'});
+  const statusView=await store.renderView({view:'status'});
+  const labelled=await store.tableExport(statusView.blocks[0].table_context);
+  const unlabelled=await store.tableExport(statusView.blocks[1].table_context);
+  const csvCells=text=>text.replace(/^\ufeff/,'').split('\r\n').filter(Boolean).map(line=>{const out=[];let cur='',q=false;for(let i=0;i<line.length;i++){const ch=line[i];if(q){if(ch==='"'){if(line[i+1]==='"'){cur+='"';i++}else q=false}else cur+=ch}else if(ch==='"')q=true;else if(ch===','){out.push(cur);cur=''}else cur+=ch}out.push(cur);return out});
+  const L=csvCells(tableCsv(labelled.columns,labelled.rows,labelled.value_labels)),U=csvCells(tableCsv(unlabelled.columns,unlabelled.rows,unlabelled.value_labels));
+  // Raw columns keep their header and their raw value: existing consumers are unaffected.
+  assert.deepEqual(L[0].slice(0,4),['行号','业务接受证据状态','等级','备注']);pass('labelled export keeps every raw column header unchanged');
+  assert.deepEqual(L[1].slice(0,4),['1','not_confirmed','high','\'=HYPERLINK("x")']);assert.deepEqual(U[1],['1','not_confirmed']);pass('raw status stays not_confirmed in CSV (same value as page), formula text still neutralized');
+  // The page wording arrives as added columns, one per column that has value_labels.
+  assert.deepEqual(L[0].slice(4),['业务接受证据状态（说明）','等级（说明）']);pass('a wording column is appended for each column that has value_labels');
+  assert.deepEqual(L[1].slice(4),['业务接受待确认','高']);pass('page wording 业务接受待确认 is exported for not_confirmed, object form yields its text');
+  assert.deepEqual(L[2].slice(4),['业务接受已确认','']);pass('value without a mapping leaves the wording cell empty rather than inventing text');
+  assert.deepEqual(L[3].slice(4),['','高']);pass('unmapped raw value keeps raw column and leaves wording empty');
+  assert.equal(L[0].length,6);pass('note and id columns get no wording column');
+  // A table without value_labels exports exactly as before.
+  assert.deepEqual(U[0],['行号','业务接受证据状态']);assert.deepEqual(U[1],['1','not_confirmed']);assert.deepEqual(U[2],['2','accepted']);pass('table without value_labels exports byte-for-byte as before (no extra columns)');
+  // The exporter result carries value_labels so the route can pass them through.
+  assert.deepEqual(labelled.value_labels,statusLabels);assert.equal(unlabelled.value_labels,undefined);pass('tableExport returns the block value_labels for the route to hand to tableCsv');
  console.log(JSON.stringify({passed:count,failed:0,synthetic:true,production:false}));
 }finally{await closeBenchStores();db.close();rmSync(dir,{recursive:true,force:true});}
