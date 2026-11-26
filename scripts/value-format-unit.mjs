@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** #1085 + #1095 数字显示格式（server/src/value-format.ts）：报告 $format / 统计卡 format 与数据视图列 format 共用的一个实现。数据都是合成的。 */
 import { columnNumberSpec, formatNumber, plainNumber, reportNumberSpec } from '../server/src/value-format.ts';
+import { cellText, fmtColumnNumber, mainColumns, recordCards } from '../web/src/bench-blocks/blocks-view.ts';
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
 const rep = (o) => reportNumberSpec(o, (k) => Object.prototype.hasOwnProperty.call(o, k));
@@ -24,4 +25,11 @@ ok('不合格的 format 给中文说法：不认识的键、decimals 越界、pe
 console.log('三、没配格式的数');
 ok('原样：不截断、不补零，整数部分加千分位', plainNumber(1234567.891) === '1,234,567.891' && plainNumber(1.5) === '1.5' && plainNumber(3) === '3' && plainNumber(-0.25) === '-0.25' && plainNumber(0.1 + 0.2) === '0.30000000000000004');
 ok('很大很小的数写科学记数；null / NaN 回 null', plainNumber(1e21) === '1e+21' && plainNumber(1e-7) === '1e-7' && plainNumber(null) === null && plainNumber(NaN) === null);
+console.log('四、数据视图的块怎么用');
+const AMT = { name: 'amount', type: 'decimal', label: '金额', format: { decimals: 2, unit: '万' } };
+ok('列配了 format：按它写（表格的格子、统计卡同一个函数）；没配原样写；配得不对回落原样；不是数写「-」', fmtColumnNumber(7000, AMT) === '0.70万' && cellText(171000, 'number', AMT) === '17.10万'
+  && fmtColumnNumber(1.5, { name: 'x' }) === '1.5' && fmtColumnNumber(1.5, { format: { decimals: 99 } }) === '1.5' && fmtColumnNumber(null, AMT) === '-' && cellText(null, 'number', AMT) === '-');
+ok('主表不放只在行详情里显示的列', JSON.stringify(mainColumns([{ name: 'a' }, { name: 'raw', detail_only: true }, { name: 'b', detail_only: false }]).map((c) => c.name)) === JSON.stringify(['a', 'b']));
+const cards = recordCards({ columns: [{ name: 't', type: 'text' }, AMT, { name: 'raw', type: 'text', detail_only: true }], rows: [{ t: '合成', amount: 7000, raw: '7000.000000001' }] }, { title_col: 't', fields: ['amount', 'raw'], details: [] });
+ok('记录卡：数按列的格式写；写在 fields 里的只在详情列挪到展开后的详情里', cards[0].fields.map((f) => f.name + '=' + f.text).join() === 'amount=0.70万' && cards[0].details.map((f) => f.name + '=' + f.text).join() === 'raw=7000.000000001', JSON.stringify(cards[0]));
 console.log(`\nvalue-format-unit: ${pass} 过 / ${fail} 败`); process.exit(fail ? 1 : 0);

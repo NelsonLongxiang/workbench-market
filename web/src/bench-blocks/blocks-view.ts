@@ -1,13 +1,15 @@
 /**
  * 数据视图组件（bench-blocks）里的判断：数字怎么写、表格的格子按什么画、图表的系列怎么拼、出错时说什么。
- * 纯函数，不碰 React，也不引用别的文件（单测直接用 Node 加载这个文件）。
+ * 纯函数，不碰 React；只引 server/src/value-format.ts（数字的显示格式和报告共用一个实现，同样是纯函数），单测直接用 Node 加载这个文件。
  *
  * 数据的形状就是台库查询的应答：{ columns, rows, truncated }。驾驶舱用这些组件时，把自己的数据转成这个形状递进来。
  */
+import { columnNumberSpec, formatNumber, plainNumber } from '../../../server/src/value-format.ts';
 export type BlockColType = 'text' | 'integer' | 'decimal' | 'date' | 'datetime' | 'boolean' | 'image';
 /** 表格里这一列按什么画；不给就按列的类型推（数字 → number，时间 → time，其余 → text） */
 export type CellKind = 'text' | 'number' | 'time' | 'date' | 'bool' | 'person' | 'seat' | 'status' | 'image';
-export type BlockColumn = { name: string; type: BlockColType; label?: string; role?: string; display?: CellKind };
+/** format：#1095 列的显示格式（写法见 server/src/value-format.ts 的 columnNumberSpec）；detail_only：只在行详情里显示，主表不占列 */
+export type BlockColumn = { name: string; type: BlockColType; label?: string; role?: string; display?: CellKind; format?: Record<string, unknown>; detail_only?: boolean };
 export type BlockData = { columns: BlockColumn[]; rows: Record<string, unknown>[]; truncated?: boolean };
 export type BlockError = { code: string; message?: string };
 
@@ -62,10 +64,18 @@ export function imageSrc(ref: unknown, src: ImageSource | null | undefined): str
   return `/api/bench-views/${encodeURIComponent(src.bench)}/image?${q.toString()}`;
 }
 
-/** 格子里的文字（人、席位、状态、时间由组件自己画，这里给不出的返回原文） */
-export function cellText(v: unknown, kind: CellKind): string {
+/** #1095 数据视图里的数：列配了 format 按它写（和报告共用一个实现）；没配（或配得不对）原样写，只加千分位，不截断、不补零。不是数写「-」 */
+export function fmtColumnNumber(v: unknown, col?: { format?: unknown } | null): string {
+  if (col && col.format !== undefined) { const s = columnNumberSpec(col.format); if (s.ok) return formatNumber(v, s.spec) ?? '-'; }
+  return plainNumber(v) ?? '-';
+}
+/** 主表里占列的：去掉只在行详情里显示的 */
+export const mainColumns = <C extends { detail_only?: boolean }>(cols: C[]): C[] => cols.filter((c) => !c.detail_only);
+
+/** 格子里的文字（人、席位、状态、时间由组件自己画，这里给不出的返回原文）；数按这一列的格式写 */
+export function cellText(v: unknown, kind: CellKind, col?: { format?: unknown } | null): string {
   if (v === null || v === undefined || v === '') return '-';
-  if (kind === 'number') return fmtNumber(v);
+  if (kind === 'number') return fmtColumnNumber(v, col);
   if (kind === 'bool') return v === true ? '是' : v === false ? '否' : '-';
   return typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '-';
 }
@@ -310,7 +320,7 @@ export function recordCards(data: BlockData | null | undefined, spec: RecordsSpe
     const empty = v === null || v === undefined || v === '';
     const kind = c ? cellKind(c) : 'text';
     if (kind === 'image') return { name, label: label(name), text: empty ? '—' : '图片', empty, ...(empty || typeof v !== 'string' ? {} : { image: v }) };
-    const text = empty ? (kind === 'date' || kind === 'time' ? '未填' : '—') : hit ? hit.text : kind === 'date' || kind === 'time' ? fmtDate(v, kind) : cellText(v, kind === 'status' ? 'text' : kind);
+    const text = empty ? (kind === 'date' || kind === 'time' ? '未填' : '—') : hit ? hit.text : kind === 'date' || kind === 'time' ? fmtDate(v, kind) : cellText(v, kind === 'status' ? 'text' : kind, c);
     return { name, label: label(name), text, empty };
   };
   const targets = Array.isArray(linkTargets) ? linkTargets : [];
@@ -334,7 +344,10 @@ export function recordCards(data: BlockData | null | undefined, spec: RecordsSpe
       // 两边都认、而且认出来是同一个地址，才给链接
       return mine && server && server.href === mine.href ? { label: l.label, href: mine.href, host: mine.host } : { label: l.label, invalid: true };
     }).filter((x): x is RecordLink => !!x);
-    return { key: String(i), title, badges, date, fields: (spec.fields ?? []).map((n) => field(row, n)), details: (spec.details ?? []).map((n) => field(row, n)), links };
+    // #1095 只在行详情里显示的列：写在 fields 里也挪到展开后的 details 里
+    const fieldNames = (spec.fields ?? []).filter((n) => !col(n)?.detail_only);
+    const detailNames = [...(spec.details ?? []), ...(spec.fields ?? []).filter((n) => col(n)?.detail_only && !(spec.details ?? []).includes(n))];
+    return { key: String(i), title, badges, date, fields: fieldNames.map((n) => field(row, n)), details: detailNames.map((n) => field(row, n)), links };
   });
 }
 

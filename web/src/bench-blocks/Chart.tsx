@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DESIGN_TOKENS as T } from '../design-tokens';
 import { BlockFrame, type BlockFrameProps } from './Frame';
-import { MAX_SERIES, toSeries, toSlices, toneNote, toneOf, toneRules } from './blocks-view';
+import { MAX_SERIES, toSeries, toSlices, toneNote, toneOf, toneRules, fmtColumnNumber } from './blocks-view';
 import { cartesianOption, pieOption, type ChartTokens } from './chart-option';
 
 type Row = Record<string, unknown>;
@@ -57,7 +57,13 @@ function Cartesian({ kind, x, y, series, onSelect, flags, rules, unit, ...frame 
   const m = useMemo(() => toSeries(frame.data, x, y, series), [frame.data, x, y, series]);
   const tr = useMemo(() => (kind === 'bar' && m.series.length === 1 ? toneRules(rules) : []), [kind, m, rules]);
   const tones = useMemo(() => (tr.length ? m.rowsAt.map((rows) => toneOf(rows[0], tr)) : undefined), [m, tr]);
-  const option = useMemo(() => cartesianOption(kind, m, TOKENS, { ...flags, tones }), [kind, m, tones, flags.stacked, flags.horizontal, flags.area]); // eslint-disable-line react-hooks/exhaustive-deps
+  // #1095 y 列都配了同一个格式：数值轴、提示框按它写；格式不一样或没配就照原来
+  const valueFmt = useMemo(() => {
+    const ys = (Array.isArray(y) ? y : [y]).map((n) => frame.data?.columns.find((c) => c.name === n));
+    const f0 = ys[0]?.format;
+    return f0 !== undefined && ys.every((c) => JSON.stringify(c?.format) === JSON.stringify(f0)) ? (n: number) => fmtColumnNumber(n, ys[0]) : undefined;
+  }, [frame.data, y]);
+  const option = useMemo(() => cartesianOption(kind, m, TOKENS, { ...flags, tones, valueFmt }), [kind, m, tones, valueFmt, flags.stacked, flags.horizontal, flags.area]); // eslint-disable-line react-hooks/exhaustive-deps
   const label = `${typeof frame.title === 'string' ? frame.title : '图表'}：${m.categories.map((c, i) => `${c} ${m.series.map((s) => `${s.name} ${s.values[i] ?? '无'}`).join('，')}`).join('；')}`;
   return (
     <BlockFrame {...frame} kind={kind}>
