@@ -2997,3 +2997,12 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
     scanGuard: d === 'sqlite' ? 'CASE WHEN (rid & 255) <> 0 OR bench_tick() THEN ({cond}) ELSE 0 END' : null,
   };
 }
+
+/** 任务中心对 tasks 的补列与收件索引：原在 task-center.ts 的 initializeTaskCenter 里，搬来和 tasks 表放在一起（tasks、sop_runs 都已在上面建好）。语句与条件逐字照搬 */
+{
+  const cols = tableColumns('tasks') as { name: string }[];
+  if (!cols.some(c=>c.name==='intake_run_id')) db.exec('ALTER TABLE tasks ADD COLUMN intake_run_id INTEGER REFERENCES sop_runs(id)');
+  if (!cols.some(c=>c.name==='template_version')) db.exec('ALTER TABLE tasks ADD COLUMN template_version INTEGER');
+  db.exec('DROP INDEX IF EXISTS idx_tasks_material; CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_intake_run ON tasks(intake_run_id) WHERE intake_run_id IS NOT NULL');
+}
+
