@@ -429,6 +429,30 @@ try {
     check(okHero.status === 200 && okHero.buf.equals(PNG) && okHero.headers.get('content-type') === 'image/png' && okHero.headers.get('x-content-type-options') === 'nosniff' && /sandbox/.test(okHero.headers.get('content-security-policy') ?? '')
         && okExtra.status === 200 && okExtra.buf.equals(JPG) && okRow.status === 200 && okRow.buf.equals(webpX(2, 3)),
       'I11 报告作来源：参数、字段、数据行的图都取得到，字节一致，带 nosniff、sandbox', { okHero: okHero.status, okExtra: okExtra.status, okRow: okRow.status });
+
+    // #1081：一行一张主图，外加一个三列小图栅格（栅格里放 image）。冻结后每张都有哈希，栅格里的图也按报告作来源取得到
+    const GRID_TPL = { ...TPL, title: '合成·图片栅格报告', body: [
+      { id: 'cover', type: 'cover', title: ['栅格 ', R('parameter', 'period')] },
+      { id: 'each', type: 'repeat', data: 'shots', row_key: ['id'], max_items: 10, children: [
+        { id: 'main', type: 'image', src: R('row', 'pic'), alt: '主图' },
+        { id: 'thumbs', type: 'grid', columns: [4, 4, 4], items: [
+          { id: 't1', type: 'image', src: R('row', 'pic'), alt: '小图一' },
+          { id: 't2', type: 'image', src: R('parameter', 'hero'), alt: '小图二' },
+          { id: 't3', type: 'image', src: R('field', 'extra'), alt: '小图三' }] }] }] };
+    await cli('POST', '/api/report-dimensions', { id: 'imggrid', title: '合成图片栅格报告' });
+    const gpub = await srv.call('POST', '/api/report-dimensions/imggrid/templates', { ...boss, body: { body: GRID_TPL } });
+    const grev = await srv.call('POST', '/api/report-dimensions/imggrid/templates/1/review', { ...sys, body: {} });
+    const gact = await cli('POST', '/api/report-dimensions/imggrid/activate', { version: 1 });
+    const gbind = await bv(boss, 'PUT', '/synth-rep/reports/imggrid/binding', { base: 0, slots: { shots: { view: 'shots', block: 0, params: {}, columns: { id: 'id', pic: 'pic', name: 'name' } } } });
+    const gg = await bv(boss, 'POST', '/synth-rep/reports', { dimension: 'imggrid', subject: 'item:img-grid', inputs: { parameters: { period: '2026-11', hero: 'photos/hero.png' }, fields: { extra: 'photos/extra.jpg' } }, claims: [] });
+    const gnodes = imgs(gg.json?.report);
+    const grid = (gg.json?.report?.body?.body ?? []).flatMap((n) => n?.type === 'grid' ? [n] : []);
+    const thumbFetch = await rimg(boss, 'photos/extra.jpg', gg.json?.report?.id);
+    check(gpub.status === 201 && grev.status === 200 && gact.status === 200 && gbind.status === 200 && gg.status === 201
+        && gnodes.length === 8 && gnodes.every((n) => n.sha256 === want[n.src]) && grid.length === 2 && grid.every((n) => JSON.stringify(n.columns) === '[4,4,4]' && n.children?.length === 3 && n.children.every((c) => c.type === 'image'))
+        && thumbFetch.status === 200 && thumbFetch.buf.equals(JPG),
+      'I11b（#1081）两行各一张主图加一个三列小图栅格：模板发版、复核、生效、绑定都过，生成 201；冻结出 8 个图片节点都带对的 sha256，栅格保留 4-4-4 和三张图；栅格里的图按报告作来源取得到',
+      { gpub: [gpub.status, gpub.text.slice(0, 200)], gg: [gg.status, gg.text.slice(0, 200)], n: gnodes.length, grid: grid.length, thumb: thumbFetch.status });
     const before = hits.length;
     const deny = {
       anon: (await srv.call('GET', `/api/bench-views/synth-rep/image?u=photos%2Fhero.png&report=${heroReport}`, { headers: REMOTE })).status,

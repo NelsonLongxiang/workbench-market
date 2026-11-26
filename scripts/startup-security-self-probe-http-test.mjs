@@ -113,6 +113,9 @@ async function runCase(label,{off=false,control=false,occupied=false,unset=false
    // 数据视图入口缺省开（不设就开），只有显式 off 时没有这三行
    if(benchViews!=='off'){const rows=health.self_probe.rows.filter(x=>x.id.startsWith('market.bench-views.'));check(label+' exactly the eight named bench-view rows pass',rows.length===BENCH_PROBES.length&&BENCH_PROBES.every(id=>rows.some(x=>x.id===id&&x.verdict==='pass'&&x.status===401)));}
    else check(label+' no bench-view rows while the entry is off',!health.self_probe.rows.some(x=>x.id.startsWith('market.bench-views.')));
+   const preflight = health.self_probe.rows.find(row=>row.id==='market.bench-mcp.report-preflight-anonymous');
+   if(benchViews==='on')check(label+' anonymous template preflight is a named refusal',preflight?.status===401&&preflight.verdict==='pass');
+   if(benchViews==='off')check(label+' disabled bench tools omit template preflight',!preflight);
    check(label+' ordinary request works after successful startup',(await fetch('http://127.0.0.1:'+port+'/api/workbenches')).status===200);
   }
   const db=new DatabaseSync(join(dir,'data','workbench-market.db'),{readOnly:true});

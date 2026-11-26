@@ -672,7 +672,8 @@
       "created_at INTEGER NOT NULL",
       "expires_at INTEGER NOT NULL",
       "last_used_at INTEGER",
-      "revoked_at INTEGER"
+      "revoked_at INTEGER",
+      "delegate TEXT NOT NULL DEFAULT ''"
     ],
     "principal_identities": [
       "provider TEXT NOT NULL PK",
