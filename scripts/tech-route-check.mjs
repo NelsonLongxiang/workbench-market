@@ -218,6 +218,39 @@ function unregisteredBySource(repo) {
 }
 // 库由调用方注入的模块的建表只放这一个文件（属主 2026-11-26 批准）：两条归属规则对它与 db.ts 同等放过，内容另由 injected-schema-ddl-only 红线守着
 const INJECTED_SCHEMA = 'server/src/db-schema-injected.ts';
+// 仅核源文件里的常规 exec 调用。每次只收一条 DDL，避免把第一句当整批结论。
+const PORTAL_CLASS_LIST = /clientClasses\.map\(c => "'" \+ c \+ "'"\)\.join\(','\)/y;
+const SCHEMA_SQL_LITERAL = /\s*(?:'([^'\\\r\n]*)'|"([^"\\\r\n]*)"|`((?:[^`\\$]|\$(?!\{))*)`)\s*/y;
+function isSchemaDdlExec(text, start) {
+  let sql = '';
+  let hasPortalClassList = false;
+  for (let at = start; at < text.length;) {
+    SCHEMA_SQL_LITERAL.lastIndex = at;
+    const literal = SCHEMA_SQL_LITERAL.exec(text);
+    if (literal) {
+      sql += literal[1] ?? literal[2] ?? literal[3];
+      at = SCHEMA_SQL_LITERAL.lastIndex;
+    } else {
+      // 只接受现有门户建表中的固定类别清单，用占位检查 SQL 语句边界。
+      const prefix = sql.trim();
+      if (hasPortalClassList || !prefix.startsWith('CREATE TABLE IF NOT EXISTS portal_observation_counts (') || !prefix.endsWith('client_class IN (')) return false;
+      PORTAL_CLASS_LIST.lastIndex = at;
+      if (!PORTAL_CLASS_LIST.test(text)) return false;
+      sql += "'class'";
+      hasPortalClassList = true;
+      at = PORTAL_CLASS_LIST.lastIndex;
+      while (/\s/.test(text[at] ?? '')) at++;
+    }
+    if (text[at] === ')') {
+      const statement = sql.trim().replace(/;$/, '');
+      return /^(CREATE|ALTER)\b/i.test(statement) && !statement.includes(';');
+    }
+    if (text[at] !== '+') return false;
+    at++;
+    while (/\s/.test(text[at] ?? '')) at++;
+  }
+  return false;
+}
 const outsideServices = (f) => f !== 'server/src/db.ts' && f !== INJECTED_SCHEMA && !f.startsWith('server/src/services/');
 
 // 身份的具体实现只许待在登录提供方目录里；目录之外的 server 文件都算核心。
@@ -588,13 +621,16 @@ const RULES = [
     measure: (repo) => {
       if (!repo.server().includes(INJECTED_SCHEMA)) return { total: 0, items: [], note: '模块不在' };
       // 先去掉注释：注释里写到这些写法（比如说明「不自己 new DatabaseSync」）不是代码
-      const text = repo.read(INJECTED_SCHEMA).replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"])\/\/[^\n]*/g, '$1'), items = [];
+      const text = repo.read(INJECTED_SCHEMA).replace(/'(?:\\[\s\S]|[^'\\])*'|"(?:\\[\s\S]|[^"\\])*"|`(?:\\[\s\S]|[^`\\])*`|(\/\*[\s\S]*?\*\/|\/\/[^\n]*)/g,
+        (match, comment) => comment ? comment.replace(/[^\n]/g, ' ') : match);
+      const items = [];
       for (const m of text.matchAll(/\.prepare\(/g)) items.push('prepare@' + m.index);
       for (const m of text.matchAll(/import\s+(?!type\b)[^;]*?from\s+['"][^'"]*\/db\.ts['"]/g)) items.push('import-db@' + m.index);
       for (const m of text.matchAll(/import\(\s*['"][^'"]*\/db\.ts['"]\s*\)/g)) items.push('dynamic-import-db@' + m.index);
       for (const m of text.matchAll(/new\s+DatabaseSync\b/g)) items.push('new-db@' + m.index);
-      for (const m of text.matchAll(/\.exec\(\s*(['"`])\s*([A-Za-z]+)/g)) if (!/^(CREATE|ALTER)$/i.test(m[2])) items.push('non-ddl-exec@' + m.index);
-      for (const m of text.matchAll(/\.exec\(\s*(?![\s'"`])/g)) items.push('exec-non-literal@' + m.index);
+      for (const m of text.matchAll(/\.exec\(\s*/g)) {
+        if (!isSchemaDdlExec(text, m.index + m[0].length)) items.push('non-ddl-exec@' + m.index);
+      }
       return { total: items.length, items: items.map((i) => INJECTED_SCHEMA + ' ' + i) };
     },
     sample: {
@@ -607,6 +643,10 @@ const RULES = [
       { label: '动态引入主库', files: { 'server/src/db-schema-injected.ts': "export async function f() { await import('./db.ts'); }\n" }, expect: 1 },
       { label: '注释里提到这些写法不算', files: { 'server/src/db-schema-injected.ts': "/** 不导入 db.ts、不自己 new DatabaseSync、不放 db.prepare */\n// db.exec(sql) 也不行\nexport function f(db) { db.exec('CREATE TABLE IF NOT EXISTS t (id)'); }\n" }, expect: 0 },
       { label: '改表与拼接起头的建表都算 DDL', files: { 'server/src/db-schema-injected.ts': "export function f(db) { db.exec('ALTER TABLE t ADD COLUMN c'); db.exec(\n  'CREATE TABLE IF NOT EXISTS u (' + 'id)'); }\n" }, expect: 0 },
+      { label: '首句是建表的混合批也不行', files: { [INJECTED_SCHEMA]: "db.exec('CREATE TABLE t (id); INSERT INTO t VALUES (1)');" }, expect: 1 },
+      { label: '拼接出第二句或拼上未知 SQL 都不行', files: { [INJECTED_SCHEMA]: "db.exec('CREATE TABLE t (id);' + 'DELETE FROM t'); db.exec('ALTER TABLE t ADD COLUMN c' + tail);" }, expect: 2 },
+      { label: '模板字面量多语句也不行', files: { [INJECTED_SCHEMA]: "db.exec(`CREATE TABLE t (id);\n-- 仍有第二句\nINSERT INTO t VALUES (1)`);" }, expect: 1 },
+      { label: '独立 DDL 支持结尾分号', files: { [INJECTED_SCHEMA]: "db.exec('CREATE TABLE t (id);'); db.exec('ALTER TABLE t ADD COLUMN c');" }, expect: 0 },
     ],
   },
   {
@@ -955,6 +995,26 @@ function selftest() {
       } finally { rmSync(root, { recursive: true, force: true }); }
     }
   }
+  // 走实际 CLI 回归：夹具仅供静态扫描，不把 SQL 交给数据库执行。
+  const injectedSchemaFixture = plant({
+    [LIST]: readFileSync(join(HERE, '..', LIST), 'utf8'),
+    'README.md': basename(INJECTED_SCHEMA),
+    'surfaces/actions.json': '{}',
+  });
+  try {
+    mkdirSync(join(injectedSchemaFixture, dirname(INJECTED_SCHEMA)), { recursive: true });
+    for (const [sql, exit] of [
+      ['CREATE TABLE t (id INTEGER);', 0],
+      ['CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)', 1],
+    ]) {
+      writeFileSync(join(injectedSchemaFixture, INJECTED_SCHEMA), 'db.exec(' + JSON.stringify(sql) + ');\n');
+      const cli = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--root', injectedSchemaFixture, '--no-types', '--no-boot', '--json'], { encoding: 'utf8' });
+      let row;
+      try { row = JSON.parse(cli.stdout).find((rule) => rule.id === 'injected-schema-ddl-only'); } catch { /* 没有有效结果，自检失败 */ }
+      check(cli.status === exit && row?.total === exit && row.waived === 0 && row.fail === Boolean(exit),
+        'injected-schema-ddl-only 原生 CLI ' + (exit ? '拒绝建表与 INSERT 混批' : '通过单句建表'));
+    }
+  } finally { rmSync(injectedSchemaFixture, { recursive: true, force: true }); }
   const snapshots = [...SKILL_SURFACES];
   const followup = skillFollowup(snapshots);
   check(followup.total === snapshots.length && followup.items.join() === snapshots.join(), '技能跟随：对外快照逐项点名，生成的视图 Schema 不算技能更新');
