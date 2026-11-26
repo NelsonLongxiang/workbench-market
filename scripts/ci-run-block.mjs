@@ -77,7 +77,6 @@ export function isInstall(run) {
       while (j < rest.length && rest[j].startsWith('-')) j += VALUE_OPTS.has(rest[j]) ? 2 : 1;
       const sub = rest[j];
       if ((cmd === 'brew' || /^pip(?:x|[0-9.]*)$/.test(cmd)) && sub === 'install') return true;
-      if (/^python[0-9.]*$/.test(cmd) && rest[0] === '-m' && rest[1] === 'pip' && rest[2] === 'install') return true;
       if (cmd === 'yarn' && sub === undefined) return true;
       if ((cmd === 'pnpm' || cmd === 'npm' || cmd === 'yarn') && ['i', 'install', 'ci', 'add'].includes(sub)) return true;
     }
