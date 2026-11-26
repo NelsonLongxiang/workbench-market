@@ -58,6 +58,10 @@ export default function BenchReports() {
   );
 }
 
+function SubjectName({ subject, name }: { subject: string; name?: string }) {
+  return <span title={name ? subject : undefined}>{name || subject}</span>;
+}
+
 /** 清单：按事物分组，每组里各维度一份（被更正过的取更正后的那份） */
 function ReportList({ cardId }: { cardId: string }) {
   const [s, setS] = useState<Load<{ list: ReportListItem[]; names: ReportListNames }>>({ phase: 'loading' });
@@ -80,14 +84,14 @@ function ReportList({ cardId }: { cardId: string }) {
       {groups.map((g) => (
         <section key={g.subject} className="wm-rp-group" data-testid="report-group" data-subject={g.subject}>
           <div className="wm-rp-group-head">
-            <h2 className="wm-rp-group-title">{g.subject}</h2>
+            <h2 className="wm-rp-group-title"><SubjectName subject={g.subject} name={s.data.list.find((r) => r.subject === g.subject && r.subject_name)?.subject_name} /></h2>
             {g.dims.length > 1 ? <Link to={`${base}?subject=${encodeURIComponent(g.subject)}`} data-testid="report-group-side">{g.dims.length} 个维度并排看</Link> : null}
           </div>
           <ul className="wm-rp-dims">
             {g.dims.map((d) => (
               <li key={d.dimension_id} data-testid="report-group-dim">
                 <Link to={`${base}?report=${d.head.id}`}>{nameOr(names.dimensions[d.dimension_id])}</Link>
-                <span className="wm-rp-meta">{timeText(d.head.created_at)} · 产出方 {nameOr(names.actors[d.head.producer])}</span>
+                <span className="wm-rp-meta">{timeText(d.head.created_at)} · 产出方 {names.actors[d.head.producer] || '未署名'}</span>
                 {d.head.producer_kind === 'ai' ? <Tag color="purple">AI</Tag> : null}
                 {d.head.supersedes !== null ? <Tag>更正版</Tag> : null}
                 {d.others > 0 ? <span className="wm-rp-meta">另有 {d.others} 份</span> : null}
@@ -102,24 +106,24 @@ function ReportList({ cardId }: { cardId: string }) {
 
 /** 同一事物的几个维度并排：每个维度一列（宽屏并排，窄屏上下排） */
 function SubjectReports({ cardId, subject, entry }: { cardId: string; subject: string; entry: BenchEntry }) {
-  const [s, setS] = useState<Load<number[]>>({ phase: 'loading' });
+  const [s, setS] = useState<Load<{ ids: number[]; name?: string }>>({ phase: 'loading' });
   useEffect(() => {
     let live = true;
     void listBenchReports(cardId, subject).then((r) => {
       if (!live) return;
       const list = (r.body as { reports?: ReportListItem[] } | null)?.reports;
-      setS(r.status === 200 && Array.isArray(list) ? { phase: 'ok', data: headsOf(list).map((d) => d.head.id) } : { phase: 'error', text: reportError(r.status, r.body) });
+      setS(r.status === 200 && Array.isArray(list) ? { phase: 'ok', data: { ids: headsOf(list).map((d) => d.head.id), name: list.find((r) => r.subject_name)?.subject_name } } : { phase: 'error', text: reportError(r.status, r.body) });
     });
     return () => { live = false; };
   }, [cardId, subject]);
   if (s.phase === 'loading') return <Skeleton active />;
   if (s.phase === 'error') return <Alert type="error" showIcon message={s.text} data-testid="report-page-msg" />;
-  if (!s.data.length) return <div data-testid="report-page-empty"><Empty description="这件事还没有报告" /></div>;
+  if (!s.data.ids.length) return <div data-testid="report-page-empty"><Empty description="这件事还没有报告" /></div>;
   return (
     <>
-      <h1 className="wm-bp-title wm-rp-subject" data-testid="report-subject">{subject}</h1>
+      <h1 className="wm-bp-title wm-rp-subject" data-testid="report-subject"><SubjectName subject={subject} name={s.data.name} /></h1>
       <div className="wm-rp-cols" data-testid="report-cols">
-        {s.data.map((rid) => <OneReport key={rid} cardId={cardId} reportId={rid} entry={entry} column />)}
+        {s.data.ids.map((rid) => <OneReport key={rid} cardId={cardId} reportId={rid} entry={entry} column />)}
       </div>
     </>
   );
@@ -143,12 +147,12 @@ function OneReport({ cardId, reportId, entry, column }: { cardId: string; report
   return (
     <article className={column ? 'wm-rp-col wm-rp-doc' : 'wm-rp-doc'} data-testid="report-doc" data-report={rep.id} data-dimension={rep.dimension_id}>
       <header className="wm-rp-doc-head">
-        <div className="wm-rp-doc-dim" data-testid="report-dimension">{nameOr(names.dimension)}<span className="wm-rp-meta"> · 模板第 {rep.template_version} 版 · {rep.subject}</span></div>
+        <div className="wm-rp-doc-dim" data-testid="report-dimension">{nameOr(names.dimension)}<span className="wm-rp-meta"> · 模板第 {rep.template_version} 版 · <SubjectName subject={rep.subject} name={rep.subject_name} /></span></div>
         <div className="wm-rp-meta" data-testid="report-producer">
-          {timeText(rep.created_at)} 生成 · 产出方 {nameOr(names.actors[rep.producer])} <Tag color={rep.producer_kind === 'ai' ? 'purple' : undefined}>{actorKindText(rep.producer_kind)}</Tag>
+          {timeText(rep.created_at)} 生成 · 产出方 {(names.producer === undefined ? names.actors[rep.producer] : names.producer) || '未署名'} <Tag color={rep.producer_kind === 'ai' ? 'purple' : undefined}>{actorKindText(rep.producer_kind)}</Tag>
         </div>
         {rep.superseded_by !== null ? <Alert type="warning" showIcon data-testid="report-superseded" message={<>这份报告已被更正，<Link to={`${base}?report=${rep.superseded_by}`}>看更正后的那份</Link></>} /> : null}
-        {rep.supersedes !== null ? <div className="wm-rp-meta" data-testid="report-supersedes">更正了 <Link to={`${base}?report=${rep.supersedes}`}>之前那份</Link></div> : null}
+        {rep.supersedes !== null ? <div className="wm-rp-meta" data-testid="report-supersedes">更正了 <Link to={`${base}?report=${rep.supersedes}`}>报告 #{rep.supersedes}</Link></div> : null}
         <div className="wm-rp-status">
           <Tag color={d.open_disputes > 0 ? 'error' : 'success'} data-testid="report-open-disputes">{d.open_disputes > 0 ? `未处理的反驳 ${d.open_disputes} 处` : '没有未处理的反驳'}</Tag>
           {gateText(d.gate) ? <span className="wm-rp-meta" data-testid="report-gate">{gateText(d.gate)}</span> : null}

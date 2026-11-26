@@ -282,7 +282,14 @@ export type ReportResponseRow = {
   id: number; report_id: number; claim_key: string; stance: 'agree' | 'dispute' | 'supplement'; reason: string;
   responder: string; responder_kind: 'human' | 'ai'; position: string; supersedes: number | null; created_at: number;
 };
-export type ReportListItem = Omit<ReportRow, 'inputs' | 'body' | 'sources' | 'template_sha256'> & { superseded_by: number | null };
+export type ReportListItem = Omit<ReportRow, 'inputs' | 'body' | 'sources' | 'template_sha256'> & { superseded_by: number | null; subject_name?: string };
+/** 对象名称来自这份报告已有权读取的模板字段。旧报告没有该字段时用对象键。 */
+export function reportSubjectName(inputs: unknown): string | undefined {
+  if (!inputs || typeof inputs !== 'object' || !('fields' in inputs)) return undefined;
+  const fields = inputs.fields;
+  if (!fields || typeof fields !== 'object' || !('subject_name' in fields)) return undefined;
+  return typeof fields.subject_name === 'string' ? fields.subject_name.trim().slice(0, 120) || undefined : undefined;
+}
 /** 一个数据槽按绑定取回来的数：视图的版本、这一版视图描述的 sha256 由台库填 */
 export type ReportSlotData = { slot: string; view: string; block: number; block_type: string; view_version: number; view_sha256: string; columns: { name: string; type: string; label?: string }[]; rows: Record<string, unknown>[]; truncated: boolean };
 const reportBindingOf = (r: Record<string, unknown>): ReportBindingRow => ({
@@ -1771,13 +1778,17 @@ export class BenchStoreCore {
       if (filter.dimension) { where.push('r.dimension_id = ?'); args.push(filter.dimension); }
       if (filter.subject) { where.push('r.subject = ?'); args.push(filter.subject); }
       const lim = Math.max(1, Math.min(200, Math.floor(filter.limit ?? 50) || 50));
-      const rows = await this.conn.all(`SELECT r.id, r.dimension_id, r.template_version, r.binding_version, r.subject, r.content_sha256, r.producer, r.producer_kind, r.supersedes, r.created_at,
+      const rows = await this.conn.all(`SELECT r.id, r.dimension_id, r.template_version, r.binding_version, r.subject, r.inputs, r.content_sha256, r.producer, r.producer_kind, r.supersedes, r.created_at,
         (SELECT n.id FROM bs_reports n WHERE n.supersedes = r.id) AS superseded_by FROM bs_reports r ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY r.id DESC LIMIT ?`, [...args, lim]);
-      return rows.map((x) => ({
-        id: Number(x.id), dimension_id: String(x.dimension_id), template_version: Number(x.template_version), binding_version: Number(x.binding_version), subject: String(x.subject),
-        content_sha256: String(x.content_sha256), producer: String(x.producer), producer_kind: String(x.producer_kind) as 'human' | 'ai',
-        supersedes: x.supersedes === null ? null : Number(x.supersedes), superseded_by: x.superseded_by === null ? null : Number(x.superseded_by), created_at: Number(x.created_at),
-      }));
+      return rows.map((x) => {
+        const subjectName = reportSubjectName(JSON.parse(String(x.inputs)));
+        return {
+          id: Number(x.id), dimension_id: String(x.dimension_id), template_version: Number(x.template_version), binding_version: Number(x.binding_version), subject: String(x.subject),
+          ...(subjectName ? { subject_name: subjectName } : {}),
+          content_sha256: String(x.content_sha256), producer: String(x.producer), producer_kind: String(x.producer_kind) as 'human' | 'ai',
+          supersedes: x.supersedes === null ? null : Number(x.supersedes), superseded_by: x.superseded_by === null ? null : Number(x.superseded_by), created_at: Number(x.created_at),
+        };
+      });
     });
   }
   /**

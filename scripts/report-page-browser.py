@@ -61,6 +61,8 @@ REPORTS = {
     4: rep(4, 'finance', 'item:9', T0 - 5000, title='合成·另一件'),
     5: rep(5, 'xss-dim', 'item:x', T0 - 9000, title='合成·纯文本'),
 }
+REPORTS[3]['subject_name'] = '合成登记对象'
+REPORTS[5]['producer'] = 'user:beta'
 # 第 5 份：正文的文字、论断都带 XSS；有一条 user:beta 的回应，理由带 XSS，名字和范围名都取不到
 REPORTS[5]['body']['body'].append({'id': 'note', 'type': 'text', 'content': XSS})
 REPORTS[5]['claims'][0]['text'] = XSS
@@ -74,7 +76,7 @@ log = {'respond': []}
 def superseded_by(id):
     return next((r['id'] for r in REPORTS.values() if r['supersedes'] == id), None)
 def list_item(r):
-    return {k: r[k] for k in ['id', 'dimension_id', 'template_version', 'binding_version', 'subject', 'content_sha256', 'producer', 'producer_kind', 'supersedes', 'created_at']} | {'superseded_by': superseded_by(r['id'])}
+    return {k: r[k] for k in ['id', 'dimension_id', 'template_version', 'binding_version', 'subject', 'content_sha256', 'producer', 'producer_kind', 'supersedes', 'created_at']} | {'superseded_by': superseded_by(r['id'])} | ({'subject_name': r['subject_name']} if 'subject_name' in r else {})
 def open_dispute(rs, key):
     mine = [x for x in rs if x['claim_key'] == key and x['responder_kind'] == 'human']
     replaced = {x['supersedes'] for x in mine if x['supersedes'] is not None}
@@ -86,6 +88,7 @@ def read(id):
     whole = [x for x in rs if x['claim_key'] == '']
     meta = {k: v for k, v in r.items() if k != 'claims'} | {'superseded_by': superseded_by(id)}
     names = {'dimension': DIM_NAMES.get(r['dimension_id']), 'actors': {a: ACTOR_NAMES.get(a) for a in {r['producer'], *[x['responder'] for x in rs]}},
+             'producer': '合成报告会话' if id == 2 else ACTOR_NAMES.get(r['producer']),
              'positions': {x['position']: POSITIONS.get(x['position'], []) for x in rs}, 'sources': [{'slot': 'orders', 'view': '经营看板', 'block': '本月订单'}]}
     return {'names': names, 'report': meta, 'claims': claims, 'responses': whole, 'gate': {'open_dispute_blocks_acceptance': True}, 'template': TEMPLATE,
             'open_disputes': sum(1 for c in claims if c['open_dispute']) + (1 if head and open_dispute(rs, '') else 0)}
@@ -100,7 +103,7 @@ def on_bv(route):
     if rest == 'reports' and method == 'GET':
         subject = parse_qs(u.query).get('subject', [None])[0]
         items = [list_item(r) for r in sorted(REPORTS.values(), key=lambda r: -r['id']) if subject is None or r['subject'] == subject]
-        return fake(route, {'reports': items, 'names': {'dimensions': {i['dimension_id']: DIM_NAMES.get(i['dimension_id']) for i in items}, 'actors': {i['producer']: ACTOR_NAMES.get(i['producer']) for i in items}}})
+        return fake(route, {'reports': items, 'names': {'dimensions': {i['dimension_id']: DIM_NAMES.get(i['dimension_id']) for i in items}, 'actors': {i['producer']: '合成报告会话' if i['id'] == 2 else ACTOR_NAMES.get(i['producer']) for i in items}}})
     if len(parts) == 6 and parts[4] == 'reports' and method == 'GET':
         id = int(parts[5]); return fake(route, read(id)) if id in REPORTS else fake(route, {'error': 'not_found', 'message': '没有这份报告'}, 404)
     if len(parts) == 7 and parts[4] == 'reports' and parts[6] == 'responses' and method == 'POST':
@@ -139,10 +142,15 @@ with sync_playwright() as p:
     check('按事物分组：最近有新报告的事物在前', groups.count() == 3 and groups.nth(0).get_attribute('data-subject') == 'item:7' and groups.nth(1).get_attribute('data-subject') == 'item:9', [groups.nth(i).get_attribute('data-subject') for i in range(groups.count())])
     dims = groups.nth(0).locator('[data-testid=report-group-dim]')
     texts = [dims.nth(i).inner_text() for i in range(dims.count())]
-    check('一件事下每个维度一份：被更正过的旧财务报告不出，出更正版；AI 产出的标出；写维度名和产出方的名字（取不到写「未命名」），不写维度键、主体串',
-          dims.count() == 2 and '合成财务' in texts[0] and '更正版' in texts[0] and '合成甲' in texts[0] and '合成风险' in texts[1] and 'AI' in texts[1] and '未命名' in texts[1]
+    check('一件事下每个维度一份：被更正过的旧财务报告不出，出更正版；AI 产出的标出；写维度名和产出方的名字，不写维度键、主体串',
+          dims.count() == 2 and '合成财务' in texts[0] and '更正版' in texts[0] and '合成甲' in texts[0] and '合成风险' in texts[1] and 'AI' in texts[1] and '合成报告会话' in texts[1]
           and not any(k in ' '.join(texts) for k in ['finance', 'risk', 'user:', 'mcp:']), texts)
     check('有两个维度：给「并排看」；只有一个维度的事物不给', groups.nth(0).locator('[data-testid=report-group-side]').count() == 1 and groups.nth(1).locator('[data-testid=report-group-side]').count() == 0)
+
+    subject = groups.first.locator('h2 span')
+    check('报告清单铺满内容区，对象名优先，悬停可读原键', subject.inner_text() == '合成登记对象'
+          and subject.get_attribute('title') == 'item:7' and 'item:9' in groups.nth(1).locator('h2').inner_text()
+          and groups.first.bounding_box()['width'] >= 1300, groups.first.bounding_box())
 
     print('三、并排')
     groups.nth(0).locator('[data-testid=report-group-side]').click(); wait_n(pg, '[data-testid=report-doc]', 2)
@@ -152,7 +160,11 @@ with sync_playwright() as p:
     f = doc(pg, 'finance')
     check('正文：封面标题、明细表两行；来源写视图版本和行数', '合成·财务 2026-11' in f.inner_text() and f.locator('.wm-rp-table tbody tr').count() == 2 and '第 3 版，2 行' in f.locator('[data-testid=report-sources]').inner_text())
     check('产出方：人产出的标「人」，AI 产出的标「AI」', '人' in f.locator('[data-testid=report-producer]').inner_text() and 'AI' in doc(pg, 'risk').locator('[data-testid=report-producer]').inner_text())
-    check('论断：类别用模板里的名字（结论）；更正了之前那份，带链接', '结论' in claim(f).inner_text() and f.locator('[data-testid=report-supersedes] a').count() == 1)
+    prior = f.locator('[data-testid=report-supersedes] a')
+    subj = f.locator('[data-testid=report-dimension] [title="item:7"]')
+    check('报告页保留对象键供悬停，并列出可点击的被更正报告编号', subj.all_inner_texts() == ['合成登记对象']
+          and prior.inner_text() == '报告 #1' and prior.get_attribute('href').endswith('?report=1'))
+    check('论断：类别用模板里的名字（结论）', '结论' in claim(f).inner_text())
     r = doc(pg, 'risk')
     check('AI 的反驳另外标出，但不算未处理的反驳；验收声明照模板说', r.locator('[data-testid=report-response-ai]').count() == 1 and '没有未处理的反驳' in r.locator('[data-testid=report-open-disputes]').inner_text() and '不能验收' in r.locator('[data-testid=report-gate]').inner_text())
     pg.set_viewport_size({'width': 390, 'height': 900}); painted(pg); painted(pg)  # 改了窗口宽度，等重新排版画完
@@ -214,6 +226,7 @@ with sync_playwright() as p:
           not any(k in t7 for k in ['finance', 'risk', 'user:', 'mcp:', '@', 'conclusion-1', 'orders', 'vk-board']) and '未命名' in t7, t7[:400])
     pg.goto(f'{M}/use/{CARD}/reports?report=5'); pg.wait_for_selector('[data-testid=report-doc][data-report="5"] [data-testid=report-response]')
     t5 = docs(pg).inner_text()
+    check('没有产出方显示名时写未署名', '未署名' in docs(pg).locator('[data-testid=report-producer]').inner_text())
     check('回应者名字、范围名取不到：写「未命名」「领域成员（未命名）」，不写 user:beta、area-member@area:zeta、xss-dim',
           '领域成员（未命名）' in t5 and not any(k in t5 for k in ['user:', 'area-member', '@area', 'xss-dim', 'zeta']), t5[-300:])
     b.close()

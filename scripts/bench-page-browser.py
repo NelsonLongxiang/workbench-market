@@ -401,7 +401,8 @@ with sync_playwright() as p:
     first = cards.first
     check('字段一律当纯文本：带 <script>、<img onerror> 的标题原样当文字显示，页面上没有这两个元素、脚本没跑', XSS in first.inner_text() and first.locator('script, img').count() == 0 and pg.evaluate('() => window.__xss === undefined'), first.inner_text()[:200])
     check('空值写「—」、空日期写「未填」；徽标照说法（进行中）', '—' in first.inner_text() and '未填' in first.inner_text() and '进行中' in first.inner_text())
-    check('没定义说法的取值：照原值显示，标「未定义的取值」', '未定义的取值' in cards.nth(1).inner_text())
+    fallback = cards.nth(1).locator('.wm-rec-badges').inner_text().strip()
+    check('没有中文标签的徽标直接显示原值', fallback == 'weird', fallback)
     link = first.locator('[data-testid=rec-link]')
     check('来源链接只显示说法，不露网址；新窗口打开、带 noopener noreferrer；悬停和读屏给主机名', link.inner_text() == '查看依据' and 'ok.example/doc' not in first.inner_text()
           and link.get_attribute('target') == '_blank' and link.get_attribute('rel') == 'noopener noreferrer' and 'ok.example' in (link.get_attribute('title') or '') and 'ok.example' in (link.get_attribute('aria-label') or ''), (link.get_attribute('title'), link.get_attribute('aria-label')))

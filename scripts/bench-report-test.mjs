@@ -108,7 +108,7 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
 /** 一份合格的模板（维度的第二版模板）：月份参数、一句摘要、订单明细一个槽（按编号作行键）、封面、表格、合计统计；论断要 1～2 条结论、0～3 条风险 */
 const tpl = (over = {}) => ({
   schema_version: 2, title: '合成·月度经营',
-  parameters: { period: { type: 'month', required: true } }, fields: { summary: { required: true, max_length: 500 } },
+  parameters: { period: { type: 'month', required: true } }, fields: { summary: { required: true, max_length: 500 }, subject_name: { required: false, max_length: 120 } },
   slots: {
     orders: { columns: [{ name: 'id', type: 'integer', label: '单号' }, { name: 'amount', type: 'decimal', label: '金额' }], key: ['id'], max_rows: 3, completeness: 'all' },
   },
@@ -376,7 +376,7 @@ try {
       let json = null; try { json = JSON.parse(text); } catch { /* 出错时是一句话 */ }
       return { isError: res?.isError === true, rpcError: r.json?.error?.code ?? null, json, text };
     };
-    const made = await call('report_generate', { bench: 'synth-orders', ...G({ subject: 'card:synth-orders@mcp' }) });
+    const made = await call('report_generate', { bench: 'synth-orders', ...G({ subject: 'card:synth-orders@mcp', inputs: { ...INPUTS, fields: { ...INPUTS.fields, subject_name: '合成登记对象' } } }) });
     const mid = made.json?.report?.id;
     const aiDispute = await call('report_respond', { bench: 'synth-orders', id: mid, claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：AI 觉得不对' });
     const got = await call('report_get', { bench: 'synth-orders', id: mid });
@@ -389,6 +389,9 @@ try {
         && smuggle.isError && (other.isError || other.rpcError !== null),
       'R3 MCP 会话生成：producer 是 mcp:会话名、记 AI；AI 反驳记 AI、位置 mcp，不算未处理的反驳；带来源的拒；没授予的台调不到',
       { made: made.text?.slice(0, 200), ai: aiDispute.json?.response, got: got.json?.claims?.[0]?.open_dispute, listed: listed.json?.reports?.length, smuggle: smuggle.isError, other: other.text?.slice(0, 80) });
+    check(got.json?.names?.producer === 'synth-report-seat' && listed.json?.names?.actors?.['mcp:synth-report-seat'] === 'synth-report-seat'
+      && got.json?.report?.subject_name === '合成登记对象' && listed.json?.reports?.[0]?.subject_name === '合成登记对象'
+      && got.json?.report?.subject === 'card:synth-orders@mcp', 'R3b 清单和详情读回登记对象名与提交会话名，保留原对象键');
     // 人在 AI 那份上反驳：算；报告被更正之后旧报告上的不算
     const human = await respond(boss, { claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：人也觉得不对' }, mid);
     const before = await read(mid);
@@ -491,7 +494,7 @@ try {
       && nm.sources.every((x, i) => x.slot === r.report.sources[i].slot && x.view === '看板' && (x.block === null || typeof x.block === 'string'));
     const ln = ls.json?.names;
     const listOk = ls.status === 200 && ln && Object.entries(ln.dimensions).every(([d, t]) => t === dimTitle(d)) && Object.values(ln.dimensions).some((t) => t)
-      && Object.entries(ln.actors).every(([a, n]) => n === pName(a)) && Object.keys(ln.actors).length >= 1;
+      && Object.entries(ln.actors).every(([a, n]) => n === (pName(a) ?? (a === 'mcp:synth-report-seat' ? 'synth-report-seat' : null))) && Object.keys(ln.actors).length >= 1;
     check(nm?.dimension === dimTitle(r?.report?.dimension_id) && nm?.dimension && actorsOk && posOk && srcOk && listOk,
       'R7b 给人看的名字：读报告带维度标题、产出方和回应者的显示名、位置写成「角色名 + 范围名」（* 是全公司、MCP 会话是 mcp）、来源的视图标题；清单带维度标题、产出方显示名；和库里一致，取不到是 null',
       { names: nm, list: ln, posAlpha, posAi });
