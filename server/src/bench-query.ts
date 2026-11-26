@@ -56,7 +56,9 @@ export function galleryPathOk(p: string): boolean {
  * 列定义。values：这一列各个取值是什么意思（业务口径，比如 { ok: '正常', bad: '异常' }），由定义数据集的人写，dataset_list 原样给出；
  * auto：主键由服务端分配（只用于唯一的整数主键列；追加时没给这一列的行，按现有最大值往上数）
  */
-export type ColumnDef = { name: string; type: BenchColumnType; label: string; required: boolean; values?: Record<string, string>; auto?: true; system?: true };
+/** #1095 列的显示格式（写法见 server/src/value-format.ts 的 columnNumberSpec，只用于整数列、小数列）；detail_only：只在行详情里显示 */
+export type ColumnFormat = Record<string, unknown>;
+export type ColumnDef = { name: string; type: BenchColumnType; label: string; required: boolean; values?: Record<string, string>; auto?: true; system?: true; format?: ColumnFormat; detail_only?: true };
 
 /**
  * 来源列（公共区：领域之间的产出物）。只在建数据集时由服务端带 provenance 开关加上，普通的定义建不出来（列名必须小写字母开头）；
@@ -80,7 +82,9 @@ export type DatasetDef = {
   row_count: number; data_bytes: number; created_at: number; updated_at: number; updated_by: string;
 };
 /** labeled：这一列有人起过说明名（数据集列定义的 label、聚合的 label）；没有时 label 退回列名。只在服务端内部用，不进应答 */
-export type OutColumn = { name: string; type: BenchColumnType; label: string; role: 'dimension' | 'measure'; labeled?: boolean };
+export type OutColumn = { name: string; type: BenchColumnType; label: string; role: 'dimension' | 'measure'; labeled?: boolean; format?: ColumnFormat; detail_only?: true };
+/** #1095 原样选出、按它分组的列带上列定义里的格式和「只在行详情」 */
+const carry = (c: ColumnDef): Pick<OutColumn, 'format' | 'detail_only'> => ({ ...(c.format ? { format: c.format } : {}), ...(c.detail_only ? { detail_only: true as const } : {}) });
 /** 应答里的列：去掉内部用的 labeled */
 export const publicColumn = ({ labeled: _l, ...c }: OutColumn): OutColumn => c;
 export type QueryPlan = { dataset: string; columns: OutColumn[]; params: string[]; sql: string; args: unknown[]; limit: number };
@@ -268,7 +272,7 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
   const aggregate = group.length > 0 || measures.length > 0;
   if (aggregate) {
     if (q.select !== undefined) invalid('有 group 或 measures 时不能再写 select');
-    for (const g of group) { columns.push({ name: g.name, type: g.type, label: g.label || g.name, role: 'dimension', labeled: !!g.label }); selects.push(`${physCol(g.name)} AS ${quoted(g.name)}`); }
+    for (const g of group) { columns.push({ name: g.name, type: g.type, label: g.label || g.name, role: 'dimension', labeled: !!g.label, ...carry(g) }); selects.push(`${physCol(g.name)} AS ${quoted(g.name)}`); }
     measures.forEach((m, i) => {
       const at = `measures 第 ${i + 1} 项`;
       if (!isObj(m)) invalid(`${at} 须为对象`);
@@ -287,14 +291,15 @@ export function planQuery(spec: unknown, datasets: Map<string, DatasetDef>, opts
       const expr = fn === 'count' ? `COUNT(${col})` : fn === 'count_distinct' ? `COUNT(DISTINCT ${col})` : `${fn.toUpperCase()}(${col})`;
       const type: BenchColumnType = fn === 'count' || fn === 'count_distinct' ? 'integer' : fn === 'avg' ? 'decimal' : c.type;
       selects.push(`${expr} AS ${quoted(mo.as as string)}`);
-      columns.push({ name: mo.as as string, type, label, role: 'measure', labeled });
+      // #1095 合计、平均、最小、最大和原列同一个量纲：沿用原列的格式；计数不沿用
+      columns.push({ name: mo.as as string, type, label, role: 'measure', labeled, ...((fn === 'sum' || fn === 'avg' || fn === 'min' || fn === 'max') && c.format ? { format: c.format } : {}) });
     });
   } else {
     const picked = q.select === undefined ? readable : strList(q.select, 'select', BENCH_LIMITS.columns).map((s) => colOf(s, 'select'));
     if (!picked.length) invalid('select 不能为空');
     if (new Set(picked.map((c) => c.name)).size !== picked.length) invalid('select 里有重复的列');
     for (const c of picked) {
-      columns.push({ name: c.name, type: c.type, label: c.label || c.name, role: (c.type === 'integer' || c.type === 'decimal') && !ds.key.includes(c.name) ? 'measure' : 'dimension', labeled: !!c.label });
+      columns.push({ name: c.name, type: c.type, label: c.label || c.name, role: (c.type === 'integer' || c.type === 'decimal') && !ds.key.includes(c.name) ? 'measure' : 'dimension', labeled: !!c.label, ...carry(c) });
       selects.push(`${physCol(c.name)} AS ${quoted(c.name)}`);
     }
   }
