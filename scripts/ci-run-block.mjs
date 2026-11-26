@@ -7,10 +7,12 @@
  *
  * 执行前先核每一步（--plan 只核不跑）：
  *   - uses（actions）不跑，记 not-run:action；带 if 的步骤不求值：failure()/always()/cancelled() 这类诊断条件记 not-run:not-triggered，其余记 insufficient:condition；
- *   - 安装类命令（pnpm/npm install、npm ci、pip install、playwright install、apt-get、brew install）不跑，记 not-run:install；
+ *   - 安装类命令（pnpm/npm/yarn 的 install、i、ci、add，pip/pipx install，python -m pip install，playwright install/install-deps，apt、apt-get，brew install）
+ *     不跑，记 not-run:install。按每段命令的子命令判断：npm run ci、pnpm test -- add 这类不算安装；
  *   - env 合并 workflow、job、步骤三层。表达式 env.X 展开；github.workspace 取工作树，runner.temp 取输出根下的 runner-temp；
  *     其余表达式（secrets、steps、hashFiles 等）本机没有，记 insufficient:expression，不猜；
- *   - run 里只剔一种行：会改写共享 Git 状态的浅取（git fetch ... --depth）。剔掉的行逐条记下，其余逐字不动。
+ *   - run 里只剔一种行：行首的浅取（git fetch ... --depth）。剔掉的行逐条记下，其余逐字不动。剔完再做一遍浅取复查，命中就整步不跑。
+ *     这道复查是对常见写法的文本兜底：只看 run 文本本身，看不到被调用脚本的内部，也认不出用变量拼出来的命令或选项。
  * 每步在工作树根（或步骤的 working-directory）用 bash -eo pipefail 跑，日志写到输出根，记真实退出码和信号。
  * 结束输出 RUNBLOCK status=PASS|FAIL|INCOMPLETE：选中的步骤全跑了且都过才是 PASS（退出 0）；有一步没过是 FAIL（1）；
  * 没有失败但有步骤没跑（not-run、insufficient）是 INCOMPLETE（3）。用法错误退出 2。脚本跑完不等于 CI 全绿。
@@ -27,12 +29,68 @@ import { fileURLToPath } from 'node:url';
 
 export const SHALLOW_FETCH = /^\s*git\s+fetch\b[^\n#]*\s--depth(?:=|\s)/;
 /**
- * 剔完以后对剩下的文本再查一遍：任何形式的浅取（复合命令、子 shell、git -C、环境变量前缀、续行、--deepen、--shallow-*、--unshallow）
- * 都认出来，这一步不跑（insufficient:shallow-fetch）。宁可不跑，也不放过一个会改写共享 Git 的命令。
+ * 剔完以后对剩下的文本再查一遍（文本兜底，见文件头）：git ... fetch|pull 后面出现会改写浅仓状态的选项就整步不跑
+ * （insufficient:shallow-fetch）。选项名可以带引号，也可以是 git 接受的缩写（--dep=1 即 --depth、--dee 即 --deepen、
+ * --shallow-*、--unsh 即 --unshallow）。复合命令、子 shell、git -C、环境变量前缀、续行都在这一行文本里，照样认得出。
  */
-export const SHALLOW_ANYWHERE = /\bgit\b[^\n]*?\bfetch\b[^\n]*?(?:\s|^)--(?:depth|deepen|shallow-since|shallow-exclude|unshallow)\b/;
-/** 安装类命令：认得出的都不跑。包管理器后面隔着选项（-C dir、--filter x、--prefix x）再跟 install/ci/add 的也算 */
-const INSTALL = /(^|[\s;&|(])(?:(?:pnpm|npm|yarn|pipx|pip[0-9.]*|brew|apt-get|apt)\b[^\n;&|]*?\s(?:i|install|ci|add)(?=\s|$)|(?:python[0-9.]*\s+-m\s+pip|npx|pnpm\s+(?:exec|dlx))\s+[^\n;&|]*?\binstall\b|playwright\s+install\b)/m;
+export const SHALLOW_ANYWHERE = /\bgit\b[^\n]*?\b(?:fetch|pull)\b[^\n]*?(?:\s|^)['"]?--(?:dep|dee|shallow|unsh)[a-z-]*/;
+
+/**
+ * 浅取复查看的文本：续行拼回一行，去掉不会执行的文字——行内注释（引号外、行首或空白后的 #），以及不含命令替换的
+ * echo/printf 段（按 ; & | && || 切段）。认不准的一律留着，宁可多拒。
+ */
+export function executableText(run) {
+  return String(run).replace(/\\\n\s*/g, ' ').split('\n').map((line) => {
+    let quote = null, cut = line.length;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (quote) { if (ch === quote) quote = null; else if (ch === '\\' && quote === '"') i++; continue; }
+      if (ch === "'" || ch === '"') quote = ch;
+      else if (ch === '\\') i++;
+      else if (ch === '#' && (i === 0 || /\s/.test(line[i - 1]))) { cut = i; break; }
+    }
+    return line.slice(0, cut).split(/(\|\||&&|[;|&])/)
+      .map((seg) => (/^\s*(?:echo|printf)\b/.test(seg) && !/\$\(|\x60/.test(seg) ? '' : seg)).join('');
+  }).join('\n');
+}
+
+/** 包管理器的这些选项后面跟一个值，找子命令时连值一起跳过 */
+const VALUE_OPTS = new Set(['-C', '--dir', '--filter', '-F', '--prefix', '-w', '--workspace', '--cwd']);
+
+/**
+ * 安装类命令：按段（换行、; & | && || 和括号）取命令名和子命令判断，认得出的都不跑。
+ * 包管理器隔着选项（-C dir、--filter x、--prefix x）再跟 install/i/ci/add 的算；npm run ci、pnpm test -- add 不算。
+ */
+export function isInstall(run) {
+  for (const seg of String(run).replace(/\\\n\s*/g, ' ').split(/\n|\|\||&&|[;|&()]/)) {
+    const t = seg.trim().split(/\s+/).filter(Boolean);
+    let i = 0;
+    while (i < t.length && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(t[i]) || t[i] === 'sudo' || t[i] === 'command')) i++;
+    const cmd = t[i];
+    if (!cmd) continue;
+    const rest = t.slice(i + 1);
+    let j = 0;
+    while (j < rest.length && rest[j].startsWith('-')) j += VALUE_OPTS.has(rest[j]) ? 2 : 1;
+    const sub = rest[j];
+    const playwrightInstall = (from) => { const k = rest.indexOf('playwright', from); return k >= 0 && /^install/.test(rest[k + 1] ?? ''); };
+    if (cmd === 'playwright' && /^install/.test(rest[0] ?? '')) return true;
+    if (cmd === 'apt' || cmd === 'apt-get') return true;
+    if ((cmd === 'brew' || /^pip(?:x|[0-9.]*)$/.test(cmd)) && sub === 'install') return true;
+    if (/^python[0-9.]*$/.test(cmd) && rest[0] === '-m' && rest[1] === 'pip' && rest[2] === 'install') return true;
+    if (cmd === 'npx' && playwrightInstall(0)) return true;
+    if (cmd === 'pnpm' || cmd === 'npm' || cmd === 'yarn') {
+      if (sub === undefined && cmd === 'yarn') return true;
+      if (['i', 'install', 'ci', 'add'].includes(sub)) return true;
+      if (['exec', 'dlx'].includes(sub) && playwrightInstall(j + 1)) return true;
+    }
+  }
+  return false;
+}
+
+/** --review-env 时交给 worktree-review-env 的内层参数：去掉 --review-env，补上 --inside-review-env，其余原样、顺序不变 */
+export function innerArgs(argv) { return [...argv.filter((a) => a !== '--review-env'), '--inside-review-env']; }
+/** 只有外层（带 --review-env、不带 --inside-review-env）才转交，内层不再转交，免得无限套娃 */
+export function reexecForReviewEnv(o) { return o.reviewEnv && !o.inside; }
 /** 只在失败、取消时才跑的诊断步骤：本机不求值，记「未触发」。always() 在 CI 里恒跑，不算这一类（记材料不足） */
 const DIAGNOSTIC_IF = /^\s*(?:\$\{\{\s*)?(failure|cancelled)\s*\(\s*\)\s*(?:\}\})?\s*$|^\s*(?:\$\{\{\s*)?(failure|cancelled)\s*\(\s*\)\s*(\|\||&&)/;
 const EXPR = /\$\{\{\s*([^}]*?)\s*\}\}/g;
@@ -103,12 +161,11 @@ export function classify(step, index, baseEnv, ctx) {
   const env = { ...baseEnv };
   for (const [k, v] of Object.entries(step.env ?? {})) env[k] = expand(v, { ...ctx, env }, unknown);
   const { run, removed } = stripShallowFetch(step.run);
-  // 续行拼回一行再查，免得 git \<换行> fetch --depth 漏过
-  if (SHALLOW_ANYWHERE.test(run.replace(/\\\n\s*/g, ' '))) return { ...out, status: 'insufficient', reason: 'shallow-fetch', removed };
+  if (SHALLOW_ANYWHERE.test(executableText(run))) return { ...out, status: 'insufficient', reason: 'shallow-fetch', removed };
   const text = expand(run, { ...ctx, env }, unknown);
   const workdir = step['working-directory'] ? expand(step['working-directory'], { ...ctx, env }, unknown) : null;
   if (unknown.size) return { ...out, status: 'insufficient', reason: 'expression', unknown: [...unknown], removed };
-  if (INSTALL.test(run)) return { ...out, status: 'not-run', reason: 'install', removed };
+  if (isInstall(run)) return { ...out, status: 'not-run', reason: 'install', removed };
   if (!run.trim()) return { ...out, status: 'not-run', reason: 'shallow-fetch-only', removed };
   return { ...out, run: text, env, removed, workdir };
 }
@@ -157,9 +214,9 @@ export async function main(argv) {
   const top = git(worktree, 'rev-parse', '--show-toplevel');
   if (top.status !== 0 || realpathSync(top.stdout.trim()) !== worktree) throw new UsageError('--worktree 要是一个 Git 工作树的根');
   const here = fileURLToPath(import.meta.url);
-  if (o.reviewEnv && !o.inside) {
+  if (reexecForReviewEnv(o)) {
     // 依赖借主仓同锁的那份：边界、准备和清理都交给 worktree-review-env，自己只在里面再跑一遍
-    const r = spawnSync(process.execPath, [join(worktree, 'scripts/worktree-review-env.mjs'), worktree, '--', process.execPath, here, ...argv.filter((a) => a !== '--review-env'), '--inside-review-env'], { stdio: 'inherit' });
+    const r = spawnSync(process.execPath, [join(worktree, 'scripts/worktree-review-env.mjs'), worktree, '--', process.execPath, here, ...innerArgs(argv)], { stdio: 'inherit' });
     return r.status ?? 1;
   }
   const outArg = isAbsolute(o.out) ? o.out : resolve(o.out);
