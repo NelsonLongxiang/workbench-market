@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
-const src=readFileSync('server/src/layerfs-shadow.ts','utf8');
+const src=readFileSync('server/src/services/layerfs-shadow.ts','utf8');
 const start=src.indexOf('export type ShadowPublishResult');
 const fn=src.indexOf('export function recordLayerFsShadowOutcome');
 assert.ok(start>=0&&fn>start,'recorder present');

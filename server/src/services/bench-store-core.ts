@@ -272,7 +272,7 @@ type ViewBlock = { type: string; [k: string]: unknown };
 type ReportSource = { dataset: string; digest: string };
 type ViewDoc = { title: string; views: { key: string; title: string; blocks: ViewBlock[] }[] };
 /** 报告（报告第 1 步 PR B）：绑定、冻结的报告、论断。JSON 的列在这一层是文本，由编排那一层解析 */
-export type ReportBindingRow = { dimension_id: string; version: number; template_version: number; slots: unknown; created_by: string; created_at: number; disabled?: true };
+export type ReportBindingRow = { dimension_id: string; version: number; template_version: number; slots: unknown; created_by: string; created_at: number; disabled?: true; disabled_reason?: string };
 export type ReportRow = {
   id: number; dimension_id: string; template_version: number; template_sha256: string; binding_version: number; subject: string;
   inputs: string; body: string; sources: string; content_sha256: string; producer: string; producer_kind: 'human' | 'ai'; supersedes: number | null; created_at: number;
@@ -1590,8 +1590,11 @@ export class BenchStoreCore {
     const rows = await this.conn.all('SELECT * FROM bs_report_bindings WHERE dimension_id = ? ORDER BY version DESC LIMIT 1', [dimension]);
     if (!rows.length) return null;
     const binding = reportBindingOf(rows[0]);
-    const stopped = await this.conn.all('SELECT 1 AS x FROM bs_report_binding_stops WHERE dimension_id = ? AND version = ?', [dimension, binding.version]);
-    if (stopped.length) binding.disabled = true;
+    const [stopped] = await this.conn.all('SELECT reason FROM bs_report_binding_stops WHERE dimension_id = ? AND version = ?', [dimension, binding.version]);
+    if (stopped) {
+      binding.disabled = true;
+      binding.disabled_reason = String(stopped.reason);
+    }
     return binding;
   }
   reportBindingStop(dimension: string, input: { base: number; reason: string; actor: string; at: number }, fence: MainStoreFence): Promise<ReportBindingRow> {
@@ -1607,7 +1610,7 @@ export class BenchStoreCore {
       await this.conn.run('INSERT INTO bs_report_binding_stops (dimension_id, version, reason, actor, at) VALUES (?, ?, ?, ?, ?)',
         [dimension, version, input.reason, input.actor, input.at]);
       await this.change('report.binding-stop', dimension, binding.version, version, { actor: input.actor, at: input.at, note: input.reason });
-      return { ...binding, version, created_by: input.actor, created_at: input.at, disabled: true };
+      return { ...binding, version, created_by: input.actor, created_at: input.at, disabled: true, disabled_reason: input.reason };
     }, fence);
   }
   reportBindingContext(slots: unknown): Promise<BindingContext> {

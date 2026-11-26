@@ -287,7 +287,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "19172", "etag": "W/\"4ae4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "20175", "etag": "W/\"4ecf-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": [
               { "name": "access_info", "description": "查本会话的权限：会话名、已授权工具、工具目录（本地 + 上游聚合；默认只给索引——每项是名字、一行说明、category=read/write/admin、granted，不带参数表）、本会话提过的权限申请及状态（通用申请编号 mcp-N，台的申请 bench-N）。要某个工具的参数表和完整说明，带 tool（没批的工具也取得到）；带 ref 只回这一条申请；带 full: true 回整份目录连参数表（大，只在确实要全量时用）。三者一次只能给一个。任何已认证会话都能调，不受授权限制——调用工具被拒或 tools/list 里找不到想要的工具时先调它。", "category": "read", "always_allowed": true },
               { "name": "invoke", "description": "调用已声明的领域能力。先用 access_info 找目标与参数，决定类只会提交待人确认的提案。", "category": "write", "always_allowed": true },
@@ -309,7 +309,7 @@
               { "name": "sop_run_finish", "description": "归档 run（热态全量沉淀 SQLite，Redis 条目平滑淘汰）。", "category": "write" },
               { "name": "app_data_list", "description": "读自产台的表单提交数据（倒序游标分页）——台页面经 /api/apps/<slug>/data 提交的数据，agent 在这里消费。只读；可以按台授权（app_data_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。", "category": "read", "scopable": true },
               { "name": "app_data_submit", "description": "向自产台写一条表单数据（与台页面 POST /api/apps/<slug>/data 同一条写入链：1MB 上限、按台的 data-contract.json 校验、写入后照常推送事件）。不符合契约时返回 400 与逐条 violations。附件先用 app_files_upload 上传，再把返回的 id 放进 data.file_ids。带 idempotency_key 重试不会重复写：同键同内容返回原记录（duplicate=true），同键不同内容 409。", "category": "write" },
-              { "name": "app_files_list", "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。", "category": "read", "scopable": true },
+              { "name": "app_files_list", "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。下载票：交给只管取件的工具时，不要把会话令牌给它——带 ticket_for_id（文件 id）申请一张只读的短时下载票（2 分钟、默认 1 次、max_uses 最多 5；只绑这一份文件，不能列文件、读台数据或上传），应答里的 download_url 直接 GET 即得文件字节；revoke_ticket（应答里的 ticket_ref）提前撤销。申请和撤销都沿用本工具对这个台的授权，不带 limit / before_id。", "category": "read", "scopable": true },
               { "name": "app_files_upload", "description": "向自产台上传一个文件：content_base64 放文件内容（原始 ≤100MB），存进台的文件面，返回 id/url/mime/size/sha256/note/integrity/next。带上 sha256（推荐）或 size，服务端核对，不符就拒收、不保存（防客户端把长参数截短，base64 恰好 65536 字符又都没带时按疑似截断拒收）。成功应答的 sha256 是服务端对已保存字节算的，和本地文件一致就是完整的，不要为了验证再下载；integrity 为 sha256-verified 时服务端已替你核对过。超过几十 KB 的文件不要放进 content_base64（要由你逐字抄写，长了会抄错、占上下文）：改用**上传票**——不带 content_base64，只给 slug、name、size、sha256（必带），返回 upload_url（10 分钟内有效、只能用一次、不用会话令牌）和现成的 curl 命令；在 shell 里把原始字节 PUT 上去，应答就是这里的应答（id/url/sha256…）。失败了重新申请一张。也可用 REST 原始字节上传：PUT /api/mcp-rest/apps/<slug>/files/<文件名>（同一会话令牌；入口见 access_info 的 rest_base 与 openapi_url）。剩余文件数看 app_files_list 的 quota。", "category": "write" },
               { "name": "workbench_vars_get", "description": "读某工作台的看板变量/常量：带 key 取单个（含 revision），不带 key 列全部（可按 prefix 过滤）。各台按 workbench id 隔离，自产台/SOP 台/外部台通用。", "category": "read", "scopable": true },
               { "name": "workbench_vars_set", "description": "写某工作台的看板变量（JSON 值）。新建可不带 revision（或 revision=0 表示仅在不存在时创建）；改已存在的键必须带当前 revision，不符返回 revision 冲突与当前值。kind=const 写入后不能直接改：谁写的谁维护——新建常量的会话是作者，作者本人带 override=true 与 reason 可修订；别人的常量改不了（作者缺失时由部署机本机命令行兜底）。作者本人修订时带 owner=\"*\" 可把常量设成公共：之后任何 MCP 会话或 Odoo 登录带 override 与 reason 都能修订，台令牌仍不能写。", "category": "write", "scopable": true },
@@ -343,6 +343,9 @@
               { "name": "report_list", "description": "[数据视图·必须限定到台] 这个台上的报告清单（不带正文），可按维度、事物筛；superseded_by 是被哪一份更正了", "category": "read" },
               { "name": "report_get", "description": "[数据视图·必须限定到台] 读一份报告：冻结的成品、来源（视图版本、哈希、行数）、论断（各带回应和有没有未处理的反驳）、对整份报告的回应、验收声明", "category": "read" },
               { "name": "report_generate", "description": "[数据视图·必须限定到台] 按这个台对维度的绑定生成并冻结一份报告：服务端取数、核模板、核论断；来源和产出方由服务端填，不要自己给。取不全、列类型不合、论断不合模板都拒", "category": "write" },
+              { "name": "report_dimension_get", "description": "[数据视图·必须限定到台] 读本台已绑定的报告维度及模板版本清单，含生效版本", "category": "read" },
+              { "name": "report_template_get", "description": "[数据视图·必须限定到台] 读本台已绑定维度的模板正文和摘要；省略 version 时取生效版", "category": "read" },
+              { "name": "report_binding_get", "description": "[数据视图·必须限定到台] 读本台对这个维度的最新绑定，含模板版本、数据槽和停用原因", "category": "read" },
               { "name": "report_respond", "description": "[数据视图·必须限定到台] 对一份报告的一条论断表态：认可、反驳或补充，理由必填；claim_key 不写是对整份报告。改主意就带 supersedes 接自己上一条", "category": "write" }
             ]
           }

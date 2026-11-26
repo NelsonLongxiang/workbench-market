@@ -175,7 +175,7 @@
       "id": "readme-tree",
       "tier": "budget",
       "proposed": "budget",
-      "what": "README 没提到的 server 文件",
+      "what": "目录未登记的 server 文件（README 或第 13 篇换库登记）",
       "target": 0,
       "baseline": {
         "total": 0,
@@ -686,6 +686,9 @@
       "react-resizable",
       "react-router-dom",
       "zod"
+    ],
+    "image": [
+      "ygl-trees"
     ]
   },
   "tests": {},

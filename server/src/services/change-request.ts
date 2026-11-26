@@ -2,6 +2,17 @@
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
 
+/** MCP 提的变更请求，返回写入结果（lastInsertRowid 是新请求号） */
+export function insertMcpChangeRequest(kind: string, slug: string, op: string, targetVersion: number | null, reason: string, requestedBy: string) {
+  return db.prepare("INSERT INTO change_requests (kind, slug, op, target_version, reason, source, requested_by) VALUES (?, ?, ?, ?, ?, 'mcp', ?)")
+    .run(kind, slug, op, targetVersion, reason, requestedBy);
+}
+
+/** MCP 读的变更请求列表：指定状态，新的在前，最多 50 条，只给这几列 */
+export function mcpChangeRequestsByStatus(status: string) {
+  return db.prepare('SELECT id, kind, slug, op, target_version, reason, status, requested_by, created_at FROM change_requests WHERE status = ? ORDER BY id DESC LIMIT 50').all(status);
+}
+
 export class ChangeRequestService extends Service {
   constructor(ctx: any) {
     super(ctx, 'changeRequest');

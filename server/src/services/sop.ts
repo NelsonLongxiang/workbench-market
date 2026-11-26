@@ -29,6 +29,10 @@ export class SopService extends Service {
   runWriteCredential(id: number): { status: string; upload_token: string } | undefined {
     return db.prepare('SELECT status, upload_token FROM sop_runs WHERE id = ?').get(id) as { status: string; upload_token: string } | undefined;
   }
+  /** 给新建的运行写上传令牌 */
+  runSetUploadToken(id: SQLInputValue, token: string) {
+    return db.prepare('UPDATE sop_runs SET upload_token = ? WHERE id = ?').run(token, id);
+  }
   runStatusData(id: number) {
     return db.prepare('SELECT status, data FROM sop_runs WHERE id = ?').get(id);
   }
