@@ -77,8 +77,13 @@ with sync_playwright() as p:
         chip = page.get_by_text('管理员口令登录')
         chip.wait_for(timeout=15000)
         ok('④ 用户卡显示登录身份', chip.is_visible())
-        ctx.clear_cookies()
-        page.evaluate("() => { history.pushState({}, '', '/sops'); dispatchEvent(new PopStateEvent('popstate')); }")
+        page.goto(base + '/sops')
+        page.get_by_test_id('wm-me').wait_for(timeout=15000)
+        # 让页面在发出下一次 API 请求前完成真实登出，避免后台请求和改地址竞争。
+        page.evaluate("""() => { setTimeout(async () => {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            await fetch('/api/workbenches');
+        }, 0); }""")
         page.wait_for_url(re.compile(r'/login\?next='), timeout=15000)
         ok('④ 会话失效后 SPA 接口 401 → 登录页且 next 回当前页', page.url == f"{base}/login?next={quote('/sops', safe='')}", page.url)
         login(page, tok)
