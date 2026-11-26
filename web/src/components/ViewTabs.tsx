@@ -19,16 +19,18 @@ export default function ViewTabs({ views, view, onPick, children }: { views: { k
     const el = ref.current;
     const cur = el?.querySelector<HTMLElement>('[role=tab][aria-selected=true]');
     if (!el || !cur) return;
-    // 只横着滚页签条本身，不动页面
-    if (cur.offsetLeft < el.scrollLeft) el.scrollLeft = cur.offsetLeft;
-    else if (cur.offsetLeft + cur.offsetWidth > el.scrollLeft + el.clientWidth) el.scrollLeft = cur.offsetLeft + cur.offsetWidth - el.clientWidth;
+    // 只横着滚页签条本身，不动页面。按屏幕上的位置和页签条比（offsetLeft 是相对最近的定位祖先算的，不是相对页签条）
+    const s = el.getBoundingClientRect(), r = cur.getBoundingClientRect();
+    if (r.left < s.left) el.scrollLeft -= s.left - r.left;
+    else if (r.right > s.right) el.scrollLeft += r.right - s.right;
   }, [view, over]);
   // 打开「更多」时算哪些页签没露全
   const measure = () => {
     const el = ref.current;
     if (!el) return;
     const tabs = [...el.querySelectorAll<HTMLElement>('[role=tab]')];
-    setHidden(views.filter((_, i) => { const t = tabs[i]; return !t || t.offsetLeft < el.scrollLeft || t.offsetLeft + t.offsetWidth > el.scrollLeft + el.clientWidth + 1; }).map((v) => v.key));
+    const s = el.getBoundingClientRect();
+    setHidden(views.filter((_, i) => { const t = tabs[i]; if (!t) return true; const r = t.getBoundingClientRect(); return r.left < s.left - 1 || r.right > s.right + 1; }).map((v) => v.key));
   };
   const items = views.filter((v) => hidden.includes(v.key)).map((v) => ({ key: v.key, label: <span data-testid="bench-page-tabs-more-item">{v.title}</span> }));
   return (
