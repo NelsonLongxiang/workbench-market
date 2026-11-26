@@ -72,7 +72,7 @@ def mgr_entry(): return {**ENTRY, 'bench': {**ENTRY['bench'], 'title': mgr['titl
 def fake(route, body, status=200): route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
 def on_bv(route):
     u = urlparse(route.request.url); parts = u.path.split('/')
-    if parts[3] != str(CARD): return route.continue_()  # 别的卡片走实例里真的入口
+    if parts[3] not in (str(CARD), SLUG): return route.continue_()  # 别的卡片走实例里真的入口（#1086：按台标识打开的也截下）
     rest = '/'.join(parts[4:])
     if rest == 'entry':
         log['entry'] += 1
@@ -98,6 +98,9 @@ def on_bv(route):
         if mode['form'] == '409': return fake(route, {'error': 'conflict', 'message': '版本变了'}, 409)
         if mode['form'] == '403': return fake(route, {'error': 'bench_views_forbidden'}, 403)
         return fake(route, {'ok': True})
+    if rest == 'workbench':  # #1086 对应卡片
+        body = json.loads(route.request.post_data or '{}'); log.setdefault('link', []).append(body)
+        return fake(route, {'bench': {**mgr_entry()['bench'], 'workbench_id': body.get('workbench_id')}, 'changed': True})
     if rest == 'title':
         body = json.loads(route.request.post_data or '{}'); log['title'].append(body)
         if mode['title'] == '409': return fake(route, {'error': 'conflict', 'message': '台的名字已经被改过了，先重新读一次再改'}, 409)
@@ -437,6 +440,39 @@ with sync_playwright() as p:
           rec.locator('.wm-bb-truncated').count() == 1 and '只显示了前 7 行' in rec.locator('.wm-bb-truncated').inner_text() and rec.locator('[data-testid=rec-count]').count() == 0 and rec.inner_text().count('只显示') == 1,
           (rec.locator('.wm-bb-truncated').all_inner_texts(), rec.locator('[data-testid=rec-count]').all_inner_texts()))
     mode['records'] = 'off'
+
+    print('十一、对应卡片（#1086）')
+    mode['render'] = 'ok'; mode['entry'] = 'ok'
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    check('没有管理层授予（入口没给 can.rename）：顶栏不出「对应卡片」', pg.locator('[data-testid=bench-page-link]').count() == 0)
+    mode['entry'] = 'mgr'
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-testid=bench-page-link]')
+    pg.locator('[data-testid=bench-page-link]').click(); pg.wait_for_selector('[data-testid=bench-link-current]')  # Modal 的 testid 落在零尺寸的外壳上，等对话框里的字
+    check('管理层：顶栏有「对应卡片」，对话框写现在对应的卡片名', mgr['card'] in pg.locator('[data-testid=bench-link-current]').inner_text(), pg.locator('[data-testid=bench-link-current]').inner_text())
+    pg.locator('[data-testid=bench-link-select]').click()
+    opt = pg.locator('.ant-select-item-option', has_text='合成·本站台卡'); opt.first.wait_for()
+    check('选卡片：清单来自市场里登记的卡片，写名字和编号', opt.count() == 1 and f"#{cfg['self_card']}" in opt.first.inner_text(), opt.all_inner_texts())
+    opt.first.click()
+    n0 = len(log.get('link', [])); pg.locator('[data-testid=bench-link-save]').click()
+    pg.wait_for_function(f"() => location.pathname === '/use/{SLUG}'")
+    check('保存：发 PUT /workbench { workbench_id: 选的卡片 }；页面换成按台标识打开，留在这个台上', log['link'][n0:] == [{'workbench_id': cfg['self_card']}] and pg.locator('[data-testid=bench-page]').count() == 1, (log.get('link'), pg.url))
+    pg.locator('[data-testid=bench-page-link]').click(); pg.wait_for_selector('[data-testid=bench-link-remove]')
+    n0 = len(log['link']); pg.locator('[data-testid=bench-link-remove]').click()
+    until(pg, lambda: len(log['link']) > n0)
+    check('去掉对应：发 { workbench_id: null }', log['link'][n0:] == [{'workbench_id': None}], log['link'])
+    # 卡片地址是本站 /use/<台标识>、还没对应：/use/<卡片 id> 写明下一步，不显示「指向市场本身，请改地址」；管理层有直达按钮
+    pg.goto(f"{M}/use/{cfg['self_card']}"); pg.wait_for_selector('[data-testid=use-bench-hint]')
+    pg.wait_for_selector('[data-testid=use-bench-go]')
+    hint = pg.locator('[data-testid=use-bench-hint]').inner_text()
+    check('本站台地址的卡片：说这是数据视图台、写台名和下一步（「对应卡片」），不露台标识', mgr['title'] in hint and '对应卡片' in hint and SLUG not in hint and '请管理员改一下登记的地址' not in hint, hint)
+    pg.locator('[data-testid=use-bench-go]').click(); pg.wait_for_function(f"() => location.pathname === '/use/{SLUG}'")
+    try: pg.wait_for_selector('[data-testid=bench-page]', timeout=10000)  # 地址换了以后要等入口取完才画台页面；等不到由下面的断言报
+    except Exception: pass
+    check('管理层点「去台上对应」：到这个台的页面', pg.locator('[data-testid=bench-page]').count() == 1, pg.url)
+    mode['entry'] = 'ok'
+    pg.goto(f"{M}/use/{cfg['self_card']}"); pg.wait_for_selector('[data-testid=use-bench-hint]')
+    pg.wait_for_function("() => document.querySelector('[data-testid=use-bench-hint]')?.innerText.includes('合成·巡检台')")
+    check('不是管理层：只有说明，没有「去台上对应」', pg.locator('[data-testid=use-bench-go]').count() == 0)
 
     print('五、入口')
     mode['entry'] = '403'; pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('.wm-use-frame')

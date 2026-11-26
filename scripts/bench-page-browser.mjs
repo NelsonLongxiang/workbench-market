@@ -30,8 +30,12 @@ try {
   const r = await fetch(base + '/api/workbenches', { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN, 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ name: '合成·嵌页台', url: 'http://127.0.0.1:9/', type: 'web' }) });
   if (!r.ok) throw new Error(`seed workbench → ${r.status} ${await r.text()}`);
   const card = (await r.json()).id;
+  // #1086：地址填成市场自己的 /use/<台标识> 的卡片（台标识和 bench-page-browser.py 的 SLUG 一致）
+  const r2 = await fetch(base + '/api/workbenches', { method: 'POST', headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN, 'sec-fetch-site': 'same-origin' }, body: JSON.stringify({ name: '合成·本站台卡', url: `${base}/use/synth-bench-slug`, type: 'web' }) });
+  if (!r2.ok) throw new Error(`seed self workbench → ${r2.status} ${await r2.text()}`);
+  const selfCard = (await r2.json()).id;
   const cfg = join(TMP, 'browser.json');
-  writeFileSync(cfg, JSON.stringify({ base, card, alpha_session: SESSIONS.alpha }));
+  writeFileSync(cfg, JSON.stringify({ base, card, self_card: selfCard, alpha_session: SESSIONS.alpha }));
   const py = spawn(pythonBin(), ['scripts/bench-page-browser.py', cfg], { stdio: 'inherit' });
   code = await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
 } catch (e) {
