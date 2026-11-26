@@ -146,7 +146,7 @@ function OneReport({ cardId, reportId, entry, column }: { cardId: string; report
   const canRespond = entry.can.respond;
   const names: ReportNames = d.names ?? { dimension: null, actors: {}, positions: {}, sources: [] };
   return (
-    <TocLayout entries={column ? [] : reportTocEntries(rep.body.body)}>
+    <TocLayout narrow entries={column ? [] : reportTocEntries(rep.body.body)}>
     <article className={column ? 'wm-rp-col wm-rp-doc' : 'wm-rp-doc'} data-testid="report-doc" data-report={rep.id} data-dimension={rep.dimension_id}>
       <header className="wm-rp-doc-head">
         <div className="wm-rp-doc-dim" data-testid="report-dimension">{nameOr(names.dimension)}<span className="wm-rp-meta"> · 模板第 {rep.template_version} 版 · {rep.subject}</span></div>

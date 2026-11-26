@@ -44,9 +44,12 @@ export function anchorUrl(origin: string, pathname: string, search: string, key:
   return `${origin}${pathname}${search}#${encodeURIComponent(key)}`;
 }
 
-/** 滚动时高亮哪一条：块的上沿到了滚动区上沿以下 threshold 像素以内的最后一条；滚到底了就是最后一条；一条都没到是第一条 */
-export function activeTocKey(tops: readonly { key: string; top: number }[], threshold: number, atBottom: boolean): string | null {
+/** 滚动时高亮哪一条：地址里 # 指着的那块还在看得见的地方（上沿在 0～viewport 之间）就是它——刚跳过去的块靠近页底、滚不到顶时不被「滚到底」抢走；
+ *  否则是上沿到了滚动区上沿以下 threshold 像素以内的最后一条；滚到底了就是最后一条；一条都没到是第一条 */
+export function activeTocKey(tops: readonly { key: string; top: number }[], threshold: number, atBottom: boolean, viewport = 0, preferred: string | null = null): string | null {
   if (!tops.length) return null;
+  const p = preferred ? tops.find((t) => t.key === preferred) : undefined;
+  if (p && p.top >= -2 && p.top < viewport) return p.key;
   if (atBottom) return tops[tops.length - 1].key;
   let cur = tops[0].key;
   for (const t of tops) if (t.top <= threshold) cur = t.key;

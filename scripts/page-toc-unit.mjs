@@ -17,5 +17,6 @@ ok('地址里的 #：去掉井号、解码；空、坏编码、别的字符、�
 ok('本块链接：保留路径和查询（视图、筛选），接上编码后的块键', anchorUrl('http://m.test', '/use/7', '?v=vk-board&p.site=东', 'b3') === 'http://m.test/use/7?v=vk-board&p.site=东#b3' && anchorUrl('http://m.test', '/use/7/reports', '?report=4', 'a:b') === 'http://m.test/use/7/reports?report=4#a%3Ab');
 const tops = [{ key: 'b1', top: -400 }, { key: 'b2', top: 30 }, { key: 'b3', top: 300 }];
 ok('滚动高亮：上沿到了阈值以内的最后一块；一块都没到是第一块；滚到底是最后一块；没有块是 null', activeTocKey(tops, 80, false) === 'b2' && activeTocKey([{ key: 'x', top: 200 }, { key: 'y', top: 500 }], 80, false) === 'x' && activeTocKey(tops, 80, true) === 'b3' && activeTocKey([], 80, false) === null);
+ok('滚动高亮：地址里 # 指着的块还看得见就是它（靠近页底滚到底也不被抢走）；看不见了照常算', activeTocKey(tops, 80, true, 400, 'b2') === 'b2' && activeTocKey(tops, 80, false, 400, 'b3') === 'b3' && activeTocKey(tops, 80, false, 400, 'b1') === 'b2' && activeTocKey(tops, 80, true, 400, 'zz') === 'b3' && activeTocKey(tops, 80, false, 250, 'b3') === 'b2');
 ok('回到顶部：滚过一屏才出现', showBackToTop(501, 500) && !showBackToTop(500, 500) && !showBackToTop(10, 0));
 console.log(`\npage-toc-unit: ${pass} 过 / ${fail} 败`); process.exit(fail ? 1 : 0);

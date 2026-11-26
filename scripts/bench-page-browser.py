@@ -449,6 +449,9 @@ with sync_playwright() as p:
     jump = pg.evaluate("""() => { const m = document.querySelector('.wm-bp-body').getBoundingClientRect(), el = document.getElementById('b4'); if (!el) return null;
       const r = el.getBoundingClientRect(); return { kind: el.dataset.bb, inView: r.top >= m.top - 2 && r.top < m.bottom - 40, flash: el.classList.contains('wm-anchor-flash') }; }""")
     check('打开带 #b4 的链接：第 5 块（巡检记录）有这个锚点，定位到看得见的地方并高亮', bool(jump) and jump['kind'] == 'table' and jump['inView'] and jump['flash'], jump)
+    pg.wait_for_timeout(300)
+    on = pg.locator('[data-testid=page-toc] a[aria-current=true]').all_inner_texts()
+    check('跳到的块靠近页底、滚不到顶：目录高亮的仍是它（巡检记录），不被「滚到底」抢成最后一条', on == ['巡检记录'], on)
     # 期望照这次取数的合成应答算（有标题的块按次序；块键是它在应答里的序号）
     vb = view_result('vk-board', {})['blocks']
     exp_toc = [b['title'] for b in vb if b.get('title')]

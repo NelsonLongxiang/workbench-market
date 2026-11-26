@@ -61,7 +61,7 @@ export function PageToc({ entries }: { entries: TocEntry[] }) {
     const spy = () => {
       const base = sc.getBoundingClientRect().top;
       const tops = entries.flatMap((e) => { const el = document.getElementById(e.key); return el ? [{ key: e.key, top: el.getBoundingClientRect().top - base }] : []; });
-      setActive(activeTocKey(tops, 80, sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2 && sc.scrollTop > 0));
+      setActive(activeTocKey(tops, 80, sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2 && sc.scrollTop > 0, sc.clientHeight, anchorFromHash(window.location.hash)));
     };
     spy();
     sc.addEventListener('scroll', spy, { passive: true });
@@ -110,7 +110,7 @@ export function BackToTop() {
 }
 
 /** 正文加右侧目录的两栏；没有目录条目时原样只放正文 */
-export function TocLayout({ entries, children }: { entries: TocEntry[]; children: React.ReactNode }) {
+export function TocLayout({ entries, narrow, children }: { entries: TocEntry[]; /** 正文自己限宽（报告）：目录贴着正文放，不甩到页面最右 */ narrow?: boolean; children: React.ReactNode }) {
   if (!entries.length) return <>{children}</>;
-  return <div className="wm-toc-layout"><div className="wm-toc-main">{children}</div><PageToc entries={entries} /></div>;
+  return <div className={narrow ? 'wm-toc-layout wm-toc-narrow' : 'wm-toc-layout'}><div className="wm-toc-main">{children}</div><PageToc entries={entries} /></div>;
 }
