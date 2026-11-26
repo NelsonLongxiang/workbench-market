@@ -21,7 +21,7 @@ import WorkItemTimeline, { STATE, stateTag } from '../components/WorkItemTimelin
 export { STATE };
 import { choicesFor, routeFor, viewerOf, type Can, seatLine, showProgress, subitemsOf, ticketStateLabel } from '../work-item-view';
 import { teamLabel } from '../people';
-import { attachmentsOf, dueEditable, dueErrorText, dueSavedText, dueLabel, dueOf, hasDueField, overdueOf, PRIORITIES, priorityColor, priorityEditable, priorityErrorText, priorityOf, sizeLabel, type Priority } from '../work-item-extras';
+import { attachmentsOf, dueEditable, dueErrorText, dueSavedText, dueStatus, endedLine, dueOf, hasDueField, overdueOf, PRIORITIES, priorityColor, priorityEditable, priorityErrorText, priorityOf, sizeLabel, type Priority } from '../work-item-extras';
 import { setWorkItemDue, setWorkItemPriority } from '../api';
 import { NO_NAMES, cleanSeatName, lifecycleNames, lineName, rosterNames, stageName, withRoster, type Names } from '../names';
 import { actorLabel, seatLabel, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, creatorLabel, hiddenInTimeline, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
@@ -186,7 +186,7 @@ function Artifacts({ list, empty }: { list: Artifact[]; empty: string }) {
 
 
 /** 期限那一行：日期加离今天多远，过期了标红（照服务端的 overdue）；没有期限写「不限」。建立人能改、能清掉 */
-function DueLine({ itemId, due, overdue, editable, onSaved }: { itemId: string; due: string | null; overdue: boolean; editable: boolean; onSaved: () => void }) {
+function DueLine({ itemId, due, overdue, state, editable, onSaved }: { itemId: string; due: string | null; overdue: boolean; state: string; editable: boolean; onSaved: () => void }) {
   const { message } = App.useApp();
   const [open, setOpen] = useState(false);
   const [pick, setPick] = useState<string | null>(due);
@@ -202,8 +202,13 @@ function DueLine({ itemId, due, overdue, editable, onSaved }: { itemId: string; 
     } else void message.error(dueErrorText(r.status, typeof r.body?.error === 'string' ? r.body.error : undefined));
   };
   return <Space size={6} wrap data-testid="work-item-due-line">
-    <span data-testid="work-item-due">{due ? dueLabel(due, dayjs().format('YYYY-MM-DD')) : '不限'}</span>
-    {overdue && <Tag color="error" data-testid="work-item-overdue">已过期</Tag>}
+    {/* #1091：过期写「已过期 N 天（期限 MM-DD）」，结束了没办成、对方放弃、撤回的期限过了也算 */}
+    {(() => {
+      const st = due ? dueStatus(due, dayjs().format('YYYY-MM-DD'), state, overdue) : null;
+      return st?.overdue
+        ? <Typography.Text type="danger" data-testid="work-item-due"><span data-testid="work-item-overdue">{st.text}</span></Typography.Text>
+        : <span data-testid="work-item-due">{st ? st.text : '不限'}</span>;
+    })()}
     {editable && <Popover trigger="click" open={open} onOpenChange={(o) => { setOpen(o); if (o) setPick(due); }} title="改期限"
       content={<Space direction="vertical" data-testid="work-item-due-editor">
         <DatePicker value={pick ? dayjs(pick) : null} onChange={(d) => setPick(d ? d.format('YYYY-MM-DD') : null)} placeholder="选一个日期" />
@@ -307,7 +312,7 @@ export default function WorkItem() {
       <Col span={16}>
         <Flex vertical gap="middle">
           <SectionBoundary name="摘要">
-          <Card title={stateTag(item.state, viewer)} data-testid="work-item-summary">
+          <Card title={<Space size={8} wrap>{stateTag(item.state, viewer)}{endedLine(item.state, item.updated_at, Date.now()) && <Typography.Text type="secondary" className="wm-caption" data-testid="work-item-ended">{endedLine(item.state, item.updated_at, Date.now())}</Typography.Text>}</Space>} data-testid="work-item-summary">
             <Flex vertical gap="small">
               {hint && <Alert type={hint.type} showIcon message={hint.text} data-testid="work-item-hint" />}
               <Descriptions column={2} size="small" items={[
@@ -319,7 +324,7 @@ export default function WorkItem() {
                 { key: 'at', label: '最近变化', children: <RelTime value={item.updated_at} /> },
                 // 期限：服务端给了这个字段才显示（旧服务端没有这个键，不写「不限」，可能其实有期限）；建立人、事项没结束时能改。
                 // due / overdue / attachments 在详情应答的最外层，和 item 平级（#733），不在 item 里面
-                ...(hasDueField(data) || dueOf(data) ? [{ key: 'due', label: '期限', children: <DueLine itemId={item.id} due={dueOf(data)} overdue={overdueOf(data)}
+                ...(hasDueField(data) || dueOf(data) ? [{ key: 'due', label: '期限', children: <DueLine itemId={item.id} due={dueOf(data)} overdue={overdueOf(data)} state={item.state}
                   editable={dueEditable(data)} onSaved={() => void load()} /> }] : []),
                 // 优先级（#941 第 1a 步）：服务端给了认得出的才显示（旧服务端没有这个键）
                 ...(priorityOf(data) ? [{ key: 'priority', label: '优先级', children: <PriorityLine itemId={item.id} priority={priorityOf(data)!}

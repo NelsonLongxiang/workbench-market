@@ -31,6 +31,47 @@ export function dueLabel(due: string, today: string): string {
   return days > 0 ? `${due}（还有 ${days} 天）` : `${due}（过了 ${-days} 天）`;
 }
 
+/** 期限过了几天（今天减期限，按日期算）；算不出是 null */
+function daysPast(due: string, today: string): number | null {
+  const d = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${due}T00:00:00Z`)) / 86_400_000);
+  return Number.isFinite(d) ? d : null;
+}
+/** 期限写成 MM-DD；和今天不在同一年时写全 */
+function dueShort(due: string, today: string): string { return due.slice(0, 4) === today.slice(0, 4) ? due.slice(5) : due; }
+
+/** #1091 详情里期限那一行怎么说、算不算过期。
+ *  · 没结束：照服务端的 overdue，或本地日期已经过了那天（服务端按 UTC 日期算，会晚几个小时）；
+ *  · 没办成、对方放弃、撤回：期限过了就算过期（服务端在终态给 overdue=false，这里自己算——过期和结局要一起读）；
+ *  · 已办结：不算过期，照原来写日期和离今天多远。
+ *  过期写「已过期 N 天（期限 MM-DD）」；服务端说过期、本地还没过那天时不写天数。其余照 dueLabel。 */
+export function dueStatus(due: string, today: string, state: string, overdue: boolean): { text: string; overdue: boolean } {
+  const past = daysPast(due, today);
+  const ended = ['done', 'failed', 'dropped', 'cancelled'].includes(state);
+  const isOver = state === 'done' ? false : ended ? (past ?? 0) > 0 : overdue || (past ?? 0) > 0;
+  if (!isOver) return { text: dueLabel(due, today), overdue: false };
+  return { text: `已过期${past && past > 0 ? ` ${past} 天` : ''}（期限 ${dueShort(due, today)}）`, overdue: true };
+}
+
+/** 「多久以前」：服务端时间是 UTC 的 'YYYY-MM-DD HH:mm:ss'（或带时区）；不到 1 分钟写「刚刚」；算不出是 null */
+export function agoText(at: string, nowMs: number): string | null {
+  const t = Date.parse(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(at) && !/Z|[+-]\d\d:?\d\d$/.test(at) ? `${at.replace(' ', 'T')}Z` : at);
+  if (!Number.isFinite(t)) return null;
+  const s = Math.max(0, Math.floor((nowMs - t) / 1000));
+  if (s < 60) return '刚刚';
+  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`;
+  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`;
+  return `${Math.floor(s / 86400)} 天前`;
+}
+/** #1091 结束了的事项：把「多久以前」和是什么事放在一句里读（「对方 1 天前放弃」），不单写「1 天前」。没结束或时间读不出是 null */
+const ENDED_EVENT: Record<string, (ago: string) => string> = {
+  done: (a) => `${a}办结`, failed: (a) => `${a}报告没办成`, dropped: (a) => `对方 ${a}放弃`, cancelled: (a) => `${a}撤回`,
+};
+export function endedLine(state: string, at: string | null | undefined, nowMs: number): string | null {
+  const f = ENDED_EVENT[state];
+  const ago = f && at ? agoText(at, nowMs) : null;
+  return f && ago ? f(ago) : null;
+}
+
 /** 取件链接只认本站的 /api/ 地址（相对路径）：外链、带协议的、// 开头的都不给链接，免得点到别处 */
 export function safeFileUrl(url: unknown): string | null {
   if (typeof url !== 'string') return null;
