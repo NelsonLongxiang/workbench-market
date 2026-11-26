@@ -1812,7 +1812,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "13283", "etag": "W/\"33e3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "14051", "etag": "W/\"36e3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "gateway": "on",
               "session": "replay-none",
@@ -1880,6 +1880,9 @@
                 { "name": "report_list", "description": "[数据视图·必须限定到台] 这个台上的报告清单（不带正文），可按维度、事物筛；", "category": "read", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
                 { "name": "report_get", "description": "[数据视图·必须限定到台] 读一份报告：冻结的成品、来源（视图版本、哈希、行数）、论断（各带回应和有没有未处理的反驳）、对整份报告的回应、验收声明", "category": "read", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
                 { "name": "report_generate", "description": "[数据视图·必须限定到台] 按这个台对维度的绑定生成并冻结一份报告：服务端取数、核模板、核论断；", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
+                { "name": "report_dimension_get", "description": "[数据视图·必须限定到台] 读本台已绑定的报告维度及模板版本清单，含生效版本", "category": "read", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
+                { "name": "report_template_get", "description": "[数据视图·必须限定到台] 读本台已绑定维度的模板正文和摘要；", "category": "read", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
+                { "name": "report_binding_get", "description": "[数据视图·必须限定到台] 读本台对这个维度的最新绑定，含模板版本、数据槽和停用原因", "category": "read", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
                 { "name": "report_respond", "description": "[数据视图·必须限定到台] 对一份报告的一条论断表态：认可、反驳或补充，理由必填；", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] }
               ],
               "capabilities": [
