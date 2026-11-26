@@ -31,3 +31,9 @@ export class BindingService extends Service {
     return db.prepare("UPDATE bindings SET revoked_at = datetime('now') WHERE id = ?").run(id);
   }
 }
+
+/** 某个 SOP 台对某个 caller 的有效准入绑定（admits / both、没撤）的 mode；没有就是 undefined */
+export function sopAdmitMode(slug: string, caller: string): string | undefined {
+  const row = db.prepare("SELECT mode FROM bindings WHERE target_type = 'sop' AND target_slug = ? AND agent_node = ? AND direction IN ('admits','both') AND revoked_at = ''").get(slug, caller) as { mode: string } | undefined;
+  return row?.mode;
+}
