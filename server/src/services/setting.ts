@@ -40,3 +40,9 @@ export class SettingService extends Service {
     return db.prepare('SELECT key, value FROM settings').all();
   }
 }
+
+/** 按键取 settings 的原值（不经 SettingService 上下文；口令哈希那一项调用方别拿来外发） */
+export function settingRaw(key: string): string | undefined {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+  return row?.value;
+}

@@ -1,0 +1,55 @@
+/** #1099 视图页签条：只占一行，放不下就横向滚动，最右出「更多」，里面列出没露全的页签；当前页签始终滚到看得见的地方。 */
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { Button, Dropdown } from 'antd';
+import { DownOutlined } from '@ant-design/icons';
+
+/** 只横向滚页签条本身，避免滚动页面。 */
+function revealSelected(el: HTMLDivElement | null) {
+  const selected = el?.querySelector<HTMLElement>('[role=tab][aria-selected=true]');
+  if (!el || !selected) return;
+  const strip = el.getBoundingClientRect();
+  const tab = selected.getBoundingClientRect();
+  if (tab.left < strip.left) el.scrollLeft -= strip.left - tab.left;
+  else if (tab.right > strip.right) el.scrollLeft += tab.right - strip.right;
+}
+
+export default function ViewTabs({ views, view, onPick, children }: { views: { key: string; title: string }[]; view: string; onPick: (key: string) => void; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [over, setOver] = useState(false);
+  const [hidden, setHidden] = useState<string[]>([]);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => {
+      setOver(el.scrollWidth > el.clientWidth + 1);
+      revealSelected(el);
+    };
+    check();
+    const observer = new ResizeObserver(check);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [view, views]);
+  // 打开「更多」时算哪些页签没露全
+  const measure = () => {
+    const el = ref.current;
+    if (!el) return;
+    const tabs = [...el.querySelectorAll<HTMLElement>('[role=tab]')];
+    const s = el.getBoundingClientRect();
+    setHidden(views.filter((_, i) => { const t = tabs[i]; if (!t) return true; const r = t.getBoundingClientRect(); return r.left < s.left - 1 || r.right > s.right + 1; }).map((v) => v.key));
+  };
+  const items = views.filter((v) => hidden.includes(v.key)).map((v) => ({ key: v.key, label: <span data-testid="bench-page-tabs-more-item">{v.title}</span> }));
+  return (
+    <div className="wm-bp-tabbar">
+      <div ref={ref} className="wm-bp-tabs" role="tablist" aria-label="视图" onScroll={() => { if (hidden.length) measure(); }}>{children}</div>
+      {over ? (
+        <Dropdown trigger={['click']} onOpenChange={(o) => { if (o) measure(); }}
+          menu={{ items, selectedKeys: [view], onClick: ({ key }) => {
+            if (key === view) revealSelected(ref.current);
+            else onPick(key);
+          } }}>
+          <Button size="small" type="text" data-testid="bench-page-tabs-more">更多 <DownOutlined /></Button>
+        </Dropdown>
+      ) : null}
+    </div>
+  );
+}

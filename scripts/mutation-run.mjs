@@ -21,7 +21,8 @@
  *
  *   node scripts/mutation-run.mjs <spec.json> [--root DIR] [--out DIR] [--json]
  */
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
+import { spawnTestTree, killTestTreeSync, testTreeResult } from './lib/test-process-tree.mjs';
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -167,6 +168,7 @@ export const KILL_GRACE_MS = 5000;
  */
 export function stopChild(child, pending) {
   if (!child?.pid) return;
+  if (process.platform === 'win32') { killTestTreeSync(child); return; }
   const send = (signal) => { try { process.kill(-child.pid, signal); return; } catch { /* 组已没了 */ } try { child.kill(signal); } catch { /* 已没了 */ } };
   send('SIGTERM');
   const timer = setTimeout(() => { pending?.delete(timer); send('SIGKILL'); }, KILL_GRACE_MS);
@@ -182,11 +184,11 @@ function runOne(state, root, spec, argv, fd) {
     const exe = argv[0].includes('/') && !isAbsolute(argv[0]) ? resolve(root, argv[0]) : argv[0];
     writeSync(fd, `$ ${JSON.stringify(argv)}\n`);
     // 自己的进程组：停的时候连它起的子进程（pnpm、浏览器、数据库实例）一起停
-    const child = spawn(exe, argv.slice(1), { cwd: root, stdio: ['ignore', fd, fd], detached: true });
+    const child = spawnTestTree(exe, argv.slice(1), { cwd: root, stdio: ['ignore', fd, fd] });
     state.child = child;
     if (spec.timeoutMs) timer = setTimeout(() => { timedOut = true; stopChild(child, state.pending); }, spec.timeoutMs);
     child.on('error', (error) => finish({ code: -1, error: String(error) }));
-    child.on('close', (code, signal) => finish({ code: code ?? -1, signal: signal ?? undefined }));
+    child.on('close', (code, signal) => { const r = testTreeResult(child, code, signal); finish({ ...r, code: r.code ?? -1, signal: r.signal ?? undefined }); });
   });
 }
 

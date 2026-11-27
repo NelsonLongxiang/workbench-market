@@ -12,11 +12,12 @@ import WmPage from '../../components/WmPage';
 import RelTime from '../../components/RelTime';
 import { api, getBenchViewDoc, getMarketWorkbench, listBenchViews } from '../../api';
 import { adminActive, subscribeAdminToken } from '../../admin-token';
+import { cardHealthKey } from '../../bench-link-view';
 import { benchSlugFor, detailProblem, healthLabel, initialOf, manageHref, usableIcon, viewTitles, workbenchIdOf, NO_DESCRIPTION } from '../../market-view';
 import type { Workbench } from '../../types';
 
 type State = { phase: 'loading' } | { phase: 'ok'; w: Workbench } | { phase: 'problem'; kind: 'gone' | 'login' | 'denied' | 'error'; text: string };
-const TONE: Record<string, string> = { up: 'success', down: 'error' };
+const TONE: Record<string, string> = { up: 'success', down: 'error', pending: 'warning' };
 
 export default function WorkbenchDetail() {
   const { id: raw } = useParams();
@@ -83,7 +84,7 @@ export default function WorkbenchDetail() {
                 <h2 className="wm-wbd-name" data-testid="wbd-name">{w.name}</h2>
                 <Space size={6} className="wm-wbd-sub" wrap>
                   {w.category && <span data-testid="wbd-category">{w.category}</span>}
-                  <Tag color={TONE[String(w.last_status)] ?? 'default'} data-testid="wbd-status">{healthLabel(w.last_status)}</Tag>
+                  {(() => { const k = cardHealthKey(w.last_status, w.last_error, w.url, window.location.origin); return <Tag color={TONE[k] ?? 'default'} data-testid="wbd-status" title={k === 'pending' && typeof w.last_error === 'string' ? w.last_error : undefined}>{healthLabel(k)}</Tag>; })()}
                   {w.last_checked_at && <span>上次检测 <RelTime value={w.last_checked_at} /></span>}
                   {w.enabled === false && <Tag data-testid="wbd-off">已停用</Tag>}
                 </Space>
@@ -104,7 +105,7 @@ export default function WorkbenchDetail() {
         {admin && <Card size="small" title="管理" data-testid="wbd-admin">
           <Flex vertical gap="small">
             <Space wrap>
-              <Button loading={busy === 'check'} disabled={busy !== null} onClick={() => void act('check', () => api.checkOne(w.id), (x) => `检测完了：${healthLabel(x.last_status)}`)} data-testid="wbd-check">立即检测</Button>
+              <Button loading={busy === 'check'} disabled={busy !== null} onClick={() => void act('check', () => api.checkOne(w.id), (x) => `检测完了：${healthLabel(cardHealthKey(x.last_status, x.last_error, x.url, window.location.origin))}`)} data-testid="wbd-check">立即检测</Button>
               <Button onClick={() => navigate(manageHref(w.name))} data-testid="wbd-edit">编辑</Button>
               {w.enabled === false
                 ? <Button loading={busy === 'toggle'} disabled={busy !== null} onClick={() => void act('toggle', () => api.updateWorkbench(w.id, { enabled: true }), () => '已启用，市场里又能看到它了')} data-testid="wbd-enable">启用</Button>

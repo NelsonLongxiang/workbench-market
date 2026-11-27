@@ -27,7 +27,7 @@
  */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
-import { rosters, LISTED_ROSTERS_SQL, type RosterSeat } from './a2a-roster.ts';
+import { rosters, LISTED_ROSTERS_SQL, rosterTeamLabels, teamName, type RosterSeat } from './a2a-roster.ts';
 import { leadGrantActive } from './dept-lead-grant.ts';
 import { boundSql } from './team-binding-sql.ts';
 
@@ -62,8 +62,9 @@ export function isoTime(t: string): string {
 }
 
 export type TeamView = {
-  host: string; team: string; status: TeamStatus; in_roster: boolean;
+  host: string; team: string; name: string; status: TeamStatus; in_roster: boolean;
   department: { id: string; name: string } | null;
+  area?: { id: string; name: string; status: 'pending-lead' | 'active' | 'retired' };
   leads: Lead[]; router: Member | null; members: Member[];
   /** 所挂部门上写着的负责人，但他没有这个部门的拍板授予（待属主放行）：不算负责人、不带任何权力，只给页面显示；没有为 null */
   lead_pending_grant: { principal: string; display_name: string } | null;
@@ -208,10 +209,13 @@ export class TeamService extends Service {
   }
 
   /** 认领并挂部门；已经认领的换部门（记 department）。团队要在名册里 */
-  /** 认领（或换部门）之前的核对：提议和直接认领用同一处。null 表示能认领；unchanged 表示已经挂在这个部门 */
-  claimCheck(k: TeamKey, departmentId: string): TeamRefusal | 'unchanged' | null {
+  /** S0：在原单一归属字段存标识，优先核领域，部门留作兼容。pending-lead 可以挂接。 */
+  claimCheck(k: TeamKey, departmentId: string, areaOnly = false): TeamRefusal | 'unchanged' | null {
     if (!this.rosterTeams().has(tkey(k.host, k.team))) return refuse(404, 'team_not_in_roster', '名册里没有这个团队');
-    if (!db.prepare('SELECT 1 FROM departments WHERE id = ?').get(departmentId)) return refuse(422, 'department_unknown', `部门 ${departmentId} 不存在`);
+    const area = db.prepare('SELECT status FROM areas WHERE id = ?').get(departmentId) as { status: string } | undefined;
+    if (area?.status === 'retired') return refuse(409, 'area_retired', '不能认领到已撤的领域');
+    if (!area && areaOnly) return refuse(404, 'area_not_found', '没有这个领域');
+    if (!area && !db.prepare('SELECT 1 FROM departments WHERE id = ?').get(departmentId)) return refuse(422, 'department_unknown', `部门 ${departmentId} 不存在`);
     if (!currentNode(k.host)) return NODE_UNVERIFIED();
     const reg = this.registration(k);
     // 记在旧节点上的认领不算「已经挂在这个部门」：重新认领，记下现在的节点
@@ -226,8 +230,8 @@ export class TeamService extends Service {
     return db.prepare(`SELECT 1 FROM team_leads l WHERE host = ? AND team = ? AND principal_id = ? AND ended_at IS NULL AND ${boundSql('l')}`).get(k.host, k.team, principal) ? 'already' : null;
   }
 
-  claim(k: TeamKey, departmentId: string, actor: Actor, now: number): { ok: true; changed: boolean } | TeamRefusal {
-    const check = this.claimCheck(k, departmentId);
+  claim(k: TeamKey, departmentId: string, actor: Actor, now: number, areaOnly = false): { ok: true; changed: boolean } | TeamRefusal {
+    const check = this.claimCheck(k, departmentId, areaOnly);
     if (check === 'unchanged') return { ok: true, changed: false };
     if (check) return check;
     const reg = this.registration(k);
@@ -459,6 +463,8 @@ export class TeamService extends Service {
     for (const t of roster.values()) keys.set(tkey(t.host, t.team), { host: t.host, team: t.team });
     for (const r of regs) if (r.claimed) keys.set(tkey(r.host, r.team), { host: r.host, team: r.team });
     const deptName = new Map((db.prepare('SELECT id, name FROM departments').all() as { id: string; name: string }[]).map((d) => [d.id, d.name]));
+    const areaById = new Map((db.prepare('SELECT id, name, status FROM areas').all() as NonNullable<TeamView['area']>[]).map((area) => [area.id, area]));
+    const labels = new Map(rosterTeamLabels().map((row) => [tkey(row.host, row.team), row.label]));
     const out: TeamView[] = [];
     for (const [k, key] of keys) {
       const reg = regs.find((r) => r.host === key.host && r.team === key.team);
@@ -472,8 +478,9 @@ export class TeamService extends Service {
         };
       });
       out.push({
-        host: key.host, team: key.team, status: this.status(key, !!rt), in_roster: !!rt,
-        department: claimedNow(reg) && reg.department_id ? { id: reg.department_id, name: deptName.get(reg.department_id) ?? '' } : null,
+        host: key.host, team: key.team, name: labels.get(k) ?? teamName(key.team), status: this.status(key, !!rt), in_roster: !!rt,
+        department: claimedNow(reg) && reg.department_id ? { id: reg.department_id, name: deptName.get(reg.department_id) ?? areaById.get(reg.department_id)?.name ?? '' } : null,
+        ...(claimedNow(reg) && areaById.has(reg.department_id) ? { area: areaById.get(reg.department_id) } : {}),
         leads: this.leads(key), router: members.find((m) => m.router) ?? null, members: members.filter((m) => !m.router),
         lead_pending_grant: this.deptLeadPending(key), ...this.rosterStaleness(key.host),
       });

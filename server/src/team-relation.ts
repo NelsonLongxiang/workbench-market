@@ -20,6 +20,7 @@
  *     接收部门的负责人确认（services/relation-proposal.ts），成员分配只有团队负责人或管理层做。提议期间这些关系不存在，这里查不到。
  */
 import { svc } from './context.ts';
+import { teamName } from './services/a2a-roster.ts';
 import { currentNode, sameSeat, type SeatKey, type TeamKey, type TeamService, type TeamView } from './services/team.ts';
 import type { DepartmentService } from './services/department.ts';
 import type { GrantService } from './services/grant.ts';
@@ -39,8 +40,7 @@ export type RelationResult = {
 
 const teams = () => svc<TeamService>('teams');
 const seatKey = (s: { host: string; team: string; seat: string; seat_id?: string }): SeatKey => ({ host: s.host, team: s.team, seat: s.seat, seat_id: s.seat_id ?? '' });
-/** 团队的显示名：画布名（team 是 <区>/canvas/<名字>；空串是不在画布上的席位） */
-export const teamName = (team: string): string => (team.includes('/canvas/') ? team.slice(team.indexOf('/canvas/') + 8) : '');
+export { teamName };
 function deptRelations(principal: string, departmentId: string): Relation[] {
   const r = teams().departmentRole(principal, departmentId);
   return [...(r.member ? ['dept-member' as const] : []), ...(r.lead ? ['dept-lead' as const] : []), ...(r.leadPending ? ['dept-lead-pending' as const] : [])];

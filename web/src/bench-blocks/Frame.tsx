@@ -3,6 +3,7 @@
  * 标题在左，右上角是调用方给的操作和「数据截至 HH:mm」；读取中、出错、空、数据不全各有固定的样子。
  * 外框的类名沿用现有看板的（.wm-dash-card、.wm-span-N），放进 12 列栅格（DashGrid）里，宽度只取 3 / 4 / 6 / 12。
  */
+import { CopyAnchorButton, useBlockAnchor } from '../components/PageToc';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { Alert, Empty, Skeleton } from 'antd';
 import dayjs from 'dayjs';
@@ -33,6 +34,9 @@ export function BlockFrame({ title, span = 6, extra, asOf, staleAfterMs, loading
   kind: string; skipEmpty?: boolean; smallTitle?: boolean; onClick?: () => void; label?: string; children?: ReactNode;
 }) {
   const stale = asOf != null && staleAfterMs != null && Date.now() - asOf > staleAfterMs;
+  // #1099 块锚点：有锚点的块带 id；有标题行的放「复制本块链接」
+  const anchor = useBlockAnchor();
+  const copy = anchor && title && !smallTitle ? <CopyAnchorButton anchor={anchor} /> : null;
   const head = (title && !smallTitle) || extra || stale;
   const onKey = (e: KeyboardEvent) => { if (onClick && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onClick(); } };
   const state = loading ? 'loading' : error ? 'error' : !skipEmpty && isEmptyData(data) ? 'empty' : 'ready';
@@ -40,11 +44,12 @@ export function BlockFrame({ title, span = 6, extra, asOf, staleAfterMs, loading
     <section
       className={`${frame === 'none' ? 'wm-bb-bare' : 'wm-dash-card'} wm-bb wm-bb-${kind} wm-span-${span}${onClick ? ' wm-dash-clickable' : ''}`}
       data-span={span} data-bb={kind} data-bb-state={state} data-bb-frame={frame}
+      {...(anchor ? { id: anchor, 'data-anchor': anchor } : {})}
       {...(onClick ? { role: 'button', tabIndex: 0, 'aria-label': label, onClick, onKeyDown: onKey } : {})}
     >
       {head ? (
         <header className="wm-dash-card-head">
-          <h3 className="wm-dash-card-title">{smallTitle ? null : title}</h3>
+          <h3 className="wm-dash-card-title">{smallTitle ? null : title}{copy}</h3>
           <div className="wm-dash-card-extra">
             {stale && <span className="wm-dash-stale">数据截至 {dayjs(asOf).format('HH:mm')}</span>}
             {extra}
