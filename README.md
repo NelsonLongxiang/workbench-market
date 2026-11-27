@@ -494,6 +494,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   routes/report-governance.ts（报告治理的会话和站内入口）
   routes/owner-personal-tokens.ts（属主签发、撤销个人令牌；业务请求按精确动作与台限制）
   services/owner-personal-tokens.ts（个人令牌摘要、期限和使用记录）
+  services/sop-run-closure.ts（旧 SOP 运行的只读演练、批次收口与撤销）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   bench-mcp.ts（数据视图的 MCP 工具：授予按「会话 × 台 × 工具」记在自己的表里，不放进会话的 grants·申请由会话提、台的管理层批·读也按台限定·执行时把台库的方法对到工具名上）
   bench-card-health.ts（#1086 卡片地址是市场自己的数据视图台页面 /use/<台> 时健康巡检怎么记：认相对地址和本站已知来源的 /use/<台>·已对应到台的卡片按台算在线、不探测，没对应的记「待对应」并写下一步，不判离线·纯函数，不碰库）
