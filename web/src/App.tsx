@@ -35,12 +35,15 @@ import NotYet, { NOT_YET } from './pages/NotYet';
 import Team from './pages/team/Team';
 import Areas from './pages/areas/Areas';
 import Home from './pages/Home';
+import LifecycleOverview from './pages/LifecycleOverview';
 
 import WorkItems from './pages/WorkItems';
 import ViewerChip from './components/ViewerChip';
 import LoginChip from './components/LoginChip';
 import PasswordChip from './components/PasswordChip';
 // import.meta.hot 只在 vite dev 时有；正式构建里它是 undefined，这一行连同演示页整个被摇掉
+const extensionRoutes = WEB_EXTENSIONS.flatMap((extension) => (extension.routes ?? []).map((route) => ({ ...route, key: extension.name + ':' + route.path })));
+const lifecycleExtension = extensionRoutes.find((route) => route.path.replace(/^\/+|\/+$/g, '') === 'lifecycle');
 const BenchBlocksDemo = import.meta.hot ? React.lazy(() => import('./pages/dev/BenchBlocksDemo')) : null;
 
 /** #292 M1：控制面上的业务页跳回业务面同 path */
@@ -155,7 +158,10 @@ export default function App() {
         <Route path="/attention" element={<Attention />} />
         <Route path="/work-items" element={<WorkItems />} />
         <Route path="/work-items/:id" element={<WorkItem />} />
-        {WEB_EXTENSIONS.flatMap((e) => (e.routes ?? []).map((r) => <Route key={`${e.name}:${r.path}`} path={r.path} element={r.element} />))}
+        <Route path="/lifecycle" element={<LifecycleOverview extension={lifecycleExtension?.element} />} />
+        {extensionRoutes.filter((route) => route !== lifecycleExtension).map((route) => (
+          <Route key={route.key} path={route.path} element={route.element} />
+        ))}
         <Route path="/owner-pending" element={<OwnerPending />} />
         <Route path="/mcp-gateways" element={<McpGateways />} />
         <Route path="/bench-mcp/:bench" element={<BenchMcp />} />

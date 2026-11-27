@@ -4,6 +4,7 @@
 页面会自己退避重试；放开之后提示自己消失、页面重读；「现在重试」不等计时。
 别的 502（error 不是这个代号）和 401 不进这个状态。别的接口回这个代号也会挂提示（请求层统一认）。"""
 import json, sys
+from os import environ as os_env
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1])); M = cfg['base']
 ok = fail = 0
@@ -116,6 +117,156 @@ with sync_playwright() as p:
     ctx.route('**/api/attention', unauth)
     reload_after_attention(pg)
     check('401 不进这个状态（照旧按没登录处理）', banner.count() == 0 and pg.locator('[data-testid=home-decide-down]').count() == 0)
+    ctx.close()
+    # 生命周期状态与身份服务分开：两个公开页面共用同一组状态语义。
+    ctx = b.new_context()
+    ctx.add_cookies([{'name': 'session_id', 'value': cfg['alpha_session'], 'url': M}])
+    pg = ctx.new_page(); pg.set_default_timeout(5000)
+    stage_payload = {'ok': True, **stages}
+    empty_items = {'ok': True, 'items': [], 'next_cursor': None}
+    board_data = {'as_of': '2026-11-27T10:00:00Z', 'summary': {'products': 0, 'by_stage': {}, 'sources_stale': 0}, 'products': [], 'sources': []}
+    board_payload = {'ok': True, 'data': board_data}
+    for status, content, mime, label, wording in [
+        (404, {'error': 'not found'}, 'application/json', 'not-installed', '生命周期功能未接入'),
+        (503, {'error': 'lc_unavailable', 'detail': 'PRIVATE-CANARY'}, 'application/json', 'unavailable', '登记或依赖尚未就绪'),
+        (200, {'ok': False, 'error': 'PRIVATE-CANARY'}, 'application/json', 'unknown', '暂时无法确认生命周期状态'),
+        (200, {'ok': True}, 'application/json', 'unknown', '暂时无法确认生命周期状态'),
+        (200, '<html>PRIVATE-CANARY</html>', 'text/html', 'unknown', '暂时无法确认生命周期状态'),
+        (401, {}, 'application/json', 'login', '请登录后查看'),
+        (403, {}, 'application/json', 'forbidden', '当前账号无权查看'),
+    ]:
+        response = lambda route: route.fulfill(status=status, content_type=mime, body=json.dumps(content) if mime == 'application/json' else content)
+        ctx.route('**/api/lifecycle/**', response)
+        for path in ['/', '/lifecycle']:
+            pg.goto(M + path, wait_until='networkidle')
+            state = pg.locator('[data-testid=lifecycle-state]')
+            try:
+                state.wait_for(timeout=1100)
+                check(f'{path} {status} {label}：原因清楚且数量为未知', state.get_attribute('data-state') == label and wording in state.inner_text() and state.locator('[data-testid=lifecycle-kpi]').inner_text() == '—' and 'PRIVATE-CANARY' not in state.inner_text(), state.inner_text())
+            except Exception:
+                check(f'{path} {status} {label}：出现状态提示', False)
+        ctx.unroute('**/api/lifecycle/**', response)
+    def available(route):
+        url = route.request.url
+        payload = stage_payload if '/stages' in url else (board_payload if '/board' in url else empty_items)
+        route.fulfill(status=200, content_type='application/json', body=json.dumps(payload))
+    ctx.route('**/api/lifecycle/**', available)
+    for path in ['/', '/lifecycle']:
+        pg.goto(M + path, wait_until='networkidle')
+        empty = pg.locator('[data-testid=lifecycle-state][data-state=empty]')
+        try:
+            empty.wait_for(timeout=1300)
+            check(f'{path} 完整成功的空值显示真零', '暂无符合条件的生命周期对象' in empty.inner_text() and empty.locator('[data-testid=lifecycle-kpi]').inner_text() == '0', empty.inner_text())
+        except Exception:
+            check(f'{path} 完整成功的空值显示真零', False)
+    ctx.unroute('**/api/lifecycle/**', available)
+
+    def partial_page(route):
+        url = route.request.url
+        if '/stages' in url:
+            route.fulfill(status=200, json=stage_payload)
+        elif 'cursor=' in url:
+            route.abort('timedout')
+        else:
+            route.fulfill(status=200, json={**objects, 'next_cursor': 'page-2'})
+    ctx.route('**/api/lifecycle/**', partial_page)
+    pg.goto(M + '/')
+    first_failure = pg.locator('[data-testid=lifecycle-state][data-state=unknown]')
+    first_failure.wait_for()
+    check('首页第二页超时后无部分行或零', first_failure.locator('[data-testid=lifecycle-kpi]').inner_text() == '—' and not pg.locator('[data-testid=home-row]').count())
+    ctx.unroute('**/api/lifecycle/**', partial_page)
+
+    board_calls = []
+    def retry_board(route):
+        board_calls.append(route.request.method)
+        if len(board_calls) == 1:
+            route.fulfill(status=503, headers={'Retry-After': '2', 'X-Request-Id': 'trace-1088'}, json={'error': 'NOT_REGISTERED', 'detail': 'PRIVATE-CANARY'})
+        else:
+            route.fulfill(status=200, json=board_payload)
+    ctx.route('**/api/lifecycle/board?*', retry_board)
+    pg.goto(M + '/lifecycle?pd=sample')
+    state = pg.locator('[data-testid=lifecycle-state][data-state=unavailable]')
+    state.wait_for()
+    check('503 保留请求编号并遵守 Retry-After', 'trace-1088' in state.inner_text() and state.get_by_role('button', name='暂不能重试').is_disabled())
+    state.get_by_role('button', name='重试', exact=True).click(timeout=4000)
+    empty = pg.locator('[data-testid=lifecycle-state][data-state=empty]')
+    empty.wait_for()
+    check('重试只发一次只读 GET，真零带筛选条件', board_calls == ['GET', 'GET'] and 'sample' in empty.inner_text() and empty.locator('[data-testid=lifecycle-kpi]').inner_text() == '0')
+    ctx.unroute('**/api/lifecycle/board?*', retry_board)
+
+    board_ok = {'ok': True, 'data': {**board_data, 'summary': {'products': 1, 'by_stage': {'打样': 1}, 'sources_stale': 0}, 'products': [{'pd': '合成对象'}]}}
+    stale_board = {'ok': True, 'data': {**board_data, 'summary': {'products': 0, 'by_stage': {}, 'sources_stale': 1}}}
+    board_reads = []
+    def changing_board(route):
+        board_reads.append(1)
+        route.fulfill(status=200, json=board_ok if len(board_reads) == 1 else stale_board)
+    ctx.route('**/api/lifecycle/board', changing_board)
+    pg.goto(M + '/lifecycle')
+    if os_env.get('WM_TEST_LIFECYCLE_EXTENSION') == '1':
+        pg.get_by_text('合成生命周期扩展').wait_for()
+        check('完整响应交回已注册的扩展路由', pg.get_by_text('合成生命周期扩展').count() == 1 and not pg.locator('[data-testid=lifecycle-state]').count())
+        pg.reload(wait_until='networkidle')
+        stale = pg.locator('[data-testid=lifecycle-state][data-state=stale]')
+        stale.wait_for()
+        check('扩展已登记但响应过期时由公开层显示状态', not pg.get_by_text('合成生命周期扩展').count() and stale.locator('[data-testid=lifecycle-kpi]').inner_text() == '—')
+    else:
+        pg.get_by_role('button', name='刷新全景').click()
+        stale = pg.locator('[data-testid=lifecycle-state][data-state=stale]')
+        stale.wait_for()
+        check('全景数据过期保留上次成功数量和时点，当期显示未知', stale.locator('[data-testid=lifecycle-kpi]').inner_text() == '—' and '上次成功数量：1' in stale.inner_text() and '2026-11-27T10:00:00' in stale.inner_text(), stale.inner_text())
+    ctx.unroute('**/api/lifecycle/board', changing_board)
+
+    # F1：首访与页面刷新时，没有组件内历史。只读响应本身给出上次成功快照。
+    snapshot_time = {'stale': True, 'as_of': '2026-11-27T10:00:00Z', 'last_ok': '2026-11-27T09:59:00Z'}
+    reported_board = {'ok': True, 'data': {**board_data, **snapshot_time,
+        'summary': {'products': 7, 'by_stage': {'stage-review': 7}, 'sources_stale': 1},
+        'products': [{'pd': f'历史对象 {i}'} for i in range(7)], 'sources': [{'stale': True}]}}
+    reported_lines = {**objects, **snapshot_time}
+    response_mode = 'history'
+    requests = []
+    def first_visit(route):
+        path = route.request.url
+        requests.append(route.request.method)
+        if '/stages' in path:
+            route.fulfill(status=200, json=stage_payload)
+        elif response_mode == 'missing':
+            route.fulfill(status=200, json={'ok': True, **snapshot_time})
+        elif response_mode in [401, 403]:
+            route.fulfill(status=response_mode, json={})
+        elif response_mode == 'stale-zero':
+            route.fulfill(status=200, json=stale_board if '/board' in path else {**empty_items, **snapshot_time})
+        else:
+            route.fulfill(status=200, json=reported_board if '/board' in path else reported_lines)
+    ctx.route('**/api/lifecycle/**', first_visit)
+    for path in ['/', '/lifecycle']:
+        pg.goto(M + path, wait_until='networkidle')
+        for visit in ['首访', '刷新']:
+            if visit == '刷新':
+                pg.reload(wait_until='networkidle')
+            stale = pg.locator('[data-testid=lifecycle-state][data-state=stale]')
+            stale.wait_for()
+            text = stale.inner_text()
+            history = pg.get_by_role('region', name='上次成功的阶段数量')
+            shown = (pg.locator('[data-testid=home-row]').count() == 2 and pg.locator('[data-testid=home-cell]').first.is_disabled()
+                if path == '/' else history.count() == 1 and 'stage-review' in history.inner_text() and history.locator('dd').inner_text() == '7')
+            check(f'F1 {path} {visit}：保留完整历史数据及两个时点，当前为未知', shown
+                and stale.locator('[data-testid=lifecycle-kpi]').inner_text() == '—' and '以下为上次成功结果' in text
+                and '上次成功数量：' + ('2' if path == '/' else '7') in text and '2026-11-27T09:59:00' in text
+                and '2026-11-27T10:00:00' in text and '暂无可展示' not in text, text)
+        for mode, expected in [('missing', 'unknown'), ('stale-zero', 'stale'), (401, 'login'), (403, 'forbidden')]:
+            response_mode = mode
+            if mode == 'missing':
+                pg.reload(wait_until='networkidle')
+            else:
+                pg.goto(M + path, wait_until='networkidle')
+            state = pg.locator(f'[data-testid=lifecycle-state][data-state={expected}]')
+            state.wait_for()
+            check(f'F1 {path} {mode}：不会显示当前零或泄露先前历史', state.locator('[data-testid=lifecycle-kpi]').inner_text() == '—'
+                and '上次成功数量：7' not in state.inner_text() and '上次成功数量：2' not in state.inner_text()
+                and not pg.get_by_text('stage-review', exact=True).count() and not pg.locator('[data-testid=home-row]').count(), state.inner_text())
+        response_mode = 'history'
+    check('F1 历史和权限回归仅发 GET', bool(requests) and set(requests) == {'GET'}, requests)
+    ctx.unroute('**/api/lifecycle/**', first_visit)
     ctx.close()
     # 真服务端（#639）：合成身份来源在数据目录里有 fake-identity-down 时不回答——服务端自己回 502 identity_unavailable，不是页面里截的
     import os
