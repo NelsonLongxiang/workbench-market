@@ -2,10 +2,11 @@ import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useRequest } from 'ahooks';
 import { App, Button, Result, Space, Spin, Tag, Tooltip, Typography } from 'antd';
-import { ArrowLeftOutlined, ExportOutlined, ReloadOutlined } from '@ant-design/icons';
+import { ExportOutlined, ReloadOutlined } from '@ant-design/icons';
 import { api } from '../api';
 import StatusBadge from '../components/StatusBadge';
 import GoFrame from '../components/GoFrame';
+import UseTopBar from '../components/UseTopBar';
 import { USE_SELF_TEXT, pointsAtMarket } from '../embed-guard';
 
 export default function UseWorkbench() {
@@ -14,7 +15,6 @@ export default function UseWorkbench() {
   const { message } = App.useApp();
   const [frameKey, setFrameKey] = useState(0);
   const [checking, setChecking] = useState(false);
-  const back = () => (window.history.length > 1 ? nav(-1) : nav('/'));
 
   const req = useRequest(() => api.getWorkbench(Number(id)), { manual: false });
 
@@ -48,17 +48,7 @@ export default function UseWorkbench() {
 
   return (
     <div className="wm-use-wrap">
-      <div className="wm-use-bar">
-        <Button
-          type="text"
-          icon={<ArrowLeftOutlined />}
-          onClick={back}
-          aria-label="返回"
-        />
-        <span className="wm-use-icon">{w.icon || '▢'}</span>
-        <Typography.Title level={5} className="wm-use-title">
-          {w.name}
-        </Typography.Title>
+      <UseTopBar cardId={String(id ?? '')} page="card" title={<span className="wm-use-title"><span className="wm-use-icon">{w.icon || '▢'}</span> {w.name}</span>}>
         <StatusBadge status={w.last_status} latency={w.last_latency_ms} error={w.last_error} checkedAt={w.last_checked_at} />
         <Tag color="geekblue">{w.type}</Tag>
         <Typography.Text className="wm-num wm-mono wm-caption">
@@ -98,7 +88,7 @@ export default function UseWorkbench() {
             </Button>
           </a>
         </Space>
-      </div>
+      </UseTopBar>
       <GoFrame wid={w.id} name={w.name} frameKey={frameKey} className="wm-use-frame" />
       <Typography.Paragraph
         type="secondary"

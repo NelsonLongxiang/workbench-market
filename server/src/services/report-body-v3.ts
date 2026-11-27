@@ -2,8 +2,10 @@
 export class ReportError extends Error {
   code: string;
   path: string;
-  constructor(code: string, path: string) {
-    super(`${code} at ${path}`); this.name = 'ReportError'; this.code = code; this.path = path;
+  /** Which limit or part went wrong, when the code alone does not say (image_limit: count | bytes). */
+  detail?: string;
+  constructor(code: string, path: string, detail?: string) {
+    super(`${code} at ${path}${detail ? ` (${detail})` : ''}`); this.name = 'ReportError'; this.code = code; this.path = path; if (detail) this.detail = detail;
   }
 }
 class InvalidBody extends ReportError {}

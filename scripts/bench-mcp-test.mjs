@@ -609,6 +609,33 @@ try {
     const approval = await srv.call('POST', '/api/bench-views/demo/mcp-requests/' + p2.json?.request?.id, { ...personal, body: { approve: true } });
     check(approval.status === 200 && approval.json?.status === 'approved'
       && db.prepare("SELECT granted_by FROM bench_mcp_grants WHERE bench = 'demo' AND session_id = ? AND tool = 'dataset_list'").get(a2.id)?.granted_by === '属主（令牌 终端合成）', 'MCP 批准按原规则执行并标注令牌', approval.status);
+    // #1064 G3：团队助理用自己的会话（账户）读本队台的数据和报告；授予由台的管理层批，别的台 403
+    const helper = await mk('sess-team-assistant');
+    const helperGrant = await srv.call('PUT', '/api/bench-views/demo/mcp-grants', { ...mgr, body: { session: helper.name, tools: ['dataset_query', 'report_list', 'report_get'] } });
+    const helperRest = (name, bench, extra = {}) => srv.call('POST', '/api/mcp-rest/tools/' + name, { headers: { authorization: 'Bearer ' + helper.token }, body: { bench, ...extra } });
+    const hq = await helperRest('dataset_query', 'demo', { query: subject.query });
+    const hl = await helperRest('report_list', 'demo');
+    const hqOther = await helperRest('dataset_query', 'other', { query: subject.query });
+    const hlOther = await helperRest('report_list', 'other');
+    check(helperGrant.status === 200 && hq.status === 200 && hq.text.includes('bench-only-marker') && hl.status === 200 && Array.isArray(hl.json?.reports)
+      && hqOther.status === 403 && hlOther.status === 403 && !hqOther.text.includes('bench-only-marker'),
+    '#1064 G3 助理自己的会话：本队台读数据、报告清单 200；别的台 403', { grant: helperGrant.status, hq: hq.status, hl: hl.status, hqOther: hqOther.status, hlOther: hlOther.status });
+    // #1064 G4：交给助理代办的令牌。作用域没开写就 403 并说缺哪项；开了的照原规则办，留痕看得出助理代办
+    const badDelegate = await srv.call('POST', api, { ...tokenOwner, body: { name: '助理错代办', scopes: ['bench:read'], benches: ['demo'], delegate: 'someone' } });
+    const helperIssue = await srv.call('POST', api, { ...tokenOwner, body: { name: '助理合成', scopes: ['bench:read', 'grants'], benches: ['demo'], delegate: 'assistant' } });
+    const helperToken = { headers: { authorization: 'Bearer ' + helperIssue.json?.token } };
+    const helperRead = await srv.call('POST', readEndpoint, { ...helperToken, body: subject });
+    const helperWrite = await srv.call('POST', '/api/bench-views/demo/datasets/seed/rows?op=upsert', { ...helperToken, raw: JSON.stringify([{ id: 9, secret: 'helper' }]) });
+    const ha = await mk('sess-helper-approval');
+    const hp = await tool(srv, ha.token, 'access_request', { tools: ['dataset_list@bench:demo'], reason: '助理代办批准' });
+    const helperApprove = await srv.call('POST', '/api/bench-views/demo/mcp-requests/' + hp.json?.request?.id, { ...helperToken, body: { approve: true } });
+    check(badDelegate.status === 400 && helperIssue.status === 201 && helperIssue.json?.personal_token?.delegate === 'assistant' && issue.json?.personal_token?.delegate === null
+      && helperRead.status === 200 && JSON.stringify(helperRead.json) === JSON.stringify(browserQuery.json)
+      && helperWrite.status === 403 && helperWrite.json?.error === 'personal_token_scope_denied' && helperWrite.json?.message?.includes('bench:write')
+      && helperApprove.status === 200 && helperApprove.json?.status === 'approved'
+      && db.prepare("SELECT granted_by FROM bench_mcp_grants WHERE bench = 'demo' AND session_id = ? AND tool = 'dataset_list'").get(ha.id)?.granted_by === '属主（令牌 助理合成·助理代办）',
+    '#1064 G4 助理代办令牌：未知代办对象 400；读与属主浏览器一致；没开写 403 并写明缺 bench:write；开了的批准照原规则，留痕「属主（令牌 名·助理代办）」',
+    { bad: badDelegate.status, issue: helperIssue.status, read: helperRead.status, write: [helperWrite.status, helperWrite.json?.message], approve: helperApprove.status });
     const secretFile = join(OUT, 'personal-file');
     const cliConfig = join(OUT, 'personal-cli');
     writeFileSync(secretFile, token, { flag: 'wx', mode: 0o600 });
@@ -647,7 +674,7 @@ try {
     const markUsed = await srv.call('POST', readEndpoint, { headers: { authorization: 'Bearer ' + used.json?.token }, body: subject });
     const fixtureList = await srv.call('GET', api, tokenOwner);
     const byName = new Map(fixtureList.json?.personal_tokens?.map(row => [row.name, row]));
-    check(unused.status === 201 && used.status === 201 && markUsed.status === 200 && byName.size === 3
+    check(unused.status === 201 && used.status === 201 && markUsed.status === 200 && byName.size === 4 && byName.get('助理合成')?.delegate === 'assistant'
       && byName.get('尚未使用')?.last_used_at === null && byName.get('已使用')?.last_used_at > 0
       && byName.get('终端合成')?.revoked_at > 0 && !fixtureList.text.includes(unused.json.token) && !fixtureList.text.includes(used.json.token),
     '设置页三态夹具：真实签发未用、用过与撤销，清单无原文');

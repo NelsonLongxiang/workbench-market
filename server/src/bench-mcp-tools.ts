@@ -154,7 +154,7 @@ export const BENCH_TOOL_DEFS: BenchToolDef[] = [
   tool('dataset_restore', 'write', '把数据集退回到某一份快照', obj({ snapshot_id: { type: 'integer', minimum: 1 }, note: NOTE }, ['snapshot_id'])),
   tool('view_put', 'write', '保存视图描述：产生一个新版本并立即生效。服务端按契约校验（块类型、必填、上限、输出列、$参数、数据集引用都查），不合格整份拒收、不产生新版本，错误里点名是哪一处', obj({ doc: VIEW_DOC_MIN, base: { type: 'integer', minimum: 0, description: '你是基于第几版改的；还没有版本时给 0' }, note: NOTE }, ['doc', 'base', 'note'])),
   tool('view_rollback', 'write', '让旧版本重新生效（只移指针，不丢版本）', obj({ to: { type: 'integer', minimum: 1 }, base: { type: 'integer', minimum: 1, description: '你看到的生效版本' }, note: NOTE }, ['to', 'base', 'note'])),
-  // 报告（docs/report-step1.md 第四节第 3 小节；报告第 1 步 PR C）：生成、读、回应。维度和模板只走 REST（领域能力以 REST 声明）；绑定也只走 REST。
+  // 报告的写入保留原入口。生成前可读本台已绑定的维度、模板与绑定。
   // 经 MCP 生成、回应的，产出方、回应者记这个会话、记 AI
   tool('report_list', 'read', '这个台上的报告清单（不带正文），可按维度、事物筛；superseded_by 是被哪一份更正了', obj({
     dimension: { type: 'string', description: '报告维度的标识' }, subject: { type: 'string', description: '事物：种类:标识，比如 item:123' }, limit: { type: 'integer', minimum: 1, maximum: 200 },
@@ -166,12 +166,16 @@ export const BENCH_TOOL_DEFS: BenchToolDef[] = [
     claims: { type: 'array', description: '论断：[{ kind, text, basis?: [{ slot, key: [行键的值…] }] }]，类别和条数照模板', items: { type: 'object' } },
     supersedes: { type: 'integer', minimum: 1, description: '更正哪一份（同维度、同事物、还没被更正过的那份）' },
   }, ['dimension', 'subject', 'inputs', 'claims'])),
+  tool('report_dimension_get', 'read', '读本台已绑定的报告维度及模板版本清单，含生效版本', obj({ dimension: { type: 'string' } }, ['dimension'])),
+  tool('report_template_get', 'read', '读本台已绑定维度的模板正文和摘要；省略 version 时取生效版', obj({ dimension: { type: 'string' }, version: { type: 'integer', minimum: 1, maximum: 999999999 } }, ['dimension'])),
+  tool('report_binding_get', 'read', '读本台对这个维度的最新绑定，含模板版本、数据槽和停用原因', obj({ dimension: { type: 'string' } }, ['dimension'])),
   tool('report_respond', 'write', '对一份报告的一条论断表态：认可、反驳或补充，理由必填；claim_key 不写是对整份报告。改主意就带 supersedes 接自己上一条', obj({
     id: { type: 'integer', minimum: 1, description: '报告编号' }, claim_key: { type: 'string', description: '论断编号，比如 conclusion-1' },
     stance: { type: 'string', enum: ['agree', 'dispute', 'supplement'] }, reason: { type: 'string', description: '理由（1～4000 字）' },
     supersedes: { type: 'integer', minimum: 1, description: '你上一条回应的编号（改主意时）' },
   }, ['id', 'stance', 'reason'])),
 ];
+export const REPORT_PREFLIGHT_TOOLS: ReadonlySet<string> = new Set(['report_dimension_get', 'report_template_get', 'report_binding_get']);
 export const BENCH_TOOL_NAMES: ReadonlySet<string> = new Set(BENCH_TOOL_DEFS.map((t) => t.name));
 /** 授予里台的写法：工具@bench:<台的标识> */
 export const BENCH_GRANT_RE = /^([a-z_]{3,40})@bench:([a-z0-9][a-z0-9-]{0,63})$/;

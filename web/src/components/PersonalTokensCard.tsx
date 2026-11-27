@@ -6,7 +6,7 @@ import { KeyOutlined } from '@ant-design/icons';
 import { listBenchViews } from '../api';
 import { issuePersonalToken, listPersonalTokens, revokePersonalToken, type SourceResult } from '../personal-tokens-api';
 import {
-  NAME_HINT, NAME_MAX, ONE_TIME_NOTE, SCOPE_NOTE, limitsOf, scopesOf, actionProblem, benchesLabel, draftProblem, expiryLabel, issueBody, issuedOf, lastUsedLabel, listProblem,
+  ASSISTANT_NOTE, NAME_HINT, NAME_MAX, ONE_TIME_NOTE, SCOPE_NOTE, limitsOf, scopesOf, actionProblem, benchesLabel, draftProblem, expiryLabel, issueBody, issuedOf, lastUsedLabel, listProblem,
   needsBench, newDraft, scopesLabel, stateTag, tokenState, tokensOf, type TokenDraft, type TokenRow,
 } from '../personal-tokens-view';
 
@@ -63,7 +63,7 @@ export default function PersonalTokensCard() {
   };
 
   const columns = [
-    { title: '名字', key: 'name', render: (_: unknown, t: TokenRow) => <span data-testid="pt-name">{t.name}</span> },
+    { title: '名字', key: 'name', render: (_: unknown, t: TokenRow) => <span data-testid="pt-name">{t.name}{t.assistant && <Tag className="wm-ml-2" data-testid="pt-assistant">助理代办</Tag>}</span> },
     { title: '能做的事', key: 'scopes', render: (_: unknown, t: TokenRow) => scopesLabel(t, scopes) },
     { title: '台', key: 'benches', render: (_: unknown, t: TokenRow) => benchesLabel(t, titles) },
     { title: '期限', key: 'expiry', render: (_: unknown, t: TokenRow) => expiryLabel(t, now) },
@@ -102,6 +102,8 @@ export default function PersonalTokensCard() {
             placeholder={needsBench(draft.scopes) ? '选台（按台的作用域必选）' : '只有报告维度时可以不选台'} onChange={(v) => setDraft({ ...draft, benches: v })} options={(benches ?? []).map((b) => ({ value: b.slug, label: b.title }))} />
           <span>有效期（天，{limits.minDays}～{limits.maxDays}）</span>
           <InputNumber data-testid="pt-draft-days" min={limits.minDays} max={limits.maxDays} precision={0} value={draft.days} onChange={(v) => setDraft({ ...draft, days: typeof v === 'number' ? v : 0 })} />
+          <Checkbox data-testid="pt-draft-assistant" checked={draft.assistant} onChange={(e) => setDraft({ ...draft, assistant: e.target.checked })}>交给团队助理代办</Checkbox>
+          {draft.assistant && <Typography.Text type="secondary" data-testid="pt-draft-assistant-note">{ASSISTANT_NOTE}</Typography.Text>}
           {draftErr && <Typography.Text type="secondary" data-testid="pt-draft-problem">{draftErr}</Typography.Text>}
         </Space>
       </Modal>

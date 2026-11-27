@@ -4,10 +4,11 @@
  *  页面只消费接口，不另判：读、回应的规矩都在服务端（services/bench-report.ts），这里照它的应答画、照它的说法提示。 */
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Alert, Button, Empty, Image, Input, Radio, Result, Skeleton, Tag, Typography } from 'antd';
-import { ArrowLeftOutlined, FileTextOutlined } from '@ant-design/icons';
+import { Alert, Button, Empty, Image, Input, Radio, Result, Skeleton, Tag } from 'antd';
+import { FileTextOutlined } from '@ant-design/icons';
 import { getBenchEntry, getBenchReport, listBenchReports, respondBenchReport, type BenchEntry, type ReportListItem, type ReportListNames, type ReportNames, type ReportNode, type ReportRead, type ReportResponse } from '../api';
 import { entryOutcome } from '../bench-page-view';
+import UseTopBar from '../components/UseTopBar';
 import { fmtNumber } from '../bench-blocks/blocks-view';
 import { BarBlock } from '../bench-blocks/Chart';
 import { REPORT_IMAGE_TEXT, loadReportImage, actorKindText, basisText, gateText, groupBySubject, headsOf, kindLabel, myHead, nameOr, positionText, replacedIds, reportError, reportImageSrc, reportImageState, reportRoute, respondProblem, sourceText, stanceText, timeText, type ReportImageLoad } from '../report-page-view';
@@ -33,17 +34,14 @@ export default function BenchReports() {
   }, [id]);
   useEffect(() => { if (entry.phase === 'ok') document.title = `报告 · ${entry.data.bench.title}`; }, [entry]);
 
-  const back = () => (window.history.length > 1 ? nav(-1) : nav(`/use/${encodeURIComponent(id)}`));
   return (
     <div className="wm-use-wrap" data-testid="report-page">
-      <div className="wm-use-bar">
-        <Button type="text" icon={<ArrowLeftOutlined />} onClick={back} aria-label="返回" />
-        <Typography.Title level={5} className="wm-use-title" data-testid="report-page-bench">{entry.phase === 'ok' ? entry.data.bench.title : '报告'}</Typography.Title>
+      <UseTopBar cardId={id} page="reports" title={<span className="wm-use-title" data-testid="report-page-bench">{entry.phase === 'ok' ? entry.data.bench.title : '这个台'}</span>}>
         <div className="wm-bp-bar-extra">
           {route.kind !== 'list' ? <Link to={`/use/${encodeURIComponent(id)}/reports`} data-testid="report-page-all"><Button type="text" size="small">全部报告</Button></Link> : null}
           <Link to={`/use/${encodeURIComponent(id)}`} data-testid="report-page-bench-link"><Button type="text" size="small">回到台</Button></Link>
         </div>
-      </div>
+      </UseTopBar>
       <div className="wm-bp-body">
         {entry.phase === 'loading' ? <Skeleton active /> : null}
         {entry.phase === 'denied' ? <div data-testid="report-page-denied"><Result status="403" title="看不到这个台的报告" subTitle="要看的话，请管理层为你开通这个台的权限。" /></div> : null}
