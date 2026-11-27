@@ -39,7 +39,8 @@ export function tableCsv(columns: { name: string; label?: string }[], rows: Reco
   };
   const labelled = valueLabels && typeof valueLabels === 'object' ? columns.filter(c => Object.hasOwn(valueLabels, c.name)) : [];
   const head = (c: { name: string; label?: string }, i: number): string => cell(c.label || `第 ${i + 1} 列`);
-  const header = [...columns.map(head), ...labelled.map(c => wordingHead(c.label || `第 ${columns.indexOf(c) + 1} 列`))];
+  // 派生说明表头也要走同一套单元格编码：列名里的逗号、引号和公式样式文本否则会拆格、失去转义与文本标记。
+  const header = [...columns.map(head), ...labelled.map(c => cell(wordingHead(c.label || `第 ${columns.indexOf(c) + 1} 列`)))];
   const line = (row: Record<string, unknown>): string => [
     ...columns.map(c => cell(row[c.name])),
     ...labelled.map(c => cell(tableValueLabel(valueLabels, c.name, row[c.name]) ?? '')),

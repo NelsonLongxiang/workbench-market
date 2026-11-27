@@ -70,5 +70,22 @@ try{
   assert.deepEqual(U[0],['行号','业务接受证据状态']);assert.deepEqual(U[1],['1','not_confirmed']);assert.deepEqual(U[2],['2','accepted']);pass('table without value_labels exports byte-for-byte as before (no extra columns)');
   // The exporter result carries value_labels so the route can pass them through.
   assert.deepEqual(labelled.value_labels,statusLabels);assert.equal(unlabelled.value_labels,undefined);pass('tableExport returns the block value_labels for the route to hand to tableCsv');
+  // 派生说明表头必须经过与原表头相同的 CSV 单元格编码（非作者评审 B1）：
+  // 列名含逗号、引号或公式样式文本时，说明表头不得被拆格、错位，也不得失去转义与文本标记。
+  {
+    const tricky = { name: 'st', label: '=收货,状态"x' };
+    const tl = { st: { a: '=说明,值"y' } };
+    // 按 RFC4180 解析（与评审一致）：引号感知；未加引号的格子里的逗号就是分隔符
+    const rfc = (line) => { const out = []; let cur = '', q = false; for (let i = 0; i < line.length; i++) { const ch = line[i]; if (q) { if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; } else if (ch === '"') q = true; else if (ch === ',') { out.push(cur); cur = ''; } else cur += ch; } out.push(cur); return out; };
+    const T = tableCsv([{ name: 'id', label: '编号' }, tricky], [{ id: 1, st: 'a' }], tl).replace(/^\ufeff/, '').split('\r\n').filter(Boolean).map(rfc);
+    assert.equal(T[0].length, 3, 'header has one cell per column plus one wording column: ' + JSON.stringify(T[0]));
+    assert.equal(T[1].length, 3, 'data row has as many cells as the header');
+    assert.equal(T[0][1], "'=收货,状态\"x", 'the raw header is cell-encoded');
+    assert.equal(T[0][2], "'=收货,状态\"x（说明）", 'the derived wording header is cell-encoded too: commas, quotes and formula-style text stay one cell');
+    pass('derived wording header goes through the same CSV cell encoding: a column label with commas, quotes and formula-style text stays one cell and the header has as many cells as a data row');
+    assert.equal(T[1][1], 'a', 'the raw value is untouched');
+    assert.equal(T[1][2], "'=说明,值\"y", 'the wording value is cell-encoded with its text marker');
+    pass('the wording value keeps its CSV encoding and text marker while the raw column is untouched');
+  }
  console.log(JSON.stringify({passed:count,failed:0,synthetic:true,production:false}));
 }finally{await closeBenchStores();db.close();rmSync(dir,{recursive:true,force:true});}
