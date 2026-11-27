@@ -41,8 +41,9 @@ console.log('一、执行前的核对（纯函数）');
     const n = join(realishTmp, 'a', 'not-yet', 'deeper');
     ok('realish：目录还不存在也能给出真实路径，分隔符与平台一致，且不创建它',
       realish(n).endsWith(join('a', 'not-yet', 'deeper')) && !existsSync(join(realishTmp, 'a')) && realish(realishTmp) === realpathSync(realishTmp), realish(n));
+    // 夹具只建不删会每次留一个空目录；用完就清。放在文件末尾会被后面的崩溃跳过，所以紧跟在用它的断言后面。
+    rmSync(realishTmp, { recursive: true, force: true });
   }
-
 {
   const s = stripShallowFetch('git fetch --no-tags --depth=1 origin main\n  git fetch --depth 5 origin x\ngit fetch origin main\necho git fetch --depth=1\nnode scripts/tech-route-check.mjs --strict');
   ok('只剔会改写共享 Git 的浅取行（--depth=1、--depth 5）；普通 fetch、echo 里提到的、其他命令逐字留着',
