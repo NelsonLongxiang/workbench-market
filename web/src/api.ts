@@ -20,7 +20,7 @@ export function decideReportGovernance(id: string, action: 'confirm' | 'reject',
 }
 import type { WorkItemListPage } from './work-items-view';
 import { seatAsksMore } from './attention-view';
-import type { Cockpit, ExportPayload, PanelConfig, SopApp, SopDefinition, SopRun, SopRunDetail, SopRunFile, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
+import type { Cockpit, ExportPayload, PanelConfig, SopApp, SopDefinition, SopRun, SopRunClosureEvent, SopRunDetail, SopRunFile, Summary, Workbench, WorkbenchDraft, WorkbenchType } from './types';
 import { getAdminToken, loginRequired, redirectToLogin } from './admin-token';
 import { IDENTITY_DOWN_TEXT, isIdentityUnavailable } from './identity-status';
 
@@ -94,6 +94,7 @@ export const api = {
     req<SopDefinition>(`/api/sops/${slug}/definition${version ? `?version=${version}` : ''}`),
   /** 单 run 附件：服务端判读授权，未授权 403（needAdminToken 标记不代表要口令，调用方按「需读授权」处理） */
   listSopRunFiles: (id: number) => req<{ run_id: number; items: SopRunFile[]; count: number }>(`/api/sop/runs/${id}/files`),
+  getSopClosureEvents: (slug: string) => req<{ closure_events?: SopRunClosureEvent[] }>(`/api/sops/${encodeURIComponent(slug)}/timeline`),
   listActiveSopRuns: () => req<SopRun[]>('/api/sop/runs/active'),
   /** 事项列表：管理员看全部，登录的人只看自己建立的；cursor 翻页，counts 是整个可见范围按状态的计数 */
   listWorkItems: (params: Record<string, string> = {}) =>

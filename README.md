@@ -495,6 +495,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   routes/report-governance.ts（报告治理的会话和站内入口）
   routes/owner-personal-tokens.ts（属主签发、撤销个人令牌；业务请求按精确动作与台限制）
   services/owner-personal-tokens.ts（个人令牌摘要、期限和使用记录）
+  services/sop-run-closure.ts（旧 SOP 运行的只读演练、批次收口与撤销）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   bench-mcp.ts（数据视图的 MCP 工具：授予按「会话 × 台 × 工具」记在自己的表里，不放进会话的 grants·申请由会话提、台的管理层批·读也按台限定·执行时把台库的方法对到工具名上）
   bench-registry.ts（视图台的登记：主库里只记有这个台、叫什么、谁建的、绑到哪个部门和团队·登记过的台才有库，没登记的标识一律当作不存在·改绑留痕·卡片 id 为主、台标识为别名：入口写卡片 id 或台标识都认（resolveBenchRef），只给 workbench_id 就开出 wb-<卡片 id>·纯数字标识不许登记·删卡片时登记和授予一起删（removeCardBench）·绑定的标识要是没撤的领域或还没迁的部门，撤了的领域拒）
