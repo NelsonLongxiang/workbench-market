@@ -131,15 +131,25 @@ export class TeamService extends Service {
     return t.seats.find((s) => sameSeat({ host: k.host, team: k.team, seat: s.seat, seat_id: s.seat_id }, k)) ?? null;
   }
 
-  /** 转发会话前解析可信节点和当前席位，只认启用的登录人及其已确认关系。 */
-  resolveSeatSessionTarget(principal: string | null, key: SeatKey): SeatSessionTarget | SeatSessionRefusal {
+  /** 转发会话前只认启用人员及其确认关系。异步准备后传入服务端此前解析的节点，复核原绑定。 */
+  resolveSeatSessionTarget(principal: string | null, key: SeatKey, expectedNode?: NodeBinding): SeatSessionTarget | SeatSessionRefusal {
     const person = principal ? this.personActive(principal) : null;
     if (!principal || !person) return { ok: false, http: 401, code: 'seat_session_login_required', message: '请用启用的个人账号登录后查看席位会话' };
 
     const node = currentNode(key.host);
-    const listed = node ? this.rosterSeat(key) : null;
     const hidden = () => refuse(404, 'seat_session_not_found', '当前看不到这个席位的会话');
-    if (!node || !listed || (key.seat_id && key.seat_id !== listed.seat_id)) return hidden();
+    if (!node || (expectedNode && (expectedNode.peer_root !== node.peer_root || expectedNode.key_fingerprint !== node.key_fingerprint))) return hidden();
+
+    // 只从当前钉住的名册取席位。固定标识重复时，句柄也不能用来猜要转发到哪个会话。
+    const column = key.seat_id ? 's.seat_id' : 's.seat';
+    const listed = db.prepare(`SELECT s.seat, s.seat_id FROM a2a_roster_node_seats s
+      WHERE s.peer_root = ? AND s.key_fingerprint = ? AND s.host = ? AND s.team = ? AND ${column} = ?
+        AND (s.seat_id = '' OR NOT EXISTS (
+          SELECT 1 FROM a2a_roster_node_seats other
+          WHERE other.peer_root = s.peer_root AND other.key_fingerprint = s.key_fingerprint AND other.seat_id = s.seat_id
+            AND (other.team <> s.team OR other.seat <> s.seat)))`)
+      .get(node.peer_root, node.key_fingerprint, key.host, key.team, key.seat_id || key.seat) as Pick<SeatKey, 'seat' | 'seat_id'> | undefined;
+    if (!listed) return hidden();
 
     const seat = { host: key.host, team: key.team, seat: listed.seat, seat_id: listed.seat_id };
     const assignment = this.activeAssignment(seat);
