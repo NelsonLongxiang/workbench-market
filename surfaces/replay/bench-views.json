@@ -4305,9 +4305,9 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1588", "etag": "W/\"634-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1623", "etag": "W/\"657-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
-              "names": { "dimension": "回放月报", "actors": { "user:alpha": "Synthetic alpha" }, "positions": {}, "sources": [{ "slot": "orders", "view": "总览", "block": null }] },
+              "names": { "dimension": "回放月报", "producer_label": "Synthetic alpha", "actors": { "user:alpha": "Synthetic alpha" }, "positions": {}, "sources": [{ "slot": "orders", "view": "总览", "block": null }] },
               "report": {
                 "id": 1,
                 "dimension_id": "monthly",
@@ -4413,10 +4413,11 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1932", "etag": "W/\"78c-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1967", "etag": "W/\"7af-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "names": {
                 "dimension": "回放月报",
+                "producer_label": "Synthetic alpha",
                 "actors": { "user:alpha": "Synthetic alpha" },
                 "positions": { "management@*,owner@*": [{ "role": "管理层", "scope": "全公司" }, { "role": "属主", "scope": "全公司" }] },
                 "sources": [{ "slot": "orders", "view": "总览", "block": null }]

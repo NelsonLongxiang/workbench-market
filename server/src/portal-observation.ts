@@ -5,6 +5,7 @@
 import type { IncomingMessage } from 'node:http';
 import type { DatabaseSync } from 'node:sqlite';
 import { ensurePortalObservationSchema } from './db-schema-injected.ts';
+import { createPortalObservationStore } from './services/portal-observation-store.ts';
 
 export const PORTAL_CLIENT_CLASSES = [
   'browser-top-navigation', 'browser-iframe', 'browser-fetch',
@@ -46,8 +47,8 @@ export function portalTargetId(url: string): number | null {
 export function createPortalObservation(db: DatabaseSync, registered: (id: number) => boolean,
   now: () => Date = () => new Date()) {
   ensurePortalObservationSchema(db, PORTAL_CLIENT_CLASSES); // 建表在 db-schema-injected.ts（注入库模块的建表只放那里）
-  const increment = db.prepare('INSERT INTO portal_observation_counts VALUES(?,?,?,1) ' +
-    'ON CONFLICT(target_id,client_class,utc_day) DO UPDATE SET hits=hits+1');
+  const st = createPortalObservationStore(db);
+  const increment = st.increment();
   const startedAt = now().toISOString();
   let failures = 0, lastSuccessAt: string | null = null;
   return {
@@ -67,8 +68,7 @@ export function createPortalObservation(db: DatabaseSync, registered: (id: numbe
     },
     status() { return { startedAt, lastSuccessAt, failures, writesHealthy: failures === 0, coverageVerified: false }; },
     counts() {
-      return db.prepare('SELECT target_id,client_class,utc_day,hits FROM portal_observation_counts ' +
-        'ORDER BY utc_day,target_id,client_class').all();
+      return st.counts().all();
     },
   };
 }

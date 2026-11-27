@@ -7,7 +7,7 @@
  * 管理员口令等价授权（受控导出通路，经 adminGuard 的路由才传入 adminOk）。
  */
 import { createHash, randomBytes } from 'node:crypto';
-import { db } from './db.ts';
+import { insertRunReadCap, insertRunReadGrant, latestRunGrant, revokeRunReadCaps, revokeRunReadGrants, runReadCapByDigest } from './services/sop-read-grants.ts';
 import { identity } from './identity.ts';
 import { defineConfig, loadConfig } from './config.ts';
 
@@ -21,7 +21,7 @@ const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 export function issueRunReadCap(runId: number, ttlDays = config.readCapTtlDays): string {
   const cap = randomBytes(32).toString('hex');
   const expires = new Date(Date.now() + ttlDays * 86_400_000).toISOString().slice(0, 19).replace('T', ' ');
-  db.prepare('INSERT INTO sop_run_read_caps (run_id, cap_sha256, expires_at) VALUES (?, ?, ?)').run(runId, sha256(cap), expires);
+  insertRunReadCap(runId, sha256(cap), expires);
   return cap;
 }
 
@@ -31,7 +31,7 @@ function notExpired(expiresAt: string | null | undefined): boolean {
 }
 
 export function runGrantActive(runId: number, subject: string): boolean {
-  const row = db.prepare("SELECT expires_at FROM sop_run_read_grants WHERE run_id = ? AND subject = ? AND revoked_at = '' ORDER BY id DESC").get(runId, subject) as { expires_at: string | null } | undefined;
+  const row = latestRunGrant(runId, subject);
   return !!row && notExpired(row.expires_at);
 }
 
@@ -47,7 +47,7 @@ export interface RunReadContext {
 export async function authorizeRunRead(ctx: RunReadContext, runId: number): Promise<{ authorized: boolean; via: string }> {
   if (ctx.adminOk) return { authorized: true, via: 'admin' };
   if (ctx.cap) {
-    const row = db.prepare('SELECT run_id, expires_at, revoked_at FROM sop_run_read_caps WHERE cap_sha256 = ?').get(sha256(ctx.cap)) as { run_id: number; expires_at: string; revoked_at: string } | undefined;
+    const row = runReadCapByDigest(sha256(ctx.cap));
     if (row && row.run_id === runId && !row.revoked_at && notExpired(row.expires_at)) return { authorized: true, via: 'cap' };
   }
   if (ctx.mcpSubject) {
@@ -63,11 +63,11 @@ export async function authorizeRunRead(ctx: RunReadContext, runId: number): Prom
 
 /** 管理面（adminGuard 路由专用） */
 export function runReadGrantCreate(runId: number, subject: string, role: string, expiresAt: string | null, grantedBy: string): void {
-  db.prepare('INSERT INTO sop_run_read_grants (run_id, subject, role, expires_at, granted_by) VALUES (?, ?, ?, ?, ?)').run(runId, subject, role, expiresAt, grantedBy);
+  insertRunReadGrant(runId, subject, role, expiresAt, grantedBy);
 }
 export function runReadGrantRevoke(runId: number, subject: string): number {
-  return Number(db.prepare("UPDATE sop_run_read_grants SET revoked_at = datetime('now') WHERE run_id = ? AND subject = ? AND revoked_at = ''").run(runId, subject).changes);
+  return revokeRunReadGrants(runId, subject);
 }
 export function runReadCapRevokeAll(runId: number): number {
-  return Number(db.prepare("UPDATE sop_run_read_caps SET revoked_at = datetime('now') WHERE run_id = ? AND revoked_at = ''").run(runId).changes);
+  return revokeRunReadCaps(runId);
 }

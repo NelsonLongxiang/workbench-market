@@ -6,11 +6,17 @@
  *        [--runtime-dir <短路径>] [--python <已有的 python 命令>] [--step <序号>]... [--step-name <名字片段>]... [--plan] [--review-env]
  *
  * 执行前先核每一步（--plan 只核不跑）：
+ *   - 上游材料预检（执行前）：列出 actions/checkout 声明的 repository、ref、path（CHECKOUT 行）。步骤 env（含 job、workflow 层）里
+ *     落在上游 checkout 内的绝对路径核对物理边界和存在性；JS/TS 用已有的 TypeScript 解析器查同目录树的静态相对引入（排除类型引入）。
+ *     未确定的 checkout 声明记 insufficient:checkout-expression；缺料、符号链接或路径被替换记 insufficient:material，并打印 MATERIAL 行。只读本地文件：
+ *     不取凭据、不联网、不去 checkout 或安装、不改 run 原文；材料要由人按 workflow 钉住的提交自行备好；
  *   - uses（actions）不跑，记 not-run:action；带 if 的步骤不求值：failure()/always()/cancelled() 这类诊断条件记 not-run:not-triggered，其余记 insufficient:condition；
- *   - 安装类命令（pnpm/npm install、npm ci、pip install、playwright install、apt-get、brew install）不跑，记 not-run:install；
+ *   - 安装类命令（pnpm/npm/yarn 的 install、i、ci、add，pip/pipx install，python -m pip install，playwright install/install-deps，apt、apt-get，brew install）
+ *     不跑，记 not-run:install。按每段命令的子命令判断：npm run ci、pnpm test -- add 这类不算安装；
  *   - env 合并 workflow、job、步骤三层。表达式 env.X 展开；github.workspace 取工作树，runner.temp 取输出根下的 runner-temp；
  *     其余表达式（secrets、steps、hashFiles 等）本机没有，记 insufficient:expression，不猜；
- *   - run 里只剔一种行：会改写共享 Git 状态的浅取（git fetch ... --depth）。剔掉的行逐条记下，其余逐字不动。
+ *   - run 里只剔一种行：行首的浅取（git fetch ... --depth）。剔掉的行逐条记下，其余逐字不动。剔完再做一遍浅取复查，命中就整步不跑。
+ *     这道复查是对常见写法的文本兜底：只看 run 文本本身，看不到被调用脚本的内部，也认不出用变量拼出来的命令或选项。
  * 每步在工作树根（或步骤的 working-directory）用 bash -eo pipefail 跑，日志写到输出根，记真实退出码和信号。
  * 结束输出 RUNBLOCK status=PASS|FAIL|INCOMPLETE：选中的步骤全跑了且都过才是 PASS（退出 0）；有一步没过是 FAIL（1）；
  * 没有失败但有步骤没跑（not-run、insufficient）是 INCOMPLETE（3）。用法错误退出 2。脚本跑完不等于 CI 全绿。
@@ -21,18 +27,71 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { delimiter, isAbsolute, join, resolve } from 'node:path';
+import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const SHALLOW_FETCH = /^\s*git\s+fetch\b[^\n#]*\s--depth(?:=|\s)/;
 /**
- * 剔完以后对剩下的文本再查一遍：任何形式的浅取（复合命令、子 shell、git -C、环境变量前缀、续行、--deepen、--shallow-*、--unshallow）
- * 都认出来，这一步不跑（insufficient:shallow-fetch）。宁可不跑，也不放过一个会改写共享 Git 的命令。
+ * 剔完以后对剩下的文本再查一遍（文本兜底，见文件头）：git ... fetch|pull 后面出现会改写浅仓状态的选项就整步不跑
+ * （insufficient:shallow-fetch）。选项名可以带引号，也可以是 git 接受的缩写（--dep=1 即 --depth、--dee 即 --deepen、
+ * --shallow-*、--un 即 --unshallow）。复合命令、子 shell、git -C、环境变量前缀、续行都在这一行文本里，照样认得出。
  */
-export const SHALLOW_ANYWHERE = /\bgit\b[^\n]*?\bfetch\b[^\n]*?(?:\s|^)--(?:depth|deepen|shallow-since|shallow-exclude|unshallow)\b/;
-/** 安装类命令：认得出的都不跑。包管理器后面隔着选项（-C dir、--filter x、--prefix x）再跟 install/ci/add 的也算 */
-const INSTALL = /(^|[\s;&|(])(?:(?:pnpm|npm|yarn|pipx|pip[0-9.]*|brew|apt-get|apt)\b[^\n;&|]*?\s(?:i|install|ci|add)(?=\s|$)|(?:python[0-9.]*\s+-m\s+pip|npx|pnpm\s+(?:exec|dlx))\s+[^\n;&|]*?\binstall\b|playwright\s+install\b)/m;
+export const SHALLOW_ANYWHERE = /\bgit\b[^\n]*?\b(?:fetch|pull)\b[^\n]*?(?:\s|^)['"]?--(?:dep|dee|shallow|un)[a-z-]*/;
+
+/**
+ * 浅取复查看的文本：续行拼回一行，去掉不会执行的文字——行内注释（引号外、行首或空白后的 #），以及纯文字的
+ * echo/printf 段（按 ; & && || 切段）。只要这一行有管道、重定向、进程替换或命令替换（| < > <( >( $( 反引号），
+ * echo/printf 的内容可能被交给 shell 或写成脚本再跑，这一行就一段也不剔。认不准的一律留着，宁可多拒。
+ */
+export function executableText(run) {
+  return String(run).replace(/\\\n\s*/g, ' ').split('\n').map((line) => {
+    let quote = null, cut = line.length;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (quote) { if (ch === quote) quote = null; else if (ch === '\\' && quote === '"') i++; continue; }
+      if (ch === "'" || ch === '"') quote = ch;
+      else if (ch === '\\') i++;
+      else if (ch === '#' && (i === 0 || /\s/.test(line[i - 1]))) { cut = i; break; }
+    }
+    const code = line.slice(0, cut);
+    if (/\$\(|\x60|[<>]|(?:^|[^|])\|(?!\|)/.test(code)) return code;
+    return code.split(/(\|\||&&|[;&])/)
+      .map((seg) => (/^\s*(?:echo|printf)\b/.test(seg) ? '' : seg)).join('');
+  }).join('\n');
+}
+
+/** 包管理器的这些选项后面跟一个值，找子命令时连值一起跳过 */
+const VALUE_OPTS = new Set(['-C', '--dir', '--filter', '-F', '--prefix', '-w', '--workspace', '--cwd']);
+
+/**
+ * 安装类命令：按段（换行、; & | && || 和括号）切开，在段里**任意位置**找包管理器，从它那里取子命令判断，认得出的都不跑。
+ * 所以前缀与包装不影响（time、env、nohup、timeout 60、exec、xargs、!、corepack、retry 4、sudo timeout 240 …）。
+ * 包管理器隔着选项（-C dir、--filter x、--prefix x）再跟 install/i/ci/add 的算；npm run ci、pnpm test -- add 不算。
+ * playwright 后面跟 install…（install、install-deps）在哪都算；apt、apt-get 在哪都算。认不准的偏向「算安装、不跑」。
+ */
+export function isInstall(run) {
+  for (const seg of String(run).replace(/\\\n\s*/g, ' ').split(/\n|\|\||&&|[;|&()]/)) {
+    const t = seg.trim().split(/\s+/).filter(Boolean).map((w) => w.replace(/^['"]+|['"]+$/g, ''));
+    for (let i = 0; i < t.length; i++) {
+      const cmd = t[i], rest = t.slice(i + 1);
+      if (cmd === 'playwright' && /^install/.test(rest[0] ?? '')) return true;
+      if (cmd === 'apt' || cmd === 'apt-get') return true;
+      let j = 0;
+      while (j < rest.length && rest[j].startsWith('-')) j += VALUE_OPTS.has(rest[j]) ? 2 : 1;
+      const sub = rest[j];
+      if ((cmd === 'brew' || /^pip(?:x|[0-9.]*)$/.test(cmd)) && sub === 'install') return true;
+      if (cmd === 'yarn' && sub === undefined) return true;
+      if ((cmd === 'pnpm' || cmd === 'npm' || cmd === 'yarn') && ['i', 'install', 'ci', 'add'].includes(sub)) return true;
+    }
+  }
+  return false;
+}
+
+/** --review-env 时交给 worktree-review-env 的内层参数：去掉 --review-env，补上 --inside-review-env，其余原样、顺序不变 */
+export function innerArgs(argv) { return [...argv.filter((a) => a !== '--review-env'), '--inside-review-env']; }
+/** 只有外层（带 --review-env、不带 --inside-review-env）才转交，内层不再转交，免得无限套娃 */
+export function reexecForReviewEnv(o) { return o.reviewEnv && !o.inside; }
 /** 只在失败、取消时才跑的诊断步骤：本机不求值，记「未触发」。always() 在 CI 里恒跑，不算这一类（记材料不足） */
 const DIAGNOSTIC_IF = /^\s*(?:\$\{\{\s*)?(failure|cancelled)\s*\(\s*\)\s*(?:\}\})?\s*$|^\s*(?:\$\{\{\s*)?(failure|cancelled)\s*\(\s*\)\s*(\|\||&&)/;
 const EXPR = /\$\{\{\s*([^}]*?)\s*\}\}/g;
@@ -103,14 +162,140 @@ export function classify(step, index, baseEnv, ctx) {
   const env = { ...baseEnv };
   for (const [k, v] of Object.entries(step.env ?? {})) env[k] = expand(v, { ...ctx, env }, unknown);
   const { run, removed } = stripShallowFetch(step.run);
-  // 续行拼回一行再查，免得 git \<换行> fetch --depth 漏过
-  if (SHALLOW_ANYWHERE.test(run.replace(/\\\n\s*/g, ' '))) return { ...out, status: 'insufficient', reason: 'shallow-fetch', removed };
+  if (SHALLOW_ANYWHERE.test(executableText(run))) return { ...out, status: 'insufficient', reason: 'shallow-fetch', removed };
   const text = expand(run, { ...ctx, env }, unknown);
   const workdir = step['working-directory'] ? expand(step['working-directory'], { ...ctx, env }, unknown) : null;
   if (unknown.size) return { ...out, status: 'insufficient', reason: 'expression', unknown: [...unknown], removed };
-  if (INSTALL.test(run)) return { ...out, status: 'not-run', reason: 'install', removed };
+  if (isInstall(run)) return { ...out, status: 'not-run', reason: 'install', removed };
   if (!run.trim()) return { ...out, status: 'not-run', reason: 'shallow-fetch-only', removed };
   return { ...out, run: text, env, removed, workdir };
+}
+
+/** checkout 声明的表达式使用已合并的 workflow 与 job env。 */
+export function checkoutDecls(steps, ctx) {
+  const out = [];
+  steps.forEach((s, i) => {
+    if (typeof s.uses !== 'string' || !/^actions\/checkout@/.test(s.uses)) return;
+    const w = s.with ?? {}, unknown = new Set();
+    const path = w.path == null ? '' : expand(w.path, ctx, unknown);
+    let dir = unknown.size ? null : resolve(ctx.workspace, path);
+    if (dir && !inside(ctx.workspace, dir)) {
+      unknown.add('checkout.path-outside-workspace');
+      dir = null;
+    }
+    const repository = w.repository == null ? '' : expand(w.repository, ctx, unknown);
+    const ref = w.ref == null ? '' : expand(w.ref, ctx, unknown);
+    out.push({ index: i + 1, repository, ref, path, dir, upstream: w.repository != null && path !== '', unknown: [...unknown] });
+  });
+  return out;
+}
+
+const SOURCE = /\.(?:[cm]?[jt]s|[jt]sx)$/;
+const inside = (root, path) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+const sameEntry = (a, b) => a.dev === b.dev && a.ino === b.ino;
+
+let compiler;
+function relativeImports(file, text) {
+  // 用工作树内已钉版的编译器解析 JS/TS，只读源文本。
+  if (!compiler) {
+    try { compiler = createRequire(new URL('../web/package.json', import.meta.url))('typescript'); }
+    catch { throw new UsageError('无法加载工作树已有的 TypeScript；请使用已安装的依赖或 --review-env'); }
+  }
+  const ts = compiler;
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false);
+  const paths = [];
+  const visit = (node) => {
+    let arg;
+    if (ts.isImportDeclaration(node) && !node.importClause?.isTypeOnly) arg = node.moduleSpecifier;
+    else if (ts.isExportDeclaration(node) && !node.isTypeOnly) arg = node.moduleSpecifier;
+    else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) arg = node.arguments[0];
+    if (arg && ts.isStringLiteralLike(arg) && /^\.{1,2}\//.test(arg.text)) paths.push(arg.text);
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return paths;
+}
+
+/** 从工作区根逐级核对。声明目录、文件及祖先路径都不借符号链接。 */
+function materialEntries(workspace, path) {
+  if (!inside(workspace, path)) return { reason: 'outside-root' };
+  const parts = relative(workspace, path).split(sep).filter(Boolean);
+  const entries = [];
+  let next = workspace;
+  try {
+    for (let i = 0; i <= parts.length; i++) {
+      const info = lstatSync(next);
+      if (info.isSymbolicLink()) return { reason: 'outside-root' };
+      if (i < parts.length && !info.isDirectory()) return { reason: 'missing' };
+      entries.push(info);
+      if (i < parts.length) next = join(next, parts[i]);
+    }
+    if (realpathSync(path) !== path) return { reason: 'outside-root' };
+  } catch (err) {
+    return { reason: err.code === 'ENOENT' || err.code === 'ENOTDIR' ? 'missing' : 'unreadable' };
+  }
+  return { entries };
+}
+
+/** 读取打开的描述符前，复核文件和各级目录的身份。 */
+function materialSource(workspace, path, entries) {
+  let fd;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const actual = fstatSync(fd);
+    const rechecked = materialEntries(workspace, path);
+    if (rechecked.reason === 'outside-root') return rechecked;
+    if (!actual.isFile() || !sameEntry(entries.at(-1), actual) || !rechecked.entries
+      || entries.some((info, i) => !sameEntry(info, rechecked.entries[i]))) return { reason: 'changed' };
+    return { text: readFileSync(fd, 'utf8') };
+  } catch (err) {
+    return { reason: err.code === 'ELOOP' ? 'outside-root' : 'unreadable' };
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
+function dependencyGaps(file, root, workspace) {
+  const gaps = [], seen = new Set(), todo = [file];
+  while (todo.length) {
+    const path = todo.pop();
+    if (seen.has(path)) continue;
+    seen.add(path);
+    const checked = inside(root, path) ? materialEntries(workspace, path) : { reason: 'outside-root' };
+    if (checked.reason) { gaps.push({ path, reason: checked.reason }); continue; }
+    if (checked.entries.at(-1).isDirectory()) continue;
+    if (!checked.entries.at(-1).isFile()) { gaps.push({ path, reason: 'unreadable' }); continue; }
+    if (!SOURCE.test(path)) continue;
+    const source = materialSource(workspace, path, checked.entries);
+    if (source.reason) { gaps.push({ path, reason: source.reason }); continue; }
+    for (const spec of relativeImports(path, source.text)) {
+      const dep = resolve(dirname(path), spec);
+      if (inside(root, dep)) todo.push(dep);
+    }
+  }
+  return gaps;
+}
+
+/** 主文件及声明目录内的运行时依赖，返回未通过预检的路径。 */
+export function missingWithDeps(file, root) {
+  return dependencyGaps(file, root, root).map((gap) => gap.path);
+}
+
+/** 只核上游 checkout 内的绝对路径，并报告缺口所属的 checkout 和变量。 */
+export function materialGaps(stepEnv, decls, workspace) {
+  const ups = decls.filter((d) => d.upstream && d.dir && !d.unknown?.length), gaps = [];
+  for (const [k, v] of Object.entries(stepEnv ?? {})) {
+    if (typeof v !== 'string' || !isAbsolute(v)) continue;
+    const absolute = resolve(v);
+    const d = ups.find((u) => inside(u.dir, v) || inside(u.dir, absolute));
+    if (!d) continue;
+    // shell 用的是原值。带上级跳转的原值可能和规范化结果指向不同目录。
+    const paths = v.split(sep).includes('..') ? [{ path: v, reason: 'outside-root' }] : dependencyGaps(absolute, d.dir, workspace ?? d.dir);
+    for (const { path, reason } of paths) {
+      gaps.push({ env: k, path, checkout: d.index, repository: d.repository, ref: d.ref, ...(reason === 'missing' ? {} : { reason }) });
+    }
+  }
+  return gaps;
 }
 
 /** 读 workflow，取出 job 的步骤和合并好的 env（workflow 层再 job 层） */
@@ -157,9 +342,9 @@ export async function main(argv) {
   const top = git(worktree, 'rev-parse', '--show-toplevel');
   if (top.status !== 0 || realpathSync(top.stdout.trim()) !== worktree) throw new UsageError('--worktree 要是一个 Git 工作树的根');
   const here = fileURLToPath(import.meta.url);
-  if (o.reviewEnv && !o.inside) {
+  if (reexecForReviewEnv(o)) {
     // 依赖借主仓同锁的那份：边界、准备和清理都交给 worktree-review-env，自己只在里面再跑一遍
-    const r = spawnSync(process.execPath, [join(worktree, 'scripts/worktree-review-env.mjs'), worktree, '--', process.execPath, here, ...argv.filter((a) => a !== '--review-env'), '--inside-review-env'], { stdio: 'inherit' });
+    const r = spawnSync(process.execPath, [join(worktree, 'scripts/worktree-review-env.mjs'), worktree, '--', process.execPath, here, ...innerArgs(argv)], { stdio: 'inherit' });
     return r.status ?? 1;
   }
   const outArg = isAbsolute(o.out) ? o.out : resolve(o.out);
@@ -192,6 +377,26 @@ export async function main(argv) {
   const chosen = job.steps.map((s, i) => [s, i + 1]).filter(([s, i]) => (!o.steps.length && !o.names.length) || o.steps.includes(i) || o.names.some((n) => String(s.name ?? '').includes(n)));
   if (!chosen.length) throw new UsageError('没有选中任何步骤');
   const plan = chosen.map(([s, i]) => (job.unknown.length ? { index: i, name: s.name ?? '', status: 'insufficient', reason: 'job-env-expression', unknown: job.unknown, removed: [] } : classify(s, i, job.env, ctx)));
+  // 上游材料预检：执行前列出 checkout 声明，缺料的步骤记 insufficient:material 并点名所缺路径（只读本地文件，不取、不装、不联网）
+  const decls = checkoutDecls(job.steps, { ...ctx, env: job.env });
+  for (const d of decls) {
+    console.log('CHECKOUT step ' + d.index + ' repository=' + (d.repository || '(本仓)') + ' ref=' + (d.ref || '(缺省)') + ' path=' + (d.path || '(工作区)') + (d.unknown.length ? ' unknown=' + d.unknown.join(',') : ''));
+  }
+  for (let k = 0; k < plan.length; k++) {
+    const p = plan[k];
+    if (p.status !== 'run') continue;
+    const preceding = decls.filter((d) => d.index < p.index);
+    const unresolved = preceding.filter((d) => d.upstream && d.unknown.length && (!d.dir || Object.values(p.env).some((v) => isAbsolute(v) && inside(d.dir, resolve(v)))));
+    if (unresolved.length) {
+      const unknown = [...new Set(unresolved.flatMap((d) => d.unknown))];
+      plan[k] = { index: p.index, name: p.name, status: 'insufficient', reason: 'checkout-expression', unknown, removed: p.removed };
+      continue;
+    }
+    const gaps = materialGaps(p.env, preceding, worktree);
+    if (!gaps.length) continue;
+    plan[k] = { index: p.index, name: p.name, status: 'insufficient', reason: 'material', missing: gaps, removed: p.removed };
+    for (const g of gaps) console.log('MATERIAL step ' + p.index + ' ' + (g.reason || 'missing') + ' ' + g.path + ' (env ' + g.env + '; checkout step ' + g.checkout + ' ' + g.repository + '@' + (g.ref || '(缺省)') + ')');
+  }
   const results = [];
   for (const p of plan) {
     if (p.status !== 'run') { results.push(p); continue; }
@@ -208,7 +413,7 @@ export async function main(argv) {
   for (const r of results) for (const line of r.removed ?? []) console.log('STRIPPED step ' + r.index + ': ' + line);
   const sum = summarize(results);
   const resultsFile = join(out, 'results.json');
-  writeFileSync(resultsFile, JSON.stringify({ worktree, head: git(worktree, 'rev-parse', 'HEAD').stdout.trim(), job: o.job, workflow: o.workflow, plan: o.plan, summary: sum, results }, null, 2));
+  writeFileSync(resultsFile, JSON.stringify({ worktree, head: git(worktree, 'rev-parse', 'HEAD').stdout.trim(), job: o.job, workflow: o.workflow, plan: o.plan, checkouts: decls, summary: sum, results }, null, 2));
   console.log('RUNBLOCK status=' + sum.status + ' selected=' + sum.selected + ' passed=' + sum.passed + ' failed=' + sum.failed + ' not_run=' + sum.not_run + ' results=' + resultsFile);
   return sum.code;
 }

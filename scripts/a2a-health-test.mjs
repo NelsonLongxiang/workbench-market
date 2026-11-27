@@ -57,7 +57,16 @@ if (errors) {
     const { db } = await import('../server/src/db.ts');
     const empty = stats.receiptOutboxStats();
     ok('空表：计数为空、没有待发、没有时长样本', JSON.stringify(empty) === JSON.stringify({ counts: {}, oldest_pending_s: null, recent_delay_s: { samples: 0, median: null, max: null } }), JSON.stringify(empty));
-    ok('事件投递表没建时不抛错', stats.eventDeliveryStats().counts === null);
+    const eventCounts = stats.eventDeliveryStats().counts;
+    ok('库初始化后的事件投递空表：计数为空', JSON.stringify(eventCounts) === '{}', JSON.stringify(eventCounts));
+    db.exec('SAVEPOINT missing_event_deliveries');
+    try {
+      db.exec('DROP TABLE workbench_event_deliveries');
+      ok('事件投递表没建时不抛错', stats.eventDeliveryStats().counts === null);
+    } finally {
+      db.exec('ROLLBACK TO missing_event_deliveries');
+      db.exec('RELEASE missing_event_deliveries');
+    }
     const now = Date.parse('2026-11-11T12:00:00Z');
     const ins = db.prepare('INSERT INTO a2a_outbox (run_id, target_url, payload, status, created_at, sent_at) VALUES (?, ?, ?, ?, ?, ?)');
     ins.run(1, 'http://t.invalid/', '{}', 'pending', '2026-11-11 11:50:00', '');

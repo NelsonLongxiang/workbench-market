@@ -333,6 +333,36 @@ CREATE TABLE IF NOT EXISTS sop_runs (
   finished_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_sop_runs_slug ON sop_runs (sop_slug, status);
+-- #1087：成功的批次动作都留回执，空批次也占用原批次号。
+CREATE TABLE IF NOT EXISTS sop_run_closure_batches (
+  batch TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('close','undo')),
+  at TEXT NOT NULL,
+  PRIMARY KEY (batch, action)
+);
+CREATE TRIGGER IF NOT EXISTS sop_run_closure_batches_no_update BEFORE UPDATE ON sop_run_closure_batches BEGIN SELECT RAISE(ABORT, 'sop_run_closure_batches 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS sop_run_closure_batches_no_delete BEFORE DELETE ON sop_run_closure_batches BEGIN SELECT RAISE(ABORT, 'sop_run_closure_batches 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS sop_run_closure_batches_no_replace BEFORE INSERT ON sop_run_closure_batches WHEN EXISTS (
+  SELECT 1 FROM sop_run_closure_batches WHERE batch = NEW.batch AND action = NEW.action
+) BEGIN SELECT RAISE(ABORT, 'sop_run_closure_batches 只增不改'); END;
+-- 每个批次、动作和 SOP 只记一条动态；entries_json 只存运行编号和撤销校验摘要。
+CREATE TABLE IF NOT EXISTS sop_run_closure_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  batch TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('close','undo')),
+  sop_slug TEXT NOT NULL,
+  entries_json TEXT NOT NULL,
+  run_count INTEGER NOT NULL CHECK (run_count > 0),
+  reason TEXT NOT NULL,
+  at TEXT NOT NULL,
+  UNIQUE(batch, action, sop_slug)
+);
+CREATE INDEX IF NOT EXISTS idx_sop_run_closure_slug ON sop_run_closure_events (sop_slug, at, id);
+CREATE TRIGGER IF NOT EXISTS sop_run_closure_events_no_update BEFORE UPDATE ON sop_run_closure_events BEGIN SELECT RAISE(ABORT, 'sop_run_closure_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS sop_run_closure_events_no_delete BEFORE DELETE ON sop_run_closure_events BEGIN SELECT RAISE(ABORT, 'sop_run_closure_events 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS sop_run_closure_events_no_replace BEFORE INSERT ON sop_run_closure_events WHEN EXISTS (
+  SELECT 1 FROM sop_run_closure_events WHERE id = NEW.id OR (batch = NEW.batch AND action = NEW.action AND sop_slug = NEW.sop_slug)
+) BEGIN SELECT RAISE(ABORT, 'sop_run_closure_events 只增不改'); END;
 CREATE TABLE IF NOT EXISTS sop_bindings (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sop_slug TEXT NOT NULL,
@@ -1640,6 +1670,8 @@ if (!rosterNodesExisted) {
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }
 }
+// #1147：旧名册没有显示名；同一节点推新快照时随席位整批替换。
+addColumnIfMissing('a2a_roster_node_seats', "team_label TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing('a2a_roster_changes', "peer_root TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing('a2a_roster_changes', "key_fingerprint TEXT NOT NULL DEFAULT ''");
 // 按 host 匹配只认这个视图里的行：没标 needs_review（表约束保证这样的行都带成形的完整指纹）、对端没停用也不在等确认新键、
@@ -2601,6 +2633,8 @@ export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   'mcp_grant_audit_no_update', 'mcp_grant_audit_no_delete', 'mcp_grant_audit_no_replace',
   'sop_run_file_audit_no_update', 'sop_run_file_audit_no_delete', 'sop_run_file_audit_no_replace',
   'sop_run_upgrade_audit_no_update', 'sop_run_upgrade_audit_no_delete', 'sop_run_upgrade_audit_no_replace',
+  'sop_run_closure_batches_no_update', 'sop_run_closure_batches_no_delete', 'sop_run_closure_batches_no_replace',
+  'sop_run_closure_events_no_update', 'sop_run_closure_events_no_delete', 'sop_run_closure_events_no_replace',
   'workbench_var_audit_no_update', 'workbench_var_audit_no_delete', 'workbench_var_audit_no_replace',
   'a2a_roster_changes_no_update', 'a2a_roster_changes_no_delete', 'a2a_roster_changes_no_replace',
   'task_center_events_no_update', 'task_center_events_no_delete', 'task_center_events_no_replace',
@@ -3023,3 +3057,28 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
   db.exec('DROP INDEX IF EXISTS idx_tasks_material; CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_intake_run ON tasks(intake_run_id) WHERE intake_run_id IS NOT NULL');
 }
 
+/** 工作台事件的投递表与到期索引：原在 workbench-events.ts 的 initWorkbenchEvents 里建，搬来和 workbench_events、workbench_event_log 放在一起（两者都已在上面建好）。语句逐字照搬 */
+db.exec(`
+CREATE TABLE IF NOT EXISTS workbench_event_deliveries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL REFERENCES workbench_events(event_id),
+  target_team TEXT NOT NULL,
+  target_url TEXT NOT NULL,
+  caller_session TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('held','pending','sent','dead','cancelled')),
+  message TEXT NOT NULL DEFAULT '', -- 待投递的完整信封（含 reply token 明文）；sent/dead 后清空，明文只在待投期间存在
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_error TEXT NOT NULL DEFAULT '',
+  sent_at TEXT NOT NULL DEFAULT '',
+  reply_token_sha256 TEXT NOT NULL DEFAULT '',
+  decision TEXT NOT NULL DEFAULT '' CHECK (decision IN ('','accept','decline','ask')),
+  decision_reason TEXT NOT NULL DEFAULT '',
+  decision_ref TEXT NOT NULL DEFAULT '',
+  decided_by TEXT NOT NULL DEFAULT '',
+  decided_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (event_id, target_team)
+);
+CREATE INDEX IF NOT EXISTS idx_wbe_deliveries_due ON workbench_event_deliveries(status, next_at);
+`);

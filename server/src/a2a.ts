@@ -15,8 +15,10 @@ import { signCard, verifyCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
 import { formatReceipt, parseReceipt } from '@nelsonlongxiang/dsh-open-a2a-net/receipt';
 import { MAX_ROUTE_BODY_BYTES } from '@nelsonlongxiang/dsh-open-a2a-net/transport-caps';
 import { A2aClient } from '@nelsonlongxiang/dsh-open-a2a-net/a2a-client';
-import { dataDir, db } from './db.ts';
-import { duplicateNode8s, node8Taken } from './services/a2a-handles.ts';
+import { dataDir } from './db.ts';
+import { cardSops, duplicateNode8s, node8Taken, saveNode8, sopByNode8, storedNode8 } from './services/a2a-handles.ts';
+import { sopAdmitMode } from './services/binding.ts';
+import { settingRaw } from './services/setting.ts';
 import { claimA2aTask } from './services/a2a-idempotency.ts';
 import { noteA2aError } from './a2a/errors.ts';
 
@@ -132,15 +134,15 @@ export const A2A_DIRECT_MAX_BYTES = MAX_ROUTE_BODY_BYTES;
 
 /** SOP 的 a2a 节点短 id：随机 8 hex，一次生成持久化（apps.a2a_node8）——禁 slug 推导（修订 3 防抢注）。 */
 export function sopNode8(slug: string, gen: () => string = () => randomBytes(4).toString('hex')): string {
-  const row = db.prepare('SELECT a2a_node8 FROM apps WHERE slug = ?').get(slug) as { a2a_node8?: string } | undefined;
-  if (row?.a2a_node8) return row.a2a_node8;
+  const stored = storedNode8(slug);
+  if (stored) return stored;
   // 句柄唯一（canvasMemberProvenance 的前提）：避开已占用的；连撞 16 次说明生成器坏了，宁可失败也不发重复句柄
   let id8 = gen();
   for (let i = 0; node8Taken(id8); i++) {
     if (i >= 16) throw new Error('a2a node8 生成连续撞车，拒绝发出重复句柄');
     id8 = gen();
   }
-  db.prepare('UPDATE apps SET a2a_node8 = ? WHERE slug = ?').run(id8, slug);
+  saveNode8(slug, id8);
   return id8;
 }
 
@@ -157,14 +159,7 @@ export function buildAgentCard(keyPath: string): Record<string, unknown> {
   const priv = loadOrCreateKey(keyPath);
   const now = Date.now();
   // 联合评审① C：统一绑定表——admits 方向行才上卡（notify-only 行不上）
-  const rows = db.prepare(
-    `SELECT DISTINCT a.slug, a.title, a.description, a.a2a_node8
-       FROM apps a
-       JOIN bindings b ON b.target_type = 'sop' AND b.target_slug = a.slug AND b.revoked_at = ''
-        AND b.direction IN ('admits','both')
-      WHERE a.kind = 'sop' AND a.status = 'published'
-      ORDER BY a.slug`
-  ).all() as { slug: string; title: string; description: string; a2a_node8: string }[];
+  const rows = cardSops();
   const dup = memberProvenance ? duplicateNode8s() : new Set<string>();
   const sessionTeams = rows.filter((r) => !dup.has(r.a2a_node8)).map((r) => ({
     team: `${MARKET_TEAM}/${r.a2a_node8 || sopNode8(r.slug)}`,
@@ -173,8 +168,8 @@ export function buildAgentCard(keyPath: string): Record<string, unknown> {
   }));
   let peers: string[] = [];
   try {
-    const raw = db.prepare("SELECT value FROM settings WHERE key = 'a2a_peers'").get() as { value: string } | undefined;
-    const parsed = raw ? JSON.parse(raw.value) : [];
+    const raw = settingRaw('a2a_peers');
+    const parsed = raw ? JSON.parse(raw) : [];
     if (Array.isArray(parsed)) peers = parsed.filter((x) => typeof x === 'string');
   } catch { /* 配置坏值忽略 */ }
   const core = {
@@ -236,7 +231,7 @@ export async function a2aDirectHandle(body: any, rawBytes: number, runOps: {
   // SOP 解析：team = market/<id8> → apps.a2a_node8
   const tm = /^([a-z][a-z0-9-]*)\/([0-9a-f]{8})$/i.exec(team);
   if (!tm) { noteA2aError('unknown-team'); return { httpStatus: 404, body: { error: 'not found' } }; }
-  const sop = db.prepare('SELECT slug, status FROM apps WHERE kind = ? AND a2a_node8 = ?').get('sop', tm[2]) as { slug: string; status: string } | undefined;
+  const sop = sopByNode8(tm[2]);
   if (!sop) { noteA2aError('unknown-team'); return { httpStatus: 404, body: { error: 'not found' } }; }
   // canvasMemberProvenance 义务②：只承接本 zone 的句柄；句柄有歧义（存量随机撞车）时失败关闭。两者都与查无同答
   if (memberProvenance && (tm[1] !== MARKET_TEAM || duplicateNode8s().has(tm[2]))) { noteA2aError('unknown-team'); return { httpStatus: 404, body: { error: 'not found' } }; }
@@ -247,7 +242,8 @@ export async function a2aDirectHandle(body: any, rawBytes: number, runOps: {
     return { httpStatus: 200, body: { error: 'caller_session is required (anonymous delivery refused)', code: -32000, team, task_status: 'TASK_STATE_FAILED' } };
   }
   // 联合评审① C：统一绑定表——admits 方向行（授 notify 不过此门·方向独立性铁律）
-  const binding = db.prepare("SELECT mode FROM bindings WHERE target_type = 'sop' AND target_slug = ? AND agent_node = ? AND direction IN ('admits','both') AND revoked_at = ''").get(sop.slug, caller) as { mode: string } | undefined;
+  const mode = sopAdmitMode(sop.slug, caller);
+  const binding = mode === undefined ? undefined : { mode };
   if (!binding) {
     // A10（评审席选项 A，存在性不泄露）：无有效绑定与查无 SOP 同答 404——
     // 200 no-valid-binding 会区分「SOP 存在但未绑定」与「SOP 不存在」
