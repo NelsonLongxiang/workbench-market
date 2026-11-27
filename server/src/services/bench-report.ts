@@ -13,7 +13,9 @@ import { svc } from '../context.ts';
 import { BenchError } from '../bench-query.ts';
 import { getBench, type BenchEntry } from './bench-registry.ts';
 import type { BenchStore } from './bench-store.ts';
-import type { MainStoreFence, ReportResponseRow } from './bench-store-core.ts';
+import { reportSubjectName, type MainStoreFence, type ReportResponseRow } from './bench-store-core.ts';
+import type { McpService } from './mcp.ts';
+import { SEAT_SUBJECT_PREFIX } from './seat-tokens.ts';
 import type { ReportDimensionService } from './report-dimension.ts';
 import type { GrantService } from './grant.ts';
 import { IMAGE_BYTES_MAX, IMAGE_NODES_MAX, ReportError, actorKindOf, checkBinding, hashImages, materialize, prepareInputs, sha256, slotSpecs, type FrozenBody, type ReportTemplate } from './report-compile.ts';
@@ -54,6 +56,13 @@ export function positionOf(actor: string, now: number, bench: BenchEntry | null)
 export type PositionPart = { role: string | null; scope: string | null };
 export function dimensionName(id: string): string | null { return dims().get(id)?.title ?? null; }
 export function actorName(id: string): string | null { return ((svc<PrincipalService>('principals').get(id) as { display_name?: string } | null)?.display_name ?? '').trim() || null; }
+function producerName(id: string, bench: BenchEntry | null): string | null {
+  const registered = actorName(id);
+  if (registered || !id.startsWith('mcp:')) return registered;
+  const sessionName = id.slice('mcp:'.length).trim();
+  if (!sessionName || !svc<McpService>('mcp').sessionByName(sessionName)) return null;
+  return sessionName.startsWith(SEAT_SUBJECT_PREFIX) ? bench?.title || null : sessionName;
+}
 export function positionParts(pos: string): PositionPart[] | 'mcp' | 'builtin' {
   if (pos === 'mcp') return 'mcp';
   if (pos.startsWith('builtin:')) return 'builtin';
@@ -169,8 +178,9 @@ export async function listReports(s: BenchStore, q: { dimension?: unknown; subje
   if (subject !== undefined && !SUBJECT_RE.test(subject)) throw new BenchError('invalid', 'subject 要写成「种类:标识」');
   const reports = await s.reportList({ dimension, subject, limit: q.limit });
   // 给人看的名字（#937）：维度标题、产出方的显示名；取不到是 null
+  const bench = getBench(s.slug);
   const names = { dimensions: Object.fromEntries([...new Set(reports.map((r) => r.dimension_id))].map((d) => [d, dimensionName(d)])),
-    actors: Object.fromEntries([...new Set(reports.map((r) => r.producer))].map((a) => [a, actorName(a)])) };
+    actors: Object.fromEntries([...new Set(reports.map((r) => r.producer))].map((a) => [a, producerName(a, bench)])) };
   return { reports, names };
 }
 
@@ -214,6 +224,7 @@ export async function readReport(s: BenchStore, idIn: unknown, actor?: string) {
   const allResponses = [...claims.flatMap((c) => c.responses), ...whole];
   const names = {
     dimension: dimensionName(meta.dimension_id),
+    producer_label: producerName(meta.producer, getBench(s.slug)),
     actors: Object.fromEntries([...new Set([meta.producer, ...allResponses.map((x) => x.responder)])].map((a) => [a, actorName(a)])),
     positions: Object.fromEntries([...new Set(allResponses.map((x) => x.position))].map((p) => [p, positionParts(p)])),
     sources: srcs.map((x) => {
@@ -222,9 +233,11 @@ export async function readReport(s: BenchStore, idIn: unknown, actor?: string) {
       return { slot: x.slot, view: t(v?.title), block: t(v?.blocks?.[x.block]?.title) };
     }),
   };
+  const input = JSON.parse(inputs);
+  const subjectName = reportSubjectName(input);
   return {
     names,
-    report: { ...meta, inputs: JSON.parse(inputs), body: JSON.parse(body), sources: srcs, superseded_by: supersededBy },
+    report: { ...meta, ...(subjectName ? { subject_name: subjectName } : {}), inputs: input, body: JSON.parse(body), sources: srcs, superseded_by: supersededBy },
     claims, responses: whole, gate, template: { stances, claims: kinds },
     open_disputes: claims.filter((c) => c.open_dispute).length + (openWhole ? 1 : 0),
   };

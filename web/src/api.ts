@@ -476,7 +476,7 @@ export async function renameBenchTitle(ref: string | number, body: { title?: str
 }
 /** 台上的报告（报告第 1 步 PR D）：清单、一份、回应。返回状态码和应答体，页面据此给说法；断网当状态码 0 */
 export type ReportStance = 'agree' | 'dispute' | 'supplement';
-export type ReportListItem = { id: number; dimension_id: string; template_version: number; binding_version: number; subject: string; content_sha256: string; producer: string; producer_kind: 'human' | 'ai'; supersedes: number | null; superseded_by: number | null; created_at: number };
+export type ReportListItem = { id: number; dimension_id: string; template_version: number; binding_version: number; subject: string; subject_name?: string; content_sha256: string; producer: string; producer_kind: 'human' | 'ai'; supersedes: number | null; superseded_by: number | null; created_at: number };
 export type ReportResponse = { id: number; report_id: number; claim_key: string; stance: ReportStance; reason: string; responder: string; responder_kind: 'human' | 'ai'; position: string; supersedes: number | null; created_at: number; mine?: boolean };
 export type ReportClaim = { claim_key: string; kind: string; text: string; basis: { slot: string; key: (string | number | boolean)[] }[]; responses: ReportResponse[]; open_dispute: boolean };
 export type ReportNode = { id: string; type: string; /** 图片节点：冻结的链接、替代文字、图的 sha256 */ src?: string; alt?: string; sha256?: string; title?: string; content?: string; children?: ReportNode[]; columns?: number[]; component?: string; props?: Record<string, unknown>; data?: { columns: { name: string; type: string; label?: string }[]; rows: Record<string, unknown>[] } };
@@ -490,7 +490,7 @@ export type ReportRead = {
 /** 报告给人看的名字（#937）：服务端取不到给 null，页面写「未命名」，不显示内部标识 */
 export type ReportPositionPart = { role: string | null; scope: string | null };
 export type ReportNames = {
-  dimension: string | null; actors: Record<string, string | null>;
+  dimension: string | null; producer_label?: string | null; actors: Record<string, string | null>;
   positions: Record<string, ReportPositionPart[] | 'mcp' | 'builtin'>;
   sources: { slot: string; view: string | null; block: string | null }[];
 };

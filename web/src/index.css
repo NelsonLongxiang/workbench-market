@@ -321,7 +321,7 @@ body {
 .wm-bp-body { flex: 1; min-height: 0; overflow: auto; padding: var(--wm-space-4) var(--wm-space-6) var(--wm-space-6); }
 .wm-bp-state { margin-top: var(--wm-space-6); }
 /* 报告页（/use/<卡片 id>/reports，报告第 1 步 PR D） */
-.wm-rp-groups { display: flex; flex-direction: column; gap: var(--wm-space-4); max-width: 960px; }
+.wm-rp-groups { display: flex; flex-direction: column; gap: var(--wm-space-4); }
 .wm-rp-group { background: var(--wm-color-surface); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-md); padding: var(--wm-space-4); }
 .wm-rp-group-head { display: flex; align-items: baseline; gap: var(--wm-space-3); flex-wrap: wrap; }
 .wm-rp-group-title { margin: 0; font-size: var(--wm-font-size-subtitle); overflow-wrap: anywhere; }
