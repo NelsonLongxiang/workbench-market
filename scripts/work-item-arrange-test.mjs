@@ -112,6 +112,42 @@ try {
     check(other.status === 404, '别人看不到这一件（404）', show(other.status));
   }
 
+  // #1147：团队页、可派选项和历史事项使用目标宿主的最新快照，地址仍用于派发。
+  {
+    const routed = 'dsh/canvas/team-a', matchingRoot = 'http://127.0.0.1:1', otherRoot = 'http://127.0.0.1:2';
+    const at = new Date().toISOString();
+    const fp = digit => 'sha256:' + digit.repeat(64);
+    const addRoster = (root, digit, label) => {
+      const host = digit.repeat(8), fingerprint = fp(digit);
+      dbw('INSERT INTO a2a_roster_nodes (peer_root, key_fingerprint, host, peer_zone, reported_at, received_at) VALUES (?, ?, ?, ?, ?, ?)', root, fingerprint, host, 'dsh', at, at);
+      dbw('INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, name, first_seen_at, team_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        root, fingerprint, host, routed, 'dsh/' + digit.repeat(8), '合成席位', at, label);
+    };
+    const lower = async () => (await call('GET', '/api/work-items/teams', ALPHA)).body?.teams?.find(x => x.team === routed);
+    const details = async () => (await call('GET', "/api/work-items/" + first.body.item_id, ALPHA)).body?.item;
+    const visible = async () => (await call('GET', '/api/teams', ADMIN)).body?.unclaimed?.find(x => x.team === routed && x.host === 'a'.repeat(8));
+    addRoster(otherRoot, 'b', '不相关宿主');
+    const wrongHost = await lower();
+    const oldDetail = await details();
+    check(wrongHost?.name === routed && !Object.hasOwn(oldDetail ?? {}, 'target_team_name'), '同队地址的另一宿主不得替代投递宿主显示名', show({ wrongHost, oldDetail: oldDetail?.target_team_name }));
+    addRoster(matchingRoot, 'a', '合同协作组');
+    const options = await lower(), item = await details(), page = await visible();
+    check(options?.name === '合同协作组' && options?.team === routed && item?.target_team_name === '合同协作组' && item?.target_team === routed
+      && page?.name === '合同协作组' && page?.team === routed && page?.members?.[0]?.name === '合成席位', '三个入口展示同一名册名，地址和席位名保持原样', show({ options, item: [item?.target_team, item?.target_team_name], page: [page?.team, page?.name] }));
+    dbw('UPDATE a2a_roster_node_seats SET team_label = ? WHERE peer_root = ?', '续办协作组', matchingRoot);
+    check((await details())?.target_team_name === '续办协作组' && (await lower())?.name === '续办协作组' && (await visible())?.name === '续办协作组', '历史事项、下拉和团队页动态显示已更新标签');
+    dbw('INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, first_seen_at, team_label) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      matchingRoot, fp('a'), 'a'.repeat(8), routed, 'dsh/00000009', at, '冲突的名称');
+    check((await lower())?.name === routed && !Object.hasOwn((await details()) ?? {}, 'target_team_name') && (await visible())?.name === 'team-a', '同一快照的席位标签冲突时按原名显示');
+    dbw('DELETE FROM a2a_roster_node_seats WHERE peer_root = ? AND seat = ?', matchingRoot, 'dsh/00000009');
+    dbw('UPDATE a2a_roster_node_seats SET team_label = ? WHERE peer_root = ?', '', matchingRoot);
+    check((await lower())?.name === routed && !Object.hasOwn((await details()) ?? {}, 'target_team_name') && (await visible())?.name === 'team-a', '标签清除时三个出口回各自原显示');
+    for (const root of [matchingRoot, otherRoot]) {
+      dbw('DELETE FROM a2a_roster_node_seats WHERE peer_root = ?', root);
+      dbw('DELETE FROM a2a_roster_nodes WHERE peer_root = ?', root);
+    }
+  }
+
   // ---------- 「关注」里同一件不算两次 ----------
   {
     // 旧的录入发布路径建出来的任务（kind 是「录入」）：照旧在统一待办里

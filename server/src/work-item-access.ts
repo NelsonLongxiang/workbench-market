@@ -323,7 +323,7 @@ export function releaseBy(item: WorkItemRow, viewer: WorkItemViewer, views?: Tea
   const teams = withLeads.map(({ key, leads }) => {
     const v = all.find((x) => x.host === key.host && x.team === key.team);
     const seen = !!v && teamVisibleTo(who, v);
-    return { team: key.team, name: teamName(key.team), leads: seen ? leads.map((l) => ({ principal: l.principal, display_name: l.display_name })) : null };
+    return { team: key.team, name: v?.name ?? teamName(key.team), leads: seen ? leads.map((l) => ({ principal: l.principal, display_name: l.display_name })) : null };
   });
   const text = teams.map((t) => (t.leads ? `${t.name} 的负责人 ${t.leads.map((l) => l.display_name).join('、')}` : `${t.name} 的负责人`)).join('；');
   return { kind: 'team-lead', text, teams };

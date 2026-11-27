@@ -433,9 +433,18 @@ async function handleFollowup(req: Req, body: Record<string, unknown>, message: 
 export const ROSTER_SEATS_MAX = 64;
 const ROSTER_TEXT_MAX = 64 * 1024;
 
+/** 与 dsh-open-a2a-net #953 的 parseDisplayLabel 使用相同规则。只收展示用文本。 */
+function rosterLabel(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const text = value.trim();
+  if (text === '' || [...text].length > 64 || /[\p{Cc}\p{Cf}\u2028\u2029\ufffd]/u.test(value)
+      || !/[^\p{Z}\p{C}\p{M}]/u.test(value) || /^[A-Za-z0-9._-]+\/\S+$/.test(text)) return '';
+  return text;
+}
+
 /**
  * 阶段七：团队名册入站（dsh-open-a2a-net#604 P3）。普通 direct 消息，不欠回执、不占槽：
- *   首行 `[A2A roster] <宿主指纹前 8 位> <ISO 时间>`，第二行 JSON { host, at, seats:[{ seat, name, team, role, online, active, queued, lastActiveAt }] }。
+ *   首行 `[A2A roster] <宿主指纹前 8 位> <ISO 时间>`，第二行 JSON { host, at, seats:[{ seat, name, team, teamLabel?, role, online, active, queued, lastActiveAt }] }。
  * 三条都成立才收，否则返回 null 照原路走：
  *   · 签名方是我们投递过的宿主：声称的来源是投递过的根地址，X-A2A-Caller 等于投递时记下的区；Sig3 必验（同回执，验过的签名只认一次）；
  *   · 首行的指纹和 JSON 的 host 对得上、时间合法；
@@ -469,7 +478,7 @@ async function handleRoster(req: Req, message: string, deps: { audiences: () => 
   const int = (x: unknown) => (typeof x === 'number' && Number.isSafeInteger(x) && x >= 0 ? x : 0);
   const seats: RosterSeat[] = (Array.isArray(doc.seats) ? doc.seats : []).filter((x): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x))
     .map((x) => ({ seat: str(x.seat, 64).toLowerCase(), seat_id: /^[A-Za-z0-9._:-]{1,64}$/.test(String(x.seatId ?? '')) ? String(x.seatId) : '', name: str(x.name), team: teamKey(str(x.team, 128)), role: (['router', 'member', 'observer'].includes(String(x.role)) ? x.role : '') as RosterSeat['role'],
-      online: x.online === true, queued: int(x.queued), last_active_at: typeof x.lastActiveAt === 'string' && !Number.isNaN(Date.parse(x.lastActiveAt)) ? new Date(Date.parse(x.lastActiveAt)).toISOString() : '' }))
+      team_label: rosterLabel(x.teamLabel), online: x.online === true, queued: int(x.queued), last_active_at: typeof x.lastActiveAt === 'string' && !Number.isNaN(Date.parse(x.lastActiveAt)) ? new Date(Date.parse(x.lastActiveAt)).toISOString() : '' }))
     .filter((x) => /^[a-z0-9-]+\/[0-9a-f]{8}$/.test(x.seat) && x.seat.split('/')[0] === lzone && (x.team === '' || (x.team.split('/')[0] === lzone && /^[a-z0-9-]+\/canvas\/[^/]+$/.test(x.team))))
     .slice(0, ROSTER_SEATS_MAX);
   // 名册的键是（根地址，验过签的那把公钥的完整指纹）；host 只拿来显示和匹配
