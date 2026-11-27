@@ -26,7 +26,7 @@ import { setWorkItemDue, setWorkItemPriority } from '../api';
 import { NO_NAMES, cleanSeatName, lifecycleNames, lineName, rosterNames, stageName, withRoster, type Names } from '../names';
 import { actorLabel, seatLabel, askerLabel, textOf, who, PROGRESS_STATE, TERMINAL, creatorLabel, hiddenInTimeline, artifactHref, artifactsFromLog, mergeArtifacts, askAnswerBody, initialChoice, lastAskAnswered, parseArtifacts, pendingFor, progressLine, stateHint, type Artifact, type SeatAsk, type SeatProgress } from '../work-item-view';
 
-type Item = { id: string; title: string; state: string; created_by: string; creator_principal?: string | null; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
+type Item = { id: string; title: string; state: string; created_by: string; creator_principal?: string | null; created_at: string; updated_at: string; source_kind: string; source_ref: string; target_team: string; target_team_name?: string; seat: string; eval: string; eval_reason: string; progress_summary: string; receipt_outcome: string; object: string; phase: string; open_asks: string; outputs: string; evidence: string };
 
 type SeatMessage = { id: number; sender: string; peer: string; text: string; truncated: boolean; at: string; status: 'unread' | 'read' | 'replied' | 'over-cap' };
 type Data = { item: Item; log: LogRow[]; messages?: SeatMessage[]; unread?: number; progress?: SeatProgress | null; asks?: SeatAsk[]; subitems?: unknown; can?: unknown; turn?: unknown; creator?: unknown;
@@ -316,8 +316,8 @@ export default function WorkItem() {
             <Flex vertical gap="small">
               {hint && <Alert type={hint.type} showIcon message={hint.text} data-testid="work-item-hint" />}
               <Descriptions column={2} size="small" items={[
-                { key: 'seat', label: '承接', children: seatLine(item, tickets, teamLabel) || '—' },
-                { key: 'team', label: '派给', children: teamLabel(item.target_team) || '—' },
+                { key: 'seat', label: '承接', children: seatLine(item, tickets, (team) => item.target_team_name || teamLabel(team)) || '—' },
+                { key: 'team', label: '派给', children: item.target_team_name || teamLabel(item.target_team) || '—' },
                 { key: 'by', label: '建立人', children: creatorLabel(item.created_by, item.creator_principal) },
                 { key: 'obj', label: '哪条线 / 哪一步', children: [lineName(item.object, names), stageName(item.phase, names)].filter(Boolean).join(' / ') || '—' },
                 { key: 'eval', label: '接单判断', children: item.eval ? `${VERDICT[item.eval] ?? item.eval}${item.eval_reason ? `（${item.eval_reason}）` : ''}` : '—' },

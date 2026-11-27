@@ -54,7 +54,8 @@ import { assignableTeams, kickWorkbenchEvents, logEventFact, releaseCore } from 
 import { eventOfItem } from '../seat-messages.ts';
 import { attachmentsOfEvent } from '../services/work-item-attachments.ts';
 import { deliveryTarget, eventDispatched, inReplyTx, liveDeliveriesOfEvent, queueReply, setHeldDeliveriesDue } from '../services/a2a-replies.ts';
-import { peerCanDeliver } from '../services/a2a-peers.ts';
+import { peerCanDeliver, peerRootOf } from '../services/a2a-peers.ts';
+import { rosterTeamLabels, teamName } from '../services/a2a-roster.ts';
 
 export type WorkItemRouteDeps = {
   markAdmin: (req: express.Request) => Promise<void>;
@@ -91,11 +92,27 @@ const ITEM_REPLY_DECIDES = '按事项判：建立人本人回复；持有管理�
 /** 放行：团队的负责人（缺位时管理层代办），是事项上的规则；判定这一步还不知道落在哪件事项上 */
 const LEAD_RELEASES = '按事项交给的团队判：负责人放行，团队没有负责人时持有管理层授予的人代办，是事项上的规则不是角色授权';
 
-/** 详情里的事项行：没带领域的不出领域那三列（应答和加列之前一样）；带了的原样给 */
-function itemView(item: NonNullable<ReturnType<WorkItemService['get']>>): Record<string, unknown> {
-  if (item.area_id) return item;
+function rosterLabelsByTarget() {
+  const byRoot = new Map<string, Map<string, string>>();
+  for (const { peer_root, team, label } of rosterTeamLabels()) {
+    const teams = byRoot.get(peer_root) ?? new Map<string, string>();
+    teams.set(team, label);
+    byRoot.set(peer_root, teams);
+  }
+  return (team: string, url: string): string | undefined => byRoot.get(peerRootOf(url))?.get(team);
+}
+
+/** 现有目标地址保留。只有目标宿主的名册里有显示名时才附显示用字段。 */
+function itemView(item: NonNullable<ReturnType<WorkItemService['get']>>, items: WorkItemService): Record<string, unknown> {
+  const event = eventOfItem(item);
+  const deliveries = event ? items.deliveryTargets(event).filter((d) => d.team) : [];
+  const labelOf = deliveries.length ? rosterLabelsByTarget() : () => undefined;
+  const named = deliveries.map(({ team, url }) => ({ team, label: labelOf(team, url) }));
+  const display = named.some((d) => d.label)
+    ? { target_team_name: named.map(({ team, label }) => label ?? (teamName(team) || team)).join('、') } : {};
+  if (item.area_id) return { ...item, ...display };
   const { area_id: _a, area_source: _s, area_reason: _r, ...rest } = item;
-  return rest;
+  return { ...rest, ...display };
 }
 /** 详情的只增一项：带了领域的事项给领域的标识、名字、怎么来的（chosen / inferred）；没带的不给这一项 */
 function areaView(item: NonNullable<ReturnType<WorkItemService['get']>>): { area?: { id: string; name: string | null; source: string | null } } {
@@ -194,7 +211,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     return who.viewer.sub;
   }
 
-  // 「安排一件事」能派给的团队：绑在任务中心上的通知绑定（和建事项时的校验同一个函数）。管理员和登录的人能读。名册落地前 name 就是团队标识
+  // 「安排一件事」能派给的团队：绑在任务中心上的通知绑定（和建事项时的校验同一个函数）。管理员和登录的人能读。name 优先用通知绑定所在宿主的名册，缺项回退团队标识
   app.get('/api/work-items/teams', { action: 'work-items.teams', kind: 'read' }, (req, res, next) => {
     res.set('Cache-Control', 'private, no-store');
     res.vary('Cookie'); res.vary('X-Admin-Token');
@@ -202,7 +219,8 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
     (async () => {
       await deps.markAdmin(req);
       if (!deps.adminGuard(req, silentRes()) && !(await person(req, res))) return;
-      res.json({ teams: assignableTeams().map((t) => ({ team: t.agent_node, name: t.agent_node })) });
+      const labelOf = rosterLabelsByTarget();
+      res.json({ teams: assignableTeams().map((t) => ({ team: t.agent_node, name: labelOf(t.agent_node, t.notify_url) ?? t.agent_node })) });
     })().catch(next);
   });
 
@@ -249,7 +267,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const item = items.get(id);
       if (!item || !canSee(item, viewer)) return void res.status(404).json({ error: 'work_item_not_found' });
       // 只增：这个人能做什么（can）、是不是轮到他（turn）、建立人是谁（creator）。判断都在 work-item-access.ts，和各动作接口同一处
-      res.json({ item: itemView(item), ...areaView(item), due: item.due_at ? item.due_at.slice(0, 10) : null, overdue: overdueOf(item), priority: item.priority, attachments: attachmentsOfEvent(item.source_ref).map((a) => ({ name: a.name, size: a.size, url: `/api/work-items/${id}/attachments/${a.id}`, id: a.id, mime: a.mime, sha256: a.sha256 })), log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), subitems: seatSubitemsOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item), release_by: releaseBy(item, viewer) });
+      res.json({ item: itemView(item, items), ...areaView(item), due: item.due_at ? item.due_at.slice(0, 10) : null, overdue: overdueOf(item), priority: item.priority, attachments: attachmentsOfEvent(item.source_ref).map((a) => ({ name: a.name, size: a.size, url: `/api/work-items/${id}/attachments/${a.id}`, id: a.id, mime: a.mime, sha256: a.sha256 })), log: items.log(id), ...seatMessagesOf(item), progress: seatProgressOf(item), subitems: seatSubitemsOf(item), asks: seatAsksOf(item), can: canOf(item, viewer), turn: turnOf(item, viewer), creator: creatorOf(item), release_by: releaseBy(item, viewer) });
     })().catch(next);
   });
 

@@ -27,7 +27,7 @@
  */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
-import { rosters, activeItemsBySeat, LISTED_ROSTERS_SQL, type RosterSeat } from './a2a-roster.ts';
+import { rosters, activeItemsBySeat, LISTED_ROSTERS_SQL, rosterTeamLabels, teamName, type RosterSeat } from './a2a-roster.ts';
 import { leadGrantActive } from './dept-lead-grant.ts';
 import { boundSql } from './team-binding-sql.ts';
 
@@ -62,7 +62,7 @@ export function isoTime(t: string): string {
 }
 
 export type TeamView = {
-  host: string; team: string; status: TeamStatus; in_roster: boolean;
+  host: string; team: string; name: string; status: TeamStatus; in_roster: boolean;
   department: { id: string; name: string } | null;
   leads: Lead[]; router: Member | null; members: Member[];
   /** 所挂部门上写着的负责人，但他没有这个部门的拍板授予（待属主放行）：不算负责人、不带任何权力，只给页面显示；没有为 null */
@@ -460,6 +460,7 @@ export class TeamService extends Service {
     for (const r of regs) if (r.claimed) keys.set(tkey(r.host, r.team), { host: r.host, team: r.team });
     const items = activeItemsBySeat();
     const deptName = new Map((db.prepare('SELECT id, name FROM departments').all() as { id: string; name: string }[]).map((d) => [d.id, d.name]));
+    const labels = new Map(rosterTeamLabels().map((row) => [tkey(row.host, row.team), row.label]));
     const out: TeamView[] = [];
     for (const [k, key] of keys) {
       const reg = regs.find((r) => r.host === key.host && r.team === key.team);
@@ -473,7 +474,7 @@ export class TeamService extends Service {
         };
       });
       out.push({
-        host: key.host, team: key.team, status: this.status(key, !!rt), in_roster: !!rt,
+        host: key.host, team: key.team, name: labels.get(k) ?? teamName(key.team), status: this.status(key, !!rt), in_roster: !!rt,
         department: claimedNow(reg) && reg.department_id ? { id: reg.department_id, name: deptName.get(reg.department_id) ?? '' } : null,
         leads: this.leads(key), router: members.find((m) => m.router) ?? null, members: members.filter((m) => !m.router),
         lead_pending_grant: this.deptLeadPending(key), ...this.rosterStaleness(key.host),
