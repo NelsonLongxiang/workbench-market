@@ -254,17 +254,19 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     if (!actor) return;
     const b = bodyOf(req);
     const k = teamKeyOf(b);
-    const dept = str(b.department, 'department', /^[a-z][a-z0-9-]{0,47}$/, 48);
+    const areaOnly = b.area !== undefined;
+    const field = areaOnly ? 'area' : 'department';
+    const dept = str(b[field], field, /^[a-z][a-z0-9-]{0,47}$/, 48);
     const now = Date.now();
     if (!proposals().direct('team-claim', actor, dept, now)) {
-      const check = teams().claimCheck(k, dept);
+      const check = teams().claimCheck(k, dept, areaOnly);
       if (check === 'unchanged') return void res.json({ ok: true, changed: false });
       if (check) return void refused(res, check);
       const pr = proposals().propose({ kind: 'team-claim', host: k.host, team: k.team, department_id: dept }, actor, now);
       logged('claim-propose', k, { department: dept, proposal: pr.id }, actor.by);
       return void res.status(202).json({ ok: true, proposed: true, proposal: { id: pr.id, status: 'pending', confirm_by_text: CONFIRM_BY['team-claim'] } });
     }
-    const r = teams().claim(k, dept, actor, now);
+    const r = teams().claim(k, dept, actor, now, areaOnly);
     if (!r.ok) return void refused(res, r);
     if (r.changed) logged('claim', k, { department: dept }, actor.by);
     res.json({ ok: true, changed: r.changed });

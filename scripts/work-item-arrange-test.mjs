@@ -44,7 +44,7 @@ let child = null, log = '';
 try {
   const data = join(OUT, 'data'), home = join(OUT, 'home');
   for (const d of [data, home, join(OUT, 'ext')]) mkdirSync(d, { recursive: true });
-  const env = { PATH: process.env.PATH, HOME: home, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid' };
+  const env = { PATH: process.env.PATH, HOME: home, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', IDENTITY_FAKE_ADMIN_GRANT: 'admin', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid' };
   // 绑定：任务中心上两个通知团队、一条撤销了的；别的台上一个
   const seed = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', `
     const { db } = await import(${JSON.stringify(pathToFileURL(join(ROOT, 'server/src/db.ts')).href)});
@@ -293,6 +293,37 @@ try {
     const teamOnly = await call('POST', '/api/work-items', ALPHA, form());
     check(teamOnly.status === 201 && itemRow(teamOnly.body?.item_id).handoff === 'team' && itemRow(teamOnly.body?.item_id).directed_seat_id === '' && !msg(teamOnly.body?.event_id)[0].startsWith('[A2A dispatch]') && teamOnly.body.handoff === undefined,
       '不带 seat_id：交给团队，不写派工行，不默认指名分给他的席位', show(teamOnly.body));
+    // #1143：只有确有目标团队的放行权才能跳过过目，且仍遵守中心总开关。
+    const centerOffLead = await call('POST', '/api/work-items', BETA, form());
+    await call('PUT', '/api/task-center/policy', ADMIN, { agent_dispatch_enabled: true });
+    const mgmt = { ...SAME, cookie: `session_id=${SESSIONS.admin}` };
+    await call('GET', '/api/auth/me', mgmt);
+    const grant = async (role) => {
+      const g = await call('POST', '/api/grants', {}, { principal: 'user:root-admin', role, scope: '*', reason: '合成：整队派工' });
+      const gid = g.body?.grant?.id;
+      await call('POST', `/api/grants/${gid}/submit`, {}, {});
+      const approved = await call('POST', `/api/grants/${gid}/approve`, {}, {});
+      if (approved.status !== 200) throw new Error('合成授予失败：' + show(approved));
+    };
+    const submitReason = (id) => {
+      const d = dbr();
+      try { return JSON.parse(d.prepare("SELECT detail FROM work_item_log WHERE item_id = ? AND fact = 'submit'").get(id)?.detail ?? '{}').reason; }
+      finally { d.close(); }
+    };
+    await grant('management');
+    const leadTeam = await call('POST', '/api/work-items', BETA, form());
+    const otherTeam = await call('POST', '/api/work-items', BETA, form({ team: 'dsh/canvas/team-b' }));
+    const managerLed = await call('POST', '/api/work-items', mgmt, form());
+    const managerVacant = await call('POST', '/api/work-items', mgmt, form({ team: 'dsh/canvas/team-b' }));
+    check(centerOffLead.body?.held === true && leadTeam.status === 201 && leadTeam.body.state === 'delivered' && submitReason(leadTeam.body.item_id) === '派单人有放行权，免过目',
+      '整队派给有放行权的团队：总开关关仍 held，开着时负责人免过目并记 submit 原因（员工直派开关关）', show({ off: centerOffLead.body, on: leadTeam.body }));
+    check(otherTeam.body?.held === true && teamOnly.body?.held === true && managerLed.body?.held === true && managerVacant.body?.state === 'delivered',
+      '同一负责人跨队、普通成员及管理层派有负责人的队照旧 held，管理层可替空缺团队直接派', show({ other: otherTeam.body, staff: teamOnly.body, led: managerLed.body, vacant: managerVacant.body }));
+    await grant('owner');
+    const owner = await call('POST', '/api/work-items', mgmt, form());
+    check(owner.status === 201 && owner.body.state === 'delivered' && submitReason(owner.body.item_id) === '派单人有放行权，免过目',
+      '属主派给另有负责人的团队：直接派出并记免过目', show(owner.body));
+    await call('PUT', '/api/task-center/policy', ADMIN, { agent_dispatch_enabled: false });
     // 拒：不是主人也不是负责人、总工、观察者、不在这个团队、形状不对、句柄、带换行
     const rej = {
       notMine: [await call('POST', '/api/work-items', ALPHA, form({ seat_id: 'seat-0000000b' })), 403, 'seat_not_directable'],
@@ -320,9 +351,7 @@ try {
     check(fb.status === 201 && fb.body.directed === 'fallback_team' && !msg(fb.body?.event_id)[0].startsWith('[A2A dispatch]') && itemRow(fb.body?.item_id).directed_seat_id === ''
       && fbRec.directed_fallback?.seat_id === 'seat-0000000e' && fbRec.directed_fallback?.reason === 'peer_not_declared' && fbRec.directed_seat_id === undefined,
       '对端名片没声明 directedSeats：退回整队派发（不写派工行、事项不记指名），recorded 里留 directed_fallback（哪个席位、为什么）', show({ b: fb.body, rec: fbRec }));
-    // 退回整队派发就按没带 seat_id 的整队派发算：交给方式记 team，过目用整队的缺省（不传 review 就先过目、held），
-    // 应答不说成指名。主人指名、负责人指名退回时都一样。开着中心总开关和员工直派：指名自己的席位缺省不过目会直接派出，
-    // 退回整队后必须照整队的缺省先 held
+    // 退回整队时仍按整队判过目。本人拥有席位不等于有团队放行权，负责人则可以直接派。
     await call('PUT', '/api/task-center/policy', ADMIN, { agent_dispatch_enabled: true });
     await call('PUT', '/api/settings', ADMIN, { staff_direct_dispatch: 'on' });
     try {
@@ -334,9 +363,9 @@ try {
         '主人指名退回整队：事项 handoff=team；直派开着时不传 review 也先过目（held），和整队的缺省一样；应答不带 own-seat', show({ b: fbOwn.body, item: fbOwnItem, first: fbItem }));
       const fbLead = await call('POST', '/api/work-items', BETA, form({ team: 'dsh/canvas/team-c', seat_id: 'seat-0000000e' }));
       const fbLeadItem = itemRow(fbLead.body?.item_id);
-      check(fbLead.status === 201 && fbLead.body.directed === 'fallback_team' && fbLeadItem.handoff === 'team' && fbLead.body.held === true && fbLead.body.handoff !== 'lead-directed'
+      check(fbLead.status === 201 && fbLead.body.directed === 'fallback_team' && fbLeadItem.handoff === 'team' && fbLead.body.held === false && fbLead.body.handoff !== 'lead-directed'
         && recorded(fbLead.body?.event_id).directed_fallback?.seat_id === 'seat-0000000e',
-        '负责人指名退回整队：同样 handoff=team、先过目（held）、应答不带 lead-directed，recorded 照留 directed_fallback', show({ b: fbLead.body, item: fbLeadItem }));
+        '负责人指名退回自己的团队：handoff=team、免过目，应答不带 lead-directed，recorded 照留 directed_fallback', show({ b: fbLead.body, item: fbLeadItem }));
       // 对照：同样开着直派，退回整队时本人明说 review:false 照样直接派出（和整队派发一样，不比整队更严）
       const fbDirect = await call('POST', '/api/work-items', ALPHA, form({ team: 'dsh/canvas/team-c', seat_id: 'seat-0000000e', review: false }));
       check(fbDirect.status === 201 && fbDirect.body.held === false && itemRow(fbDirect.body?.item_id).handoff === 'team',

@@ -90,7 +90,7 @@ const CREATOR_DECIDES = '按事项判：建立人本人验收、退回；负责�
 /** 回复席位消息：替人做决定的动作，和验收同一处判（itemDecisionVerdict） */
 const ITEM_REPLY_DECIDES = '按事项判：建立人本人回复；持有管理层授予的人代办（过了管理门不算），是事项上的规则不是角色授权';
 /** 放行：团队的负责人（缺位时管理层代办），是事项上的规则；判定这一步还不知道落在哪件事项上 */
-const LEAD_RELEASES = '按事项交给的团队判：负责人放行，团队没有负责人时持有管理层授予的人代办，是事项上的规则不是角色授权';
+const LEAD_RELEASES = '属主可放行任意团队；其余按事项判：自审归建立人，整队归负责人，团队缺负责人时管理层代办';
 
 function rosterLabelsByTarget() {
   const byRoot = new Map<string, Map<string, string>>();
@@ -360,7 +360,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
 
   /**
    * 放行（规范 14 第九节）：POST /api/work-items/:id/release，请求体不看。谁能放由 releaseRole 判（和详情的 can.release 同一处）：
-   * 负责人；团队没有负责人时管理层代办（事件日志、事项日志记 acting_for = team-lead）；勾了先过目的由建立人本人放。
+   * 属主可跨队放行。其余按团队负责人、空缺时管理层代办或勾了自审的建立人判。
    * 写请求总门对这一条子路径放行，认人在这里。「关注」里过目条目的 answer_via 指向这里，所以自己做幂等：
    * 已经放行过的再来一次回 200、duplicate=true，不再放、不再记。放行的事只在 workbench-events 的 releaseCore 一处。
    *   401 没登录；404 看不到（不说有没有这件）；403 看得到但不归他放；409 不在等过目（没放行过）或事件、任务不让放
@@ -388,7 +388,7 @@ export function registerWorkItemRoutes(app: HttpService, deps: WorkItemRouteDeps
       const ev = eventOfItem(item);
       if (!ev) return void res.status(409).json({ error: 'work_item_not_from_event' });
       const actor = viewer.principal ?? ((principalsAdmin ? await principalsAdmin(req, silentRes()) : null) || 'admin');
-      const out = releaseCore(ev, actor, role.acting_for);
+      const out = releaseCore(ev, actor, role.acting_for, role.as === 'owner' ? '属主放行' : '');
       const body = { item_id: id, duplicate: false, ...out.body };
       const remembered = await viaSettle(req, via.plan, out.status, body, rememberActor);
       res.status(out.status).json({ ...body, ...(remembered ? { remember: remembered } : {}) });

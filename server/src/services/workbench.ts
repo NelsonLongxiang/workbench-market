@@ -54,6 +54,11 @@ export class WorkbenchService extends Service {
       `UPDATE workbenches SET last_status='up', last_checked_at=datetime('now'), last_latency_ms=0, last_http_code=200, last_error='' WHERE id=?`
     ).run(id);
   }
+  /** #1086 卡片地址是市场自己的 /use/<台>、还没对应：不探测、不判离线，状态记 unknown，原因写下一步。时间由调用方给（SQLite 的 YYYY-MM-DD HH:MM:SS，UTC） */
+  markPendingLink(id: number, error: string, at: string) {
+    return db.prepare(`UPDATE workbenches SET last_status='unknown', last_checked_at=?,
+      last_latency_ms=NULL, last_http_code=NULL, last_error=? WHERE id=?`).run(at, error, id);
+  }
   markDownWithError(id: number, error: string) {
     return db.prepare(`UPDATE workbenches SET last_status='down', last_checked_at=datetime('now'),
       last_latency_ms=NULL, last_http_code=NULL, last_error=? WHERE id=?`).run(error, id);
