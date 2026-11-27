@@ -164,8 +164,9 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
       const no = assignRefusal(v, t);
       const claim = pending.find((p) => p.kind === 'team-claim' && p.host === t.host && p.team === t.team);
       const leads = pending.filter((p) => p.kind === 'team-lead' && p.host === t.host && p.team === t.team);
+      const { name, ...view } = t;
       return {
-        ...t, ...nodeOf(t.host), can_assign: !no, assign_denied_text: no?.message ?? null, ...(no ? {} : { assignable: assignableOf(t) }),
+        ...view, name, ...nodeOf(t.host), can_assign: !no, assign_denied_text: no?.message ?? null, ...(no ? {} : { assignable: assignableOf(t) }),
         ...(isAdmin ? { pending_claim: claim ? pendingOf(claim) : null, pending_leads: leads.map(pendingOf) } : {}),
       };
     };
