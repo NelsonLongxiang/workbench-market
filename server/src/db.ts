@@ -851,6 +851,8 @@ CREATE TABLE IF NOT EXISTS owner_personal_tokens (
   UNIQUE (principal, name)
 );
 `);
+// #1064：令牌交给谁代办（'' 不代办，'assistant' 团队助理）。只影响留痕署名，作用域与业务授权照旧。
+addColumnIfMissing('owner_personal_tokens', "delegate TEXT NOT NULL DEFAULT '' CHECK (delegate IN ('', 'assistant'))");
 
 // 阶段七：席位用签名换短期 MCP 令牌（services/seat-tokens.ts）。
 //   a2a_seat_subjects：每个席位（host, seat_id）一个长期的授权主体，挂 mcp_sessions 的一行；grants、按台批的授予都记在它上面，跨令牌轮换保留。
@@ -895,6 +897,21 @@ CREATE TABLE IF NOT EXISTS a2a_seat_token_log (
 CREATE INDEX IF NOT EXISTS idx_a2a_seat_token_log_at ON a2a_seat_token_log (at);
 CREATE INDEX IF NOT EXISTS idx_a2a_seat_token_log_seat ON a2a_seat_token_log (host, seat_id, at);
 `);
+
+/** 端点命中计数（server/src/endpoint-stats.ts 的存储，原在该模块加载时建；搬进来同名同列同主键） */
+db.exec(`CREATE TABLE IF NOT EXISTS endpoint_stats (
+  endpoint TEXT NOT NULL,
+  day TEXT NOT NULL,
+  hits INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (endpoint, day)
+)`);
+
+/** 主库上的写事务：BEGIN IMMEDIATE 起头，fn 成功就提交，抛错就回滚并原样抛出。fn 必须同步，事务里不让出事件循环 */
+export function withImmediateTx<T>(fn: () => T): T {
+  db.exec('BEGIN IMMEDIATE');
+  try { const out = fn(); db.exec('COMMIT'); return out; } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 已回滚 */ } throw e; }
+}
+
 try { addColumnIfMissing('app_files', "note TEXT NOT NULL DEFAULT ''"); addColumnIfMissing('app_files', "deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 try { addColumnIfMissing('app_data', "deleted_at TEXT NOT NULL DEFAULT ''"); } catch { /* 列已在 */ }
 // 渐进开放第 5 步（docs/productization/16-progressive-capability-access.md）：大结果给引用。工具结果超过阈值时，存在这里，应答只回引用。
@@ -2997,3 +3014,12 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
     scanGuard: d === 'sqlite' ? 'CASE WHEN (rid & 255) <> 0 OR bench_tick() THEN ({cond}) ELSE 0 END' : null,
   };
 }
+
+/** 任务中心对 tasks 的补列与收件索引：原在 task-center.ts 的 initializeTaskCenter 里，搬来和 tasks 表放在一起（tasks、sop_runs 都已在上面建好）。语句与条件逐字照搬 */
+{
+  const cols = tableColumns('tasks') as { name: string }[];
+  if (!cols.some(c=>c.name==='intake_run_id')) db.exec('ALTER TABLE tasks ADD COLUMN intake_run_id INTEGER REFERENCES sop_runs(id)');
+  if (!cols.some(c=>c.name==='template_version')) db.exec('ALTER TABLE tasks ADD COLUMN template_version INTEGER');
+  db.exec('DROP INDEX IF EXISTS idx_tasks_material; CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_intake_run ON tasks(intake_run_id) WHERE intake_run_id IS NOT NULL');
+}
+

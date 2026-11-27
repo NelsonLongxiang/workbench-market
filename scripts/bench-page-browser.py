@@ -74,7 +74,7 @@ def mgr_entry(): return {**ENTRY, 'bench': {**ENTRY['bench'], 'title': mgr['titl
 def fake(route, body, status=200): route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
 def on_bv(route):
     u = urlparse(route.request.url); parts = u.path.split('/')
-    if parts[3] != str(CARD): return route.continue_()  # 别的卡片走实例里真的入口
+    if parts[3] not in (str(CARD), SLUG): return route.continue_()  # 别的卡片走实例里真的入口（#1086：按台标识打开的也截下）
     rest = '/'.join(parts[4:])
     if rest == 'entry':
         log['entry'] += 1
@@ -85,6 +85,7 @@ def on_bv(route):
         if mode['entry'] == 'v2': return fake(route, ENTRY2)
         if mode['entry'] == 'v3': return fake(route, ENTRY3)
         if mode['entry'] == 'mgr': return fake(route, mgr_entry())
+        if mode['entry'] == 'reports': return fake(route, {**ENTRY, 'can': {'reports': True}})
         if mode['entry'] == 'many': return fake(route, MANY)
         if mode['entry'] == 'hold': held_entry.append((route, mgr_entry())); return None  # 应答照发出那一刻的名字，由测试晚些放行
         return fake(route, ENTRY)
@@ -101,6 +102,9 @@ def on_bv(route):
         if mode['form'] == '409': return fake(route, {'error': 'conflict', 'message': '版本变了'}, 409)
         if mode['form'] == '403': return fake(route, {'error': 'bench_views_forbidden'}, 403)
         return fake(route, {'ok': True})
+    if rest == 'workbench':  # #1086 对应卡片
+        body = json.loads(route.request.post_data or '{}'); log.setdefault('link', []).append(body)
+        return fake(route, {'bench': {**mgr_entry()['bench'], 'workbench_id': body.get('workbench_id')}, 'changed': True})
     if rest == 'title':
         body = json.loads(route.request.post_data or '{}'); log['title'].append(body)
         if mode['title'] == '409': return fake(route, {'error': 'conflict', 'message': '台的名字已经被改过了，先重新读一次再改'}, 409)
@@ -441,6 +445,77 @@ with sync_playwright() as p:
           (rec.locator('.wm-bb-truncated').all_inner_texts(), rec.locator('[data-testid=rec-count]').all_inner_texts()))
     mode['records'] = 'off'
 
+    print('十、顶栏（#1098）')
+    mode['render'] = 'ok'; mode['entry'] = 'reports'
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    crumbs = [x.inner_text().strip() for x in pg.locator('.wm-use-crumbs li').all() if x.inner_text().strip() not in ('/', '')]
+    check('台页顶栏：「上一页」、市场标识、面包屑「全景 / 台名」', pg.locator('[data-testid=use-top-back]').inner_text().strip() == '上一页' and pg.locator('[data-testid=use-top-logo]').count() == 1
+          and pg.locator('[data-testid=use-crumb-home]').inner_text().strip() == '全景' and pg.locator('[data-testid=bench-page-name]').inner_text().strip() == '合成·巡检台', crumbs)
+    pg.locator('[data-testid=bench-page-tab]', has_text='巡检明细').click(); pg.wait_for_function("() => new URLSearchParams(location.search).get('v') === 'vk-rows'")
+    pg.locator('[data-testid=bench-page-tab]', has_text='巡检看板').click(); pg.wait_for_function("() => new URLSearchParams(location.search).get('v') !== 'vk-rows'")
+    pg.locator('[data-testid=bench-page-reports]').click(); pg.wait_for_selector('[data-testid=report-page]')
+    # 台名要等入口取完才换上（之前是占位「这个台」）；等不到由下面的断言带着当时的字报
+    try: pg.wait_for_function("() => document.querySelector('a[data-testid=use-crumb-bench]')?.textContent.trim() === '合成·巡检台'", timeout=10000)
+    except Exception: pass
+    crumb = lambda sel: pg.locator(sel).inner_text().strip() if pg.locator(sel).count() else None
+    check('报告页面包屑：全景 / 台名 / 报告，当前一级不能点', pg.locator('[data-testid=use-crumb-home]').count() == 1 and crumb('a[data-testid=use-crumb-bench]') == '合成·巡检台'
+          and crumb('[data-testid=use-crumb-reports]') == '报告' and pg.locator('a[data-testid=use-crumb-reports]').count() == 0,
+          (crumb('[data-testid=use-crumb-home]'), crumb('a[data-testid=use-crumb-bench]'), crumb('[data-testid=use-crumb-reports]')))
+    pg.locator('[data-testid=use-crumb-home]').click(); pg.wait_for_function("() => location.pathname === '/'")
+    check('切两个页签再进报告，点「全景」一次就回到首页', urlparse(pg.url).path == '/', pg.url)
+    pg.goto(f'{M}/use/{CARD}/reports'); pg.wait_for_selector('a[data-testid=use-crumb-bench]')
+    pg.locator('a[data-testid=use-crumb-bench]').click(); pg.wait_for_selector('[data-testid=bench-page]')
+    check('报告页面包屑的台名：回到这个台的页面', urlparse(pg.url).path == f'/use/{CARD}', pg.url)
+    pg.locator('[data-testid=bench-page-tab]', has_text='巡检明细').click(); pg.wait_for_function("() => new URLSearchParams(location.search).get('v') === 'vk-rows'")
+    pg.locator('[data-testid=use-top-back]').click(); pg.wait_for_function("() => new URLSearchParams(location.search).get('v') !== 'vk-rows'")
+    check('站内有上一页：「上一页」退一步（回到切页签之前）', urlparse(pg.url).path == f'/use/{CARD}' and q_of(pg).get('v') != 'vk-rows', pg.url)
+    pgn = ctx.new_page(); pgn.goto(f'{M}/use/{CARD}'); pgn.wait_for_selector('[data-testid=use-top-back]')
+    pgn.locator('[data-testid=use-top-back]').hover(); pgn.wait_for_selector('.ant-tooltip >> text=返回上一页')
+    check('「上一页」悬停写明是返回上一页', pgn.locator('.ant-tooltip', has_text='返回上一页').count() >= 1)
+    # 等它回到全景；等不到不在这里抛错，由下面的断言带着当时的地址报（「上一页」坏了要落成一条 ✗，不是脚本崩掉）
+    pgn.locator('[data-testid=use-top-back]').click()
+    try: pgn.wait_for_function("() => location.pathname === '/'", timeout=10000)
+    except Exception: pass
+    check('新标签直接打开 /use/<id>：「上一页」回全景，不离开站点', pgn.url.startswith(M) and urlparse(pgn.url).path == '/', pgn.url)
+    pgn.close(); mode['entry'] = 'ok'
+
+    print('十一、对应卡片（#1086）')
+    mode['render'] = 'ok'; mode['entry'] = 'ok'
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    check('没有管理层授予（入口没给 can.rename）：顶栏不出「对应卡片」', pg.locator('[data-testid=bench-page-link]').count() == 0)
+    mode['entry'] = 'mgr'
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-testid=bench-page-link]')
+    pg.locator('[data-testid=bench-page-link]').click(); pg.wait_for_selector('[data-testid=bench-link-current]')  # Modal 的 testid 落在零尺寸的外壳上，等对话框里的字
+    check('管理层：顶栏有「对应卡片」，对话框写现在对应的卡片名', mgr['card'] in pg.locator('[data-testid=bench-link-current]').inner_text(), pg.locator('[data-testid=bench-link-current]').inner_text())
+    pg.locator('[data-testid=bench-link-select]').click()
+    opt = pg.locator('.ant-select-item-option', has_text='合成·本站台卡'); opt.first.wait_for()
+    check('选卡片：清单来自市场里登记的卡片，写名字和编号', opt.count() == 1 and f"#{cfg['self_card']}" in opt.first.inner_text(), opt.all_inner_texts())
+    opt.first.click()
+    n0 = len(log.get('link', [])); pg.locator('[data-testid=bench-link-save]').click()
+    try: pg.wait_for_function(f"() => location.pathname === '/use/{SLUG}'", timeout=10000)  # 等不到由下面的断言带着地址报
+    except Exception: pass
+    # 地址换了以后要等入口重新取完才画台页面（CI 上比本机慢）；等不到由下面的断言报
+    try: pg.wait_for_selector('[data-testid=bench-page]', timeout=10000)
+    except Exception: pass
+    check('保存：发 PUT /workbench { workbench_id: 选的卡片 }；页面换成按台标识打开，留在这个台上', log['link'][n0:] == [{'workbench_id': cfg['self_card']}] and urlparse(pg.url).path == f'/use/{SLUG}' and pg.locator('[data-testid=bench-page]').count() == 1, (log.get('link'), pg.url))
+    pg.locator('[data-testid=bench-page-link]').click(); pg.wait_for_selector('[data-testid=bench-link-remove]')
+    n0 = len(log['link']); pg.locator('[data-testid=bench-link-remove]').click()
+    until(pg, lambda: len(log['link']) > n0)
+    check('去掉对应：发 { workbench_id: null }', log['link'][n0:] == [{'workbench_id': None}], log['link'])
+    # 卡片地址是本站 /use/<台标识>、还没对应：/use/<卡片 id> 写明下一步，不显示「指向市场本身，请改地址」；管理层有直达按钮
+    pg.goto(f"{M}/use/{cfg['self_card']}"); pg.wait_for_selector('[data-testid=use-bench-hint]')
+    pg.wait_for_selector('[data-testid=use-bench-go]')
+    hint = pg.locator('[data-testid=use-bench-hint]').inner_text()
+    check('本站台地址的卡片：说这是数据视图台、写台名和下一步（「对应卡片」），不露台标识', mgr['title'] in hint and '对应卡片' in hint and SLUG not in hint and '请管理员改一下登记的地址' not in hint, hint)
+    pg.locator('[data-testid=use-bench-go]').click(); pg.wait_for_function(f"() => location.pathname === '/use/{SLUG}'")
+    try: pg.wait_for_selector('[data-testid=bench-page]', timeout=10000)  # 地址换了以后要等入口取完才画台页面；等不到由下面的断言报
+    except Exception: pass
+    check('管理层点「去台上对应」：到这个台的页面', pg.locator('[data-testid=bench-page]').count() == 1, pg.url)
+    mode['entry'] = 'ok'
+    pg.goto(f"{M}/use/{cfg['self_card']}"); pg.wait_for_selector('[data-testid=use-bench-hint]')
+    pg.wait_for_function("() => document.querySelector('[data-testid=use-bench-hint]')?.innerText.includes('合成·巡检台')")
+    check('不是管理层：只有说明，没有「去台上对应」', pg.locator('[data-testid=use-bench-go]').count() == 0)
+
     print('十二、块锚点、本页目录、页签条（#1099）')
     mode['render'] = 'ok'; mode['entry'] = 'ok'
     pg.goto(f'{M}/use/{CARD}?v=vk-board#b4'); pg.wait_for_selector('[data-bb=table][data-bb-state=ready]')
@@ -520,6 +595,7 @@ with sync_playwright() as p:
     seen = []
     pg.on('response', lambda r: seen.append((urlparse(r.url).path, r.status)) if '/entry' in r.url else None)
     pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('.wm-use-frame')
+    check('#1098 嵌入使用页也有顶栏：「上一页」和面包屑「全景」', pg.locator('[data-testid=use-top-back]').count() == 1 and pg.locator('[data-testid=use-crumb-home]').count() == 1)
     check('没有台的卡片：实例里真的入口回 404，照原来嵌页面（顶栏是卡片名）', (f'/api/bench-views/{CARD}/entry', 404) in seen and '合成·嵌页台' in pg.locator('.wm-use-bar').inner_text() and pg.locator('[data-testid=bench-page]').count() == 0, seen)
     pg.goto(f'{M}/use/99999'); pg.wait_for_selector('text=工作台不存在')
     check('不存在的卡片：入口一样回 404，照原来说「工作台不存在」', ('/api/bench-views/99999/entry', 404) in seen, seen)

@@ -361,6 +361,8 @@ jobs:
         run: node scripts/mutation-run-test.mjs
       - name: 轻量工作树依赖复用自测
         run: node --test scripts/worktree-review-env-test.mjs
+      - name: 经验库接入启动自检行单测（ygl-trees 入口、YGL_HOME 与 ygl-trees.db、同步周期，缺哪样 warn 点名；#894、#1089）
+        run: node scripts/knowledge-startup-line-unit.mjs
       - name: 本机 CI 复放入口单测（scripts/ci-run-block.mjs：只剔共享浅取·actions、安装、诊断步骤不跑·未知表达式不猜·全跑全过才退出 0；夹具只在 tmp/）
         run: node scripts/ci-run-block-test.mjs
       - name: tsc (web)
@@ -526,7 +528,7 @@ jobs:
           A2A_MEMBER_FP_SRC: ${{ github.workspace }}/dsh-open-a2a-net-provenance/src/canvas-id.ts
         run: node scripts/a2a-member-provenance-test.mjs
       - name: 席位 A2A 回执进事项（签名方 = 当初投递到的宿主·Sig3 不降级·别人的任务号照原路逐字节相同·别的团队签/没签名/重放/词表外/夹带指令/未采信上限·日志无签名材料）
-        run: node scripts/a2a-receipt-inbound-test.mjs
+        run: node scripts/a2a-receipt-inbound-test.mjs && node scripts/a2a-roster-admission-test.mjs
       - name: 团队的决策卡进「等你拍板」（观察者落地 T8·只认 Sig3 和钉住的公钥·团队要在签名宿主名册里·按 rev 去重、终态不复活·只给属主看）
         run: node scripts/a2a-decision-cards-test.mjs
       - name: 对端钉住的公钥接上入站与出站（回执、跟进、名册只认钉住的那把，改钥待确认、停用的不收·投递和回给团队的消息过 canDeliver，不能发的挂起不判死）
@@ -568,7 +570,7 @@ jobs:
       - name: 登录门上线演练（enforce 隔离实例：MCP/健康/A2A/SOP/台与门户/生命周期/运维/回滚逐类真实请求）
         run: node scripts/login-gate-rollout-check.mjs
       - name: MCP 权限可见与自助申请（access_info 全目录·access_request 去重限频·管理员批准并集/驳回不动 grants/吊销不能批·app_data_submit 与 REST 同核契约校验·匿名 401）
-        run: node scripts/mcp-access-smoke.mjs && node scripts/mcp-grant-scope-smoke.mjs && node scripts/mcp-newcomer-test.mjs && node scripts/mcp-upload-ticket-test.mjs && node scripts/mcp-app-files-name-test.mjs
+        run: node scripts/mcp-access-smoke.mjs && node scripts/mcp-grant-scope-smoke.mjs && node scripts/mcp-newcomer-test.mjs && node scripts/mcp-upload-ticket-test.mjs && node scripts/mcp-download-ticket-test.mjs && node scripts/mcp-app-files-name-test.mjs
       - name: 渐进开放第 0 步的两个测量脚本（上下文占用在隔离实例上量得出数字·频次报告只读、不输出会话名和参数）
         run: node scripts/mcp-context-size.mjs --check && node scripts/mcp-usage-report.mjs --self-test
       - name: 大结果给引用（两条通道一致·只给建它的会话·取时按原工具再判授权·分段读·过期·留痕·测试限值只在测试环境认）
@@ -648,6 +650,10 @@ jobs:
         run: node scripts/embed-guard-unit.mjs
       - name: 事项的期限和附件单测（纯函数——字段没到不画、链接只认本站 /api/、大小怎么说；单列一步）
         run: node scripts/work-item-extras-unit.mjs
+      - name: 台页与报告页顶栏单测（#1098：面包屑每一级去哪、「上一页」直接打开时回全景）
+        run: node scripts/use-topbar-unit.mjs
+      - name: 台和主页卡片的对应（#1086：本站台页面地址显示「待对应」不判离线、对应卡片的结果说法；同源卡片巡检不探测、对应后在线）
+        run: node scripts/bench-link-ui-unit.mjs && node scripts/bench-card-health-test.mjs
       - name: 块锚点与本页目录单测（#1099：块键、目录条目、地址里的 #、本块链接、滚动高亮）
         run: node scripts/page-toc-unit.mjs
       - name: 「团队」页单测（纯函数——团队状态、负责人、成员归谁用、计数、空和读不到的说法、建部门校验；单列一步）

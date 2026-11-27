@@ -3,9 +3,9 @@
  *  作用域的中文说法与有效期上下限以清单应答的 available_scopes、limits 为准；应答里没有时用下面的兜底（与后端同值）。 */
 import type { SourceResult } from './personal-tokens-api';
 
-export interface TokenRow { id: string; name: string; scopes: string[]; benches: string[]; createdAt: number; expiresAt: number; lastUsedAt: number | null; revokedAt: number | null }
+export interface TokenRow { id: string; name: string; scopes: string[]; benches: string[]; assistant: boolean; createdAt: number; expiresAt: number; lastUsedAt: number | null; revokedAt: number | null }
 export interface ScopeDef { key: string; label: string; description: string; perBench: boolean }
-export interface TokenDraft { name: string; scopes: string[]; benches: string[]; days: number }
+export interface TokenDraft { name: string; scopes: string[]; benches: string[]; days: number; assistant: boolean }
 
 const DAY = 86400000;
 export const DEFAULT_DAYS = 30;
@@ -25,7 +25,9 @@ export const SCOPES: ScopeDef[] = [
   { key: 'report-dimensions', label: '报告维度', description: '维度模板发版、复核、激活；绑定到台时也要选那个台', perBench: false },
 ];
 export const ONE_TIME_NOTE = '令牌原文只显示这一次：现在复制，存进只有你能读的文件（wm user login --token-file，权限 0600）。离开或刷新这个页面就再也看不到；丢了就撤销，重新签一枚。';
-export const SCOPE_NOTE = '令牌只换认证方式，不改授权：用它做的事和你在浏览器里做的一样过同样的规则；审计里记为「属主（令牌 名字）」。';
+export const HTTPS_GUIDANCE = '个人令牌需要通过市场的 HTTPS 地址签发和管理。请用正式的 HTTPS 地址重新打开设置；没有这个地址时，请联系部署维护方。';
+export const SCOPE_NOTE = '令牌只换认证方式，不改授权：用它做的事和你在浏览器里做的一样过同样的规则；审计里记为「属主（令牌 名字）」；交给团队助理代办的记为「属主（令牌 名字·助理代办）」。';
+export const ASSISTANT_NOTE = '交给团队助理代办（#1064）：助理拿这枚令牌替你办事，作用域照上面勾的，写操作要你在这里明确勾上；留痕看得出是助理代办。';
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const strs = (v: unknown): string[] | null => (Array.isArray(v) && v.every((x) => typeof x === 'string') ? [...new Set(v as string[])] : null);
@@ -36,7 +38,7 @@ export function tokenRowOf(v: unknown): TokenRow | null {
   const o = v as Record<string, unknown>;
   const scopes = strs(o.scopes); const benches = strs(o.benches); const created = num(o.created_at); const expires = num(o.expires_at);
   if (typeof o.id !== 'string' || !o.id || typeof o.name !== 'string' || !scopes || !benches || created === null || expires === null) return null;
-  return { id: o.id, name: o.name, scopes, benches, createdAt: created, expiresAt: expires, lastUsedAt: num(o.last_used_at), revokedAt: num(o.revoked_at) };
+  return { id: o.id, name: o.name, scopes, benches, assistant: o.delegate === 'assistant', createdAt: created, expiresAt: expires, lastUsedAt: num(o.last_used_at), revokedAt: num(o.revoked_at) };
 }
 
 export type TokenState = 'active' | 'expired' | 'revoked';
@@ -93,7 +95,7 @@ export function benchesLabel(t: TokenRow, titles: Map<string, string>): string {
   return t.benches.map((s) => titles.get(s) ?? s).join('、') || '不限台（只有报告维度）';
 }
 
-export function newDraft(limits: Limits = FALLBACK_LIMITS): TokenDraft { return { name: '', scopes: [], benches: [], days: limits.defaultDays }; }
+export function newDraft(limits: Limits = FALLBACK_LIMITS): TokenDraft { return { name: '', scopes: [], benches: [], days: limits.defaultDays, assistant: false }; }
 /** 选的作用域里有没有按台的（这时必须选台） */
 export function needsBench(scopes: string[]): boolean { return scopes.some((k) => k !== 'report-dimensions'); }
 /** 签发前核一遍（与服务端同规则）：哪一项没填好就说哪一项；都好返回 null */
@@ -104,9 +106,9 @@ export function draftProblem(d: TokenDraft, limits: Limits = FALLBACK_LIMITS): s
   if (!Number.isInteger(d.days) || d.days < limits.minDays || d.days > limits.maxDays) return '有效期在 ' + limits.minDays + ' 到 ' + limits.maxDays + ' 天之间';
   return null;
 }
-export function issueBody(d: TokenDraft, defs: ScopeDef[] = SCOPES): { name: string; scopes: string[]; benches: string[]; expires_in_days: number } {
+export function issueBody(d: TokenDraft, defs: ScopeDef[] = SCOPES): { name: string; scopes: string[]; benches: string[]; expires_in_days: number; delegate?: 'assistant' } {
   const order = defs.map((s) => s.key);
-  return { name: d.name, scopes: [...new Set(d.scopes)].sort((a, b) => order.indexOf(a) - order.indexOf(b)), benches: [...new Set(d.benches)].sort(), expires_in_days: d.days };
+  return { name: d.name, scopes: [...new Set(d.scopes)].sort((a, b) => order.indexOf(a) - order.indexOf(b)), benches: [...new Set(d.benches)].sort(), expires_in_days: d.days, ...(d.assistant ? { delegate: 'assistant' as const } : {}) };
 }
 /** 签发应答：原文只取这一次（wmu_ 加 43 位）；没有原文当没签成 */
 export function issuedOf(body: unknown): { token: string; row: TokenRow | null } | null {
@@ -125,7 +127,7 @@ const codeOf = (r: SourceResult): string => (r.body && typeof r.body === 'object
 /** 服务端只给代号、不给句子的几种拒绝，各自说清楚（代号本身不露） */
 function refusalText(r: SourceResult): string | null {
   const c = codeOf(r);
-  if (c === 'personal_token_surface_denied') return '个人令牌只能在市场的 HTTPS 地址上签发和管理。';
+  if (c === 'personal_token_surface_denied') return HTTPS_GUIDANCE;
   if (c === 'personal_token_owner_session_required') return '请在市场页面上、用属主本人的登录来操作个人令牌。';
   if (c === 'personal_token_owner_required') return '个人令牌只有属主本人能签发和管理。';
   return null;
@@ -140,6 +142,7 @@ export function listProblem(r: SourceResult | null): { type: 'warning' | 'info';
 /** 签发、撤销没办成：服务端写成中文句子的 message 照说（名字重了、有效期超了），代号不露 */
 export function actionProblem(r: SourceResult): string | null {
   if (r.status >= 200 && r.status < 300) return null;
+  if (r.status === 403 && codeOf(r) === 'personal_token_surface_denied') return HTTPS_GUIDANCE;
   const said = serverSentence(r); if (said) return said;
   const refused = refusalText(r); if (refused) return refused;
   if (r.status === 0) return '连不上服务器，检查网络后再试。';

@@ -1,11 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useRequest } from 'ahooks';
 import { App, Button, Result, Space, Spin, Tag, Tooltip, Typography } from 'antd';
-import { ArrowLeftOutlined, ExportOutlined, ReloadOutlined } from '@ant-design/icons';
-import { api } from '../api';
+import { ExportOutlined, ReloadOutlined } from '@ant-design/icons';
+import { api, getBenchEntry } from '../api';
 import StatusBadge from '../components/StatusBadge';
 import GoFrame from '../components/GoFrame';
+import UseTopBar from '../components/UseTopBar';
+import { benchUseRef, benchUseText } from '../bench-link-view';
 import { USE_SELF_TEXT, pointsAtMarket } from '../embed-guard';
 
 export default function UseWorkbench() {
@@ -14,7 +16,6 @@ export default function UseWorkbench() {
   const { message } = App.useApp();
   const [frameKey, setFrameKey] = useState(0);
   const [checking, setChecking] = useState(false);
-  const back = () => (window.history.length > 1 ? nav(-1) : nav('/'));
 
   const req = useRequest(() => api.getWorkbench(Number(id)), { manual: false });
 
@@ -41,6 +42,11 @@ export default function UseWorkbench() {
   }
 
   const w = req.data;
+  // #1086：卡片地址是本站的 /use/<台>：这是一个数据视图台，还没对应到这张卡片。写明下一步；管理层带一个去台上的按钮（不在这里直接跳——入口按卡片 id 判权）
+  const benchRef = benchUseRef(w.url, window.location.origin);
+  if (benchRef !== null) {
+    return <UseBenchHint bench={benchRef} />;
+  }
   // 登记的地址指向市场自己：不嵌（嵌出来就是市场套市场），说一句、给个回去的按钮
   if (pointsAtMarket(w.url, window.location.origin)) {
     return <div data-testid="use-self"><Result status="info" title={USE_SELF_TEXT} extra={<Button onClick={() => nav('/')}>返回全景</Button>} /></div>;
@@ -48,18 +54,8 @@ export default function UseWorkbench() {
 
   return (
     <div className="wm-use-wrap">
-      <div className="wm-use-bar">
-        <Button
-          type="text"
-          icon={<ArrowLeftOutlined />}
-          onClick={back}
-          aria-label="返回"
-        />
-        <span className="wm-use-icon">{w.icon || '▢'}</span>
-        <Typography.Title level={5} className="wm-use-title">
-          {w.name}
-        </Typography.Title>
-        <StatusBadge status={w.last_status} latency={w.last_latency_ms} error={w.last_error} checkedAt={w.last_checked_at} />
+      <UseTopBar cardId={String(id ?? '')} page="card" title={<span className="wm-use-title"><span className="wm-use-icon">{w.icon || '▢'}</span> {w.name}</span>}>
+        <StatusBadge status={w.last_status} latency={w.last_latency_ms} error={w.last_error} checkedAt={w.last_checked_at} url={w.url} />
         <Tag color="geekblue">{w.type}</Tag>
         <Typography.Text className="wm-num wm-mono wm-caption">
           {w.url}
@@ -98,7 +94,7 @@ export default function UseWorkbench() {
             </Button>
           </a>
         </Space>
-      </div>
+      </UseTopBar>
       <GoFrame wid={w.id} name={w.name} frameKey={frameKey} className="wm-use-frame" />
       <Typography.Paragraph
         type="secondary"
@@ -107,6 +103,30 @@ export default function UseWorkbench() {
         经统一门户 /go/{w.id}/ 同源代理嵌入（自动剥除上游禁嵌响应头）；个别页面主动跳出到外域时请点右上角「新窗口」 ·{' '}
         <Link to="/market">返回工作台市场</Link>
       </Typography.Paragraph>
+    </div>
+  );
+}
+
+/** #1086 卡片地址指向本站台页面时：说清楚是哪个台、下一步做什么；台读得到名字就写名字（读不到不露台标识）；管理层看得到「去台上对应」 */
+function UseBenchHint({ bench }: { bench: string }) {
+  const nav = useNavigate();
+  const [info, setInfo] = useState<{ title: string | null; canLink: boolean }>({ title: null, canLink: false });
+  useEffect(() => {
+    let live = true;
+    void getBenchEntry(bench).then((r) => {
+      if (!live || r.status !== 200 || !r.body || typeof r.body !== 'object') return;
+      const e = r.body as { bench?: { title?: unknown }; can?: { rename?: unknown } };
+      setInfo({ title: typeof e.bench?.title === 'string' && e.bench.title.trim() ? e.bench.title.trim() : null, canLink: e.can?.rename === true });
+    });
+    return () => { live = false; };
+  }, [bench]);
+  return (
+    <div data-testid="use-bench-hint">
+      <Result status="info" title="这张卡片还没对应到数据视图台" subTitle={benchUseText(info.title)}
+        extra={[
+          info.canLink ? <Button key="go" type="primary" onClick={() => nav(`/use/${encodeURIComponent(bench)}`)} data-testid="use-bench-go">去台上对应</Button> : null,
+          <Button key="home" onClick={() => nav('/')}>返回全景</Button>,
+        ]} />
     </div>
   );
 }

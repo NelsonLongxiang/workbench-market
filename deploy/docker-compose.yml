@@ -12,11 +12,16 @@ services:
       LAYERFS_SERVICE_URL: http://layerfs:8067
       LAYERFS_SERVICE_TOKEN_FILE: /run/secrets/layerfs_service_token
       DATA_DIR: /data
+      # 经验库（#894、#1089）：缺省每 10 分钟从 ygl-trees 同步；0 = 不同步，启动自检行会 warn 点名
+      WM_KNOWLEDGE_SYNC_MINUTES: ${WM_KNOWLEDGE_SYNC_MINUTES:-10}
     restart: unless-stopped
     ports:
       - "127.0.0.1:9800:9800"
     volumes:
       - market-data:/data
+      # 库源挂载点：正式 ygl-trees 工作区（目录里要有 ygl-trees.db，要可写）挂到镜像缺省的 YGL_HOME=/var/lib/ygl。
+      # YGL_HOME_SOURCE 填正式工作区所在的卷名或宿主绝对路径；不填是空卷，启动自检行 warn「库源是空的」
+      - ${YGL_HOME_SOURCE:-market-ygl-home}:/var/lib/ygl
     secrets:
       - layerfs_service_token
     networks:
@@ -82,4 +87,5 @@ secrets:
 
 volumes:
   market-data:
+  market-ygl-home:
   layerfs-store:

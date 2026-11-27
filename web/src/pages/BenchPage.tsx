@@ -4,11 +4,13 @@
  *  台标识、视图键都不写在页面的字上（键只在地址里）。 */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { Button, Empty, Result, Skeleton, Typography } from 'antd';
-import { ApiOutlined, ArrowLeftOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Button, Empty, Result, Skeleton } from 'antd';
+import { ApiOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { BenchView, type ViewResult } from '../bench-blocks/BenchView';
 import { getBenchView, submitBenchForm, type BenchEntry } from '../api';
 import { useChangePoll } from '../bench-change-poll';
+import UseTopBar from '../components/UseTopBar';
+import BenchLink from './BenchLink';
 import { BackToTop, TocLayout, useAnchorJump } from '../components/PageToc';
 import ViewTabs from '../components/ViewTabs';
 import { viewTocEntries } from '../page-toc-view';
@@ -84,19 +86,17 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
     void load(); // 交上去了：整页按现在的视图和筛选重新取数
   };
 
-  const back = () => (window.history.length > 1 ? nav(-1) : nav('/'));
   return (
     <div className="wm-use-wrap" data-testid="bench-page">
-      <div className="wm-use-bar">
-        <Button type="text" icon={<ArrowLeftOutlined />} onClick={back} aria-label="返回" />
-        <Typography.Title level={5} className="wm-use-title" data-testid="bench-page-name">{entry.bench.title}</Typography.Title>
+      <UseTopBar cardId={cardId} page="bench" title={<span className="wm-use-title" data-testid="bench-page-name">{entry.bench.title}</span>}>
         <div className="wm-bp-bar-extra">
           <BenchRename cardId={cardId} entry={entry} refreshEntry={refreshEntry} />
+          <BenchLink cardId={cardId} entry={entry} refreshEntry={refreshEntry} />
           <ReportsLink cardId={cardId} entry={entry} />
           {entry.can.mcp ? <Link to={`/bench-mcp/${encodeURIComponent(entry.bench.slug)}`} data-testid="bench-page-mcp"><Button type="text" size="small" icon={<ApiOutlined />}>MCP 授权</Button></Link> : null}
           <Link to={`/market/wb/${encodeURIComponent(cardId)}`} data-testid="bench-page-detail"><Button type="text" size="small" icon={<InfoCircleOutlined />}>详情</Button></Link>
         </div>
-      </div>
+      </UseTopBar>
       <div className="wm-bp-head">
         <h1 className="wm-bp-title" data-testid="bench-page-title">{entry.title}</h1>
         {entry.views.length > 1 ? (

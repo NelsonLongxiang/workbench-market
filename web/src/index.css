@@ -267,6 +267,15 @@ body {
   color: var(--wm-color-nav-text) !important;
 }
 
+/* #1098 顶栏：「上一页」、市场标识、面包屑（深底上用导航的浅色字，当前一级用高亮色） */
+.wm-use-brand { display: flex; align-items: center; }
+.wm-use-crumbs { min-width: 0; }
+.wm-use-crumbs ol { flex-wrap: nowrap; align-items: center; }
+.wm-use-crumbs a, .wm-use-crumbs .ant-breadcrumb-separator { color: var(--wm-color-nav-text) !important; }
+.wm-use-crumbs a:hover { color: var(--wm-color-nav-text-active) !important; background: transparent !important; }
+.wm-use-crumbs [aria-current=page] { color: var(--wm-color-nav-text-active); }
+.wm-use-crumbs .wm-use-title { white-space: nowrap; }
+
 .wm-use-bar .wm-mono {
   color: var(--wm-color-nav-text);
 }

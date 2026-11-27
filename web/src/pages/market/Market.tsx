@@ -77,7 +77,7 @@ export default function Market() {
   }, [admin]);
 
   const cards = useMemo(() => [
-    ...(ok(src.wb) ? workbenchCards(src.wb!.body) : []),
+    ...(ok(src.wb) ? workbenchCards(src.wb!.body, window.location.origin) : []),
     ...(ok(src.sop) ? sopCards(src.sop!.body, ok(src.running) ? runningBySlug(src.running!.body) : null) : []),
     ...(ok(src.skill) ? skillCards(src.skill!.body) : []),
     ...(admin && ok(src.conn) ? connectorCards(src.conn!.body) : []),
