@@ -21,7 +21,7 @@
  *   node scripts/upgrade-smoke.mjs --base <git 引用>        换一个基线（标签、分支、提交都行）
  *   node scripts/upgrade-smoke.mjs --head <目录>            要验的代码换成另一个目录（缺省本检出；那个目录要装好依赖）
  *   node scripts/upgrade-smoke.mjs --keep                  跑完保留临时目录（排查用）
- *   node scripts/upgrade-smoke.mjs --selftest              只跑「原有行没被改」的比对口径自检（不起实例、不取基线）
+ *   node scripts/upgrade-smoke.mjs --selftest              自检比对口径和合成仓的缺基线回退（不起实例、不取真实基线）
  *
  * 每条检查都无条件执行：前提不成立就记 ✗，不会悄悄跳过；末尾再核对一遍条数。
  *
@@ -29,7 +29,8 @@
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:net';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync, appendFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync, appendFileSync } from 'node:fs';
+import { devNull } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
@@ -134,24 +135,90 @@ if (argv.includes('--selftest')) {
   probes('多一条台库守卫不静默放行', [...goodRows, { id: 'market.bench-views.unexpected', verdict: 'pass', status: 401 }], false);
   probes('空答复拒绝', [], false);
   t('probe列表不是数组拒绝', benchProbesPassed({ rows: 'not-an-array' }) ? [] : ['bad probe rows'], true);
+  for (const { label, passed } of baseResolutionChecks()) t(label, passed ? [] : ['baseline lookup mismatch'], false);
   console.log(`\nupgrade-smoke 自检：${ok} 过，${bad} 没过`);
   process.exit(bad ? 1 : 0);
 }
 
 // ---------- 准备：基线代码 ----------
-function resolveBase() {
-  let r = git('rev-parse', '--verify', `${BASE_REF}^{commit}`);
-  if (r.status !== 0 && BASE_REF.startsWith('origin/')) {
-    git('fetch', '--no-tags', '--depth=1', 'origin', `${BASE_REF.slice('origin/'.length)}:refs/remotes/${BASE_REF}`);
-    r = git('rev-parse', '--verify', `${BASE_REF}^{commit}`);
-  } else if (r.status !== 0 && /^[0-9a-f]{40}$/.test(BASE_REF)) {
-    // 完整提交号（CI 是浅检出，本地没有）：按提交号取
-    git('fetch', '--no-tags', '--depth=1', 'origin', BASE_REF);
-    r = git('rev-parse', '--verify', `${BASE_REF}^{commit}`);
+function resolveBase(ref, gitRun) {
+  let r = gitRun('rev-parse', '--verify', `${ref}^{commit}`);
+  if (r.status !== 0 && ref.startsWith('origin/')) {
+    gitRun('fetch', '--no-tags', 'origin', `${ref.slice('origin/'.length)}:refs/remotes/${ref}`);
+    r = gitRun('rev-parse', '--verify', `${ref}^{commit}`);
+  } else if (r.status !== 0 && /^[0-9a-f]{40}$/.test(ref)) {
+    // 缺完整提交号时普通取回对象，保持共享 Git 目录的历史边界。
+    gitRun('fetch', '--no-tags', 'origin', ref);
+    r = gitRun('rev-parse', '--verify', `${ref}^{commit}`);
   }
-  if (r.status !== 0) die(`取不到基线 ${BASE_REF}`);
-  return r.stdout.trim();
+  return r.status === 0 ? r.stdout.trim() : null;
 }
+/** 用本任务的普通本地仓和两棵关联工作树核对真实 Git 对象和浅状态。 */
+function baseResolutionChecks() {
+  mkdirSync(join(ROOT, 'tmp'), { recursive: true });
+  const fixture = mkdtempSync(join(ROOT, 'tmp', 'upgrade-smoke-base-'));
+  const env = { PATH: process.env.PATH, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0', GIT_ALLOW_PROTOCOL: 'file' };
+  const run = (cwd, ...args) => spawnSync('git', args, { cwd, env, encoding: 'utf8' });
+  const must = (cwd, ...args) => {
+    const r = run(cwd, ...args);
+    if (r.status !== 0) throw new Error('合成 Git 操作失败：' + args.join(' ') + '\n' + r.stderr);
+    return r.stdout.trim();
+  };
+  const commit = (cwd, name) => {
+    must(cwd, '-c', 'user.name=Upgrade Smoke', '-c', 'user.email=upgrade-smoke@example.invalid', 'commit', '--allow-empty', '-m', name);
+    return must(cwd, 'rev-parse', 'HEAD');
+  };
+  const checks = [];
+  const test = (label, passed) => checks.push({ label, passed });
+  try {
+    const remote = join(fixture, 'upstream'), shared = join(fixture, 'shared'), linked = join(fixture, 'linked');
+    must(fixture, 'init', '--initial-branch=main', '--object-format=sha1', remote);
+    const common = commit(remote, 'seed');
+    must(fixture, 'clone', '--no-local', '--single-branch', '--branch', 'main', remote, shared);
+    must(shared, 'worktree', 'add', '--detach', linked, 'HEAD');
+    const commonDir = must(linked, 'rev-parse', '--path-format=absolute', '--git-common-dir');
+    const full = () => commonDir === must(shared, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+      && !existsSync(join(commonDir, 'shallow')) && !existsSync(join(commonDir, 'shallow.lock'))
+      && [shared, linked].every(cwd => must(cwd, 'rev-parse', '--is-shallow-repository') === 'false');
+    must(remote, 'switch', '-c', 'release/example');
+    const branchParent = commit(remote, 'release parent');
+    const branchTip = commit(remote, 'release baseline');
+    must(remote, 'switch', '-c', 'raw-only', common);
+    const rawParent = commit(remote, 'raw parent');
+    const rawTip = commit(remote, 'raw baseline');
+    const calls = [];
+    const linkedGit = (...args) => {
+      calls.push(args);
+      // 即使将来回归，也不让测试实际执行浅取。成功仍要由真实普通 fetch 获得。
+      if (args[0] === 'fetch' && args.some(a => /^--(?:depth|deepen|shallow|unshallow)/.test(a))) return { status: 1 };
+      return run(linked, ...args);
+    };
+    test('已有基线直接解析，无需 fetch', resolveBase('HEAD', linkedGit) === common && calls.every(a => a[0] !== 'fetch'));
+    test('关联工作树初始无缺引用对应的对象，也未浅取', full()
+      && run(linked, 'rev-parse', '--verify', 'origin/release/example').status !== 0
+      && run(linked, 'cat-file', '-e', rawTip).status !== 0
+      && run(linked, 'cat-file', '-e', branchTip).status !== 0);
+    const branch = resolveBase('origin/release/example', linkedGit);
+    test('缺远端分支时取回引用和祖先，共享仓仍非浅', branch === branchTip && full()
+      && run(shared, 'merge-base', '--is-ancestor', branchParent, branchTip).status === 0
+      && must(shared, 'merge-base', 'HEAD', branchTip) === common);
+    const sha = resolveBase(rawTip, linkedGit);
+    test('缺完整提交号时取回提交和祖先，共享仓仍非浅', sha === rawTip && full()
+      && run(shared, 'merge-base', '--is-ancestor', rawParent, rawTip).status === 0
+      && must(shared, 'merge-base', 'HEAD', rawTip) === common);
+    test('远端缺引用返回缺材料，共享仓仍非浅', resolveBase('origin/missing', linkedGit) === null && full());
+    const scripts = join(linked, 'scripts');
+    mkdirSync(scripts);
+    const script = join(scripts, 'upgrade-smoke.mjs');
+    copyFileSync(fileURLToPath(import.meta.url), script);
+    const missing = spawnSync(process.execPath, [script, '--base', 'missing-local-ref'], { cwd: linked, env, encoding: 'utf8' });
+    test('缺基线的 CLI 保持退出 2，未进入解包或启动', missing.status === 2 && missing.stderr.includes('取不到基线 missing-local-ref') && missing.stdout === '' && full());
+    return checks;
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+}
+
 function extractBase(sha, dir) {
   mkdirSync(dir, { recursive: true });
   const tar = spawnSync('git', ['archive', '--format=tar', sha], { cwd: ROOT, maxBuffer: 1 << 30 });
@@ -345,7 +412,8 @@ function cleanup() { if (!KEEP) rmSync(OUT, { recursive: true, force: true }); }
 // ---------- 主流程 ----------
 rmSync(OUT, { recursive: true, force: true });
 for (const d of ['home', 'tmp', 'data']) mkdirSync(join(OUT, d), { recursive: true });
-const baseSha = resolveBase();
+const baseSha = resolveBase(BASE_REF, git);
+if (!baseSha) die(`取不到基线 ${BASE_REF}`);
 const baseTree = join(OUT, 'base');
 const deps = extractBase(baseSha, baseTree);
 console.log(`[upgrade-smoke] 基线 ${BASE_REF} = ${baseSha.slice(0, 10)}（依赖：${deps === 'shared' ? '与本检出相同，共用' : '另装'}）→ ${HEAD === ROOT ? `本检出 ${(git('rev-parse', '--short', 'HEAD').stdout || '').trim()}` : HEAD}`);
