@@ -11,6 +11,6 @@ export const marketUrl: string | null = meta('wm-market-url') || null;
 /** 同 path 换到另一面（只拼链接；目标地址来自服务端注入，不取自用户数据） */
 export const onSurface = (base: string | null, path = window.location.pathname + window.location.search): string | null => (base ? base + path : null);
 /** 控制面上不提供的业务页（会嵌入或运行不可信内容、或依赖 /go 登录中继）：跳回业务面同 path */
-const MARKET_ONLY = /^\/(use|cockpit|tasks)(\/|$)/;
+const MARKET_ONLY = /^\/(use|cockpit|tasks|lifecycle)(\/|$)/;
 const EXT_MARKET_ONLY = WEB_EXTENSIONS.flatMap((e) => e.marketOnly ?? []);
 export const marketOnly = (path: string): boolean => MARKET_ONLY.test(path) || EXT_MARKET_ONLY.some((p) => path === p || path.startsWith(p + '/'));

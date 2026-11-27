@@ -1,4 +1,5 @@
 import type { TableContext } from './bench-table-view';
+import { lifecycleRetryAt, type LifecycleReply } from './lifecycle-view';
 
 export function getReportReviewInvitation(id: string, signal: AbortSignal): Promise<Response> {
   return fetch('/api/report-governance/review-invites/' + encodeURIComponent(id), { signal });
@@ -223,13 +224,19 @@ export const getRememberDefaults = (source: string, sourceId: string) => remembe
 export const getRecentAnswers = () => rememberCall('/api/knowledge/remember/recent');
 export const postRememberLater = (req: { source: string; source_id: string; lesson: string; cue?: string; visibility?: string }) => rememberCall('/api/knowledge/remember', { method: 'POST', body: JSON.stringify(req) });
 
-/** 生命周期只读接口（观测层扩展挂在市场里）：带登录 cookie；扩展没挂上（404）或没配置（503）由页面给空状态，不弹口令 */
-/** identityDown：身份服务连不上（502 identity_unavailable），页面说「暂时取不到」，不当成没有 */
-export async function getLifecycle<T>(path: string): Promise<{ status: number; body: T | null; identityDown?: boolean }> {
+/** 生命周期只读请求使用现有登录态，保留状态和结构化响应供页面判断。 */
+export async function getLifecycle(path: string, signal?: AbortSignal): Promise<LifecycleReply> {
   try {
-    const r = await fetch(`/api/lifecycle/${path}`, { credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const r = await fetch('/api/lifecycle/' + path, { signal, credentials: 'same-origin', headers: { Accept: 'application/json' } });
     const raw: unknown = await r.json().catch(() => null);
-    return { status: r.status, body: r.ok ? raw as T : null, identityDown: isIdentityUnavailable(r.status, raw) };
+    const requestId = r.headers.get('x-request-id');
+    return {
+      status: r.status,
+      body: raw,
+      identityDown: isIdentityUnavailable(r.status, raw),
+      retryAt: lifecycleRetryAt(r.headers.get('retry-after')),
+      requestId: requestId && /^[A-Za-z0-9-]{1,64}$/.test(requestId) ? requestId : undefined,
+    };
   } catch { return { status: 0, body: null }; }
 }
 

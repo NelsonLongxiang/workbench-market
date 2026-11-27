@@ -4,6 +4,7 @@
 import { cleanWho, seatLabel, teamLabel, waitingLabel } from '../web/src/people.ts';
 import { SEAT_ASKS_MORE, answerChoices, decideCount, groupCards, isMine, isStuck, seatAsksMore, stuckLabel, stuckTotal } from '../web/src/attention-view.ts';
 import { cardWording, splitAskTitle, buildRows, splitRows, daysLabel, filterAttention, greeting, objectLabel, panoramaType, stageColumns, summaryLine, decideLine, toggleFocus } from '../web/src/home-view.ts';
+import { lifecycleRetryAt, readHomepageLines, readLifecycleBoard } from '../web/src/lifecycle-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -91,5 +92,32 @@ ok('服务端给了名字（#657 的 waiting_for_name）就直接用；null、�
 }
 ok('AI 员工的提问没列全（#720）：只认 sources[\'seat-asks\'].more 严格为 true；没有、不是 true、形状不对都当列全', seatAsksMore({ 'seat-asks': { more: true } }) && !seatAsksMore({ 'seat-asks': { more: 'true' } }) && !seatAsksMore({ 'seat-asks': {} }) && !seatAsksMore({ other: { more: true } }) && !seatAsksMore(null) && !seatAsksMore([]));
 ok('没列全的那句：说清只列了最早的一批、还有更多，不说接口和条数上限', SEAT_ASKS_MORE.includes('还有更多') && !/接口|1000|上限|seat/.test(SEAT_ASKS_MORE));
+const stagesReply = { status: 200, body: { ok: true, types: [pd] } };
+const objectsReply = (items = [], next_cursor = null, extra = {}) => ({ status: 200, body: { ok: true, items, next_cursor, ...extra } });
+const linesOf = (...replies) => readHomepageLines(async () => replies.shift());
+let lines = await linesOf(stagesReply, objectsReply());
+ok('生命周期：完整对象空页才确认空，保留筛选类型', lines.kind === 'ok' && lines.value.objects.length === 0 && lines.value.type.type === 'pd');
+lines = await linesOf(stagesReply, objectsReply([obj('a', 'st_2')], 'page-2'), { status: 0, body: null });
+ok('生命周期：第二页超时保未知，已经取得的行不冒充完整值', lines.kind === 'unknown' && !('value' in lines));
+lines = await linesOf(stagesReply, objectsReply([], 'repeat'), objectsReply([], 'repeat'));
+ok('生命周期：重复游标保持未知', lines.kind === 'unknown');
+lines = await linesOf(stagesReply, objectsReply([obj('a', 'st_2')], 'next'), objectsReply([obj('a', 'st_2')]));
+ok('生命周期：跨页重复对象保持未知', lines.kind === 'unknown');
+lines = await linesOf(stagesReply, objectsReply([], null, { stale: true, as_of: '2026-11-27T10:00:00Z', last_ok: '2026-11-27T09:59:00Z' }));
+ok('生命周期：旧快照保留 as_of 与 last_ok，状态不能是真零', lines.kind === 'stale' && lines.time.asOf === '2026-11-27T10:00:00.000Z' && lines.time.lastOk === '2026-11-27T09:59:00.000Z');
+const readBoard = (status, body, requestId) => readLifecycleBoard(async () => ({ status, body, requestId }), 'board');
+const board = (summary, extra = {}) => ({ ok: true, data: { products: [], summary: { by_stage: {}, products: 0, sources_stale: 0, ...summary }, ...extra } });
+ok('全景：确认的计数0和非空摘要互斥；缺结构不当0', (await readBoard(200, board())).kind === 'ok'
+  && (await readBoard(200, board({ by_stage: { preparing: 1 } }))).kind === 'unknown'
+  && (await readBoard(200, { ok: true, data: { summary: { products: 0 } } })).kind === 'unknown');
+ok('全景：数据源过期和显式 stale 各自触发过期态', (await readBoard(200, board({ sources_stale: 1 }))).kind === 'stale'
+  && (await readBoard(200, board({}, { sources: [{ stale: true }] }))).kind === 'stale');
+ok('全景：结构化依赖失败不走空态，未知错误保留请求编号', (await readBoard(200, { ok: false, error: { code: 'NOT_REGISTERED' } })).kind === 'unavailable'
+  && (await readBoard(500, { ok: true }, 'trace-001')).requestId === 'trace-001');
+const retryStart = Date.parse('2026-11-27T10:00:00Z');
+ok('Retry-After：支持相对秒和HTTP绝对日期，忽略过去日期', lifecycleRetryAt('3', retryStart) === retryStart + 3000
+  && lifecycleRetryAt('Fri, 27 Nov 2026 10:00:02 GMT', retryStart) === retryStart + 2000
+  && lifecycleRetryAt('Fri, 27 Nov 2026 09:59:59 GMT', retryStart) === undefined);
+
 console.log(`\nhome-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);

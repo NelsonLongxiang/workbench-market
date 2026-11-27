@@ -10,18 +10,19 @@ import WmPage from '../components/WmPage';
 import DecisionCard from '../components/DecisionCard';
 import ArrangeDrawer from '../components/ArrangeDrawer';
 import { adminActive, subscribeAdminToken } from '../admin-token';
-import { ATTENTION_CHANGED, getAttention, getAuthMe, getLifecycle } from '../api';
+import { ATTENTION_CHANGED, getAttention, getAuthMe } from '../api';
+import { LifecycleStatus, useLifecycleData } from '../components/LifecycleStatus';
+import { readHomepageLines } from '../lifecycle-view';
 import { SEAT_ASKS_MORE, answerChoices, groupCards, stuckTotal, type AttentionItem } from '../attention-view';
-import { buildRows, splitRows, daysLabel, filterAttention, greeting, panoramaType, stageColumns, summaryLine, decideLine, downLine, DECIDE_DOWN, LINES_DOWN, toggleFocus, type Focus, type LcObject, type LcType } from '../home-view';
-
-const MAX_PAGES = 10;
+import { buildRows, splitRows, daysLabel, filterAttention, greeting, stageColumns, summaryLine, decideLine, downLine, DECIDE_DOWN, toggleFocus, type Focus } from '../home-view';
 
 export default function Home() {
   const admin = useSyncExternalStore(subscribeAdminToken, adminActive);
   const [name, setName] = useState<string | null>(null);
-  const [type, setType] = useState<LcType | null>(null);
-  const [objects, setObjects] = useState<LcObject[]>([]);
-  const [lcState, setLcState] = useState<'loading' | 'ok' | 'none' | 'down'>('loading');
+  const lifecycle = useLifecycleData(readHomepageLines);
+  const current = lifecycle.result?.kind === 'ok' ? lifecycle.result.value : null;
+  const previous = lifecycle.result?.kind === 'stale' ? lifecycle.lastGood : null;
+  const { type, objects } = current ?? previous?.value ?? { type: null, objects: [] };
   const [attention, setAttention] = useState<AttentionItem[]>([]);
   /** 身份服务连不上：等你拍板的事取不到，不能当成「没有」 */
   const [attDown, setAttDown] = useState(false);
@@ -49,64 +50,45 @@ export default function Home() {
   }, [loadAttention]);
   useEffect(() => { void loadAttention(); }, [loadAttention, admin]);
   useEffect(() => { void getAuthMe().then((m) => setName(m?.authenticated ? m.display_name || m.login || null : null)); }, []);
-  useEffect(() => {
-    void (async () => {
-      const st = await getLifecycle<{ types: LcType[] }>('stages');
-      if (st.identityDown) { setLcState('down'); return; }
-      const t = st.body ? panoramaType(st.body.types) : null;
-      if (!t) { setLcState('none'); return; }
-      const all: LcObject[] = [];
-      let cursor: string | null = null;
-      for (let i = 0; i < MAX_PAGES; i++) {
-        const q: URLSearchParams = new URLSearchParams({ type: t.type, limit: '200', ...(cursor ? { cursor } : {}) });
-        const r: { status: number; body: { items: LcObject[]; next_cursor: string | null } | null; identityDown?: boolean } = await getLifecycle<{ items: LcObject[]; next_cursor: string | null }>(`objects?${q}`);
-        if (r.identityDown) { setLcState('down'); return; }
-        if (!r.body) break;
-        all.push(...r.body.items);
-        cursor = r.body.next_cursor;
-        if (!cursor) break;
-      }
-      setType(t); setObjects(all); setLcState('ok');
-    })();
-  }, []);
 
   const cols = type ? stageColumns(type) : [];
-  const rows = useMemo(() => (type ? buildRows(type, objects, attention) : []), [type, objects, attention]);
+  const rows = useMemo(() => (type ? buildRows(type, objects, current ? attention : []) : []), [type, objects, current, attention]);
   const { active, ended } = splitRows(rows);
+  const visibleFocus = current ? focus : null;
   // 总结句按全部条目算（不随点格筛选变）：能当场办的才算「等你拍板」
   const all = groupCards(attention, (x) => answerChoices(admin, x));
-  const cards = filterAttention(attention, focus);
+  const cards = filterAttention(attention, visibleFocus);
   const { now, proxy, stuck, elsewhere } = groupCards(cards, (x) => answerChoices(admin, x));
   const stuckN = stuckTotal(stuckCount, all.stuck.length);
   const card = (a: AttentionItem) => <DecisionCard key={`${a.source}:${a.source_id}`} item={a} admin={admin} onDone={() => undefined} />;
-  const focusRow = focus ? rows.find((r) => r.id === focus.object) : null;
-  const focusStage = focus ? cols.find((c) => c.code === focus.stage) : null;
+  const focusRow = visibleFocus ? rows.find((r) => r.id === visibleFocus.object) : null;
+  const focusStage = visibleFocus ? cols.find((c) => c.code === visibleFocus.stage) : null;
 
   return <WmPage extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => setArrange(true)} data-testid="arrange-open">安排一件事</Button>}>
     <div className="wm-home">
       <h1 className="wm-home-hi" data-testid="home-greeting">{greeting(new Date().getHours(), name)}</h1>
       <Typography.Paragraph type="secondary" className="wm-home-sum" data-testid="home-summary" aria-busy={!attLoaded}>
-        {!attLoaded ? null : attDown ? downLine(lcState === 'ok' ? rows : null) : lcState === 'ok' ? summaryLine(rows, all.now.length, all.elsewhere.length, all.proxy.length, stuckN) : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length, stuckN)}
+        {!attLoaded ? null : attDown ? downLine(current ? rows : null) : current ? summaryLine(rows, all.now.length, all.elsewhere.length, all.proxy.length, stuckN) : decideLine(all.now.length, all.elsewhere.length, false, all.proxy.length, stuckN)}
       </Typography.Paragraph>
       {attLoaded && !attDown && more && <Typography.Paragraph type="secondary" className="wm-caption" data-testid="home-more">{SEAT_ASKS_MORE}</Typography.Paragraph>}
 
-      {lcState === 'loading' && <Skeleton active paragraph={{ rows: 4 }} />}
-      {lcState === 'down' && <div className="wm-home-box wm-home-down" data-testid="home-lines-down"><DisconnectOutlined /><span>{LINES_DOWN}</span></div>}
-      {lcState === 'none' && <div className="wm-home-box"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="这里会显示公司正在走的每条线、各走到哪一步。" /></div>}
-      {lcState === 'ok' && type && <>
+      {(!current || current.objects.length === 0) && <LifecycleStatus {...lifecycle} admin={admin} label="在走的线"
+        filter={type?.name} last={previous ? { count: active.length, time: previous.time } : undefined} />}
+      {current && <Button type="link" size="small" loading={lifecycle.loading} onClick={lifecycle.retry}>刷新线路</Button>}
+      {type && (previous || (current && current.objects.length > 0)) && <>
         <div className="wm-grid" data-testid="home-grid" style={{ gridTemplateColumns: `200px repeat(${cols.length}, minmax(96px, 1fr))` }}>
           <div className="wm-grid-h"><b>{type.name}</b><span>一条线一行</span></div>
           {cols.map((c) => <div key={c.code} className="wm-grid-h"><b>{c.name}</b></div>)}
-          {active.length === 0 && <div className="wm-grid-empty">还没有在走的线。</div>}
+          {current && active.length === 0 && <div className="wm-grid-empty">还没有在走的线。</div>}
           {active.map((r) => <div key={r.id} className="wm-grid-row" data-testid="home-row">
             <div className="wm-grid-obj">
               <b title={r.id}>{r.label}</b>
               <span className="wm-caption">{daysLabel(r.days)}{r.flags.map((f) => <Tag key={f} className="wm-ml-1">{f}</Tag>)}</span>
             </div>
             {r.cells.map((c) => {
-              const on = focus?.object === r.id && focus.stage === c.stage;
+              const on = visibleFocus?.object === r.id && visibleFocus.stage === c.stage;
               const cls = ['wm-cell', `wm-cell-${c.state}`, c.pending ? 'wm-cell-pending' : '', on ? 'wm-cell-on' : ''].filter(Boolean).join(' ');
-              return <button type="button" key={c.stage} className={cls} data-testid="home-cell" onClick={() => setFocus((f) => toggleFocus(f, { object: r.id, stage: c.stage }))}>
+              return <button type="button" key={c.stage} className={cls} data-testid="home-cell" disabled={!current} onClick={() => setFocus((f) => toggleFocus(f, { object: r.id, stage: c.stage }))}>
                 {c.state === 'past' && <span className="wm-cell-done"><CheckOutlined /> 已走完</span>}
                 {c.state === 'current' && <span className="wm-cell-cur">{r.terminal ? r.stageName : '走到这一步'}</span>}
                 {c.state === 'future' && <span className="wm-cell-none">—</span>}
@@ -119,7 +101,7 @@ export default function Home() {
           <summary>已结束 {ended.length} 条</summary>
           <ul>{ended.map((r) => <li key={r.id}><b title={r.id}>{r.label}</b><span className="wm-caption">{r.stageName}</span></li>)}</ul>
         </details>}
-        <Typography.Text type="secondary" className="wm-caption">点任意一格，下面只看这条线这一步的事；再点一次回到全部。</Typography.Text>
+        {current && <Typography.Text type="secondary" className="wm-caption">点任意一格，下面只看这条线这一步的事；再点一次回到全部。</Typography.Text>}
       </>}
 
       <div className="wm-sec-h">
