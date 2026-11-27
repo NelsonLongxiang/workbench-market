@@ -373,6 +373,31 @@ console.log('三、快基线 profile');
   ok('删除真实 CI 的 MCP SQLite 步骤后，即使其余步骤全过也必须 INCOMPLETE',
     sqliteStep >= 0 && J(withoutSqlite.missing) === J([sqlite]) && incomplete.status === 'INCOMPLETE'
     && incomplete.code === 3 && incomplete.failed === 0 && incomplete.passed === otherResults.length, incomplete);
+
+  const processTree = 'lib/test-process-tree.test.mjs';
+  const mutationRunner = 'mutation-run-test.mjs';
+  const processTreeRun = 'node --test scripts/' + processTree;
+  const processTreeStep = steps.findIndex(step => step.run?.split(' && ').includes(processTreeRun));
+  const selectedProcessTree = real.steps.find(step => step.index === processTreeStep + 1);
+  ok('真实 CI 快基线按路径选中进程树单测及同一步的变异运行器自测',
+    processTreeStep >= 0 && selectedProcessTree?.checks.includes(processTree) && selectedProcessTree.checks.includes(mutationRunner),
+    selectedProcessTree);
+
+  const withoutProcessTree = fastSelection(steps.map((step, index) => index === processTreeStep
+    ? { ...step, run: step.run.split(' && ').filter(command => command !== processTreeRun).join(' && ') }
+    : step));
+  const remainingResults = withoutProcessTree.steps.map(() => ({ status: 'pass' }));
+  const withoutProcessTreeSummary = summarize(remainingResults, withoutProcessTree.missing.length > 0);
+  ok('仅移除进程树单测后，同一步的变异运行器仍入选，但必需路径缺失使快基线 INCOMPLETE',
+    J(withoutProcessTree.missing) === J([processTree])
+    && J(withoutProcessTree.steps.find(step => step.index === processTreeStep + 1)?.checks) === J([mutationRunner])
+    && withoutProcessTreeSummary.status === 'INCOMPLETE' && withoutProcessTreeSummary.code === 3
+    && withoutProcessTreeSummary.failed === 0 && withoutProcessTreeSummary.passed === remainingResults.length,
+    { missing: withoutProcessTree.missing, summary: withoutProcessTreeSummary });
+
+  const wrongPath = fastSelection([{ run: 'node --test scripts/other/test-process-tree.test.mjs' }]);
+  ok('相同文件名的其它路径不满足进程树必需项',
+    wrongPath.steps.length === 0 && wrongPath.missing.includes(processTree), wrongPath);
 }
 
 {

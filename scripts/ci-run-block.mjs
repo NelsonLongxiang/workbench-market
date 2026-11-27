@@ -102,10 +102,12 @@ export const SOCKET_ROOT_MAX = 80;
 
 export class UsageError extends Error {}
 
-// 秒级基线按脚本名识别，不依赖步骤编号或可见标题。这里补足不以 -unit.mjs 命名的单测。
+// 秒级基线按 scripts/ 下的相对路径识别。这里补足不以 -unit.mjs 命名的单测。
 const FAST_TESTS = new Set([
   'ci-run-block-test.mjs',
+  'lib/test-process-tree.test.mjs',
   'mcp-service-sqlite-test.mjs',
+  'mutation-run-test.mjs',
   'skill-tool-names-test.mjs',
   'work-item-service-test.mjs',
   'sop-page-path-defense-test.mjs',
@@ -157,7 +159,7 @@ function nodeChecks(run) {
       if (/^(?:-[epic]|--(?:eval|print|interactive|check))(?:=|$)/.test(flag)) { i = args.length; break; }
       if (NODE_VALUE_FLAGS.has(flag)) i++;
     }
-    const script = /^(?:\.\/)?scripts\/([a-zA-Z0-9_-]+\.mjs)$/.exec((args[i] ?? '').replace(/^(['"])(.*)\1$/, '$2'))?.[1];
+    const script = /^(?:\.\/)?scripts\/((?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.mjs)$/.exec((args[i] ?? '').replace(/^(['"])(.*)\1$/, '$2'))?.[1];
     if (!script) continue;
     if (script === 'tech-route-check.mjs' && args.slice(i + 1).includes('--strict')) checks.push(script + ' --strict');
     else if (script.endsWith('-unit.mjs') || FAST_TESTS.has(script)) checks.push(script);
