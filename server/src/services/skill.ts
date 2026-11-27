@@ -4,6 +4,28 @@ import type { SQLInputValue } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { db } from '../db.ts';
 
+/** 删除技能的库行：台账、各版本、技能本身（顺序与原执行体一致） */
+export function deleteSkillRows(skillId: SQLInputValue): void {
+  db.prepare('DELETE FROM install_ledger WHERE skill_id = ?').run(skillId);
+  db.prepare('DELETE FROM skill_versions WHERE skill_id = ?').run(skillId);
+  db.prepare('DELETE FROM skills WHERE id = ?').run(skillId);
+}
+
+/** 清掉在 before（毫秒）之前就过期的下载票 */
+export function purgeDownloadTicketsExpiredBefore(before: number): void {
+  db.prepare('DELETE FROM skill_download_tickets WHERE expires_at < ?').run(before);
+}
+
+/** 记一张下载票 */
+export function insertDownloadTicket(key: string, slug: SQLInputValue, version: SQLInputValue, issuedTo: string, expiresAt: number): void {
+  db.prepare('INSERT INTO skill_download_tickets (id, slug, version, issued_to, expires_at) VALUES (?, ?, ?, ?, ?)').run(key, slug, version, issuedTo, expiresAt);
+}
+
+/** 含二进制的版本不推影子：标 skipped 并写原因（只改还没有 commit_id 的版本行） */
+export function markSkillVersionShadowSkipped(error: string, skillId: SQLInputValue, version: SQLInputValue): void {
+  db.prepare("UPDATE skill_versions SET shadow_status='skipped', shadow_error=? WHERE skill_id=? AND version=? AND commit_id=''").run(error, skillId, version);
+}
+
 export class SkillService extends Service {
   constructor(ctx: any) {
     super(ctx, 'skill');

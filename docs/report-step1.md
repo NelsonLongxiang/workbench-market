@@ -202,7 +202,15 @@ v3 的 `title` 和 `content` 支持以下指令，可按需嵌套。其他 props
 
 ### 3. MCP
 
-照「必须限定到台」的形状加四个工具：`report_generate`（写）、`report_list`、`report_get`（读）、`report_respond`（写）。维度和模板只走 REST（[16](productization/16-progressive-capability-access.md)：领域能力以 REST 声明）。
+台 MCP 支持报告生成、读取与回应。生成前可用三个台级只读工具核对当前配置。
+
+| 工具 | 读取内容 |
+| --- | --- |
+| report_dimension_get | 本台已绑定的报告维度和模板版本清单，含生效版本 |
+| report_template_get | 本台已绑定维度的模板正文和摘要，省略 version 时取生效版 |
+| report_binding_get | 本台当前绑定、模板版本、数据槽，以及停用时的原因 |
+
+三个工具均需给 bench 和 dimension，报告生成授予自动包含同台的预检读取，也可单独授予某个读工具。维度未绑定到本台或属于别的领域时，和无台授予一样拒绝。维度、模板、绑定的写入仍由既有 HTTP 或治理能力办理。
 
 ## 五、对抗用例清单（先红后绿）
 
