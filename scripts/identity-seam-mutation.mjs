@@ -637,7 +637,10 @@ removeTree(OUT);
 try {
   // 绿：没改过的副本，两套都过。先证明「抄一份」这件事本身不会把测试弄红。
   const clean = plant('unchanged', null);
-  for (const script of [CONTRACT, SERVICE, FOLD, SMOKE, FEISHU, OFFBOARD, GRANTS, JUDGE, ZERO]) {
+  // --only is a bounded debug run: prove the exact suites its selected mutants use, not unrelated suites.
+  // The unfiltered integration run retains all original nine baseline suites.
+  const baselineSuites = ONLY ? [...new Set(SELECTED.flatMap(m => m.suites))] : [CONTRACT, SERVICE, FOLD, SMOKE, FEISHU, OFFBOARD, GRANTS, JUDGE, ZERO];
+  for (const script of baselineSuites) {
     const r = await runTwice(script, clean);
     note(r.status === 0, `没改过的副本：${script} 通过`, r.status === 0 ? '' : tailOf(r));
   }
