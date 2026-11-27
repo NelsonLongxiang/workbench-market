@@ -4,6 +4,8 @@
 process.env.TZ = 'Asia/Shanghai';
 import { actionProblem, approvedNotice, needsMigration, DEPT_LEAD_DRAFTED, assignedText, memberlessText, departmentsOf, claimedTeams, emptyText, isAdminView, leadsOf, newDeptProblem, personName, memberLabel, nodeLabel, rosterAt, rosterStaleText, deptLeadText, leadPendingGrantText, reassignHintText, sourceProblem, teamCounts, teamStatusLabel, teamTitle, teamsOf, pendingText, proposedText , proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, claimButtonText, LEAD_SKIPPED_TEXT, teamKey, outcomeLabel, outcomeReasonText, assignOps, assigneeOptions, assignDoneText, unassignConfirmText, ASSIGN_BY_TEXT } from '../web/src/team-view.ts';
 
+import { canOpenSeatSession } from '../web/src/seat-session.ts';
+
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
 const J = (x) => JSON.stringify(x);
@@ -19,6 +21,20 @@ const body = {
 };
 
 const t = teamsOf(body);
+const sessionTeam = t.departments[0].teams[0];
+const sessionMember = { ...sessionTeam.members[0], seat_id: 'stable-seat' };
+const sessionKey = { host: sessionTeam.host, team: sessionTeam.team, seat: sessionMember.seat, seat_id: sessionMember.seat_id };
+const memberMine = { principal: 'user:wang', teams: [], members: [sessionKey] };
+const leadMine = { principal: 'user:zhang', teams: [{ host: sessionTeam.host, team: sessionTeam.team }], members: [] };
+ok('席位会话：本人只进自己的确切席位', canOpenSeatSession(memberMine, sessionTeam, sessionMember)
+  && !canOpenSeatSession(memberMine, sessionTeam, { ...sessionMember, seat_id: 'replacement' })
+  && !canOpenSeatSession(memberMine, { ...sessionTeam, host: 'ffffffff' }, sessionMember));
+ok('席位会话：团队负责人可进组内总工和成员', canOpenSeatSession(leadMine, sessionTeam, sessionTeam.router)
+  && canOpenSeatSession(leadMine, sessionTeam, sessionTeam.members[1]));
+ok('席位会话：不可凭管理权限、待放行或缺失的关系打开', !canOpenSeatSession(null, sessionTeam, sessionMember)
+  && !canOpenSeatSession({ principal: 'user:other', teams: [], members: [] }, { ...sessionTeam, can_assign: true }, sessionMember)
+  && !canOpenSeatSession(leadMine, { ...sessionTeam, leads: [], lead_pending_grant: { principal: 'user:zhang' } }, sessionMember)
+  && !canOpenSeatSession(leadMine, { ...sessionTeam, in_roster: false }, sessionMember));
 ok('整形：坏的部门、团队、成员丢掉，不崩', t.departments.length === 1 && t.departments[0].teams.length === 1 && t.departments[0].teams[0].members.length === 2);
 ok('整形：不是对象、不是数组都按空', J(teamsOf(null)) === '{"departments":[],"unclaimed":null,"can":null}' && teamsOf({ departments: 'x', unclaimed: 'y' }).unclaimed === null);
 ok('管理员视图：应答里有「待认领的团队」这一栏才算（空数组也算）', !isAdminView(t) && isAdminView(teamsOf({ departments: [], unclaimed: [] })));

@@ -23,7 +23,8 @@
   · 不是管理员的视图（应答里没有待认领这一栏）：没有待认领。"""
 import json, os, subprocess, sys, urllib.request
 from datetime import datetime, timedelta, timezone
-from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+from urllib.parse import parse_qs, urlparse
+from playwright.sync_api import expect, sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M, TOK = cfg['base'], cfg['token']
 ok = fail = 0
@@ -425,6 +426,94 @@ with sync_playwright() as p:
     state['teams'] = {'departments': []}
     pg.reload(); pg.wait_for_selector('[data-testid=team-empty]')
     check('没有可见团队时显示整体空态', pg.locator('[data-testid=team-empty]').inner_text() == '还没有你能看到的团队。')
+    # 独立的同源业务会话夹具：沿正常团队页入口点击，核对每一条 API 调用。
+    session_team = claimed('合成运营部')
+    session_team['members'][0]['seat_id'] = 'synthetic-seat'
+    session_key = {k: session_team[k] for k in ('host', 'team')}
+    seat_key = dict(session_key, seat='ops/00000001', seat_id='synthetic-seat')
+    state['teams'] = {'departments': [{'id': 'synthetic-ops', 'name': '合成运营部', 'teams': [session_team]}]}
+    mine = {'principal': 'user:bing', 'teams': [], 'members': [seat_key]}
+    requests = []
+    session_state = {'mode': 'ready'}
+    pg.route('**/api/teams/mine', lambda r: fake(r, mine))
+
+    def on_session(r):
+        assert 'x-admin-token' not in r.request.headers and 'authorization' not in r.request.headers
+        if r.request.method == 'POST':
+            payload = r.request.post_data_json
+            requests.append(('write', payload))
+            if session_state['mode'] == 'denied':
+                return fake(r, {'ok': False, 'code': 'node_refused', 'error': '节点没有批准本次操作'}, 403)
+            action = payload['action']
+            return fake(r, {'ok': True, 'stopped': True} if action == 'stop' else {'ok': True, 'delivered': {'steer': 'steered', 'queue': 'queued'}[action]})
+        query = parse_qs(urlparse(r.request.url).query)
+        requests.append(('read', query))
+        if session_state['mode'] == 'off':
+            return fake(r, {'ok': False, 'code': 'outbound_off', 'error': '对外已断开'}, 503)
+        if 'before' in query:
+            return fake(r, {'ok': True, 'from': 0, 'to': 1, 'total': 2, 'stale': True, 'entries': [{'i': 0, 'role': 'user', 'text': '合成旧消息'}]})
+        return fake(r, {'ok': True, 'from': 1, 'to': 2, 'total': 2, 'stale': False, 'entries': [{'i': 1, 'role': 'assistant', 'text': '<b>合成最新消息</b>'}]})
+
+    pg.route('**/api/teams/seat-session*', on_session)
+    pg.reload()
+    entrance = pg.get_by_test_id('team-seat-session-open')
+    expect(entrance).to_have_count(1)
+    check('席位会话入口仅在分配本人那一张卡，未点击不读会话', requests == [] and pg.get_by_test_id('team-member').first.locator('[data-testid=team-seat-session-open]').count() == 1)
+    entrance.click()
+    panel = pg.get_by_test_id('seat-session-panel')
+    latest = panel.get_by_test_id('seat-session-entry')
+    expect(latest).to_contain_text('<b>合成最新消息</b>')
+    check('会话内容按纯文本呈现，读取原席位键和最新页', latest.locator('b').count() == 0 and requests[-1] == ('read', {**{k: [v] for k, v in seat_key.items()}, 'limit': ['20'], 'chars': ['4000']}))
+    panel.get_by_role('button', name='更早').click()
+    expect(latest).to_contain_text('合成旧消息')
+    expect(panel.get_by_text('节点返回的是旧内容，可刷新查看。')).to_be_visible()
+    check('席位会话向前翻页用 before=from，范围可见', requests[-1][1]['before'] == ['1'] and panel.get_by_test_id('seat-session-range').inner_text() == '第 1–1 条，共 2 条')
+    panel.get_by_role('button', name='较新一页').click()
+    expect(latest).to_contain_text('合成最新消息')
+    check('较新一页回到最新，切换时没有写请求', 'before' not in requests[-1][1] and all(k == 'read' for k, _ in requests))
+
+    entry_text = panel.get_by_role('textbox', name='发给席位的内容')
+    for label, value, feedback in [('发给当前轮', '合成当前轮输入', '已发给当前轮'), ('加入队列', '合成队列输入', '已加入队列')]:
+        entry_text.fill(value)
+        panel.get_by_role('button', name=label).click()
+        expect(panel.get_by_test_id('seat-session-action-result')).to_contain_text(feedback)
+        expect(entry_text).to_have_value('')
+    panel.get_by_role('button', name='停止当前轮').click()
+    check('停止席位会话需要明确确认', len([1 for k, _ in requests if k == 'write']) == 2)
+    pg.get_by_role('button', name='停止', exact=True).click()
+    expect(panel.get_by_test_id('seat-session-action-result')).to_contain_text('队列保留')
+    writes = [v for k, v in requests if k == 'write']
+    check('每次仅发一次写请求，ID 各不相同，停止不附正文', [v['action'] for v in writes] == ['steer', 'queue', 'stop']
+          and len({v['request_id'] for v in writes}) == 3 and [v.get('text') for v in writes] == ['合成当前轮输入', '合成队列输入', None]
+          and all(all(v[k] == val for k, val in seat_key.items()) for v in writes))
+
+    session_state['mode'] = 'denied'
+    entry_text.fill('合成被拒内容')
+    panel.get_by_role('button', name='加入队列').click()
+    expect(panel.get_by_test_id('seat-session-action-result')).to_contain_text('节点没有批准本次操作')
+    check('节点拒绝后不重复发送，正文已清出，保留未发送输入', len([1 for k, _ in requests if k == 'write']) == 4
+          and latest.count() == 0 and entry_text.input_value() == '合成被拒内容' and entry_text.is_disabled())
+    pg.keyboard.press('Escape')
+    expect(panel).to_have_count(0)
+    session_state['mode'] = 'off'
+    entrance.click()
+    expect(panel.get_by_test_id('seat-session-read-error')).to_contain_text('对外已断开')
+    check('预发对外关闭时显示明确原因且不提供可用写操作', panel.get_by_role('button', name='停止当前轮').is_disabled() and entry_text.is_disabled())
+    pg.locator('.ant-drawer-close').click()
+    expect(panel).to_have_count(0)
+
+    mine.update(principal='user:yi', members=[], teams=[session_key])
+    pg.reload()
+    expect(entrance).to_have_count(3)
+    check('有效负责人视图中成员和总工卡均有入口', pg.get_by_test_id('team-router').get_by_test_id('team-seat-session-open').count() == 1)
+    mine.update(principal='user:outsider', members=[], teams=[])
+    session_team['can_assign'] = True
+    before_requests = len(requests)
+    with pg.expect_response('**/api/teams/mine'):
+        pg.reload()
+    expect(pg.get_by_test_id('team-member')).to_have_count(2)
+    expect(entrance).to_have_count(0)
+    check('没有席位或负责关系的人即使能分配也看不到入口，也没有会话请求', len(requests) == before_requests)
     b.close()
 
 print(f'team-browser: {ok} 过 / {fail} 败')
