@@ -36,6 +36,7 @@ import { AreaAccessService } from './services/area-access.ts';
 import { ReportDimensionService } from './services/report-dimension.ts';
 import { ReportGovernanceProposalService } from './services/report-governance-proposal.ts';
 import { TeamService } from './services/team.ts';
+import { SeatSessionService } from './services/seat-sessions.ts';
 import { SetupWizardService } from './services/setup-wizard.ts';
 import { RelationProposalService } from './services/relation-proposal.ts';
 import { KnowledgeService } from './services/knowledge.ts';
@@ -85,6 +86,7 @@ await Promise.all([
   ReportDimensionService,
   ReportGovernanceProposalService,
   TeamService,
+  SeatSessionService,
   SetupWizardService,
   RelationProposalService,
   KnowledgeService,
