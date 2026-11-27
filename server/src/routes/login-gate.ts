@@ -72,7 +72,8 @@ export function registerLoginGateRoutes(app: HttpService, routeDeps: LoginGateRo
       res.setHeader('Cache-Control', 'private, no-store');
       res.vary('Cookie');
       const id = await identity(req);
-      if (deps.mode === 'enforce' && sourceUnavailable(req)) {
+      // 会话观察器显式要求区分暂时不可用。普通 auth/me 保持旧应答。
+      if (req.query.session_check === '1' && deps.mode === 'enforce' && sourceUnavailable(req)) {
         return res.status(502).json({ error: IDENTITY_UNAVAILABLE, message: '登录服务暂时联系不上，稍后再试' });
       }
       // 只有认出了人（市场会话、身份来源）才有主体和角色；口令、本机命令行、没登录：principal 为 null、roles 为空

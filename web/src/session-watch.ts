@@ -106,7 +106,7 @@ export function installSessionWatch(onLost: () => void): void {
   const raw = window.fetch.bind(window);
   const origin = window.location.origin;
   const ask = async () => {
-    const r = await raw('/api/auth/me', { cache: 'no-store', credentials: 'same-origin', headers: { Accept: 'application/json' } });
+    const r = await raw('/api/auth/me?session_check=1', { cache: 'no-store', credentials: 'same-origin', headers: { Accept: 'application/json' } });
     const body = await r.json().catch(() => null);
     // auth/me 允许匿名读取。enforce 下明确未登录的 200 也说明需要登录。
     if (loginRequired(r) || (r.ok && body?.gate === 'enforce' && body.authenticated === false)) redirectToLogin();

@@ -100,7 +100,7 @@ with sync_playwright() as p:
         login(page, tok)
         page.wait_for_url(base + '/market', timeout=10000)
         page.route('**/api/fixture-admin-probe', lambda route: route.fulfill(status=401, content_type='application/json', body='{"error":"admin_token_required"}'))
-        with page.expect_response(lambda response: response.url.endswith('/api/auth/me') and response.ok):
+        with page.expect_response(lambda response: response.url.endswith('/api/auth/me?session_check=1') and response.ok):
             status = page.evaluate("() => fetch('/api/fixture-admin-probe').then(r => r.status)")
         ok('⑥ 无登录标记的管理口令 401 不跳页', status == 401 and page.url == base + '/market', page.url)
         ctx.clear_cookies()
@@ -113,7 +113,7 @@ with sync_playwright() as p:
         nested = page.frame_locator(f'iframe[src^="/go/{wid}/"]').locator('#out[data-done="1"]')
         nested.wait_for(state='attached', timeout=15000)
         child = next(f for f in page.frames if f'/go/{wid}/~wm/' in f.url)
-        with page.expect_response(lambda response: response.url.endswith('/api/auth/me') and response.ok):
+        with page.expect_response(lambda response: response.url.endswith('/api/auth/me?session_check=1') and response.ok):
             child.evaluate("() => parent.postMessage('wm-app-login-check', new URL(location.href).origin)")
         ok('⑥ 登录有效时，受管台页只触发重新核对，不跳页', page.url == f'{base}/use/{wid}', page.url)
         ctx.clear_cookies()
