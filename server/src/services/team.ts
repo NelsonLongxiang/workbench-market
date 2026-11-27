@@ -27,7 +27,7 @@
  */
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
-import { rosters, activeItemsBySeat, LISTED_ROSTERS_SQL, rosterTeamLabels, teamName, type RosterSeat } from './a2a-roster.ts';
+import { rosters, LISTED_ROSTERS_SQL, rosterTeamLabels, teamName, type RosterSeat } from './a2a-roster.ts';
 import { leadGrantActive } from './dept-lead-grant.ts';
 import { boundSql } from './team-binding-sql.ts';
 
@@ -44,7 +44,7 @@ export type TeamRefusal = { ok: false; http: 400 | 403 | 404 | 409 | 422; code: 
 export type Lead = { principal: string; display_name: string; source: 'explicit' | 'department' };
 export type Member = {
   seat: string; seat_id: string; name: string; role: string; online: boolean; router: boolean;
-  assigned_to: { principal: string; display_name: string } | null; active_items: number;
+  assigned_to: { principal: string; display_name: string } | null; active_items: number | null; queued: number;
 };
 /** 名册多久没更新算停推（分钟）：WM_ROSTER_STALE_MINUTES，缺省 60，1～10080 的整数；别的值返回 null（启动时拒绝） */
 export function rosterStaleMinutesFromEnv(env: NodeJS.ProcessEnv = process.env): number | null {
@@ -462,7 +462,6 @@ export class TeamService extends Service {
     const keys = new Map<string, TeamKey>();
     for (const t of roster.values()) keys.set(tkey(t.host, t.team), { host: t.host, team: t.team });
     for (const r of regs) if (r.claimed) keys.set(tkey(r.host, r.team), { host: r.host, team: r.team });
-    const items = activeItemsBySeat();
     const deptName = new Map((db.prepare('SELECT id, name FROM departments').all() as { id: string; name: string }[]).map((d) => [d.id, d.name]));
     const areaById = new Map((db.prepare('SELECT id, name, status FROM areas').all() as NonNullable<TeamView['area']>[]).map((area) => [area.id, area]));
     const labels = new Map(rosterTeamLabels().map((row) => [tkey(row.host, row.team), row.label]));
@@ -475,7 +474,7 @@ export class TeamService extends Service {
         return {
           seat: s.seat, seat_id: s.seat_id, name: s.name, role: s.role, online: s.online, router: s.role === 'router',
           assigned_to: a ? { principal: a.principal_id, display_name: this.displayName(a.principal_id) } : null,
-          active_items: items.get(s.seat) ?? 0,
+          active_items: s.active, queued: s.queued,
         };
       });
       out.push({

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /** 驾驶舱「AI 员工」的纯函数单测（web/src/ai-staff-view.ts）：分给我的成员、我负责的团队、忙闲的说法、点进去的地址。全是合成值。 */
-import { busyText, ledTeams, myStaff, staffCard, staffLink } from '../web/src/ai-staff-view.ts';
+import { busyText, ledTeams, myStaff, sessionLoadedText, staffCard, staffLink } from '../web/src/ai-staff-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -18,6 +18,9 @@ const mine = { principal: 'person:pm-a', teams: [], members: [
   ok('读坏了不崩', myStaff(null).length === 0 && myStaff({ members: 'x' }).length === 0 && staffCard({ name: 'x' }) === null);
 }
 ok('忙闲：说的是这个成员一共多忙，不叫「你的」', busyText(3) === '手上在办 3 件' && busyText(0) === '手上没有在办的' && !busyText(3).includes('你'));
+ok('未上报与明确 0 分开，排队不是在办', staffCard({ seat: 'a/1', queued: 5 })?.active === null
+  && staffCard({ seat: 'a/1', queued: 5 })?.queued === 5 && busyText(null) === '在办数未上报');
+ok('在线表示宿主已经加载会话', sessionLoadedText(true) === '会话已在宿主加载' && sessionLoadedText(false) === '会话未在宿主加载');
 ok('点进去：事项列表「我的 AI 员工手上的」视角，按席位筛（有 seat_id 用它）', staffLink({ seat: 'zone/0a1b2c3d', seat_id: 's-1' }) === '/work-items?view=seats&seat=s-1'
   && staffLink({ seat: 'zone/0a1b2c3d', seat_id: '' }) === '/work-items?view=seats&seat=zone%2F0a1b2c3d');
 {

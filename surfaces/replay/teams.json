@@ -75,7 +75,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "986", "etag": "W/\"3da-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1014", "etag": "W/\"3f6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "roster_stale_minutes": 60,
               "can": { "claim": true, "propose_claim": false, "release": true, "add_lead": true, "propose_lead": false, "manage_leads": true, "manage_departments": true },
@@ -88,8 +88,8 @@
                   "in_roster": true,
                   "department": null,
                   "leads": [],
-                  "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": 0 },
-                  "members": [{ "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "name": "合成成员", "role": "member", "online": true, "router": false, "assigned_to": null, "active_items": 0 }],
+                  "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": null, "queued": 0 },
+                  "members": [{ "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "name": "合成成员", "role": "member", "online": true, "router": false, "assigned_to": null, "active_items": null, "queued": 0 }],
                   "lead_pending_grant": null,
                   "roster_stale": false,
                   "roster_stale_for_minutes": null,
@@ -114,7 +114,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "986", "etag": "W/\"3da-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1014", "etag": "W/\"3f6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "roster_stale_minutes": 60,
               "can": { "claim": true, "propose_claim": false, "release": true, "add_lead": true, "propose_lead": false, "manage_leads": true, "manage_departments": true },
@@ -127,8 +127,8 @@
                   "in_roster": true,
                   "department": null,
                   "leads": [],
-                  "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": 0 },
-                  "members": [{ "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "name": "合成成员", "role": "member", "online": true, "router": false, "assigned_to": null, "active_items": 0 }],
+                  "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": null, "queued": 0 },
+                  "members": [{ "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "name": "合成成员", "role": "member", "online": true, "router": false, "assigned_to": null, "active_items": null, "queued": 0 }],
                   "lead_pending_grant": null,
                   "roster_stale": false,
                   "roster_stale_for_minutes": null,
@@ -423,7 +423,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "1324", "etag": "W/\"52c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "1352", "etag": "W/\"548-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "roster_stale_minutes": 60,
               "can": { "claim": false, "propose_claim": false, "release": false, "add_lead": false, "propose_lead": false, "manage_leads": false, "manage_departments": false },
@@ -440,8 +440,20 @@
                       "in_roster": true,
                       "department": { "id": "sales", "name": "合成销售部" },
                       "leads": [{ "principal": "user:alpha", "display_name": "合成甲", "source": "explicit" }, { "principal": "user:beta", "display_name": "合成乙", "source": "department" }],
-                      "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": 0 },
-                      "members": [{ "seat": "zone1/0000000b", "seat_id": "seat-0000000b", "name": "合成成员", "role": "member", "online": true, "router": false, "assigned_to": { "principal": "user:beta", "display_name": "合成乙" }, "active_items": 0 }],
+                      "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": null, "queued": 0 },
+                      "members": [
+                        {
+                          "seat": "zone1/0000000b",
+                          "seat_id": "seat-0000000b",
+                          "name": "合成成员",
+                          "role": "member",
+                          "online": true,
+                          "router": false,
+                          "assigned_to": { "principal": "user:beta", "display_name": "合成乙" },
+                          "active_items": null,
+                          "queued": 0
+                        }
+                      ],
                       "lead_pending_grant": null,
                       "roster_stale": false,
                       "roster_stale_for_minutes": null,
@@ -467,7 +479,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "598", "etag": "W/\"256-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "626", "etag": "W/\"272-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "principal": "user:beta",
               "members": [
@@ -483,7 +495,8 @@
                   "online": true,
                   "router": false,
                   "assigned_to": { "principal": "user:beta", "display_name": "合成乙" },
-                  "active_items": 0
+                  "active_items": null,
+                  "queued": 0
                 }
               ],
               "teams": [
@@ -492,7 +505,7 @@
                   "team": "zone1/canvas/Sales Team",
                   "name": "Sales Team",
                   "status": "active",
-                  "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": 0 }
+                  "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": null, "queued": 0 }
                 }
               ]
             }
@@ -507,7 +520,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "598", "etag": "W/\"256-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "626", "etag": "W/\"272-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "principal": "user:beta",
               "members": [
@@ -523,7 +536,8 @@
                   "online": true,
                   "router": false,
                   "assigned_to": { "principal": "user:beta", "display_name": "合成乙" },
-                  "active_items": 0
+                  "active_items": null,
+                  "queued": 0
                 }
               ],
               "teams": [
@@ -532,7 +546,7 @@
                   "team": "zone1/canvas/Sales Team",
                   "name": "Sales Team",
                   "status": "active",
-                  "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": 0 }
+                  "router": { "seat": "zone1/0000000a", "seat_id": "seat-0000000a", "name": "合成总工", "role": "router", "online": true, "router": true, "assigned_to": null, "active_items": null, "queued": 0 }
                 }
               ]
             }

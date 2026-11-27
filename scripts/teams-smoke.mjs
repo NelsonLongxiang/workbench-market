@@ -101,6 +101,7 @@ try {
   seatIns.run(HOST, TEAM, ROUTER.seat, ROUTER.seat_id, '合成总工', 'router', now, now);
   seatIns.run(HOST, TEAM, MEMBER.seat, MEMBER.seat_id, '合成成员甲', 'member', now, now);
   seatIns.run(HOST, TEAM, LEGACY.seat, '', '合成成员乙', 'member', now, now);
+  db.prepare('UPDATE a2a_roster_node_seats SET active = ?, queued = ? WHERE host = ? AND team = ? AND seat = ?').run(4, 2, HOST, TEAM, MEMBER.seat);
   seatIns.run(HOST, OTHER, 'zone1/0000000d', 'seat-0000000d', '合成别队', 'router', now, now);
   seatIns.run(HOST, OTHER, 'zone1/0000000e', 'seat-0000000e', '合成别队成员', 'member', now, now);
   db.exec("INSERT INTO work_items (id, title, created_by, creator_principal, source_kind, seat) VALUES ('wi_team_canary', 'CANARY-TEAM-ITEM-TITLE', 'user:alpha', 'user:alpha', 'agent', 'zone1/0000000b')");
@@ -316,9 +317,12 @@ try {
     const mine = await srv.call('GET', '/api/teams/mine', as(SESSIONS.alpha));
     const list = await srv.call('GET', '/api/teams', as(SESSIONS.alpha));
     const memberA = list.json?.departments?.[0]?.teams?.[0]?.members?.find((m) => m.seat === MEMBER.seat);
+    const mineA = mine.json?.members?.find((m) => m.seat === MEMBER.seat);
+    const mineLegacy = mine.json?.members?.find((m) => m.seat === LEGACY.seat);
     check(mine.status === 200 && show(mine.json.members.map((m) => m.seat).sort()) === show([MEMBER.seat, LEGACY.seat].sort()) && mine.json.teams.length === 1 && mine.json.teams[0].router?.seat === ROUTER.seat
-      && memberA?.active_items === 1 && !list.text.includes('CANARY-TEAM-ITEM') && !mine.text.includes('CANARY-TEAM-ITEM'),
-      '「我的 AI 员工」：分给我的两个成员，加上我负责的团队和它的总工；成员卡带在办几件（计数），事项内容一个字不出', show({ mine: mine.json, items: memberA?.active_items }));
+      && memberA?.active_items === 4 && memberA.queued === 2 && mineA?.active_items === 4 && mineA.queued === 2
+      && mineLegacy?.active_items === null && !list.text.includes('CANARY-TEAM-ITEM') && !mine.text.includes('CANARY-TEAM-ITEM'),
+      '「我的 AI 员工」：分给我的两个成员，加上我负责的团队和它的总工；两入口用节点上报的在办与排队，旧席位为 null，不重复计市场事项、不出事项内容', show({ mine: mine.json, items: memberA?.active_items }));
   }
 
   // ---------- 八、关系函数 ----------

@@ -2,11 +2,13 @@
  * 「团队」页（规范 14 第一、二、五、十节；骨架和密度照产品化原型 3fbfd0b 的 #/team）的判断逻辑：
  * 团队状态、负责人、成员分配给谁怎么说，读不到时怎么说，部门标识的校验。纯函数，不碰 React；页面在 pages/team/Team.tsx。
  *
- * 只能 import type：scripts/team-ui-unit.mjs 用 Node 直接加载这个文件。
+ * scripts/team-ui-unit.mjs 用 Node 直接加载本文件及名册整形函数。
  * 不露代号：节点的标识、团队和席位的句柄都不显示；成员有名字只写名字，查不到名字才用句柄。
  *
  * 接口 GET /api/teams 已经按看的人裁好（部门 → 团队 → 成员；待认领的单列，只给管理员），这里只整形、不拼部门和名册、不判谁能做什么。
  */
+
+import { rosterCount } from './ai-staff-view.ts';
 
 export type Tone = 'success' | 'warning' | 'danger' | 'default';
 export type TeamStatus = 'unclaimed' | 'off-roster' | 'node-changed' | 'lead-vacant' | 'active';
@@ -16,7 +18,7 @@ export interface Lead extends Person { source: 'explicit' | 'department' | strin
 export interface DeptLead extends Person { pending: boolean }
 export interface Member {
   seat: string; seat_id: string; name: string; role: string; online: boolean; router: boolean;
-  assigned_to: Person | null; active_items: number;
+  assigned_to: Person | null; active_items: number | null; queued: number;
 }
 export interface Team {
   host: string; team: string; name: string; status: TeamStatus | string; in_roster: boolean;
@@ -60,7 +62,7 @@ function memberOf(v: unknown): Member | null {
     seat: m.seat, seat_id: typeof m.seat_id === 'string' ? m.seat_id : '', name: typeof m.name === 'string' ? m.name : '', role: typeof m.role === 'string' ? m.role : '',
     online: m.online === true, router: m.router === true,
     assigned_to: a && typeof a.principal === 'string' ? { principal: a.principal, display_name: typeof a.display_name === 'string' ? a.display_name : '' } : null,
-    active_items: typeof m.active_items === 'number' && Number.isFinite(m.active_items) && m.active_items > 0 ? Math.floor(m.active_items) : 0,
+    active_items: rosterCount(m.active_items), queued: rosterCount(m.queued) ?? 0,
   };
 }
 /** 名册收到的时刻：ISO 时刻，或者毫秒数（数字或数字串）；都不是返回 null。
@@ -268,10 +270,11 @@ export function leadsOf(t: Pick<Team, 'leads'>): { name: string; viaDepartment: 
   return out;
 }
 
-/** 团队头卡上的两个数：几个成员（不算总工）、几件在办（总工和成员合计） */
-export function teamCounts(t: Pick<Team, 'members' | 'router'>): { members: number; active: number } {
-  const n = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
-  return { members: t.members.length, active: t.members.reduce((s, m) => s + n(m.active_items), 0) + n(t.router?.active_items) };
+/** 团队合计包括总工和成员。只要有席位未上报，就没有完整的合计。 */
+export function teamCounts(t: Pick<Team, 'members' | 'router'>): { members: number; active: number | null } {
+  const counts = (t.router ? [t.router, ...t.members] : t.members).map(m => rosterCount(m.active_items));
+  const active = counts.reduce<number | null>((total, count) => total === null || count === null ? null : total + count, 0);
+  return { members: t.members.length, active };
 }
 
 /** 团队下面没有成员时怎么说：不在名册的说已经不在名册了，别的说名册里还没有成员 */

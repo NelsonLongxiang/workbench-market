@@ -1674,6 +1674,8 @@ if (!rosterNodesExisted) {
 addColumnIfMissing('a2a_roster_node_seats', "team_label TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing('a2a_roster_changes', "peer_root TEXT NOT NULL DEFAULT ''");
 addColumnIfMissing('a2a_roster_changes', "key_fingerprint TEXT NOT NULL DEFAULT ''");
+// 旧名册没有 reported active；保留 NULL，直到节点下次上报。
+addColumnIfMissing('a2a_roster_node_seats', 'active INTEGER');
 // 按 host 匹配只认这个视图里的行：没标 needs_review（表约束保证这样的行都带成形的完整指纹）、对端没停用也不在等确认新键、
 // 记着的完整指纹就是此刻钉住的那把（对端还没钉住键、或者没登记的照旧算），而且同一个 host 下这样的行只有一行——
 // 两个节点报了同一个 host（指纹前 8 位撞了），两行都不算，等管理员停用其中一个

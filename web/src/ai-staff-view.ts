@@ -1,9 +1,9 @@
-/** 驾驶舱右栏「AI 员工」的纯函数（不碰 React、不引别的文件，scripts/ai-staff-ui-unit.mjs 直接测）。
+/** 驾驶舱右栏「AI 员工」的纯函数（scripts/ai-staff-ui-unit.mjs 直接测）。
  *  数据：GET /api/teams/mine 的 members（分给我的成员）；负责人另从 GET /api/teams 里挑出自己负责的团队的成员。
  *  卡上写「手上在办 N 件」——那是这个成员一共多忙（active_items 按席位数），不叫「你的」；
  *  点进去是事项列表「我的 AI 员工手上的」视角按这个席位筛，那里只算你交给它的（协调裁定 2026-11-12）。 */
 
-export type StaffCard = { key: string; seat: string; seat_id: string; name: string; team: string; online: boolean; active: number; initial: string };
+export type StaffCard = { key: string; seat: string; seat_id: string; name: string; team: string; online: boolean; active: number | null; queued: number; initial: string };
 export type LedTeam = { key: string; name: string; members: StaffCard[] };
 
 const obj = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : null);
@@ -21,8 +21,9 @@ export function staffCard(m: unknown, team = '', given = ''): StaffCard | null {
   if (!o || !str(o.seat)) return null;
   const seat = str(o.seat);
   const name = clean(str(o.name)) || seat;
-  const active = typeof o.active_items === 'number' && Number.isFinite(o.active_items) && o.active_items > 0 ? Math.floor(o.active_items) : 0;
-  return { key: `${seat}#${str(o.seat_id)}`, seat, seat_id: str(o.seat_id), name, team: teamName(str(o.team) || team, str(o.team_name) || given), online: o.online === true, active, initial: Array.from(name)[0] ?? '?' };
+  const active = rosterCount(o.active_items);
+  const queued = rosterCount(o.queued) ?? 0;
+  return { key: `${seat}#${str(o.seat_id)}`, seat, seat_id: str(o.seat_id), name, team: teamName(str(o.team) || team, str(o.team_name) || given), online: o.online === true, active, queued, initial: Array.from(name)[0] ?? '?' };
 }
 
 /** 分给我的成员（/api/teams/mine 的 members） */
@@ -46,8 +47,11 @@ export function ledTeams(teams: unknown, me: string, mineKeys: Set<string> = new
   return out;
 }
 
-/** 卡上的忙闲：这个成员一共多忙，不是「你交给它的」 */
-export const busyText = (active: number): string => (active > 0 ? `手上在办 ${active} 件` : '手上没有在办的');
+/** 0 是节点明确上报；缺字段的旧应答保持未知。 */
+export const rosterCount = (value: unknown): number | null => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+
+export const busyText = (active: number | null): string => active === null ? '在办数未上报' : active > 0 ? `手上在办 ${active} 件` : '手上没有在办的';
+export const sessionLoadedText = (online: boolean): string => online ? '会话已在宿主加载' : '会话未在宿主加载';
 
 /** 点卡去哪：事项列表「我的 AI 员工手上的」视角，按席位筛（有 seat_id 用它，没有用句柄） */
 export function staffLink(c: Pick<StaffCard, 'seat' | 'seat_id'>): string {

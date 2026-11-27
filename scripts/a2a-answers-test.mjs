@@ -725,7 +725,7 @@ try {
       { seat: 'lab/d4d4d4d4', name: '挂在别的区团队上', team: 'other/canvas/x', role: 'member', online: true },
       { seat: 'lab/not-hex!', name: '句柄不合形状', team: 'lab/canvas/team', role: 'member', online: true },
     ];
-    // 在办件数从事项现算：把一件没结束的事项的承接设成成员甲
+    // 市场有一件对应事项；它不能和节点上报的九件相加。
     await receipt(R0.task, '接下', { idempotencyKey: R0.task, disposition: 'acknowledged' }, R0.ctx, { inbound: `ack-${R0.task}` });
     { const d = db(); try { d.prepare('UPDATE work_items SET seat = ? WHERE id = ?').run('lab/a1a1a1a1', `wi_${R0.ev}`); } finally { d.close(); } }
     let raw = rosterRaw(LABFP, at1, { host: LABFP, at: at1, seats }, 'roster-abcdef01-1');
@@ -736,7 +736,10 @@ try {
     const sa = team?.seats?.find((x) => x.seat === 'lab/a1a1a1a1');
     ok('读接口：团队、名字、在岗数；席位的名字、角色（认不出的置空）、在岗', team && team.name === 'team' && team.peer_zone === 'lab' && team.seats_online === 2 && team.seats.length === 3
       && team.seats.find((x) => x.seat === 'lab/b2b2b2b2')?.role === '' && sa?.name === '成员甲' && sa?.role === 'member', JSON.stringify(t1.body));
-    ok('……在办件数从事项现算（不用宿主报的 9）；稳定的 seat_id 照收（没带的是空）', sa?.active === 1 && sa?.queued === 2 && sa?.seat_id === 'seat-a1' && team.seats.find((x) => x.seat === 'lab/00000000')?.seat_id === '', JSON.stringify(sa));
+    ok('席位在办数以名册为准，市场已有事项不重复计数；排队与稳定 ID 保留',
+      sa?.active === 9 && sa?.queued === 2 && sa?.seat_id === 'seat-a1' && team.seats.find((x) => x.seat === 'lab/00000000')?.seat_id === '', JSON.stringify(sa));
+    ok('名册显式 0 与旧节点省略 active 分开',
+      team?.seats?.find((x) => x.seat === 'lab/00000000')?.active === 0 && team?.seats?.find((x) => x.seat === 'lab/b2b2b2b2')?.active === null, JSON.stringify(team?.seats));
     raw = rosterRaw(LABFP, '2026-11-11T08:00:00.000Z', { host: LABFP, at: '2026-11-11T08:00:00.000Z', seats: [{ seat: 'lab/e5e5e5e5', name: '旧的', team: 'lab/canvas/team', role: 'member', online: true }] }, 'roster-abcdef01-0');
     r = await post(raw, signed(lab, raw));
     ok('更早的名册 → stale，不覆盖', r.text.includes('"roster":"stale"') && !(await api('GET', '/api/a2a/teams')).body?.teams?.some((t) => t.seats.some((x) => x.seat === 'lab/e5e5e5e5')), r.text);
@@ -747,10 +750,13 @@ try {
     raw = rosterRaw(LABFP, at2, { host: LABFP, at: at2, seats: [
       { seat: 'lab/a1a1a1a1', name: '成员甲', team: 'lab/canvas/team', role: 'router', online: true },
       { seat: 'lab/00000000', name: '原总工', team: 'lab/canvas/team', role: 'member', online: true },
-      { seat: 'lab/c5c5c5c5', name: '新来的', team: 'lab/canvas/team', role: 'member', online: true },
+      { seat: 'lab/c5c5c5c5', name: '新来的', team: 'lab/canvas/team', role: 'member', online: true, active: -1 },
       { seat: 'lab/d6d6d6d6', name: '另一个团队的', team: 'lab/canvas/other', role: 'router', online: true },
     ] }, 'roster-abcdef01-4');
     r = await post(raw, signed(lab, raw));
+    const newerSeats = (await api('GET', '/api/a2a/teams')).body?.teams?.find((t) => t.team === 'lab/canvas/team')?.seats;
+    ok('较新名册省略 active 时清除旧上报值，非法数值也按未上报',
+      newerSeats?.find((x) => x.seat === 'lab/a1a1a1a1')?.active === null && newerSeats?.find((x) => x.seat === 'lab/c5c5c5c5')?.active === null, JSON.stringify(newerSeats));
     const ch2 = changes().slice(4).map((c) => [c.kind, c.team, c.seat]);
     ok('名册变化：新团队、新成员、成员消失、换总工各记一行', r.text.includes('"roster":"recorded"') && JSON.stringify(ch2) === JSON.stringify([
       ['team-added', 'lab/canvas/other', ''], ['seat-added', 'lab/canvas/team', 'lab/c5c5c5c5'], ['seat-added', 'lab/canvas/other', 'lab/d6d6d6d6'],

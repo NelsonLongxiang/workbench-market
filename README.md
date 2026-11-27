@@ -483,7 +483,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   a2a-peers.ts（对端登记表：Cordis 服务 `a2aPeers`·一个节点一行·登记时取名片验签钉住公钥·公钥变了改成 key_changed 等管理员确认、不自动接受·停用是粘住的、只有管理员重新启用能解·canDeliver 供投递查（调用方阶段七接上，接上前对投递、入站没有效果）·按对端算健康·升级回填从现有绑定和投递建对端行）
   a2a-decision-cards.ts（团队的决策卡：信封的形状、落库（按 rev 只收更大的，decided/dropped 是终态、之后再来「建立」不复活）、团队在不在签名宿主名册里、给「关注」列出还在等的卡（a2a-decisions，只给属主和本机命令行））
   a2a-receipts.ts（回执入站的登记：我们发出的任务号 → 事件、投递、对端；采信过的回执按任务号去重；签名只认一次）
-  a2a-roster.ts（团队名册：每台宿主一行、席位按「节点 + 团队 + 句柄」一行，以新替旧；入库时算出变化（新团队、新成员、成员消失、团队消失、换总工）记进 a2a_roster_changes；在办件数从事项现算；只当信息）
+  a2a-roster.ts（团队名册：每台宿主一行、席位按「节点 + 团队 + 句柄」一行，以新替旧；入库时算出变化（新团队、新成员、成员消失、团队消失、换总工）记进 a2a_roster_changes；在办和排队数来自节点名册，旧节点的在办数显示「未上报」；只当信息）
   a2a-replies.ts（市场回给团队的消息的发送状态：答复、来信回复、跟进回执；时间由代码生成后写入）
   seat-tokens.ts（席位用节点签名换 1 小时的 MCP 令牌（设计和给节点侧的格式见 [docs/seat-token-exchange.md](docs/seat-token-exchange.md)）：按钉住的节点公钥验签（指纹 = 名册的 host）、核节点 active 和名册里的席位、签名只认一次；令牌只存 sha256、不续期，每次调用复核席位和节点；每个席位一个长期的授权主体（mcp_sessions 一行），grants 和按台批的授予挂在它上面，跨令牌轮换保留）
   a2a-stats.ts（A2A 出站积压的聚合读数：两张出站表按状态计数、最老待发、最近回执时长）
@@ -589,7 +589,7 @@ server/src/routes/    按域分的路由模块，各带一个注册函数（一�
   types.ts（类型管理 /api/types）
   relations.ts（关系的提议 /api/relations/proposals：列表（每条带 can_approve）、确认、驳回；确认人大多不是管理员，写请求总门放行这两条，路由内认人）
   seat-token.ts（席位换令牌 POST /api/a2a/seat-token：节点宿主用节点私钥签，换一张 1 小时的 MCP 令牌，只放宿主内存、代成员调用；拒的一律同一个 401，按来源和按席位限频；不往外发请求，不认 X-Team-Seat）
-  a2a-roster.ts（团队名册的读 GET /api/a2a/teams：登录即可读，只有席位信息（团队、席位名、角色、在岗、在办件数从事项现算），不含事项内容；名册只当信息，判定一律不看它）
+  a2a-roster.ts（团队名册的读 GET /api/a2a/teams：登录即可读，只有席位信息（团队、席位名、角色、在岗、在办和排队数来自节点名册，旧节点的在办数显示「未上报」），不含事项内容；名册只当信息，判定一律不看它）
   work-items.ts（「安排一件事」POST /api/work-items：会话登录的启用的人直接建一件事项，建立人是本人，可带 cockpit_id 记下是从哪个驾驶舱安排的（只在安排那一刻记，之后不改，只是标签不给权限；列表 ?cockpit=<id> 在视角里收窄，不存在的驾驶舱回空列表），派给绑在任务中心上的团队（GET /api/work-items/teams 列出），缺省先过目，幂等键按人，限流和员工直派开关在设置里（arrange_rate_per_minute、arrange_rate_per_day、staff_direct_dispatch），规则在 task-center.ts 的 arrangeTask。事项列表 /api/work-items：按 state、object、phase 筛，按更新时间倒序游标翻页，带可见范围里按状态的计数和每件的最后一条进展；可见范围和详情同一个判断，看不到的不出现也不计数。各视角 views.<视角> 带 available、count，可用的视角另带 decide：这个视角里轮到看的人、能当场办的件数（work-item-access.ts 的 decidesNow，和「关注」里事项来源的 mine、答法同一处判，侧栏角标数的就是这些）。事项的读 /api/work-items/:id：事项和它的日志，事项页的时间线照着渲染；管理员看全部、登录的人只看自己建立的。建立人验收、退回 POST /api/work-items/:id/decision：不经管理门（写请求总门只对这一条子路径放行），经身份服务认人、主体须是启用的人、同源，事项服务判是不是建立人和能不能由建立人答，只收验收、退回，只对等验收的事项；建立人只认事项上的建立人主体，空着的只有管理员能看、能处理。放行 POST /api/work-items/:id/release：同样不经管理门（写请求总门只对这一条子路径放行），由事项交给的团队的负责人放，团队没有负责人时管理层代办（事件日志、事项日志记 acting_for = team-lead），建立人勾了先过目的由建立人本人放；放过的再来一次回 duplicate，不再放；「关注」里过目条目的 answer_via 指向它。管理员的 POST /api/workbench-events/:id/release 不变）
   work-item-attachments.ts（「安排一件事」的附件：PUT /api/work-items/attachments/:name 登录的人传原始字节（X-Content-SHA256 核对、100MB 上限）；GET /api/work-items/:id/attachments/:aid 看得到这件事项的人才拿得到；GET /api/workbench-events/:id/attachments/:aid 接单节点凭回执令牌取件；读不到的一律 404）
   workbenches.ts（工作台 /api/workbenches、/api/check-all）

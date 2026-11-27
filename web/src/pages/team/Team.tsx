@@ -25,6 +25,7 @@ import WmPage from '../../components/WmPage';
 import { addTeamLead, approveRelationProposal, assignTeamSeat, attentionChanged, claimTeam, getRelationProposals, getTeamDepartments, getTeamPeople, getTeams, reassignTeamSeat, rejectRelationProposal, unassignTeamSeat } from '../../api';
 import RelTime from '../../components/RelTime';
 import { subscribeAdminToken } from '../../admin-token';
+import { busyText, sessionLoadedText } from '../../ai-staff-view';
 import {
   actionProblem, approvedNotice, needsMigration, ASSIGN_BY_TEXT, assignDoneText, assigneeOptions, assignOps, claimedTeams, leadPendingGrantText, reassignHintText, unassignConfirmText, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, outcomeLabel, outcomeReasonText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
   teamCounts, teamStatusLabel, teamTitle, teamsOf,
@@ -82,12 +83,13 @@ function MemberCard({ m, chief, t, onDone }: { m: Member; chief?: boolean; t?: T
   return (
     <div className="wm-team-member" data-testid={chief ? 'team-router' : 'team-member'}>
       <div className="wm-team-member-head">
-        <span className={m.online ? 'wm-team-dot on' : 'wm-team-dot'} title={m.online ? '在线' : '不在线'} />
+        <span className={m.online ? 'wm-team-dot on' : 'wm-team-dot'} title={sessionLoadedText(m.online)} />
         <b className="wm-team-member-name">{name}</b>
         {chief && <span className="wm-team-kind">总工</span>}
       </div>
       <div className="wm-team-member-meta">
-        <span>{m.active_items > 0 ? `在办 ${m.active_items} 件` : '手上没有在办的'}</span>
+        <span>{busyText(m.active_items)}</span>
+        <span>排队 {m.queued} 件</span>
         <span className={m.assigned_to ? 'wm-team-assigned' : 'wm-team-shared'} data-testid="team-assigned">{chief ? '只对负责人' : assignedText(m)}</span>
       </div>
       {(ops.assign || ops.reassign || ops.unassign) && (
@@ -138,7 +140,7 @@ function TeamBlock({ t, nameOf, onDone, admin }: { t: TeamT; nameOf: (id: string
           <span>负责人：{leads.length ? leads.map((l) => l.name + (l.viaDepartment ? '（沿用原部门负责人）' : '')).join('、') : '没有在职的负责人'}</span>
           {leadPending && <span data-testid="team-lead-pending-grant">{leadPending}</span>}
           <span>总工：{t.router ? memberLabel(t.router) : '名册里没有总工'}</span>
-          <span>{n.members} 个成员 · 在办 {n.active} 件</span>
+          <span>{n.members} 个成员 · {n.active === null ? '在办数未上报' : `在办 ${n.active} 件`}</span>
           {admin && !t.can_assign && <span data-testid="team-assign-by">{ASSIGN_BY_TEXT}</span>}
         </div>
         {stale && <div className="wm-team-stale" data-testid="team-roster-stale">{stale}</div>}
