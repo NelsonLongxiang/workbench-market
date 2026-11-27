@@ -270,6 +270,19 @@ out.ok = 1;`);
   const evMg = (await call('GET', q, { session: SESSIONS.noAdminFlag, headers: REMOTE })).json?.events?.map((e) => e.kind) ?? null;
   check(reclaim.status === 200 && lead.status === 201 && show(evAlpha) === show(['claim', 'lead-add']) && show(evMg) === show(['claim', 'assign', 'claim', 'lead-add']),
     '团队留痕（GET /api/teams/events）：新节点上的负责人只看到现在这个节点上的认领、指定；管理层看全部历史（含旧节点时期的分配）', show({ reclaim: reclaim.status, lead: lead.status, evAlpha, evMg }));
+  const area = await call('POST', '/api/areas', { body: { id: 'claim-fixture', name: '合成领域' } });
+  const missing = await call('POST', '/api/teams/claim', { body: { host: H, team: TEAM, department: 'sales', area: 'missing-fixture' } });
+  const moved = await call('POST', '/api/teams/claim', { body: { host: H, team: TEAM, department: 'sales', area: 'claim-fixture' } });
+  const again = await call('POST', '/api/teams/claim', { body: { host: H, team: TEAM, area: 'claim-fixture' } });
+  const records = (await call('GET', q)).json?.events ?? [];
+  const grouping = (await call('GET', '/api/teams')).json?.departments?.find(d => d.id === 'claim-fixture');
+  const view = grouping?.teams?.find(t => t.host === H && t.team === TEAM);
+  const movements = records.filter(e => e.kind === 'department').map(e => typeof e.detail === 'string' ? JSON.parse(e.detail) : e.detail);
+  check(reclaim.status === 200 && area.status === 201 && missing.status === 404 && missing.json?.error === 'area_not_found'
+    && moved.status === 200 && moved.json?.changed === true && again.json?.changed === false
+    && view?.area?.status === 'pending-lead' && view?.area?.name === '合成领域'
+    && movements.length === 1 && movements[0]?.department === 'claim-fixture' && movements[0]?.before === 'sales',
+    'S0：旧部门仍可认领、area 优先、未知领域 404；改挂 pending-lead 领域仅记一条 department 事件', show({ area, missing, moved, again, movements }));
 } catch (e) {
   fail++;
   console.log(`  ✗ 没跑完：${e?.stack ?? e}`);
