@@ -3,7 +3,10 @@
  * 本机复放 CI 某个 job 的 run 步骤（AGENTS.md 第七节第 2、3 条）。只复放 run，不替 GitHub 跑 actions、不装东西、不取凭据。
  *
  *   node scripts/ci-run-block.mjs --worktree <工作树根> --out <任务输出根> [--job tsc-and-syntax] [--workflow .github/workflows/ci.yml]
- *        [--runtime-dir <短路径>] [--python <已有的 python 命令>] [--step <序号>]... [--step-name <名字片段>]... [--plan] [--review-env]
+ *        [--runtime-dir <短路径>] [--python <已有的 python 命令>] [--profile fast | --step <序号> ... | --step-name <名字片段> ...] [--plan] [--review-env]
+ *
+ * --profile fast：按 tsc-and-syntax 的脚本身份选秒级基线与路线体检，保留各步骤完整 run。
+ * 配合 --plan 可列出命中的步骤、脚本和理由；results.json 的 selection 保留清单。必需脚本未匹配到时报 INCOMPLETE。
  *
  * 执行前先核每一步（--plan 只核不跑）：
  *   - 上游材料预检（执行前）：列出 actions/checkout 声明的 repository、ref、path（CHECKOUT 行）。步骤 env（含 job、workflow 层）里
@@ -99,6 +102,83 @@ export const SOCKET_ROOT_MAX = 80;
 
 export class UsageError extends Error {}
 
+// 秒级基线按 scripts/ 下的相对路径识别。这里补足不以 -unit.mjs 命名的单测。
+const FAST_TESTS = new Set([
+  'ci-run-block-test.mjs',
+  'lib/test-process-tree.test.mjs',
+  'mcp-service-sqlite-test.mjs',
+  'mutation-run-test.mjs',
+  'skill-tool-names-test.mjs',
+  'work-item-service-test.mjs',
+  'sop-page-path-defense-test.mjs',
+  'http-service-test.mjs',
+  'worktree-review-env-test.mjs',
+]);
+
+// 当前 CI 的单测脚本为必需项；新加的 -unit.mjs 也会被挑中。
+const FAST_UNITS = [
+  'access-ui-unit.mjs', 'admin-identity-unit.mjs', 'admin-token-guard-unit.mjs',
+  'ai-staff-ui-unit.mjs', 'answer-label-unit.mjs', 'answer-via-unit.mjs',
+  'app-html-unit.mjs', 'areas-ui-unit.mjs', 'arrange-ui-unit.mjs',
+  'attention-ui-unit.mjs', 'bench-blocks-ui-unit.mjs', 'bench-mcp-page-unit.mjs',
+  'bench-page-unit.mjs', 'client-ip-unit.mjs', 'cockpit-attention-unit.mjs',
+  'cockpit-bench-view-unit.mjs', 'cockpit-frame-unit.mjs', 'cockpit-layout-unit.mjs',
+  'embed-guard-unit.mjs', 'home-ui-unit.mjs', 'host-decision-unit.mjs',
+  'identity-status-unit.mjs', 'knowledge-startup-line-unit.mjs', 'knowledge-ui-unit.mjs',
+  'login-href-unit.mjs', 'market-ui-unit.mjs', 'names-ui-unit.mjs',
+  'odoo-compat-unit.mjs', 'owner-pending-unit.mjs', 'page-paths-unit.mjs',
+  'personal-tokens-ui-unit.mjs', 'portal-logins-unit.mjs', 'remember-ui-unit.mjs',
+  'report-image-unit.mjs', 'report-page-unit.mjs', 'review-ui-unit.mjs',
+  'session-watch-unit.mjs', 'tag-status-color-unit.mjs', 'task-graph-unit.mjs',
+  'team-ui-unit.mjs', 'work-item-detail-ui-unit.mjs', 'work-item-extras-unit.mjs',
+  'work-items-ui-unit.mjs',
+];
+const FAST_MUST_FIND = ['tech-route-check.mjs --strict', ...FAST_TESTS, ...FAST_UNITS];
+const NODE_VALUE_FLAGS = new Set(['-r', '--require', '--import', '--loader', '--experimental-loader', '--env-file', '--env-file-if-exists', '--test-name-pattern', '--test-skip-pattern']);
+
+/** 只识别现有 CI 用的直接 Node 调用。按 shell 分隔符切开，跳过引号里的文字和注释，不求值。 */
+function nodeChecks(run) {
+  const text = run.replace(/\\\r?\n/g, '');
+  const commands = [];
+  let from = 0;
+  for (const token of text.matchAll(/'[^']*'|"(?:[^"\\]|\\[\s\S])*"|\\[^\n]|(?:^|(?<=[\s;]))#[^\n]*|&&|[;\n]/g)) {
+    const part = token[0];
+    if (part !== '&&' && part !== ';' && part !== '\n' && !part.startsWith('#')) continue;
+    commands.push(text.slice(from, token.index));
+    from = token.index + part.length;
+  }
+  commands.push(text.slice(from));
+  const checks = [];
+  for (const command of commands) {
+    const args = command.match(/"(?:[^"\\]|\\.)*"|'[^']*'|[^\s'";&|]+/g) ?? [];
+    if (args.shift() !== 'node') continue;
+    let i = 0;
+    while (args[i]?.startsWith('-')) {
+      const flag = args[i++];
+      if (flag === '--') break;
+      if (/^(?:-[epic]|--(?:eval|print|interactive|check))(?:=|$)/.test(flag)) { i = args.length; break; }
+      if (NODE_VALUE_FLAGS.has(flag)) i++;
+    }
+    const script = /^(?:\.\/)?scripts\/((?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.mjs)$/.exec((args[i] ?? '').replace(/^(['"])(.*)\1$/, '$2'))?.[1];
+    if (!script) continue;
+    if (script === 'tech-route-check.mjs' && args.slice(i + 1).includes('--strict')) checks.push(script + ' --strict');
+    else if (script.endsWith('-unit.mjs') || FAST_TESTS.has(script)) checks.push(script);
+  }
+  return [...new Set(checks)];
+}
+
+/** 枚举快基线步骤和未找到的关键脚本，复放仍由原入口按完整步骤执行。 */
+export function fastSelection(steps) {
+  const selected = [];
+  for (const [i, step] of steps.entries()) {
+    if (typeof step.run !== 'string') continue;
+    const checks = nodeChecks(step.run);
+    if (checks.length) selected.push({ index: i + 1, name: step.name ?? '(无名)', checks });
+  }
+  const found = new Set(selected.flatMap(({ checks }) => checks));
+  return { profile: 'fast', steps: selected, missing: FAST_MUST_FIND.filter((check) => !found.has(check)) };
+}
+
 /** 短 runtime 根的长度上限：恰好 SOCKET_ROOT_MAX 字节照收，多一个字节就拒 */
 export function runtimeTooLong(path) { return Buffer.byteLength(path) > SOCKET_ROOT_MAX; }
 
@@ -112,6 +192,7 @@ export function parseArgs(argv) {
     else if (a === '--out') o.out = take(i++);
     else if (a === '--job') o.job = take(i++);
     else if (a === '--workflow') o.workflow = take(i++);
+    else if (a === '--profile') o.profile = take(i++);
     else if (a === '--runtime-dir') o.runtime = take(i++);
     else if (a === '--python') o.python = take(i++);
     else if (a === '--step') { const n = Number(take(i++)); if (!Number.isInteger(n) || n < 1) throw new UsageError('--step 要写步骤序号（从 1 起）'); o.steps.push(n); }
@@ -122,6 +203,10 @@ export function parseArgs(argv) {
     else throw new UsageError('不认识的参数：' + a);
   }
   if (!o.worktree || !o.out) throw new UsageError('--worktree 和 --out 必须显式给出');
+  if (o.profile !== undefined && o.profile !== 'fast') throw new UsageError('未知 profile：' + o.profile);
+  if (o.profile && (o.steps.length || o.names.length || o.job !== 'tsc-and-syntax')) {
+    throw new UsageError('--profile fast 只用于 tsc-and-syntax，不能混用 --step 或 --step-name');
+  }
   return o;
 }
 
@@ -310,11 +395,11 @@ export function loadJob(text, job, parseYaml, ctx) {
 }
 
 /** 汇总：全跑且全过才 PASS；有失败 FAIL；没失败但有没跑的 INCOMPLETE */
-export function summarize(results) {
+export function summarize(results, profileIncomplete = false) {
   const n = (f) => results.filter(f).length;
   const failed = n((r) => r.status === 'fail'), passed = n((r) => r.status === 'pass');
   const notRun = n((r) => r.status === 'not-run' || r.status === 'insufficient');
-  const status = failed ? 'FAIL' : notRun || !results.length ? 'INCOMPLETE' : 'PASS';
+  const status = failed ? 'FAIL' : profileIncomplete || notRun || !results.length ? 'INCOMPLETE' : 'PASS';
   return { status, code: status === 'PASS' ? 0 : status === 'FAIL' ? 1 : 3, selected: results.length, passed, failed, not_run: notRun };
 }
 
@@ -374,8 +459,17 @@ export async function main(argv) {
     for (const n of ['python', 'python3']) if (!existsSync(join(shim, n))) symlinkSync(py, join(shim, n));
     env.PATH = shim + delimiter + env.PATH;
   }
-  const chosen = job.steps.map((s, i) => [s, i + 1]).filter(([s, i]) => (!o.steps.length && !o.names.length) || o.steps.includes(i) || o.names.some((n) => String(s.name ?? '').includes(n)));
-  if (!chosen.length) throw new UsageError('没有选中任何步骤');
+  const selection = o.profile ? fastSelection(job.steps) : null;
+  const profileSteps = new Set(selection?.steps.map(({ index }) => index));
+  const chosen = job.steps.map((s, i) => [s, i + 1]).filter(([s, i]) => {
+    if (selection) return profileSteps.has(i);
+    return (!o.steps.length && !o.names.length) || o.steps.includes(i) || o.names.some((n) => String(s.name ?? '').includes(n));
+  });
+  if (!chosen.length && !selection) throw new UsageError('没有选中任何步骤');
+  if (selection) {
+    for (const { index, name, checks } of selection.steps) console.log(`PROFILE fast step ${index}: ${checks.join(', ')} (${name})`);
+    for (const check of selection.missing) console.log('PROFILE fast missing: ' + check);
+  }
   const plan = chosen.map(([s, i]) => (job.unknown.length ? { index: i, name: s.name ?? '', status: 'insufficient', reason: 'job-env-expression', unknown: job.unknown, removed: [] } : classify(s, i, job.env, ctx)));
   // 上游材料预检：执行前列出 checkout 声明，缺料的步骤记 insufficient:material 并点名所缺路径（只读本地文件，不取、不装、不联网）
   const decls = checkoutDecls(job.steps, { ...ctx, env: job.env });
@@ -411,9 +505,9 @@ export async function main(argv) {
   }
   for (const r of results) if (r.status !== 'pass' && r.status !== 'fail') console.log('STEP ' + r.index + ' ' + r.status + ':' + r.reason + (r.unknown && r.unknown.length ? ' ' + r.unknown.join(',') : '') + ' ' + r.name);
   for (const r of results) for (const line of r.removed ?? []) console.log('STRIPPED step ' + r.index + ': ' + line);
-  const sum = summarize(results);
+  const sum = summarize(results, Boolean(selection?.missing.length));
   const resultsFile = join(out, 'results.json');
-  writeFileSync(resultsFile, JSON.stringify({ worktree, head: git(worktree, 'rev-parse', 'HEAD').stdout.trim(), job: o.job, workflow: o.workflow, plan: o.plan, checkouts: decls, summary: sum, results }, null, 2));
+  writeFileSync(resultsFile, JSON.stringify({ worktree, head: git(worktree, 'rev-parse', 'HEAD').stdout.trim(), job: o.job, workflow: o.workflow, plan: o.plan, checkouts: decls, ...(selection && { selection }), summary: sum, results }, null, 2));
   console.log('RUNBLOCK status=' + sum.status + ' selected=' + sum.selected + ' passed=' + sum.passed + ' failed=' + sum.failed + ' not_run=' + sum.not_run + ' results=' + resultsFile);
   return sum.code;
 }

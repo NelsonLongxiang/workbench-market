@@ -6,8 +6,9 @@
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { SOCKET_ROOT_MAX, UsageError, checkoutDecls, classify, expand, innerArgs, isInstall, materialGaps, parseArgs, reexecForReviewEnv, runtimeTooLong, stripShallowFetch, summarize } from './ci-run-block.mjs';
+import { join, relative, resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { SOCKET_ROOT_MAX, UsageError, checkoutDecls, classify, expand, fastSelection, innerArgs, isInstall, materialGaps, parseArgs, reexecForReviewEnv, runtimeTooLong, stripShallowFetch, summarize } from './ci-run-block.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
 let pass = 0, fail = 0;
@@ -330,5 +331,120 @@ console.log('二b、端到端：上游材料预检（合成 workflow，材料只
       && /STEP 2 insufficient:checkout-expression/.test(unknown.out) && !existsSync(join(base, 'unknown-path', 'step-002.log')), unknown);
   } finally { rmSync(base, { recursive: true, force: true }); }
 }
+
+console.log('三、快基线 profile');
+{
+  const sample = [
+    { name: '无关标题', run: 'node --disable-warning=ExperimentalWarning scripts/app-html-unit.mjs' },
+    { name: '并在一起', run: 'node scripts/not-a-unit-smoke.mjs && node --require "./setup.cjs" ./scripts/skill-tool-names-test.mjs && node --test scripts/answer-label-unit.mjs' },
+    { name: '只是文字', run: 'echo "&& node scripts/quoted-unit.mjs" # ; node scripts/comment-unit.mjs' },
+    { name: '不是脚本入口', run: 'node --require scripts/preloaded-unit.mjs scripts/nonunit-smoke.mjs' },
+    { name: '路线体检', run: 'git fetch --no-tags --depth=1 origin main\nnode scripts/tech-route-check.mjs --selftest\nnode scripts/tech-route-check.mjs --strict' },
+    { name: '未运行校验', run: 'node --check scripts/checked-unit.mjs' },
+  ];
+  const selected = fastSelection(sample);
+  ok('fast 按 Node 脚本选完整步骤：识别命令链、选项（含带值选项）和显式技能检查，忽略文字、预加载和语法检查',
+    J(selected.steps.map(s => [s.index, s.checks])) === J([
+      [1, ['app-html-unit.mjs']],
+      [2, ['skill-tool-names-test.mjs', 'answer-label-unit.mjs']],
+      [5, ['tech-route-check.mjs --strict']],
+    ]) && selected.missing.includes('ci-run-block-test.mjs'), selected);
+  const requiredArgs = ['--worktree', 'w', '--out', 'o'];
+  ok('fast 只用于 tsc-and-syntax，和手选规则互斥',
+    parseArgs([...requiredArgs, '--profile', 'fast']).profile === 'fast'
+    && [['--profile', 'nope'], ['--profile', 'fast', '--step', '1'], ['--profile', 'fast', '--step-name', 'x'], ['--profile', 'fast', '--job', 'upgrade-smoke']]
+      .every(args => usageOf(() => parseArgs([...requiredArgs, ...args])) === 'usage'));
+
+  const require = createRequire(join(ROOT, 'server/package.json'));
+  const workflow = require('yaml').parse(readFileSync(join(ROOT, '.github/workflows/ci.yml'), 'utf8'));
+  const steps = workflow.jobs['tsc-and-syntax'].steps;
+  const real = fastSelection(steps);
+  ok('真实 CI 快基线包含全部必需项；app-html 和技能工具名检查均可在清单定位',
+    real.missing.length === 0 && ['app-html-unit.mjs', 'skill-tool-names-test.mjs'].every(check => real.steps.some(step => step.checks.includes(check))), real.missing);
+
+  const sqlite = 'mcp-service-sqlite-test.mjs';
+  const sqliteStep = steps.findIndex(step => step.run?.trim() === 'node scripts/' + sqlite);
+  ok('真实 CI 快基线选中 MCP SQLite 必需单测',
+    sqliteStep >= 0 && real.steps.some(step => step.index === sqliteStep + 1 && step.checks.includes(sqlite)), real);
+
+  const withoutSqlite = fastSelection(steps.filter((_, index) => index !== sqliteStep));
+  const otherResults = withoutSqlite.steps.map(() => ({ status: 'pass' }));
+  const incomplete = summarize(otherResults, withoutSqlite.missing.length > 0);
+  ok('删除真实 CI 的 MCP SQLite 步骤后，即使其余步骤全过也必须 INCOMPLETE',
+    sqliteStep >= 0 && J(withoutSqlite.missing) === J([sqlite]) && incomplete.status === 'INCOMPLETE'
+    && incomplete.code === 3 && incomplete.failed === 0 && incomplete.passed === otherResults.length, incomplete);
+
+  const processTree = 'lib/test-process-tree.test.mjs';
+  const mutationRunner = 'mutation-run-test.mjs';
+  const processTreeRun = 'node --test scripts/' + processTree;
+  const processTreeStep = steps.findIndex(step => step.run?.split(' && ').includes(processTreeRun));
+  const selectedProcessTree = real.steps.find(step => step.index === processTreeStep + 1);
+  ok('真实 CI 快基线按路径选中进程树单测及同一步的变异运行器自测',
+    processTreeStep >= 0 && selectedProcessTree?.checks.includes(processTree) && selectedProcessTree.checks.includes(mutationRunner),
+    selectedProcessTree);
+
+  const withoutProcessTree = fastSelection(steps.map((step, index) => index === processTreeStep
+    ? { ...step, run: step.run.split(' && ').filter(command => command !== processTreeRun).join(' && ') }
+    : step));
+  const remainingResults = withoutProcessTree.steps.map(() => ({ status: 'pass' }));
+  const withoutProcessTreeSummary = summarize(remainingResults, withoutProcessTree.missing.length > 0);
+  ok('仅移除进程树单测后，同一步的变异运行器仍入选，但必需路径缺失使快基线 INCOMPLETE',
+    J(withoutProcessTree.missing) === J([processTree])
+    && J(withoutProcessTree.steps.find(step => step.index === processTreeStep + 1)?.checks) === J([mutationRunner])
+    && withoutProcessTreeSummary.status === 'INCOMPLETE' && withoutProcessTreeSummary.code === 3
+    && withoutProcessTreeSummary.failed === 0 && withoutProcessTreeSummary.passed === remainingResults.length,
+    { missing: withoutProcessTree.missing, summary: withoutProcessTreeSummary });
+
+  const wrongPath = fastSelection([{ run: 'node --test scripts/other/test-process-tree.test.mjs' }]);
+  ok('相同文件名的其它路径不满足进程树必需项',
+    wrongPath.steps.length === 0 && wrongPath.missing.includes(processTree), wrongPath);
+}
+
+{
+  const base = join(ROOT, 'tmp', 'ci-run-block-fast-' + process.pid);
+  mkdirSync(join(base, 'scripts'), { recursive: true });
+  try {
+    const script = join(base, 'scripts', 'app-html-unit.mjs');
+    const workflow = join(base, 'workflow.json');
+    const makeWorkflow = (run) => writeFileSync(workflow, J({ jobs: { 'tsc-and-syntax': { steps: [
+      { name: '普通步骤', run: 'exit 77' },
+      { name: '快基线样本', 'working-directory': relative(ROOT, base), run },
+    ] } } }));
+    const run = (name, ...extra) => {
+      const out = join(base, name);
+      const r = spawnSync(process.execPath, [join(ROOT, 'scripts/ci-run-block.mjs'), '--worktree', ROOT, '--workflow', workflow, '--out', out, '--profile', 'fast', ...extra], { encoding: 'utf8' });
+      return { code: r.status, output: r.stdout + r.stderr, out, json: JSON.parse(readFileSync(join(out, 'results.json'), 'utf8')) };
+    };
+    makeWorkflow('git fetch --no-tags --depth=1 no-such-remote main\nnode --no-warnings scripts/app-html-unit.mjs && echo companion');
+    const plan = run('plan', '--plan');
+    ok('fast --plan 列步骤、命中脚本和缺项，不执行步骤',
+      plan.code === 3 && plan.json.selection.profile === 'fast' && plan.json.selection.steps[0]?.index === 2
+      && J(plan.json.selection.steps[0]?.checks) === J(['app-html-unit.mjs'])
+      && plan.output.includes('PROFILE fast missing: skill-tool-names-test.mjs') && !existsSync(join(plan.out, 'step-002.log')), plan.output);
+    writeFileSync(script, 'console.log("fixture")\n');
+    const partial = run('partial');
+    ok('缺必需项时已选全过仍为 INCOMPLETE；按原样运行复合命令，浅取准备照旧剔除',
+      partial.code === 3 && partial.json.summary.passed === 1 && partial.json.results[0]?.removed.length === 1
+      && readFileSync(join(partial.out, 'step-002.log'), 'utf8').trim() === 'fixture\ncompanion', partial.output);
+    writeFileSync(script, 'process.exitCode = 7;\n');
+    const failed = run('failed');
+    ok('fast 实际执行失败优先记 FAIL，即使也有缺项',
+      failed.code === 1 && failed.json.summary.status === 'FAIL' && failed.json.results[0]?.exit === 7, failed.output);
+
+    const checkoutPath = relative(ROOT, join(base, 'up'));
+    const material = join(base, 'up', 'source.mjs');
+    writeFileSync(workflow, J({ jobs: { 'tsc-and-syntax': { steps: [
+      { uses: 'actions/checkout@v4', with: { repository: 'example/up', ref: 'abc123', path: checkoutPath } },
+      { name: '快基线材料样本', 'working-directory': relative(ROOT, base), env: { SRC: material }, run: 'node scripts/app-html-unit.mjs' },
+    ] } } }));
+    const mixed = run('mixed');
+    ok('fast 同时保留 selection 和 checkouts；前置 checkout 缺材料时已选步骤不执行',
+      mixed.code === 3 && mixed.json.selection.steps[0]?.index === 2
+      && mixed.json.checkouts.some(d => d.index === 1 && d.repository === 'example/up' && d.ref === 'abc123')
+      && mixed.json.results[0]?.reason === 'material' && mixed.json.results[0]?.missing[0]?.path === material
+      && !existsSync(join(mixed.out, 'step-002.log')), mixed.output);
+  } finally { rmSync(base, { recursive: true, force: true }); }
+}
+
 console.log('\nci-run-block-test: ' + pass + ' passed / ' + fail + ' failed');
 process.exitCode = fail ? 1 : 0;
