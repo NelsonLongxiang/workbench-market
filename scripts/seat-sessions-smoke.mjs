@@ -98,11 +98,17 @@ try {
   peer.listen(0, '127.0.0.1');
   await once(peer, 'listening');
   const peerRoot = 'http://127.0.0.1:' + peer.address().port;
-  const probe = createServer();
-  probe.listen(0, '127.0.0.1');
-  await once(probe, 'listening');
-  const port = probe.address().port;
-  await new Promise(resolve => probe.close(resolve));
+  let port;
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const probe = createServer();
+    probe.listen(0, '127.0.0.1');
+    await once(probe, 'listening');
+    const candidate = probe.address().port;
+    await new Promise(resolve => probe.close(resolve));
+    // owned-script-fixture accepts ports up to 65534.
+    if (candidate <= 65534) { port = candidate; break; }
+  }
+  assert(port, 'could not allocate a fixture port below 65535');
   const base = 'http://127.0.0.1:' + port;
   const env = {};
   for (const name of ['PATH', 'SystemRoot', 'WINDIR', 'PATHEXT']) if (process.env[name]) env[name] = process.env[name];
