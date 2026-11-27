@@ -11,6 +11,11 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Windows test process ownership (synthetic only)
+        run: node --test scripts/lib/test-process-tree.test.mjs
       - name: Synthetic Odoo operator guards (no credentials or network)
         shell: pwsh
         run: ./scripts/ops/odoo-readonly-preflight-test.ps1
@@ -358,7 +363,7 @@ jobs:
           PYTHON: python
         run: node scripts/explicit-script-targets-test.mjs
       - name: 变异运行器自测（评审用的 scripts/mutation-run.mjs：锚点恰好命中、逐条还原并核工作树、进程组停止；夹具只在 tmp/）
-        run: node scripts/mutation-run-test.mjs
+        run: node --test scripts/lib/test-process-tree.test.mjs && node scripts/mutation-run-test.mjs
       - name: 轻量工作树依赖复用自测
         run: node --test scripts/worktree-review-env-test.mjs
       - name: 经验库接入启动自检行单测（ygl-trees 入口、YGL_HOME 与 ygl-trees.db、同步周期，缺哪样 warn 点名；#894、#1089）
