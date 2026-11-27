@@ -9,7 +9,7 @@
 import type express from 'express';
 import type { IncomingMessage } from 'node:http';
 import type { HttpService } from '../http.ts';
-import { identity as identityService, SESSION_COOKIE } from '../identity.ts';
+import { identity as identityService, IDENTITY_UNAVAILABLE, SESSION_COOKIE } from '../identity.ts';
 import { clientIp, loginPage, safeNext, LOGIN_COOKIE, SESSION_MS, type Identity, type LoginGateDeps } from '../login-gate.ts';
 
 /** 从 login-gate.ts 传进来的：登录门的配置、留痕、限频、同源判断、登录 cookie 的签发与校验、已登出的 cookie、认人 */
@@ -26,10 +26,11 @@ export type LoginGateRouteDeps = {
   cookieValue: (req: IncomingMessage) => string;
   revoked: Map<string, number>;
   identity: (req: IncomingMessage) => Promise<Identity | null>;
+  sourceUnavailable: (req: IncomingMessage) => boolean;
 };
 
 export function registerLoginGateRoutes(app: HttpService, routeDeps: LoginGateRouteDeps): void {
-  const { deps, log, rateCheck, rateResult, sameOrigin, secure, setLoginCookie, issueCookie, verifyCookie, cookieValue, revoked, identity } = routeDeps;
+  const { deps, log, rateCheck, rateResult, sameOrigin, secure, setLoginCookie, issueCookie, verifyCookie, cookieValue, revoked, identity, sourceUnavailable } = routeDeps;
   app.get('/login', { action: 'login.page', kind: 'read' }, (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Frame-Options', 'DENY');
@@ -71,6 +72,10 @@ export function registerLoginGateRoutes(app: HttpService, routeDeps: LoginGateRo
       res.setHeader('Cache-Control', 'private, no-store');
       res.vary('Cookie');
       const id = await identity(req);
+      // 会话观察器显式要求区分暂时不可用。普通 auth/me 保持旧应答。
+      if (req.query.session_check === '1' && deps.mode === 'enforce' && sourceUnavailable(req)) {
+        return res.status(502).json({ error: IDENTITY_UNAVAILABLE, message: '登录服务暂时联系不上，稍后再试' });
+      }
       // 只有认出了人（市场会话、身份来源）才有主体和角色；口令、本机命令行、没登录：principal 为 null、roles 为空
       const person = id && (id.via === 'source' || id.via === 'session');
       const extra = person && deps.profile ? await deps.profile(req) : { principal: null, display_name: null, roles: [] };

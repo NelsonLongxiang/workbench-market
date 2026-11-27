@@ -164,8 +164,9 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
       const no = assignRefusal(v, t);
       const claim = pending.find((p) => p.kind === 'team-claim' && p.host === t.host && p.team === t.team);
       const leads = pending.filter((p) => p.kind === 'team-lead' && p.host === t.host && p.team === t.team);
+      const { name, ...view } = t;
       return {
-        ...t, name: teamName(t.team), ...nodeOf(t.host), can_assign: !no, assign_denied_text: no?.message ?? null, ...(no ? {} : { assignable: assignableOf(t) }),
+        ...view, name, ...nodeOf(t.host), can_assign: !no, assign_denied_text: no?.message ?? null, ...(no ? {} : { assignable: assignableOf(t) }),
         ...(isAdmin ? { pending_claim: claim ? pendingOf(claim) : null, pending_leads: leads.map(pendingOf) } : {}),
       };
     };
@@ -192,8 +193,8 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     const me = v.principal;
     if (!me) return void res.json({ principal: null, members: [], teams: [] });
     const all = teams().allViews();
-    const members = all.flatMap((t) => t.members.filter((m) => m.assigned_to?.principal === me).map((m) => ({ host: t.host, team: t.team, team_name: teamName(t.team), status: t.status, ...m })));
-    const led = all.filter((t) => t.leads.some((l) => l.principal === me)).map((t) => ({ host: t.host, team: t.team, name: teamName(t.team), status: t.status, router: t.router }));
+    const members = all.flatMap((t) => t.members.filter((m) => m.assigned_to?.principal === me).map((m) => ({ host: t.host, team: t.team, team_name: t.name, status: t.status, ...m })));
+    const led = all.filter((t) => t.leads.some((l) => l.principal === me)).map((t) => ({ host: t.host, team: t.team, name: t.name, status: t.status, router: t.router }));
     res.json({ principal: me, members, teams: led });
   }));
 
@@ -211,7 +212,7 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     if (!can) return void res.status(404).json({ error: 'team_not_found', message: '没有这个团队' });
     const parse = (d: string): unknown => { if (!d) return null; try { return JSON.parse(d); } catch { return d; } };
     res.json({
-      host: k.host, team: k.team, name: teamName(k.team),
+      host: k.host, team: k.team, name: t.name,
       // 负责人只看记在现在这个节点上的留痕；管理员、管理层看全部历史
       events: teams().events(k, !seesAll(v)).map((e) => ({
         seq: e.seq, kind: e.kind, seat: e.seat, seat_id: e.seat_id, principal: e.principal_id || null, principal_name: nameOrNull(e.principal_id),
@@ -253,17 +254,19 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     if (!actor) return;
     const b = bodyOf(req);
     const k = teamKeyOf(b);
-    const dept = str(b.department, 'department', /^[a-z][a-z0-9-]{0,47}$/, 48);
+    const areaOnly = b.area !== undefined;
+    const field = areaOnly ? 'area' : 'department';
+    const dept = str(b[field], field, /^[a-z][a-z0-9-]{0,47}$/, 48);
     const now = Date.now();
     if (!proposals().direct('team-claim', actor, dept, now)) {
-      const check = teams().claimCheck(k, dept);
+      const check = teams().claimCheck(k, dept, areaOnly);
       if (check === 'unchanged') return void res.json({ ok: true, changed: false });
       if (check) return void refused(res, check);
       const pr = proposals().propose({ kind: 'team-claim', host: k.host, team: k.team, department_id: dept }, actor, now);
       logged('claim-propose', k, { department: dept, proposal: pr.id }, actor.by);
       return void res.status(202).json({ ok: true, proposed: true, proposal: { id: pr.id, status: 'pending', confirm_by_text: CONFIRM_BY['team-claim'] } });
     }
-    const r = teams().claim(k, dept, actor, now);
+    const r = teams().claim(k, dept, actor, now, areaOnly);
     if (!r.ok) return void refused(res, r);
     if (r.changed) logged('claim', k, { department: dept }, actor.by);
     res.json({ ok: true, changed: r.changed });

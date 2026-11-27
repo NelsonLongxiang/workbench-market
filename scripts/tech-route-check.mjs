@@ -88,29 +88,12 @@ function readmeTreeShorthand(readme) {
   return out;
 }
 
-// 第 1 步先在第 13 篇登记新增文件；等清零时统一回填 README。
-const PG_STEP_ONE_PLAN = 'docs/productization/13-database-plan.md';
-const PG_STEP_ONE_HEADING = '### 第 1 步分批目录登记';
-function pgStepOneFiles(plan) {
-  const lines = plan.split(/\r?\n/);
-  const start = lines.indexOf(PG_STEP_ONE_HEADING);
-  if (start < 0) return new Set();
-  const end = lines.findIndex((line, index) => index > start && /^#{1,3} /.test(line));
-  const files = lines.slice(start + 1, end === -1 ? undefined : end);
-  return new Set(files.flatMap((line) => {
-    const row = /^\| #\d+ \| `(server\/src\/(?:[\w-]+\/)*[\w-]+\.ts)` \| [^|]+ \|\s*$/.exec(line);
-    return row ? [row[1]] : [];
-  }));
-}
-
 /** server 文件算不算 README 提到了：根 README 写了文件名（或「名字/」）；或在「目录」块的简写清单里；
  *  或它所在的子目录自带 README.md 写了文件名，且根 README 提到了这个子目录（「子目录名/」） */
 function readmeMentions(repo) {
   const readme = repo.read('README.md');
   const shorthand = new Set(readmeTreeShorthand(readme));
-  const pgFiles = pgStepOneFiles(repo.read(PG_STEP_ONE_PLAN));
   return (f) => {
-    if (pgFiles.has(f)) return true;
     if (readme.includes(basename(f)) || readme.includes(`${basename(f, '.ts')}/`) || shorthand.has(f)) return true;
     const dir = dirname(f);
     if (dir === 'server/src' || !readme.includes(`${basename(dir)}/`)) return false;
@@ -216,7 +199,42 @@ function unregisteredBySource(repo) {
   }
   return files;
 }
-const outsideServices = (f) => f !== 'server/src/db.ts' && !f.startsWith('server/src/services/');
+// 库由调用方注入的模块的建表只放这一个文件（属主 2026-11-26 批准）：两条归属规则对它与 db.ts 同等放过，内容另由 injected-schema-ddl-only 红线守着
+const INJECTED_SCHEMA = 'server/src/db-schema-injected.ts';
+// 仅核源文件里的常规 exec 调用。每次只收一条 DDL，避免把第一句当整批结论。
+const PORTAL_CLASS_LIST = /clientClasses\.map\(c => "'" \+ c \+ "'"\)\.join\(','\)/y;
+const SCHEMA_SQL_LITERAL = /\s*(?:'([^'\\\r\n]*)'|"([^"\\\r\n]*)"|`((?:[^`\\$]|\$(?!\{))*)`)\s*/y;
+function isSchemaDdlExec(text, start) {
+  let sql = '';
+  let hasPortalClassList = false;
+  for (let at = start; at < text.length;) {
+    SCHEMA_SQL_LITERAL.lastIndex = at;
+    const literal = SCHEMA_SQL_LITERAL.exec(text);
+    if (literal) {
+      sql += literal[1] ?? literal[2] ?? literal[3];
+      at = SCHEMA_SQL_LITERAL.lastIndex;
+    } else {
+      // 只接受现有门户建表中的固定类别清单，用占位检查 SQL 语句边界。
+      const prefix = sql.trim();
+      if (hasPortalClassList || !prefix.startsWith('CREATE TABLE IF NOT EXISTS portal_observation_counts (') || !prefix.endsWith('client_class IN (')) return false;
+      PORTAL_CLASS_LIST.lastIndex = at;
+      if (!PORTAL_CLASS_LIST.test(text)) return false;
+      sql += "'class'";
+      hasPortalClassList = true;
+      at = PORTAL_CLASS_LIST.lastIndex;
+      while (/\s/.test(text[at] ?? '')) at++;
+    }
+    if (text[at] === ')') {
+      const statement = sql.trim().replace(/;$/, '');
+      return /^(CREATE|ALTER)\b/i.test(statement) && !statement.includes(';');
+    }
+    if (text[at] !== '+') return false;
+    at++;
+    while (/\s/.test(text[at] ?? '')) at++;
+  }
+  return false;
+}
+const outsideServices = (f) => f !== 'server/src/db.ts' && f !== INJECTED_SCHEMA && !f.startsWith('server/src/services/');
 
 // 身份的具体实现只许待在登录提供方目录里；目录之外的 server 文件都算核心。
 const PROVIDERS_DIR = 'server/src/login-providers/';
@@ -374,7 +392,7 @@ const RULES = [
   {
     id: 'schema-only-in-db', what: 'db.ts 之外的建表、改表语句', target: 0, proposed: 'budget',
     measure: (repo) => {
-      const outside = repo.server().filter((f) => f !== 'server/src/db.ts');
+      const outside = repo.server().filter((f) => f !== 'server/src/db.ts' && f !== INJECTED_SCHEMA);
       const creates = repo.perFile(outside, RE.create), alters = repo.perFile(outside, RE.alter);
       const files = { ...creates };
       for (const [f, n] of Object.entries(alters)) files[f] = (files[f] || 0) + n;
@@ -409,7 +427,7 @@ const RULES = [
     measure: (repo) => typecheck(repo),
   },
   {
-    id: 'readme-tree', what: '目录未登记的 server 文件（README 或第 13 篇换库登记）', target: 0, proposed: 'budget',
+    id: 'readme-tree', what: 'README 未登记的 server 文件', target: 0, proposed: 'budget',
     measure: (repo) => {
       const mentioned = readmeMentions(repo);
       const items = repo.server().filter((f) => !mentioned(f));
@@ -420,8 +438,7 @@ const RULES = [
       dirty: { 'server/src/foo.ts': '', 'README.md': '目录：bar.ts\n' }, expect: 1,
     },
     cases: [
-      { label: '第 13 篇换库登记按完整路径计覆盖', files: { 'server/src/services/access.ts': '', [PG_STEP_ONE_PLAN]: PG_STEP_ONE_HEADING + '\n\n| #1125 | `server/src/services/access.ts` | 注入库读写。 |\n' }, expect: 0 },
-      { label: '第 13 篇的其它段落和同名异路径不计覆盖', files: { 'server/src/routes/access.ts': '', 'server/src/other.ts': '', [PG_STEP_ONE_PLAN]: PG_STEP_ONE_HEADING + '\n\n| #1125 | `server/src/services/access.ts` | 注入库读写。 |\n\n## 六、其它\n| #1125 | `server/src/other.ts` | 不属于本表。 |\n' }, expect: 2 },
+      { label: '第 13 篇历史登记不替代 README', files: { 'server/src/services/access.ts': '', 'docs/productization/13-database-plan.md': '| #1125 | `server/src/services/access.ts` | 注入库读写。 |\n' }, expect: 1 },
       { label: '「目录」块里目录行的「·」简写清单算提到', files: { 'server/src/services/app.ts': '', 'server/src/services/app-data.ts': '', 'README.md': '## 目录\n\n```\nserver/src/services/  app·app-data（域服务）\n```\n' }, expect: 0 },
       { label: '简写清单里没有的照算', files: { 'server/src/services/app.ts': '', 'server/src/services/cookie.ts': '', 'README.md': '## 目录\n\n```\nserver/src/services/  app·sop（域服务）\n```\n' }, expect: 1 },
       { label: '简写只认「目录」块里的目录行，正文里的「·」不算', files: { 'server/src/services/app.ts': '', 'README.md': '说明：server/src/services/  app·sop\n' }, expect: 1 },
@@ -580,6 +597,39 @@ const RULES = [
       clean: { 'server/src/foo.ts': "export const A = { X: 'x' } as const;\n" },
       dirty: { 'server/src/foo.ts': 'enum A { X }\nnamespace N {}\nclass C { constructor(private x: number) {} }\n' }, expect: 3,
     },
+  },
+  {
+    id: 'injected-schema-ddl-only', what: '注入库建表模块（db-schema-injected.ts）里出现普通查询、导入主库或自开库', target: 0, proposed: 'redline',
+    measure: (repo) => {
+      if (!repo.server().includes(INJECTED_SCHEMA)) return { total: 0, items: [], note: '模块不在' };
+      // 先去掉注释：注释里写到这些写法（比如说明「不自己 new DatabaseSync」）不是代码
+      const text = repo.read(INJECTED_SCHEMA).replace(/'(?:\\[\s\S]|[^'\\])*'|"(?:\\[\s\S]|[^"\\])*"|`(?:\\[\s\S]|[^`\\])*`|(\/\*[\s\S]*?\*\/|\/\/[^\n]*)/g,
+        (match, comment) => comment ? comment.replace(/[^\n]/g, ' ') : match);
+      const items = [];
+      for (const m of text.matchAll(/\.prepare\(/g)) items.push('prepare@' + m.index);
+      for (const m of text.matchAll(/import\s+(?!type\b)[^;]*?from\s+['"][^'"]*\/db\.ts['"]/g)) items.push('import-db@' + m.index);
+      for (const m of text.matchAll(/import\(\s*['"][^'"]*\/db\.ts['"]\s*\)/g)) items.push('dynamic-import-db@' + m.index);
+      for (const m of text.matchAll(/new\s+DatabaseSync\b/g)) items.push('new-db@' + m.index);
+      for (const m of text.matchAll(/\.exec\(\s*/g)) {
+        if (!isSchemaDdlExec(text, m.index + m[0].length)) items.push('non-ddl-exec@' + m.index);
+      }
+      return { total: items.length, items: items.map((i) => INJECTED_SCHEMA + ' ' + i) };
+    },
+    sample: {
+      clean: { 'server/src/db-schema-injected.ts': "import type { DatabaseSync } from 'node:sqlite';\nexport function f(db: DatabaseSync) { db.exec('CREATE TABLE IF NOT EXISTS t (id)'); }\n" },
+      dirty: { 'server/src/db-schema-injected.ts': "import { db } from './db.ts';\ndb.prepare('SELECT 1');\ndb.exec('DELETE FROM t');\n" }, expect: 3,
+    },
+    cases: [
+      { label: '自己开库也不行', files: { 'server/src/db-schema-injected.ts': "import { DatabaseSync } from 'node:sqlite';\nconst d = new DatabaseSync(':memory:');\n" }, expect: 1 },
+      { label: 'exec 的参数不是字面量（看不出是不是建表）', files: { 'server/src/db-schema-injected.ts': "export function f(db, sql) { db.exec(sql); }\n" }, expect: 1 },
+      { label: '动态引入主库', files: { 'server/src/db-schema-injected.ts': "export async function f() { await import('./db.ts'); }\n" }, expect: 1 },
+      { label: '注释里提到这些写法不算', files: { 'server/src/db-schema-injected.ts': "/** 不导入 db.ts、不自己 new DatabaseSync、不放 db.prepare */\n// db.exec(sql) 也不行\nexport function f(db) { db.exec('CREATE TABLE IF NOT EXISTS t (id)'); }\n" }, expect: 0 },
+      { label: '改表与拼接起头的建表都算 DDL', files: { 'server/src/db-schema-injected.ts': "export function f(db) { db.exec('ALTER TABLE t ADD COLUMN c'); db.exec(\n  'CREATE TABLE IF NOT EXISTS u (' + 'id)'); }\n" }, expect: 0 },
+      { label: '首句是建表的混合批也不行', files: { [INJECTED_SCHEMA]: "db.exec('CREATE TABLE t (id); INSERT INTO t VALUES (1)');" }, expect: 1 },
+      { label: '拼接出第二句或拼上未知 SQL 都不行', files: { [INJECTED_SCHEMA]: "db.exec('CREATE TABLE t (id);' + 'DELETE FROM t'); db.exec('ALTER TABLE t ADD COLUMN c' + tail);" }, expect: 2 },
+      { label: '模板字面量多语句也不行', files: { [INJECTED_SCHEMA]: "db.exec(`CREATE TABLE t (id);\n-- 仍有第二句\nINSERT INTO t VALUES (1)`);" }, expect: 1 },
+      { label: '独立 DDL 支持结尾分号', files: { [INJECTED_SCHEMA]: "db.exec('CREATE TABLE t (id);'); db.exec('ALTER TABLE t ADD COLUMN c');" }, expect: 0 },
+    ],
   },
   {
     id: 'services-no-express', what: '引用 express 的领域服务', target: 0, proposed: 'redline',
@@ -927,6 +977,26 @@ function selftest() {
       } finally { rmSync(root, { recursive: true, force: true }); }
     }
   }
+  // 走实际 CLI 回归：夹具仅供静态扫描，不把 SQL 交给数据库执行。
+  const injectedSchemaFixture = plant({
+    [LIST]: readFileSync(join(HERE, '..', LIST), 'utf8'),
+    'README.md': basename(INJECTED_SCHEMA),
+    'surfaces/actions.json': '{}',
+  });
+  try {
+    mkdirSync(join(injectedSchemaFixture, dirname(INJECTED_SCHEMA)), { recursive: true });
+    for (const [sql, exit] of [
+      ['CREATE TABLE t (id INTEGER);', 0],
+      ['CREATE TABLE t (id INTEGER); INSERT INTO t VALUES (1)', 1],
+    ]) {
+      writeFileSync(join(injectedSchemaFixture, INJECTED_SCHEMA), 'db.exec(' + JSON.stringify(sql) + ');\n');
+      const cli = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--root', injectedSchemaFixture, '--no-types', '--no-boot', '--json'], { encoding: 'utf8' });
+      let row;
+      try { row = JSON.parse(cli.stdout).find((rule) => rule.id === 'injected-schema-ddl-only'); } catch { /* 没有有效结果，自检失败 */ }
+      check(cli.status === exit && row?.total === exit && row.waived === 0 && row.fail === Boolean(exit),
+        'injected-schema-ddl-only 原生 CLI ' + (exit ? '拒绝建表与 INSERT 混批' : '通过单句建表'));
+    }
+  } finally { rmSync(injectedSchemaFixture, { recursive: true, force: true }); }
   const snapshots = [...SKILL_SURFACES];
   const followup = skillFollowup(snapshots);
   check(followup.total === snapshots.length && followup.items.join() === snapshots.join(), '技能跟随：对外快照逐项点名，生成的视图 Schema 不算技能更新');

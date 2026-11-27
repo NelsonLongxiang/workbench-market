@@ -6,7 +6,7 @@
  *  ④ 互通：磁盘文件无明文；上游 openVault 用同一主密码读得到；模拟 DSH 插件在外部写入后，市场列表能看见。
  *  ⑩ 主密码门槛：新建库拒短/全数字/常见/弱口令且不落盘；强口令能建；旧的弱主密码库照常解锁并带提示。
  *  收尾：每个实例按进程组停（SIGTERM，10s 后 SIGKILL），已被信号杀掉的不再等；整套 180s 看门狗，超时报出卡在哪一步并 exit 1。 */
-import { spawn } from 'node:child_process';
+import { spawnTestTree, killTestTreeSync } from './lib/test-process-tree.mjs';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { join, resolve } from 'node:path';
@@ -19,7 +19,7 @@ let step = '启动';
 const section = (t) => { step = t; console.log(t); };
 
 /** 给实例所在进程组发信号（连带它可能拉起的孙进程）；组不在了就退回只发给子进程 */
-const signal = (sv, sig) => { try { process.kill(-sv.child.pid, sig); } catch { try { sv.child.kill(sig); } catch { /* 已退 */ } } };
+const signal = (sv, sig) => { if (process.platform === 'win32') { killTestTreeSync(sv.child); return; } try { process.kill(-sv.child.pid, sig); } catch { try { sv.child.kill(sig); } catch { /* 已退 */ } } };
 const exited = (sv) => sv.child.exitCode !== null || sv.child.signalCode !== null;
 /** 停一个实例并等它真退出：被信号杀掉时 exitCode 为 null（只有 signalCode），不能拿 exitCode 判断，否则会等一个永远不来的 exit */
 async function stop(sv) {
@@ -54,7 +54,7 @@ function boot(tag, extraEnv) {
   if (!('WM_CONTROL_PORT' in extraEnv)) env.WM_CONTROL_PORT = String(port + 1); // 控制面缺省已不开；本冒烟显式开一个，同时覆盖业务面与控制面两种页面
   // Child-origin IPC proves this test owns each listening port before any HTTP request.
   const preload = "import net from 'node:net';const listen=net.Server.prototype.listen;net.Server.prototype.listen=function(...args){this.once('listening',()=>{const a=this.address();if(a&&typeof a==='object')process.send?.({kind:'synthetic-owned-listener',port:a.port});});return listen.apply(this,args)};";
-  const child = spawn(process.execPath, ['--import', 'data:text/javascript,' + encodeURIComponent(preload), '--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'], env, detached: true }); // 独立进程组，收尾整组停
+  const child = spawnTestTree(process.execPath, ['--import', 'data:text/javascript,' + encodeURIComponent(preload), '--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'], env }); // POSIX 进程组 / Windows 受控测试树，收尾整树停
   let err = ''; child.stderr.on('data', (c) => (err += c));
   const closed = new Promise((x) => child.once('close', x)); // close 在 stdio 读完之后才触发：退出原因的最后一行在这之前可能还没读到
   const ownedPorts = new Set();
