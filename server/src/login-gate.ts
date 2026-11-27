@@ -375,7 +375,13 @@ export function createLoginGate(deps: LoginGateDeps) {
       + `function el1(n){['src','href'].forEach(function(a){var v=n.getAttribute(a);if(v){var f=fx(v);if(f!==v)n.setAttribute(a,f)}})}`
       + `new MutationObserver(function(r){r.forEach(function(m){if(m.type==='attributes')el1(m.target);else for(var k=0;k<m.addedNodes.length;k++)el(m.addedNodes[k])})}).observe(document,{subtree:true,childList:true,attributes:true,attributeFilter:['src','href']});`
       + `})(${cfg})</script>`;
-    return /<head[^>]*>/i.test(out) ? out.replace(/<head([^>]*)>/i, (mm) => mm + script) : script + out;
+    // 不透明台框读不到未开放 CORS 的 401。把本站 401 或读失败提示给父页，由父页重新核会话。
+    const loginHint = `<script>(function(){if(window.parent===window)return;var raw=window.fetch,origin=new URL(location.href).origin;`
+      + `function hint(){window.parent.postMessage('wm-app-login-check',origin)}`
+      + `function ours(input){try{var u=new URL(typeof input==='string'?input:input.url||String(input),document.baseURI);return u.origin===origin&&u.pathname.indexOf('/api/')===0}catch(e){return false}}`
+      + `window.fetch=function(){var own=ours(arguments[0]),p=raw.apply(this,arguments);if(!own)return p;return p.then(function(r){if(r.status===401&&ours(r.url))hint();return r},function(e){hint();throw e})}})()</script>`;
+    const scripts = script + loginHint;
+    return /<head[^>]*>/i.test(out) ? out.replace(/<head([^>]*)>/i, (mm) => mm + scripts) : scripts + out;
   }
 
   // ---------- 登录限频（按来源 IP：每分钟 10 次；连续失败指数退避） ----------
@@ -415,7 +421,7 @@ export function createLoginGate(deps: LoginGateDeps) {
   }
 
   /** 四条路由（/login、/api/auth/login|logout|me）在 routes/login-gate.ts，经 HTTP 服务注册；它们要用的闭包从这里递过去 */
-  const routeDeps: LoginGateRouteDeps = { deps, log, rateCheck, rateResult, sameOrigin, secure, setLoginCookie, issueCookie, verifyCookie, cookieValue, revoked, identity };
+  const routeDeps: LoginGateRouteDeps = { deps, log, rateCheck, rateResult, sameOrigin, secure, setLoginCookie, issueCookie, verifyCookie, cookieValue, revoked, identity, sourceUnavailable: (req) => down.has(req) };
 
   /** 登录门签给某个台页面的查看凭证（wm_av）对不对：台数据的下载守卫也认它（沙箱页的下载链接带不了头） */
   const viewCapOk = (slug: string, cap: string): boolean => capOk(slug, cap);

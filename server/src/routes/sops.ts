@@ -96,6 +96,7 @@ export function registerSopSpaceRoutes(app: HttpService, deps: SopSpaceDeps): vo
     const versions = (svc<AppService>('app').versionLog(a.id) as Array<{ version: number; changelog: string; created_by: string; created_at: string }>).map(v => ({ ...v, changelog: (v.changelog || '').slice(0, 200) }));
     const runs = (svc<SopService>('sop').runsBySlug(a.slug) as unknown as Array<{ id: number; status: string; started_by: string; started_at: string; finished_at: string }>).slice(0, 50).map(r => ({ id: r.id, status: r.status, started_by: r.started_by, started_at: r.started_at, finished_at: r.finished_at }));
     const receipts = (svc<SopService>('sop').receiptsBySlug(a.slug) as Array<{ task_id: string; caller: string; receipt_status: string; run_id: number }>).map(r => ({ task_id: r.task_id, caller: r.caller, receipt_status: r.receipt_status || 'pending', run_id: r.run_id }));
-    res.json({ slug: a.slug, versions, runs, receipts });
+    const closure_events = svc<SopService>('sop').closureEventsBySlug(a.slug);
+    res.json({ slug: a.slug, versions, runs, receipts, ...(closure_events.length ? { closure_events } : {}) });
   });
 }

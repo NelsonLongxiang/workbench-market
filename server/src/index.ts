@@ -21,7 +21,7 @@ import { initializeTaskCenter, taskCenterSteps, taskView, taskListView, taskCent
 import { recordAppDataEvent, cancelTaskCenterDeliveries, kickWorkbenchEvents, startWorkbenchEventWorker, registerWorkbenchEventRoutes } from './workbench-events.ts';
 import cors from 'cors';
 import { createPortalObservation } from './portal-observation.ts';
-import { addressesPublicMarketHttps, allSurfaceServers, browserMarked, originIsThisSurface, publicBusinessConfirmationOrigin, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
+import { addressesPublicMarketHttps, allSurfaceServers, marketPublicOrigin, browserMarked, originIsThisSurface, publicBusinessConfirmationOrigin, rawLoopback, registerSurface, surfaceOf, surfacePorts, surfaceUrl } from './surfaces.ts';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { chmodSync, closeSync, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { createReadStream, createWriteStream } from 'node:fs';
@@ -90,7 +90,8 @@ import { benchViewsConfig, registerBenchViewRoutes, BENCH_ROWS_PATH } from './ro
 import { registerKnowledgeRoutes } from './routes/knowledge.ts';
 import { BENCH_TOOL_NAMES, BENCH_GRANT_RE } from './bench-mcp-tools.ts';
 import { BenchToolScopeError, benchGrantsOf, benchRequestOfSession, benchRequestTtlConfig, benchRequestsOf, benchToolTarget, hasBenchGrant, requestBenchTools, runBenchTool, setBenchRequestTtlHours } from './services/bench-mcp.ts';
-import { captureBenchStorageFence, resolveBenchRef } from './services/bench-registry.ts';
+import { benchOfCard, captureBenchStorageFence, resolveBenchRef } from './services/bench-registry.ts';
+import { ownUseRef, pendingLinkError } from './services/bench-card-health.ts';
 import { cardDeleterOf, checkCardDeletable, deleteCardWithBench, type CardDeleter } from './bench-card-delete.ts';
 import { BenchError } from './bench-query.ts';
 import { registerChangeRequestRoutes } from './routes/change-requests.ts';
@@ -912,6 +913,19 @@ function typeOf(key: string): TypeRow | undefined {
 }
 
 async function checkOne(w: WorkbenchRow): Promise<ReturnType<typeof rowToWorkbench>> {
+  // #1086：对应到数据视图台的卡片按台的状态显示（台在就是在线），不对它的地址做外部探测——同源地址探出来只会是登录门或市场自己的页面
+  let linked = false;
+  try { linked = benchOfCard(w.id) !== null; } catch { linked = false; }
+  if (linked) {
+    svc<WorkbenchService>('workbench').markSelfUp(w.id);
+    return rowToWorkbench(svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow);
+  }
+  // 地址是市场自己的 /use/<台>、还没对应：记「待对应」并写下一步，不判离线
+  const ownRef = ownUseRef(w.url, [marketPublicOrigin(), `http://127.0.0.1:${PORT}`, `http://localhost:${PORT}`]);
+  if (ownRef !== null) {
+    svc<WorkbenchService>('workbench').markPendingLink(w.id, pendingLinkError(ownRef), new Date().toISOString().slice(0, 19).replace('T', ' '));
+    return rowToWorkbench(svc<WorkbenchService>('workbench').byId(w.id) as unknown as WorkbenchRow);
+  }
   // 自产台（url 以 / 开头）由本服务静态托管：不发 HTTP 探测，但要核实台本身还在——
   // /apps/<slug>/ 要求台存在，/sop/<slug>/ 要求 SOP 存在且已上架；否则记 down（台被删或下架后卡片不再显示在线）
   if (w.url.startsWith('/')) {

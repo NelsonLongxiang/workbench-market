@@ -82,7 +82,7 @@ let child = null, log = '';
 try {
   const data = join(OUT, 'data'), home = join(OUT, 'home');
   for (const d of [data, home, join(OUT, 'ext')]) mkdirSync(d, { recursive: true });
-  const env = { PATH: process.env.PATH, HOME: home, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid' };
+  const env = { PATH: process.env.PATH, HOME: home, DATA_DIR: data, NODE_ENV: 'test', ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0', IDENTITY_SEAM_ROOT: ROOT, IDENTITY_FAKE_ADMIN_GRANT: 'admin', WM_EXTENSIONS_DIR: join(OUT, 'ext'), MARKET_PUBLIC_URL: 'http://market.synthetic.invalid' };
   const seeded = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', '--input-type=module', '-e', SEED], { env, encoding: 'utf8' });
   const m = /SEEDED (.*)/.exec(seeded.stdout);
   if (!m) throw new Error(`造数据失败：${seeded.stderr.slice(-800)}`);
@@ -102,15 +102,17 @@ try {
     return { status: r.status, body };
   };
   const SAME = { 'sec-fetch-site': 'same-origin' };
-  const WHO = { 管理员: { ...SAME, cookie: `session_id=${SESSIONS.admin}` }, 建立人: { ...SAME, cookie: `session_id=${SESSIONS.alpha}` }, 无关的员工: { ...SAME, cookie: `session_id=${SESSIONS.beta}` } };
+  const WHO = { 属主: { ...SAME, cookie: `session_id=${SESSIONS.strasse}` }, 管理员: { ...SAME, cookie: `session_id=${SESSIONS.admin}` }, 建立人: { ...SAME, cookie: `session_id=${SESSIONS.alpha}` }, 无关的员工: { ...SAME, cookie: `session_id=${SESSIONS.beta}` } };
   for (const h of Object.values(WHO)) await call('GET', '/api/auth/me', h);
   // 代办放行只认管理层授予（不认管理门）：给会话登录的管理员一份管理层授予（本机命令行即属主，走完起草→提交→放行）
   {
-    await call('GET', '/api/auth/me', WHO.管理员);
-    const g = await call('POST', '/api/grants', {}, { principal: 'user:root-admin', role: 'management', scope: '*', reason: '合成：持有管理层授予的人' });
-    await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}, {});
-    const ok = await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {}, {});
-    if (ok.status !== 200) throw new Error(`管理层授予没放成：${JSON.stringify(ok)}`);
+    for (const [principal, role] of [['user:root-admin', 'management'], ['user:strasse', 'owner']]) {
+      const g = await call('POST', '/api/grants', {}, { principal, role, scope: '*', reason: '合成：区别管理层代办与属主管理' });
+      const gid = g.body?.grant?.id;
+      await call('POST', `/api/grants/${gid}/submit`, {}, {});
+      const ok = await call('POST', `/api/grants/${gid}/approve`, {}, {});
+      if (ok.status !== 200) throw new Error(`合成授予没放成：${JSON.stringify(ok)}`);
+    }
   }
   const q = (sql, ...a) => { const d = new DatabaseSync(join(data, 'workbench-market.db'), { readOnly: true }); try { return d.prepare(sql).all(...a).map((r) => ({ ...r })); } finally { d.close(); } };
   const detail = async (id, who) => { const r = await call('GET', `/api/work-items/${id}`, WHO[who]); return r.status === 200 ? r.body : { can: { release: false, answer: false, verify: false, reply: false }, turn: { release: false, answer: false, verify: false }, status: r.status }; };
@@ -128,9 +130,9 @@ try {
 
   // ---------- 「等你拍板」里同一件只出现一次，以事项为准 ----------
   {
-    const att = (await call('GET', '/api/attention', WHO.管理员)).body?.items ?? [];
+    const att = (await call('GET', '/api/attention', WHO.属主)).body?.items ?? [];
     const taskIds = att.filter((x) => x.source === 'tasks').map((x) => x.source_id);
-    const inbox = ((await call('GET', '/api/tasks', WHO.管理员)).body?.tasks ?? []).map((x) => x.id);
+    const inbox = ((await call('GET', '/api/tasks', WHO.属主)).body?.tasks ?? []).map((x) => x.id);
     check(!taskIds.includes(`market:task-${S.held.task}`) && att.some((x) => x.source === 'work-items' && x.source_id === S.held.item) && taskIds.includes(`market:task-${S.loose}`),
       '「关注」里有事项的任务只出现一次（事项那一条），统一待办那一条剔掉；没有事项的任务照旧列', show(taskIds));
     check(inbox.includes(`market:task-${S.held.task}`), '/api/tasks 本身不变：有事项的任务照旧列着', show(inbox));
@@ -180,7 +182,7 @@ try {
     check(!c2done.can.answer && !c2done.turn.answer, '建立人答过之后：没有在等的提问，can.answer、turn.answer 都是 false', show({ can: c2done.can, turn: c2done.turn }));
     pair('answer·无关的员工（「关注」）', o.can.answer, await call('POST', '/api/attention/answer', WHO.无关的员工, { source: 'seat-asks', source_id: String(S.asked.delivery), answer: 'answer', input: { text: '东店' } }));
     // 先看「关注」里的 mine 和 creator（答了就没了）
-    const att = (await call('GET', '/api/attention', WHO.管理员)).body?.items ?? [];
+    const att = (await call('GET', '/api/attention', WHO.属主)).body?.items ?? [];
     const ask = att.find((x) => x.source === 'seat-asks' && x.source_id === String(S.asked.delivery));
     const glance = att.find((x) => x.source === 'work-items' && x.source_id === S.held2.item);
     const acc = (await call('GET', '/api/attention', WHO.建立人)).body?.items ?? [];
@@ -216,7 +218,7 @@ try {
 
   // ---------- 结束了的事项 ----------
   {
-    const w = await call('POST', '/api/attention/answer', WHO.管理员, { source: 'work-items', source_id: S.held2.item, answer: 'withdraw' });
+    const w = await call('POST', '/api/attention/answer', WHO.属主, { source: 'work-items', source_id: S.held2.item, answer: 'withdraw' });
     const d = await detail(S.held2.item, '建立人');
     const r = await call('POST', `/api/work-items/${S.held2.item}/messages/${S.m3}/reply`, WHO.建立人, { text: '回' });
     check(ok2(w) && d.item?.state === 'cancelled' && !d.can.reply && r.status === 409 && r.body?.error === 'work_item_ended', '撤回之后（cancelled）：can.reply 是 false，回复接口也拒（409 work_item_ended）', show({ w: w.status, state: d.item?.state, can: d.can, r }));

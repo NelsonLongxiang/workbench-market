@@ -146,6 +146,39 @@ with sync_playwright() as p:
     check('「编辑」回到管理页那一行：地址带 ?q=台名，表里只剩这一行', '/market/manage?q=' in pg.url and rows.count() == 1 and W['name'] in rows.first.inner_text(), (pg.url, rows.count()))
     pg.close()
 
+    # #1086：登记同源卡片，两次点击都走真实的 POST /check。
+    req = urllib.request.Request(M + '/api/workbenches', method='POST',
+                                 headers={'Content-Type': 'application/json', 'X-Admin-Token': TOK},
+                                 data=json.dumps({'name': '待对应合成卡片', 'url': M + '/use/pending-fixture', 'type': 'web'}).encode())
+    with urllib.request.urlopen(req) as r:
+        pending_id = json.load(r)['id']
+    pg = b.new_page(viewport={'width': 1440, 'height': 900}); pg.set_default_timeout(10000)
+    pg.goto(M + f'/market/wb/{pending_id}'); pg.wait_for_selector('[data-testid=wbd-main]')
+    set_token(pg)
+    endpoint = M + f'/api/workbenches/{pending_id}/check'
+    notices = pg.locator('.ant-message-notice:visible')
+    with pg.expect_response(lambda r: r.url == endpoint and r.request.method == 'POST') as detected:
+        pg.locator('[data-testid=wbd-check]').click()
+    result = detected.value.json()
+    soft(lambda: notices.first.wait_for())
+    text = ' '.join(notices.all_inner_texts())
+    check('详情立即检测：徽标和操作反馈都是待对应', detected.value.ok and result.get('last_status') == 'unknown'
+          and result.get('last_error', '').startswith('待对应：') and pg.locator('[data-testid=wbd-status]').inner_text().strip() == '待对应'
+          and '检测完了：待对应' in text and '离线' not in text and '还没检查过' not in text, text)
+    pg.locator('[data-testid=wbd-edit]').click()
+    soft(lambda: notices.first.wait_for(state='hidden'))
+    row = pg.get_by_role('row', name=re.compile('待对应合成卡片'))
+    row.get_by_role('button', name='更多操作').click()
+    with pg.expect_response(lambda r: r.url == endpoint and r.request.method == 'POST') as detected:
+        pg.locator('.ant-dropdown:visible [role=menuitem]', has_text=re.compile(r'^检测$')).click()
+    result = detected.value.json()
+    soft(lambda: notices.first.wait_for())
+    text = ' '.join(notices.all_inner_texts())
+    check('管理列表检测：徽标和操作反馈都是待对应', detected.value.ok and result.get('last_status') == 'unknown'
+          and result.get('last_error', '').startswith('待对应：') and '待对应' in row.inner_text()
+          and '待对应合成卡片 待对应' in text and '离线' not in text and '还没检查过' not in text, text)
+    pg.close()
+
     # 技能自己的页面
     SK = [{'slug': 'dsh:syn-skill-a', 'name': '合成技能甲', 'layer': 2, 'layer_name': '开发运维', 'family_parent': '合成族', 'description': '把合成数据整理成表。', 'legacy': False, 'versions': 2, 'active_version': 2},
           {'slug': 'dsh:syn-skill-b', 'name': '合成技能乙', 'layer': 1, 'layer_name': '业务角色', 'family_parent': '', 'description': '', 'legacy': True, 'versions': 1, 'active_version': 1}]

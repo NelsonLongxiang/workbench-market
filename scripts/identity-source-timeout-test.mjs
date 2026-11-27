@@ -160,6 +160,13 @@ try {
     const items = await gated.call('GET', '/api/work-items', { session: SESSIONS.hangs });
     const forged = await gated.call('GET', '/api/attention', { session: SESSIONS.forged });
     const anon = await gated.call('GET', '/api/attention');
+    const legacyProbe = await gated.call('GET', '/api/auth/me', { session: SESSIONS.hangs });
+    const unavailableProbe = await gated.call('GET', '/api/auth/me?session_check=1', { session: SESSIONS.hangs });
+    const anonymousProbe = await gated.call('GET', '/api/auth/me?session_check=1');
+    check(legacyProbe.status === 200 && legacyProbe.json?.authenticated === false
+      && unavailableProbe.status === 502 && unavailableProbe.json?.error === 'identity_unavailable'
+      && anonymousProbe.status === 200 && anonymousProbe.json?.authenticated === false && anonymousProbe.json?.gate === 'enforce',
+      '旧 auth/me 保持 200；显式会话复查区分身份来源不可用（502）和确实未登录（200）', show({ legacyProbe, unavailableProbe, anonymousProbe }));
     check(down.status === 502 && down.json?.error === 'identity_unavailable' && items.status === 502 && items.json?.error === 'identity_unavailable'
       && forged.status === 401 && forged.json?.error === 'login_required' && anon.status === 401 && down.ms < BOUND_MS,
       '登录门开着：带 cookie、来源不可达，接口回 502 identity_unavailable（关注、事项都是）；来源说认不出、没带 cookie 的照旧 401 login_required',

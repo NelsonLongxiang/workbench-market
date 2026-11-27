@@ -45,7 +45,7 @@ function Card({ c }: { c: RecordCard }) {
       {c.badges.length > 0 && (
         <div className="wm-rec-badges">
           {c.badges.map((b, i) => (
-            <Tag key={i} color={TONE[b.tone]} title={b.undefinedValue ? '未定义的取值' : undefined}>{b.text}{b.undefinedValue ? '（未定义的取值）' : ''}</Tag>
+            <Tag key={i} color={TONE[b.tone]}>{b.text}</Tag>
           ))}
         </div>
       )}
