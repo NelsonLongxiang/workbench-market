@@ -32,7 +32,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "458", "etag": "W/\"1ca-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "464", "etag": "W/\"1d0-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "teams": [
                 {
@@ -43,8 +43,8 @@
                   "reported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
                   "received_at": "YYYY-MM-DD hh:mm:ss.fff",
                   "seats": [
-                    { "seat": "lab/00000000", "seat_id": "", "name": "总工", "role": "router", "online": false, "active": 0, "queued": 0, "last_active_at": "" },
-                    { "seat": "lab/a1a1a1a1", "seat_id": "", "name": "成员甲", "role": "member", "online": true, "active": 0, "queued": 0, "last_active_at": "" }
+                    { "seat": "lab/00000000", "seat_id": "", "name": "总工", "role": "router", "online": false, "active": null, "queued": 0, "last_active_at": "" },
+                    { "seat": "lab/a1a1a1a1", "seat_id": "", "name": "成员甲", "role": "member", "online": true, "active": null, "queued": 0, "last_active_at": "" }
                   ],
                   "seats_online": 1
                 }
@@ -61,7 +61,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "458", "etag": "W/\"1ca-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "464", "etag": "W/\"1d0-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "teams": [
                 {
@@ -72,8 +72,8 @@
                   "reported_at": "YYYY-MM-DDThh:mm:ss.fffZ",
                   "received_at": "YYYY-MM-DD hh:mm:ss.fff",
                   "seats": [
-                    { "seat": "lab/00000000", "seat_id": "", "name": "总工", "role": "router", "online": false, "active": 0, "queued": 0, "last_active_at": "" },
-                    { "seat": "lab/a1a1a1a1", "seat_id": "", "name": "成员甲", "role": "member", "online": true, "active": 0, "queued": 0, "last_active_at": "" }
+                    { "seat": "lab/00000000", "seat_id": "", "name": "总工", "role": "router", "online": false, "active": null, "queued": 0, "last_active_at": "" },
+                    { "seat": "lab/a1a1a1a1", "seat_id": "", "name": "成员甲", "role": "member", "online": true, "active": null, "queued": 0, "last_active_at": "" }
                   ],
                   "seats_online": 1
                 }

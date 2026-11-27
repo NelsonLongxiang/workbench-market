@@ -10,16 +10,16 @@ def check(n, c, x=''):
     global ok, fail
     if c: ok += 1; print('  ✓', n)
     else: fail += 1; print('  ✗', n, x)
-def member(seat, name, seat_id='', active=0, online=True):
-    return {'seat': seat, 'seat_id': seat_id, 'name': name, 'role': 'member', 'online': online, 'router': False, 'assigned_to': None, 'active_items': active}
+def member(seat, name, seat_id='', active=0, online=True, queued=0):
+    return {'seat': seat, 'seat_id': seat_id, 'name': name, 'role': 'member', 'online': online, 'router': False, 'assigned_to': None, 'active_items': active, 'queued': queued}
 EMP = {'principal': 'person:synthetic-alpha', 'teams': [], 'members': [
-    {'host': '0a1b2c3d', 'team': 'zone/canvas/team-a', 'team_name': '合成一组', 'status': 'active', **member('zone/0a1b2c3d', '合成采购员', 's-1', 3)},
+    {'host': '0a1b2c3d', 'team': 'zone/canvas/team-a', 'team_name': '合成一组', 'status': 'active', **member('zone/0a1b2c3d', '合成采购员', 's-1', 3, queued=2)},
     {'host': '0a1b2c3d', 'team': 'zone/canvas/team-b', 'team_name': '合成二组', 'status': 'active', **member('zone/0e0e0e0e', '合成跟单员', '', 0, False)},
 ]}
 LEAD_MINE = {'principal': 'person:synthetic-alpha', 'members': EMP['members'][:1], 'teams': [{'host': '0a1b2c3d', 'team': 'zone/canvas/team-a', 'name': '合成一组', 'status': 'active', 'router': None}]}
 LEAD_TEAMS = {'can': {}, 'departments': [{'id': 'd-synthetic', 'name': '合成部', 'lead': None, 'teams': [
     {'host': '0a1b2c3d', 'team': 'zone/canvas/team-a', 'name': '合成一组', 'status': 'active', 'leads': [{'principal': 'person:synthetic-alpha', 'display_name': 'Synthetic alpha', 'source': 'explicit'}],
-     'members': [member('zone/0a1b2c3d', '合成采购员', 's-1', 3), member('zone/11111111', '合成核价员', 's-2', 1), member('zone/22222222', '合成质检员', 's-3', 0, False)]},
+     'members': [member('zone/0a1b2c3d', '合成采购员', 's-1', 3), member('zone/11111111', '合成核价员', 's-2', 1), member('zone/22222222', '合成质检员', 's-3', None, False)]},
 ]}]}
 json_body = lambda b: {'status': 200, 'content_type': 'application/json', 'body': json.dumps(b)}
 
@@ -51,7 +51,8 @@ with sync_playwright() as p:
     texts = cards.all_inner_texts()
     check(f'普通员工：「分给你的 AI 员工」两张卡（{len(texts)}）', len(texts) == 2 and '合成采购员' in texts[0] and '合成一组' in texts[0], texts)
     check('卡上写「手上在办 N 件」/「手上没有在办的」，不叫「你的」', '手上在办 3 件' in texts[0] and '手上没有在办的' in texts[1] and all('你的' not in t for t in texts), texts)
-    check('首字头像、在不在线', pg.locator('[data-testid=ck-staff-mine] .wm-avatar').first.inner_text().strip() == '合' and '在线' in texts[0] and '不在线' in texts[1])
+    check('头像和会话加载状态；排队数与在办数分开', pg.locator('[data-testid=ck-staff-mine] .wm-avatar').first.inner_text().strip() == '合'
+          and '会话已在宿主加载' in texts[0] and '会话未在宿主加载' in texts[1] and '排队 2 件' in texts[0], texts)
     check('普通员工没有「我负责的团队」那一组，也不去读 /api/teams', pg.locator('[data-testid=ck-staff-led]').count() == 0 and not reads, reads)
     if len(sys.argv) > 2: pg.screenshot(path=sys.argv[2])
     href = cards.first.locator('a').get_attribute('href')
@@ -69,6 +70,7 @@ with sync_playwright() as p:
     led = pg.locator('[data-testid=ck-staff-led]')
     lt = led.inner_text()
     check('负责人：多一组「我负责的团队：合成一组」', led.count() == 1 and '我负责的团队：合成一组' in lt, lt)
+    check('旧节点没报在办数时显示未上报', '在办数未上报' in led.locator('[data-testid=ck-staff]', has_text='合成质检员').inner_text())
     check('已经分给他的成员不在那一组里重复；另外两个成员在', '合成核价员' in lt and '合成质检员' in lt and '合成采购员' not in lt, lt)
     check('负责人才读 /api/teams', len(reads) >= 1)
     if len(sys.argv) > 3: pg.screenshot(path=sys.argv[3])

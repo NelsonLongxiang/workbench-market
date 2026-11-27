@@ -50,8 +50,8 @@ def pick(pg, testid, text):
     pg.locator(f'[data-testid={testid}]').first.click()
     pg.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option', has_text=text).first.click()
 
-def seat(seat, name='', role='worker', online=True, active=0, to=None):
-    return {'seat': seat, 'seat_id': '', 'name': name, 'role': role, 'online': online, 'router': role == 'router', 'assigned_to': to, 'active_items': active}
+def seat(seat, name='', role='worker', online=True, active=0, to=None, queued=0):
+    return {'seat': seat, 'seat_id': '', 'name': name, 'role': role, 'online': online, 'router': role == 'router', 'assigned_to': to, 'active_items': active, 'queued': queued}
 HOST = 'a1b2c3d4'
 ROUTER = seat('ops/a1b2c3d4', '合成总工', role='router', active=2)
 UNCLAIMED = {'host': HOST, 'team': 'ops/canvas/合成运营', 'name': '合成运营', 'status': 'unclaimed', 'in_roster': True, 'department': None, 'leads': [], 'router': ROUTER,
@@ -61,7 +61,7 @@ def sql_time(ago): return (datetime.now(timezone.utc) - ago).strftime('%Y-%m-%d 
 def claimed(dept_name):
     return {**UNCLAIMED, 'status': 'active', 'node_name': '合成节点', 'roster_received_at': sql_time(timedelta(minutes=3)), 'department': {'id': 'synthetic-ops', 'name': dept_name},
             'leads': [{'principal': 'user:jia', 'display_name': '甲经理', 'source': 'department'}, {'principal': 'user:yi', 'display_name': '乙主管', 'source': 'explicit'}],
-            'members': [seat('ops/00000001', '小算', active=3, to={'principal': 'user:bing', 'display_name': '丙'}), seat('ops/00000002', '小审', online=False)]}
+            'members': [seat('ops/00000001', '小算', active=3, to={'principal': 'user:bing', 'display_name': '丙'}, queued=2), seat('ops/00000002', '小审', online=False)]}
 # 口令管理员是系统管理员、不是管理层：认领、指定负责人只能提议（服务端的 can）
 CAN_ADMIN = {'claim': False, 'propose_claim': True, 'release': True, 'add_lead': False, 'propose_lead': True, 'manage_leads': True, 'manage_departments': True}
 CONFIRM_BY = '管理层或接收部门的负责人'
@@ -163,6 +163,9 @@ with sync_playwright() as p:
     mems = pg.locator('[data-testid=team-member]')
     m1, m2 = mems.nth(0).inner_text(), mems.nth(1).inner_text()
     check('成员卡：名字（不带句柄）、在办几件、分配给谁 / 团队公用', mems.count() == 2 and m1.split('\n')[0].strip() == '小算' and '在办 3 件' in m1 and '分配给 丙' in m1 and '团队公用' in m2 and '手上没有在办的' in m2, [m1, m2])
+    check('队列与在办分开；状态点说明宿主会话加载', '排队 2 件' in m1
+          and mems.nth(0).locator('.wm-team-dot').get_attribute('title') == '会话已在宿主加载'
+          and mems.nth(1).locator('.wm-team-dot').get_attribute('title') == '会话未在宿主加载', [m1, m2])
     check('总工单独一张卡，写「只对负责人」', '只对负责人' in pg.locator('[data-testid=team-router]').inner_text())
     check('名册是新的（三分钟前）：标「正常」，不写没更新', pg.locator('[data-testid=team-roster-stale]').count() == 0 and pg.locator('.wm-team-st', has_text='正常').count() == 1)
     check('系统管理员的视图（团队上 can_assign 为假）：头卡上写「成员分配由团队负责人或管理层做」', pg.locator('[data-testid=team-assign-by]').inner_text() == '成员分配由团队负责人或管理层做')

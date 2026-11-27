@@ -26,7 +26,10 @@ ok('团队状态：四种说法；原型链上的名字、不认识的不当状�
 ok('负责人：去重，挂部门带来的标出来；没有显示名用标识去前缀', J(leadsOf(t.departments[0].teams[0])) === '[{"name":"张经理","viaDepartment":true},{"name":"li","viaDepartment":false}]');
 ok('成员归谁用：分配给某人 / 团队公用', assignedText(t.departments[0].teams[0].members[0]) === '分配给 王' && assignedText(t.departments[0].teams[0].members[1]) === '团队公用');
 ok('计数：成员不算总工；在办把总工也算上', J(teamCounts(t.departments[0].teams[0])) === '{"members":2,"active":6}');
-ok('计数：在办是负数、不是数都按 0', teamCounts({ members: [member('a/1', { active_items: -3 }), member('a/2', { active_items: 'x' })], router: null }).active === 0);
+ok('计数：非法或未上报的在办数使合计未知，不显示部分合计',
+  teamCounts({ members: [member('a/1', { active_items: -3 }), member('a/2', { active_items: 4 })], router: null }).active === null);
+const missing = teamsOf({ departments: [], unclaimed: [team({ members: [{ seat: 'a/1', queued: 2 }, member('a/2')] })] }).unclaimed[0];
+ok('旧成员未上报与明确 0 分开，排队数单列', missing.members[0].active_items === null && missing.members[0].queued === 2 && missing.members[1].active_items === 0);
 ok('成员名：只写名字、不带句柄；名字自带的句柄后缀去掉；没有名字才用句柄', memberLabel({ name: '小算', seat: 'ops/00000001' }) === '小算' && memberLabel({ name: '合成成员二 (0a1b2c3d)', seat: 'ops/0a1b2c3d' }) === '合成成员二' && memberLabel({ name: '合成成员三（0a1b2c3e）', seat: 'x' }) === '合成成员三' && memberLabel({ name: ' ', seat: 'ops/2' }) === 'ops/2' && memberLabel({ name: '（备用）', seat: 'x' }) === '（备用）');
 ok('节点：有名字写名字；没有名字不写这一项，标识不出现', nodeLabel({ node_name: '合成节点甲' }) === '合成节点甲' && nodeLabel({}) === '' && nodeLabel({ node_name: '  ' }) === '' && teamsOf({ departments: [], unclaimed: [{ host: 'a1b2c3d4', team: '', node_name: ' 合成节点乙 ' }] }).unclaimed[0].node_name === '合成节点乙');
 ok('团队名：画布名；没有名字的不露团队句柄和节点标识', teamTitle({ name: '合成运营', team: 'ops/canvas/合成运营' }) === '合成运营' && teamTitle({ name: '', team: '' }) === '不在画布里的成员' && teamTitle({ name: '', team: 'ops/12345' }) === '一个没有名字的团队');

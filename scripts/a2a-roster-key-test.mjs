@@ -77,7 +77,7 @@ function open(then = '', dir = DATA) {
     ${then}
     const out = {
       rosters: db.prepare('SELECT peer_root, key_fingerprint, host, needs_review FROM a2a_roster_nodes ORDER BY peer_root').all(),
-      seats: db.prepare('SELECT peer_root, key_fingerprint, host, seat FROM a2a_roster_node_seats ORDER BY seat').all(),
+      seats: db.prepare('SELECT peer_root, key_fingerprint, host, seat, active FROM a2a_roster_node_seats ORDER BY seat').all(),
       oldRosters: db.prepare('SELECT * FROM a2a_rosters ORDER BY host').all(),
       oldSeats: db.prepare('SELECT * FROM a2a_roster_seats ORDER BY host, seat').all(),
       oldCols: db.prepare('PRAGMA table_info(a2a_rosters)').all().map((c) => c.name + ':' + c.pk),
@@ -94,6 +94,7 @@ function open(then = '', dir = DATA) {
 try {
   console.log('一、升级：按钉住的公钥回填完整指纹，回填不上的要人确认');
   const a = open();
+  ok('升级复制的旧名册没有在办数，保留 NULL', a.seats.length === 4 && a.seats.every((seat) => seat.active === null), JSON.stringify(a.seats));
   const row = (root) => a.rosters.find((x) => x.peer_root === root);
   ok('钉住了公钥、前 8 位就是 host → 回填完整指纹，参与匹配', row('https://good.synthetic.invalid')?.key_fingerprint === K1.fp && row('https://good.synthetic.invalid')?.needs_review === 0 && a.live.includes('https://good.synthetic.invalid'), JSON.stringify(a.rosters));
   ok('钉住的不是 host 那把、还没钉住键、没登记 → 占位指纹 legacy:<host>、needs_review = 1，都不参与匹配',

@@ -10,7 +10,7 @@ import { answerChoices, groupCards, waited, workItemIdOf, type AttentionItem, ty
 import { rowKey, rowTag, stillThere, TAG_COLOR } from '../../cockpit-attention';
 import { pageLink, fallbackPlace } from '../../page-paths';
 import { ATTENTION_CHANGED, getMyTeams, getRosterTeams, getTeams, getWorkItem } from '../../api';
-import { busyText, ledTeams, myStaff, staffLink, type LedTeam, type StaffCard } from '../../ai-staff-view';
+import { busyText, ledTeams, myStaff, sessionLoadedText, staffLink, type LedTeam, type StaffCard } from '../../ai-staff-view';
 import DecisionCard from '../DecisionCard';
 import WorkItemTimeline from '../WorkItemTimeline';
 import { rosterNames, withRoster } from '../../names';
@@ -157,8 +157,8 @@ export function StaffPane() {
   const card = (c: StaffCard) => <li key={c.key} data-testid="ck-staff">
     <Link to={staffLink(c)} className="wm-ck-staff">
       <span className="wm-avatar" aria-hidden>{c.initial}</span>
-      <span className="wm-ck-staff-main"><b>{c.name}</b><Typography.Text type="secondary" className="wm-caption">{[c.team, c.online ? '在线' : '不在线'].filter(Boolean).join(' · ')}</Typography.Text></span>
-      <Typography.Text type="secondary" className="wm-caption wm-ck-staff-busy">{busyText(c.active)}</Typography.Text>
+      <span className="wm-ck-staff-main"><b>{c.name}</b><Typography.Text type="secondary" className="wm-caption">{[c.team, sessionLoadedText(c.online)].filter(Boolean).join(' · ')}</Typography.Text></span>
+      <Typography.Text type="secondary" className="wm-caption wm-ck-staff-busy">{busyText(c.active)} · 排队 {c.queued} 件</Typography.Text>
     </Link>
   </li>;
   return <div data-testid="ck-staff-pane">
