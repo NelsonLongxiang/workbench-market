@@ -11,6 +11,7 @@ import type express from 'express';
 import { addEndpointHits, endpointHitRows } from './services/endpoint-stats-store.ts';
 import { isStartupProbeRequest } from './startup-security-self-probe.ts';
 import { root } from './root-context.ts';
+import { endpointKey, normalizeEndpoint } from './endpoint-key.ts';
 
 function flushRows(rows: [string, string, number][]) {
   addEndpointHits(rows);
@@ -33,13 +34,7 @@ root.effect(() => {
   return () => { clearInterval(flushTimer); };
 }, 'endpoint-stats.flush(5s)');
 
-/** 路径规范化：数字段折叠为 :id（/api/sop/runs/42 → /api/sop/runs/:id） */
-export function normalizeEndpoint(pathname: string): string {
-  return pathname
-    .split('/')
-    .map((seg) => (/^\d+$/.test(seg) ? ':id' : seg))
-    .join('/');
-}
+export { normalizeEndpoint, endpointKey };
 
 /** 计数中间件：只记 GET/POST 等业务请求，跳过静态资源与 stats 自身（防自增噪声） */
 export function endpointStatsMiddleware(): express.RequestHandler {
@@ -61,7 +56,7 @@ export function endpointStatsMiddleware(): express.RequestHandler {
         if (!url.startsWith('/api/') && !isPortal) return; // 统一待办页（/tasks）已退役（#664），不再单列
         if (isPortal && res.statusCode >= 400) return; // 门户 4xx/5xx 不计入活跃
         if (url === '/api/stats') return; // 自身不计
-        const key = `${normalizeEndpoint(url)}|${new Date().toISOString().slice(0, 10)}`;
+        const key = `${endpointKey(req.route?.path, url)}|${new Date().toISOString().slice(0, 10)}`;
         pending.set(key, (pending.get(key) ?? 0) + 1);
       } catch { /* 计数失败不影响业务 */ }
     });

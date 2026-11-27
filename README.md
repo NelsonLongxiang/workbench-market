@@ -60,7 +60,7 @@ python3 -m venv .venv && .venv/bin/python -m pip install playwright==1.57.0
 - `A2A_ORIGIN_CLAIM_UNBOUND`（v1 未绑定调用方签名兼容窗：`off`=停发 `X-A2A-Caller-Sig`，缺省继续发；v1 不绑路由，未升级对端上可被剥 Sig2 重放，全舰队升级后应设 `off`）
 - `WM_A2A_MEMBER_PROVENANCE`（缺省 `on`：市场名片声明 `canvasMemberProvenance`——a2a-net 0.8 起，对钉了公钥的画布成员只往声明了它的宿主转发，不声明则席位的回执到不了市场；声明即承诺：名片只列本节点自己服务、互不重复的句柄 `market/<8 hex>`，发给它们的消息只在本节点投递、查无或有歧义一律 404，句柄只由本节点密钥签发；`off`=不声明，名片与之前完全相同；其它值拒绝启动）
 - `WM_A2A_PROGRESS_RECEIPTS`（缺省 `on`：市场名片声明 `progressReceipts`——宿主只给声明了它的调用方发进展回执 `progress-<task>-<n>`；市场收下后只记录、给事项页做「正在处理」提示和子项，不结清原派工、不推事项状态；`off`=不声明，宿主不发进展；其它值拒绝启动）
-- `WM_A2A_TEAM_ROSTER`（缺省 `on`：市场名片声明 `teamRoster`——a2a-net next/0.8 的宿主只给声明了它的画布远端成员推团队名册 `[A2A roster]`，市场照规矩收（投递过的宿主、Sig3、节点键取自验过签的公钥）；`off` 时不声明、入站名册一律不收；其它值拒绝启动）
+- `WM_A2A_TEAM_ROSTER`（缺省 `on`：市场名片声明 `teamRoster`——a2a-net next/0.8 的宿主只给声明了它的画布远端成员推团队名册 `[A2A roster]`，市场照规矩收（投递过的宿主，或已登记 active 且钉住公钥的宿主；仍须 Sig3、固定公钥及节点指纹验证）；`off` 时不声明、入站名册一律不收；其它值拒绝启动）
 - `WM_A2A_DIRECTED_SEATS`（缺省 `on`：市场名片声明 `directedSeats`——宿主只认声明了它的远端成员发来的指名派工行；「安排一件事」带 `seat_id` 时派工正文第一行写指名（对端宿主没声明就退回整队派发并留痕）；`off` 时不声明，带 `seat_id` 的安排 400；其它值拒绝启动）
 - `WM_PROPOSAL_ROSTER_GONE_HOURS`（缺省 `24`：关系的提议指向的团队，在节点照常报名册的情况下连续不在名册超过这么多小时，提议才失效；短暂掉出又回来的不收，节点整个停推的只走总期限；1～720 的整数，别的值拒绝启动）
 - `WM_PROPOSAL_TTL_DAYS`（缺省 `14`：关系的提议（部门负责人、团队负责人、团队认领）超过这么多天没人处理就失效，目标不在了的也失效；每小时收一轮，失效的在提议人那里留 7 天；1～365 的整数，别的值拒绝启动）
@@ -397,6 +397,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   design-standard.ts（MCP design_standard 工具的 design token 标准只读读取）
   design-tokens-css.ts（DESIGN.md 生成的 tokens.css 服务端出口）
   endpoint-stats.ts（端点数）
+  endpoint-key.ts（端点计数的键：带 :ticket 参数的路由按路由模板记键，票的路径不进统计；没有路由对象时按 URL 折叠上传、下载票段，不分大小写）
   errors.ts（错误类型）
   eval.ts（#178 jev 评估客户端）
   extensions.ts（扩展挂载点·WM_EXTENSIONS_DIR）
@@ -415,7 +416,6 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   red-lines.ts（红线清单：越不过去的规则，每条写明在哪儿管着、哪个对抗组盯着；scripts/red-lines-test.mjs 核对每条都有带 [red-line:<id>] 的对抗例）
   judgment.ts（判定：Cordis 事件 `judgment/judge`，内置监听器照六步判·scopedVerdict 认 dept:<x>、area:<x>：领域 x 在、没撤时两种都认（dept: 只限过渡清单 DEPT_AREA_TRANSITIONAL 里的台、经验库动作），领域撤了都不认，还没迁的部门照旧只认 dept:；areaVerdict 是领域自己的动作）
   grant-scope-view.ts（授予范围的展示口径：scope_name（部门名、领域名）和 scope_effect（all / area / dept / none），给授予列表、单条、/api/auth/me、以某人的身份看用；只用于展示，不参与放行）
-  layerfs-shadow.ts（LayerFS 影子发布结果持久化：只回写 commit_id 为空的版本行，失败标记后可重试）
   skill-shadow.ts（技能影子副本：推一版（migrate-layerfs 和补推共用，推完读回摘要一致才记 succeeded）、定时补推（挂在根上下文上随之停·对外断开时整轮跳过、不记失败·LayerFS 没配置不做·连不上这一轮停下、日志只在通断变化时打·异常的版本退避·二进制记 skipped））
   login-gate.ts（全站登录门 WM_LOGIN_GATE：enforce 时页面 302 登录、API 401）
   mcp-tools.ts（MCP 工具注册表）
@@ -431,6 +431,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   portal-access.ts（门户按台访问范围 all/admin/listed、凭据默认收紧、HTTP/WS同判与审计）
   skill-snap-path.ts（技能快照的磁盘相对路径，只此一处：`skill-snapshots/<encodeURIComponent(全 slug)>/v<n>`；服务端发布和 scripts/skill-import.mjs、scripts/skill-upload-one.mjs 写快照都用它，snapshot_path 存这个相对形，跨源同名技能各有各的目录，#183、#810）
   upload-tickets.ts（MCP 上传票：先申请、再直传——票只存 sha256、只能用一次、10 分钟过期、每会话 20 张、全局 1000 张，只在内存里；发票在 skill_file_put / app_files_upload 不带内容时，用票在 PUT /api/mcp-rest/uploads/<票>）
+  download-tickets.ts（MCP 附件短时下载票：app_files_list 带 ticket_for_id 申请——只读、只绑一份文件和发票的会话，票只存 sha256、2 分钟过期、默认 1 次最多 5 次、每会话 20 张、全局 1000 张，只在内存里；用票在 GET /api/mcp-rest/downloads/<票>，用票时再核会话、授权、台和文件）
   upload-file-name.ts（上传文件名的统一规则：台文件的 base64、上传票、REST 原始字节、两个 multipart 入口、工作项附件、SOP 运行文件共用，技能包路径和台与 SOP 源码发布的路径逐段用；拒路径分隔符、控制字符、DEL、方向控制符）
   redis.ts（Redis 连接和 SOP 执行实例的热态：连接只有这一条；SOP 的读写经共用状态层的 sop 句柄，只碰 wm:sop: 开头的键）
   request-person.ts  这个请求是哪个人：只经身份服务认请求带的登录凭据（登录提供方的会话或市场会话），主体须是启用的人；认不出就是没有，调用方照常放行（任务中心建录入、发布用）
@@ -504,6 +505,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   attention.ts（「关注」：Cordis 服务 `attention`·各来源注册提供方、可撤销·汇总当前这个人的条目和各类条数）
   binding.ts（A2A 人工绑定）
   endpoint-stats-store.ts（端点命中计数的存取；表在 db.ts，计数口径在 endpoint-stats.ts）
+  layerfs-shadow.ts（LayerFS 影子发布结果持久化：只回写 commit_id 为空的版本行，失败标记后可重试）
   read-grants.ts（待办读授权的存取：ygl-trees 项目授权与 SOP 运行读授权的运行号）
   change-request.ts（人审变更请求；detailOf 给审核卡片看内容所需的最少字段：版本从几到几、目标版本说明、删除连带几个版本几个文件、不可恢复）
   custom-role.ts（自定义角色：Cordis 服务 `customRoles`·从内置预设复制、改、删、属主放行、导出·每步留痕·带来管理类或决定类权限的要属主放行）
@@ -754,6 +756,7 @@ MCP 自带一套 REST：不说 MCP 协议的客户端（普通脚本、按 OpenA
 | `POST {rest_base}/apps/{slug}/files` | `app_files_upload` | multipart：字段 `file`，可选 `note`、`created_by`、`sha256`（期望的 sha256，也可放请求头 `X-Content-SHA256`，两处都带须一致） |
 | `GET {rest_base}/apps/{slug}/files` | `app_files_list` | 列文件，倒序分页（`limit`、`before_id`），带 `quota` |
 | `GET {rest_base}/apps/{slug}/files/{id}` | `app_files_list` | 二进制下载 |
+| `GET {rest_base}/downloads/{票}` | 不用会话令牌，票本身是凭据 | 附件短时下载票的取件：票由 `app_files_list` 带 `ticket_for_id`（文件 id）申请，只读、只绑那一份文件和发票的会话，2 分钟、默认 1 次（`max_uses` 最多 5，Range 和条件请求各算一次）；用票时再核会话、授权、台和文件，对不上一律同一句 404；`revoke_ticket` 提前撤销 |
 | `GET {rest_base}/apps/{slug}/data` | `app_data_list` | 读台数据（分页） |
 | `GET {rest_base}/sop/runs/{id}` | `sop_run_get` | 结果与 sop_run_get 相同；没有 run 读授权时只返回元数据 |
 | `GET {rest_base}/sop/runs/{id}/files[/{fileId}]` | `sop_run_get` + 该 run 的读授权 | 附件列表与下载 |

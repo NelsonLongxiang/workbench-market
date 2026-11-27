@@ -41,11 +41,13 @@ type BlockData = { columns: BlockColumn[]; rows: Record<string, unknown>[]; trun
 export type ResolvedNode = { id: string; type: string; title?: string; content?: string; children?: ResolvedNode[]; columns?: number[]; component?: string; props?: Record<string, unknown>; data?: BlockData; src?: string; alt?: string; sha256?: string };
 /** 冻结的图片节点：链接（格子或输入里的原值）、替代文字、取到的图的 sha256（冻结时由 bench-report.ts 填） */
 export type ImageNode = ResolvedNode & { type: 'image'; src: string; alt: string; sha256: string };
-/** 一份报告最多这么多个图片节点（展开 repeat 之后算）：冻结时每张都要取一次 */
-export const IMAGE_NODES_MAX = 20;
+/** 一份报告最多这么多个图片节点（展开 repeat 之后算），和 repeat 的 max_items 上限一致（#1081）：冻结时每张都要取一次 */
+export const IMAGE_NODES_MAX = 100;
+/** 冻结时取回的图片总字节上限（同一链接只算一次）。单张上限另见 bench-image.ts 的 IMAGE_LIMITS.bytes（5MB） */
+export const IMAGE_BYTES_MAX = 64 * 1024 * 1024;
 export type FrozenBody = { schema_version: 2; title: string; inputs: Inputs; body: ResolvedNode[] };
 
-const fail: (code: string, path: string) => never = (code, path) => { throw new ReportError(code, path); };
+const fail: (code: string, path: string, detail?: string) => never = (code, path, detail) => { throw new ReportError(code, path, detail); };
 const obj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const own = (v: object, k: string) => Object.hasOwn(v, k);
 const keys = (v: unknown, allowed: string[], path: string) => { if (!obj(v)) fail('invalid_object', path); for (const k of Object.keys(v)) if (!allowed.includes(k)) fail('unknown_key', path + '/' + k); };
@@ -164,6 +166,26 @@ export function imageNodesOf(nodes: ResolvedNode[] | unknown): ImageNode[] {
 }
 
 /**
+ * 冻结时给每个图片节点填 sha256：同一链接只取一次。取回的图累计字节（同一链接只算一次）超过 bytesMax 就停，
+ * 报 image_limit（detail bytes），后面的图不再取。取图由调用方给（services/bench-report.ts 传代取的 fetchImage），这里不碰网络。
+ */
+export async function hashImages(nodes: ResolvedNode[] | unknown, fetchBody: (src: string) => Promise<Buffer | Uint8Array>, bytesMax = IMAGE_BYTES_MAX): Promise<void> {
+  const hashes = new Map<string, string>();
+  let total = 0;
+  for (const n of imageNodesOf(nodes)) {
+    let h = hashes.get(n.src);
+    if (h === undefined) {
+      const body = await fetchBody(n.src);
+      total += body.length;
+      if (total > bytesMax) fail('image_limit', '/body/' + n.id, 'bytes');
+      h = createHash('sha256').update(body).digest('hex');
+      hashes.set(n.src, h);
+    }
+    n.sha256 = h;
+  }
+}
+
+/**
  * 核台的绑定（绑的时候核一次，生成时再核一次：模板和绑定都可能变）：模板的每个数据槽都要绑、不多绑；
  * 每个槽：view 是视图的键，block 是 0～39 的块号，params 的值只能是参数、文字字段的引用（行引用没有意义），columns 盖住槽的每一列
  */
@@ -275,7 +297,7 @@ export function materialize(t: ReportTemplate, b: Binding, data: ReportSlotData[
     if (n.type === 'text') return [{ ...base, content: bodyText(n.content, path + '/content', row) }];
     if (n.type === 'section') return [{ ...base, title: bodyText(n.title, path + '/title', row), children: renderNodes(n.children ?? [], suffix, row, rowCols) }];
     if (n.type === 'image') {
-      if (++images > IMAGE_NODES_MAX) return fail('image_limit', path);
+      if (++images > IMAGE_NODES_MAX) return fail('image_limit', path, 'count');
       const src = imageSource(t, n.src, path + '/src', input, row && rowCols ? { values: row, columns: rowCols } : undefined);
       return [{ ...base, src, alt: altText(n.alt, path + '/alt'), sha256: '' }];
     }
@@ -283,7 +305,8 @@ export function materialize(t: ReportTemplate, b: Binding, data: ReportSlotData[
       const cols = n.columns, items = n.items;
       if (!Array.isArray(cols) || !Array.isArray(items) || cols.length !== items.length || items.length < 1 || items.length > 4 || cols.some((x) => !Number.isInteger(x) || x < 1 || x > 12) || cols.reduce((a, b2) => a + b2, 0) !== 12) return fail('invalid_grid', path);
       if (!['12', '6-6', '4-4-4', '3-3-3-3'].includes(cols.join('-'))) return fail('grid_ratio_unsupported', path);
-      if (items.some((x) => !['text', 'data-view'].includes(x.type) || x.component === 'table')) return fail('grid_split_unsupported', path);
+      // #1081：格子里可以放图（一行并排几张小图），和前端 p0.ts 的校验一致；表格仍不能拆进格子
+      if (items.some((x) => !['text', 'data-view', 'image'].includes(x.type) || x.component === 'table')) return fail('grid_split_unsupported', path);
       return [{ ...base, columns: [...cols], children: renderNodes(items, suffix, row, rowCols) }];
     }
     if (n.type === 'data-view') {
