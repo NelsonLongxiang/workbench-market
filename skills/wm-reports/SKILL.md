@@ -214,13 +214,30 @@ v2 的 body 是有 id 的节点数组。第十二次上线起可用 v3：把 sch
 
 | 指令 | 写法和输入 |
 | --- | --- |
-| $format | 指定 date、number、percent 或 currency 和 value。可带 locale，currency 格式可带三字母币种。日期以 UTC 格式化。 |
+| $format | 指定 date、number、percent 或 currency 和 value。可带 locale，货币格式可带三字母 currency。数字格式可带 minimum_fraction_digits 和 maximum_fraction_digits，范围为 0～6，最少位数须小于或等于最多位数。日期以 UTC 格式化。 |
 | $count | 取列表或字符串长度。可直接引用整个槽计数。 |
 | $join | 拼接列表。用 separator 指定分隔符，槽列引用返回该列的值列表。 |
 | $concat | 拼接多个标量片段。可混用文字、引用和指令。 |
 | $math | a 和可选 b 为数字表达式。支持 add、subtract、multiply、divide、mod、min、max，以及 round、floor、ceil、abs。 |
 
 表达式在生成时由服务端根据经校验的输入和绑定槽求值，结果随报告冻结。预览不了的指令或取不到的字段、列需要回模板或绑定修正。浏览器展示已冻结结果。旧 v2 模板仍可使用，改模板或台数据不会改写已生成的报告。
+
+### 统计卡显示格式
+
+统计卡的 `props.format` 可以指定 `style`（`number`、`percent` 或 `currency`）和 `$format` 的地区、币种和小数位选项。下面的例子要求槽里只有一行。列 `rate` 的数值为 `0.211` 时，统计卡显示「21.10%」。
+
+```json
+{
+  "value": "rate",
+  "format": {
+    "style": "percent",
+    "minimum_fraction_digits": 2,
+    "maximum_fraction_digits": 2
+  }
+}
+```
+
+生成时同时冻结原数和显示文本。浏览器直接展示冻结文本。省略 `format` 时沿用原有显示。
 
 ### 图片
 

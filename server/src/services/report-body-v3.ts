@@ -81,6 +81,7 @@ function formatter(v: Record<string, unknown>, operand: Expression, path: string
   const currency = own(v, 'currency') ? v.currency : 'CNY';
   if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency) || (style !== 'currency' && own(v, 'currency'))) return fail('invalid_format', path);
   if (style === 'date') {
+    if (own(v, 'minimum_fraction_digits') || own(v, 'maximum_fraction_digits')) return fail('invalid_format', path); // 日期没有小数位
     let format: Intl.DateTimeFormat;
     try { format = new Intl.DateTimeFormat(locale, { timeZone: 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }); }
     catch { return fail('invalid_format', path); }
@@ -92,10 +93,10 @@ function formatter(v: Record<string, unknown>, operand: Expression, path: string
       return format.format(date);
     };
   }
-  let format: Intl.NumberFormat;
-  try { format = new Intl.NumberFormat(locale, { style: style === 'number' ? 'decimal' : style, currency }); }
-  catch { return fail('invalid_format', path); }
-  return (context) => format.format(number(operand(context), path));
+  // #1085 数字的写法和统计卡、数据视图共用一个实现（server/src/value-format.ts）；不写小数位时和以前一模一样
+  const spec = reportNumberSpec({ style, locale, currency, minimum_fraction_digits: v.minimum_fraction_digits, maximum_fraction_digits: v.maximum_fraction_digits }, (k) => own(v, k));
+  if (!spec.ok) return fail('invalid_format', path);
+  return (context) => formatNumber(number(operand(context), path), spec.spec) as string;
 }
 
 function expression(v: unknown, path: string, depth = 0): Expression {
@@ -109,7 +110,7 @@ function expression(v: unknown, path: string, depth = 0): Expression {
   if (!obj(v)) { const value = scalar(v, path); return () => value; }
   if (own(v, 'ref')) { object(v, ['ref'], path); return reference(v.ref, path + '/ref'); }
   if (own(v, '$format')) {
-    object(v, ['$format', 'value', 'locale', 'currency'], path);
+    object(v, ['$format', 'value', 'locale', 'currency', 'minimum_fraction_digits', 'maximum_fraction_digits'], path);
     return formatter(v, child(v.value, 'value'), path);
   }
   if (own(v, '$count')) {
@@ -218,3 +219,4 @@ export function v3BodyProblem(body: unknown): string | null {
   try { compileV3Body(body); return null; }
   catch (e) { if (e instanceof InvalidBody) return e.message; throw e; }
 }
+import { formatNumber, reportNumberSpec } from '../value-format.ts';

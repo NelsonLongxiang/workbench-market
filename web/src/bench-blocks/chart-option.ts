@@ -25,20 +25,23 @@ const legend = (t: ChartTokens, show: boolean) => ({
 const axisLabel = (t: ChartTokens) => ({ color: t.textSecondary, fontFamily: t.fontFamily, fontSize: t.fontSize });
 
 /** 柱和线共用：细网格线、没有轴线刻度、图例在左上（只有一个系列时不画图例） */
-export function cartesianOption(kind: 'bar' | 'line', m: Model, t: ChartTokens, o: { stacked?: boolean; horizontal?: boolean; area?: boolean; /** 每个类目的语气（只有一个系列的柱状图才用）：给了的那根柱子用对应的语义色 */ tones?: ('danger' | 'warning' | 'success' | null)[] } = {}) {
+export function cartesianOption(kind: 'bar' | 'line', m: Model, t: ChartTokens, o: { stacked?: boolean; horizontal?: boolean; area?: boolean; /** 每个类目的语气（只有一个系列的柱状图才用）：给了的那根柱子用对应的语义色 */ tones?: ('danger' | 'warning' | 'success' | null)[]; /** #1095 数值轴、提示框里的数怎么写（y 列都配了同一个格式时给） */ valueFmt?: (n: number) => string; seriesFmt?: (((n: number) => string) | undefined)[] } = {}) {
   const toned = kind === 'bar' && m.series.length === 1 && Array.isArray(o.tones);
   const many = m.series.length > 1;
   const cat = { type: 'category', data: m.categories, axisLine: { lineStyle: { color: t.border } }, axisTick: { show: false }, axisLabel: { ...axisLabel(t), hideOverlap: true } };
-  const val = { type: 'value', axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: t.border, type: 'dashed' } }, axisLabel: axisLabel(t) };
+  const val = { type: 'value', axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: t.border, type: 'dashed' } }, axisLabel: { ...axisLabel(t), ...(o.valueFmt ? { formatter: o.valueFmt } : {}) } };
+  const tooltipValue = (format?: (n: number) => string) => format
+    ? { valueFormatter: (v: unknown) => typeof v === 'number' ? format(v) : String(v ?? '') }
+    : {};
   const horizontal = kind === 'bar' && !!o.horizontal;
   return {
     ...base(t),
-    tooltip: { ...base(t).tooltip, trigger: 'axis', axisPointer: { type: kind === 'bar' ? 'shadow' : 'line', lineStyle: { color: t.border }, shadowStyle: { color: t.border, opacity: 0.35 } } },
+    tooltip: { ...base(t).tooltip, trigger: 'axis', axisPointer: { type: kind === 'bar' ? 'shadow' : 'line', lineStyle: { color: t.border }, shadowStyle: { color: t.border, opacity: 0.35 } }, ...tooltipValue(o.valueFmt) },
     legend: legend(t, many),
     grid: { left: 4, right: 8, top: many ? 32 : 12, bottom: 4, containLabel: true },
     xAxis: horizontal ? val : cat,
     yAxis: horizontal ? { ...cat, inverse: true } : val,
-    series: m.series.map((s, i) => ({ ...(m.merged && i === m.series.length - 1 ? { color: t.muted } : {}), ...(kind === 'bar'
+    series: m.series.map((s, i) => ({ ...(o.seriesFmt?.[i] ? { tooltip: tooltipValue(o.seriesFmt[i]) } : {}), ...(m.merged && i === m.series.length - 1 ? { color: t.muted } : {}), ...(kind === 'bar'
       ? { type: 'bar', name: s.name, data: toned ? s.values.map((v, k) => { const tone = (o.tones as (keyof ChartTokens['tones'] | null)[])[k]; return tone ? { value: v, itemStyle: { color: t.tones[tone] } } : v; }) : s.values, stack: o.stacked ? 'total' : undefined, barMaxWidth: 28, itemStyle: { borderRadius: o.stacked ? 0 : horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0] } }
       : { type: 'line', name: s.name, data: s.values, symbol: 'circle', symbolSize: 6, showSymbol: m.categories.length <= 24, lineStyle: { width: 2 }, connectNulls: false, areaStyle: o.area ? { opacity: 0.08 } : undefined }) })),
   };

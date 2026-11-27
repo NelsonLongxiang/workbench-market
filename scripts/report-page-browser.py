@@ -229,6 +229,15 @@ with sync_playwright() as p:
     check('没有产出方显示名时写未署名', '未署名' in docs(pg).locator('[data-testid=report-producer]').inner_text())
     check('回应者名字、范围名取不到：写「未命名」「领域成员（未命名）」，不写 user:beta、area-member@area:zeta、xss-dim',
           '领域成员（未命名）' in t5 and not any(k in t5 for k in ['user:', 'area-member', '@area', 'xss-dim', 'zeta']), t5[-300:])
+    REPORTS[4]['body']['body'].append({
+        'id': 'frozen-stat', 'type': 'data-view', 'component': 'stat', 'props': {'value': 'amount'},
+        'display_text': '21.10%', 'data': {'columns': [{'name': 'amount', 'type': 'decimal', 'label': '比率'}], 'rows': [{'amount': 0.211}]},
+    })
+    pg.goto(f'{M}/use/{CARD}/reports?report=4')
+    stat = docs(pg).locator('[data-node=frozen-stat] strong')
+    stat.wait_for()
+    check('报告统计卡直接显示冻结文本「21.10%」', stat.inner_text().strip() == '21.10%', stat.inner_text())
+
     print('七、章节锚点和本页目录（#1099）')
     node_ids = ['sec1', 'sec2', 'sec/%5B1%5D', 'root', 'sec/%5B1%5D']
     REPORTS[4]['body'] = {'schema_version': 2, 'title': '合成·长报告', 'body': [{'id': 'cover', 'type': 'cover', 'title': '合成·长报告', 'content': '合成摘要'}]
@@ -243,6 +252,8 @@ with sync_playwright() as p:
     def wait_jump(key):
         soft(lambda: pg.wait_for_function("key => document.getElementById(key)?.classList.contains('wm-anchor-flash')", arg=key, timeout=3000))
         return jump_state(key)
+    # 上一组已经打开报告 4。先离开详情，让带锚点的地址重新读取长报告夹具。
+    pg.goto(f'{M}/use/{CARD}/reports')
     pg.goto(f'{report_url}#{root_key}')
     pg.wait_for_selector('[data-testid=report-doc][data-report="4"] .wm-rp-body section')
     jump = wait_jump(root_key)

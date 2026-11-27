@@ -663,6 +663,8 @@ jobs:
         run: node scripts/bench-link-ui-unit.mjs && node scripts/bench-card-health-test.mjs
       - name: 块锚点与本页目录单测（#1099：块键、目录条目、地址里的 #、本块链接、滚动高亮）
         run: node scripts/page-toc-unit.mjs
+      - name: 数字显示格式单测（#1085 报告 $format 与统计卡、#1095 数据视图列 format 共用一个实现）
+        run: node scripts/value-format-unit.mjs && node scripts/bench-column-format-test.mjs
       - name: 「团队」页单测（纯函数——团队状态、负责人、成员归谁用、计数、空和读不到的说法、建部门校验；单列一步）
         run: node scripts/team-ui-unit.mjs
       - name: 领域页单测（列表整形和排序·负责人那一行·建领域的校验·迁移结果的说法·指定负责人停在哪一步）

@@ -1,7 +1,7 @@
 /** 统计卡：小标签 + 大数 + 单位，可带环比；可以点（跳到对应的列表）。 */
 import { ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons';
 import { BlockFrame, type BlockFrameProps } from './Frame';
-import { fmtNumber, statOf, toneOf, toneRules } from './blocks-view';
+import { fmtColumnNumber, statOf, toneOf, toneRules } from './blocks-view';
 
 export interface StatBlockProps extends BlockFrameProps {
   /** 取哪一列的数（第一行） */
@@ -16,17 +16,19 @@ export interface StatBlockProps extends BlockFrameProps {
 
 export function StatBlock({ value, unit, delta, onClick, toneRules: rules, title, span = 3, ...frame }: StatBlockProps) {
   const n = statOf(frame.data, value);
+  // #1095 统计卡的数按值那一列的格式写，和同一列在表格里一样
+  const vc = frame.data?.columns.find((c) => c.name === value);
   const tone = toneOf(frame.data?.rows?.[0], toneRules(rules));
   const good = delta && (delta.good ?? 'up') === delta.direction;
   return (
     <BlockFrame {...frame} title={title} smallTitle span={span} kind="stat" onClick={onClick} label={typeof title === 'string' ? `${title}：点开看明细` : undefined}>
       <div className={`wm-dash-display wm-num${tone ? ` wm-tone-${tone}` : ''}`}>
-        {fmtNumber(n)}
+        {fmtColumnNumber(n, vc)}
         {unit ? <span className="wm-dash-suffix">{unit}</span> : null}
       </div>
       {delta ? (
         <span className={`wm-dash-delta ${good ? 'wm-tone-success' : 'wm-tone-danger'}`}>
-          {delta.direction === 'up' ? <ArrowUpOutlined /> : <ArrowDownOutlined />} {fmtNumber(Math.abs(delta.value))}{delta.label ? ` ${delta.label}` : ''}
+          {delta.direction === 'up' ? <ArrowUpOutlined /> : <ArrowDownOutlined />} {fmtColumnNumber(Math.abs(delta.value), vc)}{delta.label ? ` ${delta.label}` : ''}
         </span>
       ) : null}
     </BlockFrame>

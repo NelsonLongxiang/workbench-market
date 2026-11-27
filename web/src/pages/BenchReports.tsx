@@ -263,7 +263,7 @@ function Nodes({ nodes, level, img, anchors, parent = [] }: { nodes: ReportNode[
       const p = n.props ?? {};
       if (n.component === 'stat') {
         const name = String(p.value ?? ''), col = n.data.columns.find((c) => c.name === name);
-        return <div key={n.id} className="wm-rp-stat" data-node={n.id}><span>{nameOr(col?.label)}</span><strong>{fmtNumber(n.data.rows[0]?.[name])}{p.unit ? <small> {String(p.unit)}</small> : null}</strong></div>;
+        return <div key={n.id} className="wm-rp-stat" data-node={n.id}><span>{nameOr(col?.label)}</span><strong>{n.display_text ?? fmtNumber(n.data.rows[0]?.[name])}{p.unit ? <small> {String(p.unit)}</small> : null}</strong></div>;
       }
       if (n.component === 'bar') return <div key={n.id} data-node={n.id}><BarBlock frame="none" data={n.data as never} x={String(p.x ?? '')} y={(p.y as string[] | undefined) ?? []} /></div>;
       const names = Array.isArray(p.columns) ? (p.columns as string[]) : n.data.columns.map((c) => c.name);

@@ -38,7 +38,21 @@ RECORDS = {'type': 'records', 'title': '下一动作', 'title_col': 't', 'badges
                     'rows': [{'t': XSS, 'st': 'open', 'who': None, 'purpose': '长' * 200, 'note': XSS, 'day': None, 'url': 'https://ok.example/doc', 'url2': 'javascript:alert(1)'}]
                             + [{'t': f'合成动作{i}', 'st': 'weird', 'who': '合成乙', 'purpose': '短', 'note': '短', 'day': '2026-11-21', 'url': None, 'url2': None} for i in range(2, 8)], 'truncated': False},
            'link_targets': [[{'href': 'https://ok.example/doc', 'host': 'ok.example'}, None]] + [[None, None] for _ in range(2, 8)]}
+FORMAT_COLUMNS = [
+    {'name': 'amount', 'label': '金额', 'type': 'decimal', 'format': {'unit': '万', 'decimals': 2}},
+    {'name': 'ratio', 'label': '比例', 'type': 'decimal', 'format': {'percent': True, 'decimals': 2}},
+    {'name': 'raw', 'label': '来源校验', 'type': 'text', 'detail_only': True},
+]
+FORMAT_ROW = {'amount': 7000, 'ratio': 0.15, 'raw': '7000.00000001'}
+FORMAT_CONTEXT = {'view': 'vk-board', 'version': 5, 'block': 1, 'revision': 'a' * 64, 'params': {}}
+
 def view_result(view, params):
+    if mode.get('format'):
+        data = {'columns': FORMAT_COLUMNS, 'rows': [FORMAT_ROW]}
+        return {**ENTRY, 'view': {'key': view, 'title': '巡检看板'}, 'params': params, 'blocks': [
+            {'type': 'stat', 'title': '合成金额', 'value': 'amount', 'data': data},
+            {'type': 'table', 'title': '合成明细', 'data': data, 'table_context': FORMAT_CONTEXT},
+        ]}
     if mode.get('records') in ('on', 'truncated'):
         block = RECORDS if mode['records'] == 'on' else {**RECORDS, 'data': {**RECORDS['data'], 'truncated': True}}
         return {'title': ENTRY['title'], 'version': 5, 'view': {'key': view, 'title': '巡检看板'}, 'params': params, 'blocks': [block]}
@@ -97,6 +111,10 @@ def on_bv(route):
         if mode['render'] == '403': return fake(route, {'error': 'bench_views_forbidden'}, 403)
         if mode['render'] == 'off': return fake(route, {'error': 'bench_views_off'}, 404)
         return fake(route, view_result(q.get('view') or 'vk-board', params))
+    if rest == 'table/row' and mode.get('format'):
+        return fake(route, {**FORMAT_CONTEXT, 'dataset_title': '合成明细', 'filter_labels': {},
+                            'row': FORMAT_ROW, 'columns': FORMAT_COLUMNS, 'source_status': 'original-row',
+                            'source_message': '已找到对应原行', 'source_rows': [], 'source_columns': []})
     if rest == 'form':
         log['form'].append(json.loads(route.request.post_data or '{}'))
         if mode['form'] == '409': return fake(route, {'error': 'conflict', 'message': '版本变了'}, 409)
@@ -604,6 +622,22 @@ with sync_playwright() as p:
     check('B1：更多里重选当前项只显露页签，不导航或重新取数', geo['cur'] == '合成视角17' and geo['curIn'] and before == (pg.url, len(log['render'])), (geo, before, pg.url, len(log['render'])))
     pg.set_viewport_size({'width': 1440, 'height': 900})
     mode['entry'] = 'ok'
+
+    print('列格式和仅详情列')
+    mode['format'] = True
+    pg.goto(f'{M}/use/{CARD}')
+    table = pg.locator('[data-bb=table][data-bb-state=ready]')
+    table.wait_for()
+    stat = pg.locator('[data-bb=stat] .wm-dash-display')
+    check('表格和统计卡均显示 0.70万，表格比例显示 15.00%', stat.inner_text().strip() == '0.70万'
+          and table.get_by_role('cell', name='0.70万', exact=True).count() == 1
+          and table.get_by_role('cell', name='15.00%', exact=True).count() == 1, (stat.inner_text(), table.inner_text()))
+    check('仅详情列不占主表列', '来源校验' not in table.inner_text() and FORMAT_ROW['raw'] not in table.inner_text(), table.inner_text())
+    table.get_by_role('button', name='原行／来源详情').click()
+    drawer = pg.get_by_role('dialog', name='原行／来源详情')
+    drawer.get_by_text(FORMAT_ROW['raw'], exact=True).wait_for()
+    check('行详情显示仅详情列及其原始值', '来源校验' in drawer.inner_text() and FORMAT_ROW['raw'] in drawer.inner_text(), drawer.inner_text())
+    mode['format'] = False
 
     print('五、入口')
     mode['entry'] = '403'; pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('.wm-use-frame')

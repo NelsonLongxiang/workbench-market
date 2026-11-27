@@ -23,6 +23,7 @@
  * 出错只有一种形态：BenchError。库或运行环境报了意料之外的错，对外是固定的一句「内部错误」，原始的错放在 cause 里给日志用——
  * 库的报错原文里有表名、列名和语句片段，不往外带。
  */
+import { columnNumberSpec, MAX_FRACTION_DIGITS } from '../value-format.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, linkSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
@@ -98,7 +99,7 @@ export type WriteCtx = { actor: string; at: number; idemKey?: string; idemActor?
 export type Provenance = { area: string; task: string; batch: string; grant: string; upstream?: string[]; supersedes?: (number | null)[] };
 const PROV_TEXT_RE = /^[\x21-\x7e]{1,128}$/;
 export type WriteResult = { dataset: string; op: string; rows: number; row_count: number; data_bytes?: number; snapshot_id?: number; inserted?: number; updated?: number; deleted?: number; duplicate?: boolean; ids?: number[] };
-export type DatasetInput = { name: string; title?: string; columns: { name: string; type: string; label?: string; required?: boolean; values?: Record<string, string>; auto?: boolean }[]; key?: string[] };
+export type DatasetInput = { name: string; title?: string; columns: { name: string; type: string; label?: string; required?: boolean; values?: Record<string, string>; auto?: boolean; format?: unknown; scale?: unknown; detail_only?: unknown}[]; key?: string[] };
 export type ViewVersion = { version: number; sha256: string; author: string; note: string; at: number; active: boolean };
 export type BenchChange = { kind: string; bench: string; target: string; from: number; to: number; actor: string; at: number };
 
@@ -236,7 +237,7 @@ function normalizeDataset(input: DatasetInput): { name: string; title: string; c
   const columns = input.columns.map((c, i) => {
     const at = `第 ${i + 1} 列`;
     if (!isObj(c)) throw new BenchError('invalid', `${at} 须为对象`);
-    const ex = Object.keys(c).filter((k) => !['name', 'type', 'label', 'required', 'values', 'auto'].includes(k));
+    const ex = Object.keys(c).filter((k) => !['name', 'type', 'label', 'required', 'values', 'auto', 'format', 'scale', 'detail_only'].includes(k));
     if (ex.length) throw new BenchError('invalid', `${at} 有不认识的键：${ex.join('、')}`);
     if (typeof c.name !== 'string' || !NAME_RE.test(c.name)) throw new BenchError('invalid', `${at}：列名须为小写字母开头，只含小写字母、数字、下划线，最多 48 个字符`);
     if (seen.has(c.name)) throw new BenchError('invalid', `列名重复：${c.name}`);
@@ -254,8 +255,18 @@ function normalizeDataset(input: DatasetInput): { name: string; title: string; c
       if (ents.length) values = Object.fromEntries(ents.map(([v, m]) => [v, (m as string).trim()]));
     }
     if (c.auto !== undefined && typeof c.auto !== 'boolean') throw new BenchError('invalid', `${at}（${c.name}）：auto 须为 true 或 false`);
+    // #1095 显示格式：只用于整数列、小数列，写法和报告共用一个实现（value-format.ts）
+    if (c.format !== undefined) {
+      if (c.type !== 'integer' && c.type !== 'decimal') throw new BenchError('invalid', `${at}（${c.name}）：format 只用于整数列和小数列`);
+      const spec = columnNumberSpec(c.format);
+      if (!spec.ok) throw new BenchError('invalid', `${at}（${c.name}）：${spec.error}`);
+    }
+    if (c.scale !== undefined && (c.type !== 'decimal' || typeof c.scale !== 'number' || !Number.isInteger(c.scale) || c.scale < 0 || c.scale > MAX_FRACTION_DIGITS)) {
+      throw new BenchError('invalid', `${at}（${c.name}）：scale 只用于小数列，须为 0～${MAX_FRACTION_DIGITS} 的整数`);
+    }
+    if (c.detail_only !== undefined && typeof c.detail_only !== 'boolean') throw new BenchError('invalid', `${at}（${c.name}）：detail_only 须为 true 或 false`);
     if (c.auto === true && !(c.type === 'integer' && key.length === 1 && key[0] === c.name)) throw new BenchError('invalid', `${at}（${c.name}）：auto 只用于唯一的整数主键列`);
-    return { name: c.name, type: c.type as ColumnDef['type'], label: c.label ?? '', required: c.required === true || key.includes(c.name), ...(values ? { values } : {}), ...(c.auto === true ? { auto: true as const } : {}) };
+    return { name: c.name, type: c.type as ColumnDef['type'], label: c.label ?? '', required: c.required === true || key.includes(c.name), ...(values ? { values } : {}), ...(c.auto === true ? { auto: true as const } : {}), ...(c.format !== undefined ? { format: c.format as Record<string, unknown> } : {}), ...(typeof c.scale === 'number' ? { scale: c.scale } : {}), ...(c.detail_only === true ? { detail_only: true as const } : {}) };
   });
   for (const k of key) {
     const c = columns.find((x) => x.name === k);

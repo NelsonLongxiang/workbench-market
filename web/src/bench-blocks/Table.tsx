@@ -9,7 +9,7 @@ import RelTime from '../components/RelTime';
 import { seatLabel, who } from '../people';
 import { BlockFrame, type BlockFrameProps } from './Frame';
 import { BenchImage } from './BenchImage';
-import { cellKind, cellText, nowrapWidth, tableHead, type BlockColumn } from './blocks-view';
+import { cellKind, cellText, mainColumns, nowrapWidth, tableHead, type BlockColumn } from './blocks-view';
 
 type Row = Record<string, unknown>;
 export interface TableBlockProps extends BlockFrameProps {
@@ -29,7 +29,8 @@ const TONE: Record<string, string> = { success: 'success', warning: 'warning', d
 
 export function TableBlock({ columns, pageSize = 10, onRowClick, rowActions, statusText, dense, span = 12, ...frame }: TableBlockProps) {
   const defs = frame.data?.columns ?? [];
-  const picked = (columns ? columns.map((n) => defs.find((c) => c.name === n)).filter((c): c is BlockColumn => !!c) : defs);
+  // #1095 只在行详情里显示的列不进主表
+  const picked = mainColumns(columns ? columns.map((n) => defs.find((c) => c.name === n)).filter((c): c is BlockColumn => !!c) : defs);
   // 状态列排最左
   const ordered = [...picked.filter((c) => cellKind(c) === 'status'), ...picked.filter((c) => cellKind(c) !== 'status')];
   const rows = frame.data?.rows ?? [];
@@ -39,7 +40,7 @@ export function TableBlock({ columns, pageSize = 10, onRowClick, rowActions, sta
     // 表头只用说明名；没配的写「第 N 列」（按页面上的次序），不拿列名（键名）兜底——表头和悬停都不露键名
     const head = tableHead(c, i);
     // 短值列（数字、日期、时间、是否、状态）不折行：按这一页最长的值给列宽；文本列分剩下的宽度、超长省略
-    const shownText = (v: unknown) => (kind === 'status' ? (statusText?.(v, c.name)?.text ?? String(v ?? '')) : cellText(v, kind));
+    const shownText = (v: unknown) => (kind === 'status' ? (statusText?.(v, c.name)?.text ?? String(v ?? '')) : cellText(v, kind, c));
     const width = nowrapWidth(kind, head, rows.map((r) => shownText(r[c.name])));
     if (width) fixedSum += width; else flexCount++;
     return {
@@ -57,7 +58,7 @@ export function TableBlock({ columns, pageSize = 10, onRowClick, rowActions, sta
           if (!s) return <span className="wm-bb-raw" title="这个取值还没有配说法">{String(v)}</span>;
           return <Tag color={TONE[s.tone ?? 'default']}>{s.text}</Tag>;
         }
-        return cellText(v, kind);
+        return cellText(v, kind, c);
       },
     };
   });

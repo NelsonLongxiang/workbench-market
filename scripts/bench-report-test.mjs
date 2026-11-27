@@ -1104,6 +1104,27 @@ try {
     const noReport = await gen(boss, request);
     check(arithmetic.status === 201 && a3.status === 200 && b3.status === 200 && noReport.status === 400 && noReport.text.includes('invalid_expression_number'),
       'V3d 运行期非有限算术报400，不冻结半份报告', { published: arithmetic.status, activate: a3.status, binding: b3.status, generate: noReport.text });
+
+    const statTemplate = conv({ $format: 'percent', value: 0.211, minimum_fraction_digits: 2, maximum_fraction_digits: 2 });
+    const elements = statTemplate.body.elements;
+    elements.main.children.push('stat');
+    elements.stat = { type: 'data-view', props: { component: 'stat', data: 'orders', props: {
+      value: 'amount', format: { style: 'percent', minimum_fraction_digits: 2, maximum_fraction_digits: 2 },
+    } } };
+    const v4 = await pub(name, { body: statTemplate });
+    const a4 = await cli('POST', '/api/report-dimensions/' + name + '/activate', { version: 4 });
+    const b4 = await bind(boss, BINDING, 2, name);
+    const sample = await rows([{ id: 1, day: '2026-11-03', amount: 0.211 }]);
+    const withStat = await gen(boss, { ...request, subject: 'card:v3-stat-format' });
+    const statBody = withStat.json?.report?.body;
+    const node = statBody?.body?.find((n) => n.id === 'stat');
+    await rows([{ id: 1, day: '2026-11-03', amount: 0.5 }]);
+    const readStat = await bv(boss, 'GET', '/synth-orders/reports/' + withStat.json?.report?.id);
+    check(v4.status === 201 && a4.status === 200 && b4.status === 200 && sample.status === 200 && withStat.status === 201 && readStat.status === 200 &&
+      statBody?.body?.[0]?.children?.[0]?.content === '21.10%' && node?.display_text === '21.10%' && node?.data?.rows?.[0]?.amount === 0.211 &&
+      JSON.stringify(readStat.json?.report?.body) === JSON.stringify(statBody),
+      'V3e 文字及统计卡均冻结 21.10%，原数仍是 0.211，修改源行后读回不变',
+      { published: v4.status, activate: a4.status, binding: b4.status, generate: withStat.status, read: readStat.status, node });
   }
   db.close();
 } catch (e) {

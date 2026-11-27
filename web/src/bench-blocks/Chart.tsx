@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DESIGN_TOKENS as T } from '../design-tokens';
 import { BlockFrame, type BlockFrameProps } from './Frame';
-import { MAX_SERIES, toSeries, toSlices, toneNote, toneOf, toneRules } from './blocks-view';
+import { MAX_SERIES, toSeries, toSlices, toneNote, toneOf, toneRules, fmtColumnNumber } from './blocks-view';
 import { cartesianOption, pieOption, type ChartTokens } from './chart-option';
 
 type Row = Record<string, unknown>;
@@ -57,7 +57,25 @@ function Cartesian({ kind, x, y, series, onSelect, flags, rules, unit, ...frame 
   const m = useMemo(() => toSeries(frame.data, x, y, series), [frame.data, x, y, series]);
   const tr = useMemo(() => (kind === 'bar' && m.series.length === 1 ? toneRules(rules) : []), [kind, m, rules]);
   const tones = useMemo(() => (tr.length ? m.rowsAt.map((rows) => toneOf(rows[0], tr)) : undefined), [m, tr]);
-  const option = useMemo(() => cartesianOption(kind, m, TOKENS, { ...flags, tones }), [kind, m, tones, flags.stacked, flags.horizontal, flags.area]); // eslint-disable-line react-hooks/exhaustive-deps
+  const formats = useMemo(() => {
+    const columns = (Array.isArray(y) ? y : [y]).map((name) => frame.data?.columns.find((c) => c.name === name));
+    const formatKey = (c: typeof columns[number]) => {
+      const f = c?.format;
+      return f ? JSON.stringify([f.decimals, f.thousands, f.percent, f.currency, f.unit]) : c?.scale ?? null;
+    };
+    const first = formatKey(columns[0]);
+    const valueFmt = first !== null && columns.every((c) => formatKey(c) === first)
+      ? (n: number) => fmtColumnNumber(n, columns[0]) : undefined;
+    // 一个数值轴只用一套格式。混合量纲时，各系列的提示仍按各自的列格式显示。
+    const seriesFmt = !valueFmt && columns.some((c) => formatKey(c) !== null)
+      ? m.series.map((s, i) => {
+        if (m.merged && i === m.series.length - 1) return undefined;
+        const col = series ? columns[0] : columns.find((c) => c && (c.label || c.name) === s.name);
+        return col && formatKey(col) !== null ? (n: number) => fmtColumnNumber(n, col) : undefined;
+      }) : undefined;
+    return { valueFmt, seriesFmt };
+  }, [frame.data, m, series, y]);
+  const option = useMemo(() => cartesianOption(kind, m, TOKENS, { ...flags, tones, ...formats }), [kind, m, tones, formats, flags.stacked, flags.horizontal, flags.area]); // eslint-disable-line react-hooks/exhaustive-deps
   const label = `${typeof frame.title === 'string' ? frame.title : '图表'}：${m.categories.map((c, i) => `${c} ${m.series.map((s) => `${s.name} ${s.values[i] ?? '无'}`).join('，')}`).join('；')}`;
   return (
     <BlockFrame {...frame} kind={kind}>

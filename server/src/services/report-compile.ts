@@ -12,6 +12,7 @@
  */
 import { createHash } from 'node:crypto';
 import { imageRefOk } from '../bench-query.ts';
+import { formatNumber, reportNumberSpec } from '../value-format.ts';
 import type { ReportSlotData } from './bench-store-core.ts';
 import { compileV3Body, ReportError, type ReportText } from './report-body-v3.ts';
 
@@ -38,7 +39,7 @@ export type FrozenClaim = { claim_key: string; kind: string; text: string; basis
 export type SourceMeta = { slot: string; view: string; block: number; view_version: number; view_sha256: string; rows: number; completeness: string };
 type BlockColumn = { name: string; type: string; label: string };
 type BlockData = { columns: BlockColumn[]; rows: Record<string, unknown>[]; truncated: false };
-export type ResolvedNode = { id: string; type: string; title?: string; content?: string; children?: ResolvedNode[]; columns?: number[]; component?: string; props?: Record<string, unknown>; data?: BlockData; src?: string; alt?: string; sha256?: string };
+export type ResolvedNode = { id: string; type: string; title?: string; content?: string; children?: ResolvedNode[]; columns?: number[]; component?: string; props?: Record<string, unknown>; data?: BlockData; display_text?: string; src?: string; alt?: string; sha256?: string };
 /** 冻结的图片节点：链接（格子或输入里的原值）、替代文字、取到的图的 sha256（冻结时由 bench-report.ts 填） */
 export type ImageNode = ResolvedNode & { type: 'image'; src: string; alt: string; sha256: string };
 /** 一份报告最多这么多个图片节点（展开 repeat 之后算），和 repeat 的 max_items 上限一致（#1081）：冻结时每张都要取一次 */
@@ -312,13 +313,25 @@ export function materialize(t: ReportTemplate, b: Binding, data: ReportSlotData[
     if (n.type === 'data-view') {
       const d = slotData[n.data ?? '']; if (!d || !obj(n.props)) return fail('missing_slot', path);
       if (!['stat', 'table', 'bar'].includes(n.component ?? '')) return fail('unsupported_component', path);
-      const p = n.props; keys(p, n.component === 'stat' ? ['value', 'unit'] : n.component === 'bar' ? ['x', 'y'] : ['columns'], path + '/props');
+      const p = n.props; keys(p, n.component === 'stat' ? ['value', 'unit', 'format'] : n.component === 'bar' ? ['x', 'y'] : ['columns'], path + '/props');
       const column = (cname: unknown, numeric = false) => { const c = d.columns.find((x) => x.name === cname); if (!c || (numeric && !['integer', 'decimal'].includes(c.type))) fail('invalid_column_role', path); };
       if (n.component === 'stat') { column(p.value, true); if (d.rows.length !== 1) return fail('scalar_cardinality', path); }
       if (n.component === 'bar') { column(p.x); if (!Array.isArray(p.y) || !p.y.length || p.y.length > 12) return fail('invalid_y', path); (p.y as unknown[]).forEach((c) => column(c, true)); }
       if (n.component === 'table') { if (!Array.isArray(p.columns) || !p.columns.length || new Set(p.columns).size !== p.columns.length) return fail('invalid_table_columns', path); (p.columns as unknown[]).forEach((c) => column(c)); }
       if (p.unit !== undefined) text(p.unit, path + '/unit');
-      return [{ ...base, component: n.component, props: jsonCopy(p), data: jsonCopy(d) }];
+      const frozen = { ...base, component: n.component, props: jsonCopy(p), data: jsonCopy(d) };
+      if (!own(p, 'format')) return [frozen];
+
+      const f = p.format, formatPath = path + '/props/format';
+      if (!obj(f) || Object.keys(f).some((key) => !['style', 'locale', 'currency', 'minimum_fraction_digits', 'maximum_fraction_digits'].includes(key))) {
+        return fail('invalid_format', formatPath);
+      }
+      const parsed = reportNumberSpec({ ...f, style: f.style }, (key) => own(f, key));
+      if (!parsed.ok) return fail('invalid_format', formatPath);
+      const value = d.rows[0][String(p.value)];
+      const display = value === null ? '-' : formatNumber(value, parsed.spec);
+      if (display === null) return fail('invalid_format_value', formatPath);
+      return [{ ...frozen, display_text: display }];
     }
     return [base];
   });
