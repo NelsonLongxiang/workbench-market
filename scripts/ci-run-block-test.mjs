@@ -5,10 +5,11 @@
  *   node scripts/ci-run-block-test.mjs
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, realpathSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { createRequire } from 'node:module';
-import { SOCKET_ROOT_MAX, UsageError, checkoutDecls, classify, expand, fastSelection, innerArgs, isInstall, materialGaps, parseArgs, reexecForReviewEnv, runtimeTooLong, stripShallowFetch, summarize } from './ci-run-block.mjs';
+import path from 'node:path';
+import { SOCKET_ROOT_MAX, UsageError, checkoutDecls, classify, expand, fastSelection, innerArgs, isInstall, materialGaps, parseArgs, reexecForReviewEnv, runtimeTooLong, stripShallowFetch, summarize, outLocation, realish } from './ci-run-block.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
 let pass = 0, fail = 0;
@@ -16,8 +17,32 @@ const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log('  ✓ 
 const J = (x) => JSON.stringify(x);
 const usageOf = (fn) => { try { fn(); return 'ok'; } catch (e) { return e instanceof UsageError ? 'usage' : 'throw'; } };
 const ctx = { workspace: '/w', runnerTemp: '/o/runner-temp', env: {} };
+// realish 的夹具：tmp/ 下一个真实存在的目录（已建出来），它下面的路径不创建
+const realishTmp = join(resolve('tmp'), 'ci-run-block-test-realish-' + process.pid);
+mkdirSync(realishTmp, { recursive: true });
 
 console.log('一、执行前的核对（纯函数）');
+  // --out 相对工作树的位置：只用原生路径关系判断。Windows 的 realpath 是反斜杠，原先拿正斜杠 startsWith 会把工作树里的目录全漏成“在外面”。
+  {
+    const win = (w, o) => outLocation(w, o, path.win32), posix = (w, o) => outLocation(w, o, path.posix);
+    ok('Windows：工作树里（反斜杠）算 inside，不再漏成外面',
+      J([win('C:\\w', 'C:\\w\\scripts'), win('C:\\w', 'C:\\w\\tmp\\t'), win('c:\\w', 'C:\\W\\scripts')]) === J(['inside', 'inside', 'inside']),
+      [win('C:\\w', 'C:\\w\\scripts'), win('C:\\w', 'C:\\w\\tmp\\t'), win('c:\\w', 'C:\\W\\scripts')]);
+    ok('Windows：恰为工作树根算 root；以 .. 逃出、跨盘符、UNC 都算 outside',
+      J([win('C:\\w', 'C:\\w'), win('C:\\w', 'C:\\w\\..'), win('C:\\w', 'C:\\w\\..\\x'), win('C:\\w', 'D:\\o'), win('C:\\w', '\\\\srv\\share\\o')]) === J(['root', 'outside', 'outside', 'outside', 'outside']),
+      [win('C:\\w', 'C:\\w'), win('C:\\w', 'C:\\w\\..'), win('C:\\w', 'C:\\w\\..\\x'), win('C:\\w', 'D:\\o'), win('C:\\w', '\\\\srv\\share\\o')]);
+    ok('Windows：名字前缀相同但不是子目录的算 outside（/w/foo 与 /w/foobar）',
+      win('C:\\w\\foo', 'C:\\w\\foobar') === 'outside', win('C:\\w\\foo', 'C:\\w\\foobar'));
+    ok('POSIX：工作树里算 inside，根算 root，.. 与绝对路径算 outside',
+      J([posix('/w', '/w/scripts'), posix('/w', '/w/tmp/t'), posix('/w', '/w'), posix('/w', '/w/..'), posix('/w', '/w/../x'), posix('/w', '/o')]) === J(['inside', 'inside', 'root', 'outside', 'outside', 'outside']),
+      [posix('/w', '/w/scripts'), posix('/w', '/w'), posix('/w', '/w/..'), posix('/w', '/o')]);
+    ok('POSIX：名字前缀相同但不是子目录的算 outside',
+      posix('/w/foo', '/w/foobar') === 'outside', posix('/w/foo', '/w/foobar'));
+    const n = join(realishTmp, 'a', 'not-yet', 'deeper');
+    ok('realish：目录还不存在也能给出真实路径，分隔符与平台一致，且不创建它',
+      realish(n).endsWith(join('a', 'not-yet', 'deeper')) && !existsSync(join(realishTmp, 'a')) && realish(realishTmp) === realpathSync(realishTmp), realish(n));
+  }
+
 {
   const s = stripShallowFetch('git fetch --no-tags --depth=1 origin main\n  git fetch --depth 5 origin x\ngit fetch origin main\necho git fetch --depth=1\nnode scripts/tech-route-check.mjs --strict');
   ok('只剔会改写共享 Git 的浅取行（--depth=1、--depth 5）；普通 fetch、echo 里提到的、其他命令逐字留着',
@@ -256,8 +281,24 @@ console.log('二、端到端（合成 workflow，在本仓库 tmp/ 下）');
     noJob: spawnSync(process.execPath, [join(ROOT, 'scripts/ci-run-block.mjs'), '--worktree', ROOT, '--out', join(base, 'o8'), '--workflow', 'tmp/ci-run-block-test-' + process.pid + '/wf.yml', '--job', 'ghost'], { encoding: 'utf8' }).status,
     notRoot: spawnSync(process.execPath, [join(ROOT, 'scripts/ci-run-block.mjs'), '--worktree', join(ROOT, 'scripts'), '--out', join(base, 'o9')], { encoding: 'utf8' }).status,
   };
+  // 契约是“任何输出副作用之前拒绝”：除了退出码，还要钉住 --out 目录本身没被建出来。
+  // 用一个尚不存在的子目录，旧实现在拒绝前就 mkdirSync，会把它建出来；并排一个在工作树外、同样不存在的目录做对照（合法路径照常建出）。
+  const notYet = join(ROOT, 'scripts', 'ci-run-block-test-not-yet-' + process.pid);
+  const outsideNotYet = join(base, 'outside-not-yet', 'deeper');
+  bad.trackedOutNotYet = run('--out', notYet).code;
+  bad.rootOut = run('--out', ROOT).code;
+  const outsideOk = run('--out', outsideNotYet, '--step-name', 'ok-step').code;
+  const sideEffects = {
+    trackedNotYetCreated: existsSync(notYet),
+    resultsJson: existsSync(join(ROOT, 'scripts', 'results.json')),
+    runnerTemp: existsSync(join(ROOT, 'scripts', 'runner-temp')),
+    outsideCreated: existsSync(outsideNotYet),
+  };
+  rmSync(notYet, { recursive: true, force: true });
   ok('用法错误退出 2：--python 找不到（不装）、--runtime-dir 太长、--out 是被跟踪的目录、没有这个 job、--worktree 不是工作树根',
-    Object.values(bad).every((c) => c === 2) && !existsSync(join(ROOT, 'scripts', 'results.json')), bad);
+    Object.values(bad).every((c) => c === 2) && !sideEffects.resultsJson, bad);
+  ok('拒绝发生在任何输出之前：被跟踪目录下尚不存在的 --out 没被建出，scripts/results.json 与 runner-temp 都没有；工作树外的同名路径照常建出',
+    sideEffects.trackedNotYetCreated === false && sideEffects.runnerTemp === false && sideEffects.outsideCreated === true && outsideOk === 0, sideEffects);
   } finally { rmSync(base, { recursive: true, force: true }); }
 }
 
