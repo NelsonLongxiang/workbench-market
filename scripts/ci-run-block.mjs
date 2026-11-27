@@ -31,7 +31,8 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep, basename } from 'node:path';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const SHALLOW_FETCH = /^\s*git\s+fetch\b[^\n#]*\s--depth(?:=|\s)/;
@@ -421,6 +422,37 @@ function resolvePython(cmd, pathEnv) {
   throw new UsageError('--python ' + cmd + ' 在 PATH 里找不到；本入口不装 python');
 }
 
+/**
+ * --out 相对工作树的位置，只用原生路径关系判断，不自己拼分隔符：Windows 的 realpath 是反斜杠，
+ * 拿正斜杠去 startsWith 会把工作树里的目录全部漏成“在外面”。
+ *   'root'    就是工作树根；
+ *   'inside'  在工作树里（根之下）；
+ *   'outside' 在工作树外（Windows 上跨盘符时 relative 给出绝对路径，也算外面）。
+ * 两个入参都应是已解析的真实绝对路径。
+ */
+export function outLocation(worktree, out, pathImpl = path) {
+  // 可注入 path 实现：同一份回归在任何平台上都能验 Windows（path.win32）与 POSIX（path.posix）两种分隔符
+  const rel = pathImpl.relative(worktree, out);
+  if (rel === '') return 'root';
+  if (rel === '..' || rel.startsWith('..' + pathImpl.sep) || pathImpl.isAbsolute(rel)) return 'outside';
+  return 'inside';
+}
+/**
+ * 可能还不存在的路径 → 语义等价、分隔符规范的真实路径：取最近的存在的祖先的 realpath，再把余下各级接回去。
+ * 这样在创建任何目录之前就能做边界校验。
+ */
+export function realish(p) {
+  let cur = resolve(p);
+  const tail = [];
+  for (;;) {
+    if (existsSync(cur)) return join(realpathSync(cur), ...tail);
+    const parent = dirname(cur);
+    if (parent === cur) return join(cur, ...tail);
+    tail.unshift(basename(cur));
+    cur = parent;
+  }
+}
+
 export async function main(argv) {
   const o = parseArgs(argv);
   const worktree = realpathSync(resolve(o.worktree));
@@ -432,11 +464,15 @@ export async function main(argv) {
     const r = spawnSync(process.execPath, [join(worktree, 'scripts/worktree-review-env.mjs'), worktree, '--', process.execPath, here, ...innerArgs(argv)], { stdio: 'inherit' });
     return r.status ?? 1;
   }
-  const outArg = isAbsolute(o.out) ? o.out : resolve(o.out);
-  mkdirSync(outArg, { recursive: true });
-  const out = realpathSync(outArg);
-  if (out === worktree) throw new UsageError('--out 不能是工作树根');
-  if (out.startsWith(worktree + '/') && git(worktree, 'check-ignore', '-q', join(out, 'probe')).status !== 0) throw new UsageError('--out 在工作树里时要在被忽略的目录下（如 tmp/<任务>/）');
+  // 边界校验全部前置，目录放到最后才建：拒绝时不留下任何目录或文件。
+  const out = realish(isAbsolute(o.out) ? o.out : resolve(o.out));
+  const where = outLocation(worktree, out);
+  if (where === 'root') throw new UsageError('--out 不能是工作树根');
+  // 工作树里只收被忽略的目录（如 tmp/<任务>/）。问的是“这个目录里的东西会不会被忽略”：拿目录下一个探针
+  // 文件名去问 git。规则是按路径匹配的，不要求目录已存在，所以不必先建出来再问；也不上溯到父目录
+  // （“父目录没被忽略”不等于“目标不会被忽略”，dist/ 这类规则只对目标自身生效）。
+  // 不用带尾斜杠的目录路径去问：对尚不存在的目录，git 会给出一条空规则的假匹配。
+  if (where === 'inside' && git(worktree, 'check-ignore', '-q', join(out, 'probe')).status !== 0) throw new UsageError('--out 在工作树里时要在被忽略的目录下（如 tmp/<任务>/）');
   let runtime = null;
   if (o.runtime) {
     runtime = realpathSync(resolve(o.runtime));
