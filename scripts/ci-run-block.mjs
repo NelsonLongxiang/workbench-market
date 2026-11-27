@@ -468,13 +468,11 @@ export async function main(argv) {
   const out = realish(isAbsolute(o.out) ? o.out : resolve(o.out));
   const where = outLocation(worktree, out);
   if (where === 'root') throw new UsageError('--out 不能是工作树根');
-  // 工作树里只收被忽略的目录（如 tmp/<任务>/）：拿“最近存在的祖先”问 git，尚未建出的目录也能判
-  if (where === 'inside') {
-    let probe = out;
-    while (!existsSync(probe)) probe = dirname(probe);
-    if (git(worktree, 'check-ignore', '-q', probe).status !== 0) throw new UsageError('--out 在工作树里时要在被忽略的目录下（如 tmp/<任务>/）');
-  }
-  mkdirSync(out, { recursive: true });
+  // 工作树里只收被忽略的目录（如 tmp/<任务>/）。问的是“这个目录里的东西会不会被忽略”：拿目录下一个探针
+  // 文件名去问 git。规则是按路径匹配的，不要求目录已存在，所以不必先建出来再问；也不上溯到父目录
+  // （“父目录没被忽略”不等于“目标不会被忽略”，dist/ 这类规则只对目标自身生效）。
+  // 不用带尾斜杠的目录路径去问：对尚不存在的目录，git 会给出一条空规则的假匹配。
+  if (where === 'inside' && git(worktree, 'check-ignore', '-q', join(out, 'probe')).status !== 0) throw new UsageError('--out 在工作树里时要在被忽略的目录下（如 tmp/<任务>/）');
   let runtime = null;
   if (o.runtime) {
     runtime = realpathSync(resolve(o.runtime));

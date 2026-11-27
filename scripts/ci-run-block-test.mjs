@@ -299,6 +299,18 @@ console.log('二、端到端（合成 workflow，在本仓库 tmp/ 下）');
     Object.values(bad).every((c) => c === 2) && !sideEffects.resultsJson, bad);
   ok('拒绝发生在任何输出之前：被跟踪目录下尚不存在的 --out 没被建出，scripts/results.json 与 runner-temp 都没有；工作树外的同名路径照常建出',
     sideEffects.trackedNotYetCreated === false && sideEffects.runnerTemp === false && sideEffects.outsideCreated === true && outsideOk === 0, sideEffects);
+  // 合法目标不能被误拒（复核阻断 B1）：目标由自身的规则忽略（dist/ 只匹配目录），而它的父目录既没被忽略也还不存在。
+  // 旧实现在问 git 前把探针上溯到父目录，父目录没被忽略就拒绝；正确做法是直接问“这个目录里的东西会不会被忽略”。
+  const freshParent = join(ROOT, 'tmp', 'ci-run-block-test-b1-' + process.pid);
+  const ownRuleTarget = join(freshParent, 'dist');
+  const b1 = run('--out', ownRuleTarget, '--step-name', 'ok-step');
+  const b1ok = b1.code === 0 && existsSync(join(ownRuleTarget, 'results.json'));
+  ok('合法目标不被误拒：目标由自身规则忽略（dist/）、父目录未被忽略且尚不存在，照常接受并建出', b1ok, [b1.code, b1.out.slice(-160)]);
+  // 同一目标若未被子目录规则覆盖、也未被忽略，仍必须拒绝——正例不能把反例带坏
+  const plainChild = join(ROOT, 'tmp-not-ignored-' + process.pid, 'x');
+  const b1neg = run('--out', plainChild, '--step-name', 'ok-step');
+  ok('对照：父目录同样不存在、但目标未被任何规则忽略的，仍拒绝且不建目录', b1neg.code === 2 && !existsSync(plainChild), [b1neg.code, existsSync(plainChild)]);
+  rmSync(freshParent, { recursive: true, force: true }); rmSync(join(ROOT, 'tmp-not-ignored-' + process.pid), { recursive: true, force: true });
   } finally { rmSync(base, { recursive: true, force: true }); }
 }
 
