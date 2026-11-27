@@ -500,7 +500,7 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
     try {
       const target = tableTarget(req.body);
       const out = await (await benchStore(bench.slug)).tableExport(target);
-      const csv = tableCsv(out.columns, out.rows);
+      const csv = tableCsv(out.columns, out.rows, out.value_labels);
       // Long reads must not publish after access was revoked or a binding changed.
       const current = await allowActor(req, res, 'bench-store.render', getBench(bench.slug));
       if (!current) return;

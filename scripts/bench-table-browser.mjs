@@ -71,6 +71,16 @@ try{
  const afterReadRevoke=await pendingExport;assert.equal(removed.status,200);assert.equal(afterReadRevoke.status,403,'revoked reader must not receive a previously completed CSV');assert.ok(!afterReadRevoke.headers['content-disposition']);assert.ok(!afterReadRevoke.text.includes('frozen'));assert.equal(afterReadRevoke.headers['cache-control'],'private, no-store');
  const unchanged=await request('POST',B+'/table/export',{...manager,body:target});assert.equal(unchanged.status,200);assert.equal(unchanged.headers['x-row-count'],'4833');
  console.log('PASS export completed before revocation is not published; unrevoked control still reads same context');
+  // value_labels reach the CSV through the real route: the raw value stays and the page wording is appended beside it.
+  const vlDoc={...doc,views:[...doc.views,{key:'wording',title:'文案',blocks:[{type:'table',title:'收货状态',query:{dataset:'receipts',select:['id','batch'],sort:[{col:'id'}],limit:5},value_labels:{batch:{frozen:'已冻结快照',other:'其他快照'}}}]}]};
+  assert.equal((await request('PUT',B+'/view',{...manager,body:{doc:vlDoc,base:1,note:'wording'}})).status,200);
+  const worded=await request('GET',B+'/render?view=wording',manager);assert.equal(worded.status,200);const wtarget=worded.json.blocks[0].table_context;assert.ok(wtarget);
+  const wordedCsv=await request('POST',B+'/table/export',{...manager,body:wtarget});
+  assert.equal(wordedCsv.status,200);assert.match(String(wordedCsv.headers['content-type']),/text\/csv/);
+  const wordedLines=wordedCsv.text.replace(/^\ufeff/,'').split('\r\n').filter(Boolean);
+  assert.ok(wordedLines[0].includes('（说明）'),'route CSV header gains a wording column');
+  assert.ok(wordedLines[1].includes('"frozen"')&&wordedLines[1].includes('"已冻结快照"'),'route CSV keeps raw frozen and adds the page wording on the same row');
+  console.log('PASS real export route carries value_labels wording beside the raw value');
  if(!httpOnly){
   const cfg=join(OUT,'browser.json');writeFileSync(cfg,JSON.stringify({base,card:card.json.id,session:SESSIONS.alpha,out:OUT}));
   python=spawnProcess(pythonBin(),['scripts/bench-table-browser.py',cfg],{cwd:ROOT,stdio:'inherit'});const code=await new Promise((r,j)=>{python.once('error',j);python.once('exit',r)});if(code!==0)throw Error('native table browser failed');

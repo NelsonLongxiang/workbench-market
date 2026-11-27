@@ -14,7 +14,7 @@
 import { db } from '../db.ts';
 import { sqlTime } from './a2a-replies.ts';
 
-export type RosterSeat = { seat: string; seat_id: string; name: string; team: string; role: 'router' | 'member' | 'observer' | ''; online: boolean; queued: number; last_active_at: string };
+export type RosterSeat = { seat: string; seat_id: string; name: string; team: string; team_label?: string; role: 'router' | 'member' | 'observer' | ''; online: boolean; queued: number; last_active_at: string };
 export type RosterRow = { host: string; peer_root: string; key_fingerprint: string; peer_zone: string; reported_at: string; received_at: string; seats: RosterSeat[] };
 export type RosterChange = { id: number; host: string; kind: 'team-added' | 'seat-added' | 'seat-removed' | 'team-removed' | 'router-changed'; team: string; seat: string; detail: string; at: string };
 
@@ -83,8 +83,8 @@ export function recordRoster(r: { host: string; peerRoot: string; keyFingerprint
       if (from !== to) note('router-changed', t, to, JSON.stringify({ from, to }));
     }
     db.prepare('DELETE FROM a2a_roster_node_seats WHERE peer_root = ? AND key_fingerprint = ?').run(r.peerRoot, r.keyFingerprint);
-    const ins = db.prepare('INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    for (const a of after) ins.run(r.peerRoot, r.keyFingerprint, r.host, a.team, a.seat, a.seat_id, a.name, a.role, a.online ? 1 : 0, a.queued, a.last_active_at, firstSeen.get(key(a)) ?? at);
+    const ins = db.prepare('INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at, team_label) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const a of after) ins.run(r.peerRoot, r.keyFingerprint, r.host, a.team, a.seat, a.seat_id, a.name, a.role, a.online ? 1 : 0, a.queued, a.last_active_at, firstSeen.get(key(a)) ?? at, a.team ? a.team_label ?? '' : '');
     const shared = (db.prepare('SELECT COUNT(*) AS n FROM a2a_roster_nodes WHERE host = ? AND needs_review = 0').get(r.host) as { n: number }).n > 1;
     db.exec('RELEASE a2a_roster');
     return shared ? 'host-shared' : 'recorded';
@@ -139,9 +139,21 @@ export const LISTED_ROSTERS_SQL = `(SELECT r.* FROM a2a_roster_nodes r WHERE r.n
 export function rosters(opts: { listed?: boolean } = {}): RosterRow[] {
   const src = opts.listed ? LISTED_ROSTERS_SQL : 'a2a_rosters_live';
   const hosts = db.prepare(`SELECT host, peer_root, key_fingerprint, peer_zone, reported_at, received_at FROM ${src} ORDER BY peer_zone, host`).all() as Omit<RosterRow, 'seats'>[];
-  const seats = db.prepare(`SELECT s.peer_root, s.key_fingerprint, s.team, s.seat, s.seat_id, s.name, s.role, s.online, s.queued, s.last_active_at FROM a2a_roster_node_seats s
-    JOIN ${src} r ON r.peer_root = s.peer_root AND r.key_fingerprint = s.key_fingerprint ORDER BY r.host, s.team, s.seat`).all() as { peer_root: string; key_fingerprint: string; team: string; seat: string; seat_id: string; name: string; role: RosterSeat['role']; online: number; queued: number; last_active_at: string }[];
-  return hosts.map((h) => ({ ...h, seats: seats.filter((s) => s.peer_root === h.peer_root && s.key_fingerprint === h.key_fingerprint).map((s) => ({ seat: s.seat, seat_id: s.seat_id, name: s.name, team: s.team, role: s.role, online: s.online === 1, queued: s.queued, last_active_at: s.last_active_at })) }));
+  const seats = db.prepare(`SELECT s.peer_root, s.key_fingerprint, s.team, s.seat, s.seat_id, s.name, s.role, s.online, s.queued, s.last_active_at, s.team_label FROM a2a_roster_node_seats s
+    JOIN ${src} r ON r.peer_root = s.peer_root AND r.key_fingerprint = s.key_fingerprint ORDER BY r.host, s.team, s.seat`).all() as { peer_root: string; key_fingerprint: string; team: string; seat: string; seat_id: string; name: string; role: RosterSeat['role']; online: number; queued: number; last_active_at: string; team_label: string }[];
+  return hosts.map((h) => ({ ...h, seats: seats.filter((s) => s.peer_root === h.peer_root && s.key_fingerprint === h.key_fingerprint).map((s) => ({ seat: s.seat, seat_id: s.seat_id, name: s.name, team: s.team, role: s.role, online: s.online === 1, queued: s.queued, last_active_at: s.last_active_at, ...(s.team_label ? { team_label: s.team_label } : {}) })) }));
+}
+
+/** 原画布名。team 值始终用于匹配和派发。 */
+export const teamName = (team: string): string => (team.includes('/canvas/') ? team.slice(team.indexOf('/canvas/') + 8) : '');
+
+type RosterTeamLabel = { host: string; peer_root: string; team: string; label: string };
+
+/** 只用当前可匹配的宿主名册。同队多席报来互相冲突的标签时，回退到原名。 */
+export function rosterTeamLabels(): RosterTeamLabel[] {
+  return db.prepare(`SELECT r.host, r.peer_root, s.team, MIN(s.team_label) AS label
+    FROM a2a_roster_node_seats s JOIN a2a_rosters_live r ON r.peer_root = s.peer_root AND r.key_fingerprint = s.key_fingerprint
+    WHERE s.team <> '' AND s.team_label <> '' GROUP BY r.host, r.peer_root, s.team HAVING COUNT(DISTINCT s.team_label) = 1`).all() as RosterTeamLabel[];
 }
 
 /** 名册的变化记录（最近的在后），after 之后的最多 limit 条 */

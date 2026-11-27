@@ -96,7 +96,8 @@
       "online INTEGER NOT NULL DEFAULT 0",
       "queued INTEGER NOT NULL DEFAULT 0",
       "last_active_at TEXT NOT NULL DEFAULT ''",
-      "first_seen_at TEXT NOT NULL"
+      "first_seen_at TEXT NOT NULL",
+      "team_label TEXT NOT NULL DEFAULT ''"
     ],
     "a2a_roster_nodes": [
       "peer_root TEXT NOT NULL PK",
@@ -938,6 +939,21 @@
       "created_at TEXT NOT NULL DEFAULT datetime('now')",
       "callback_url TEXT NOT NULL DEFAULT ''"
     ],
+    "sop_run_closure_batches": [
+      "batch TEXT NOT NULL PK",
+      "action TEXT NOT NULL PK",
+      "at TEXT NOT NULL"
+    ],
+    "sop_run_closure_events": [
+      "id INTEGER PK",
+      "batch TEXT NOT NULL",
+      "action TEXT NOT NULL",
+      "sop_slug TEXT NOT NULL",
+      "entries_json TEXT NOT NULL",
+      "run_count INTEGER NOT NULL",
+      "reason TEXT NOT NULL",
+      "at TEXT NOT NULL"
+    ],
     "sop_run_file_audit": [
       "id INTEGER PK",
       "run_id INTEGER NOT NULL",
@@ -1400,6 +1416,7 @@
     "idx_skills_family ON skills: CREATE INDEX idx_skills_family ON skills(family_parent)",
     "idx_skills_layer ON skills: CREATE INDEX idx_skills_layer ON skills(layer)",
     "idx_sop_bindings_slug ON sop_bindings: CREATE INDEX idx_sop_bindings_slug ON sop_bindings (sop_slug, revoked_at)",
+    "idx_sop_run_closure_slug ON sop_run_closure_events: CREATE INDEX idx_sop_run_closure_slug ON sop_run_closure_events (sop_slug, at, id)",
     "idx_sop_run_files_run ON sop_run_files: CREATE INDEX idx_sop_run_files_run ON sop_run_files(run_id, id)",
     "idx_sop_run_files_sha ON sop_run_files: CREATE INDEX idx_sop_run_files_sha ON sop_run_files(sha256) WHERE sha256 <> ''",
     "idx_sop_run_read_caps_sha ON sop_run_read_caps: CREATE INDEX idx_sop_run_read_caps_sha ON sop_run_read_caps (cap_sha256)",
@@ -1581,6 +1598,12 @@
     "report_templates_no_delete ON report_templates: CREATE TRIGGER report_templates_no_delete BEFORE DELETE ON report_templates BEGIN SELECT RAISE(ABORT, '模板版本不能删'); END",
     "report_templates_no_replace ON report_templates: CREATE TRIGGER report_templates_no_replace BEFORE INSERT ON report_templates WHEN EXISTS (SELECT 1 FROM report_templates WHERE dimension_id = NEW.dimension_id AND version = NEW.version) BEGIN SELECT RAISE(ABORT, '模板版本不能覆盖'); END",
     "report_templates_no_update ON report_templates: CREATE TRIGGER report_templates_no_update BEFORE UPDATE ON report_templates BEGIN SELECT RAISE(ABORT, '模板版本建好不能改'); END",
+    "sop_run_closure_batches_no_delete ON sop_run_closure_batches: CREATE TRIGGER sop_run_closure_batches_no_delete BEFORE DELETE ON sop_run_closure_batches BEGIN SELECT RAISE(ABORT, 'sop_run_closure_batches 只增不改'); END",
+    "sop_run_closure_batches_no_replace ON sop_run_closure_batches: CREATE TRIGGER sop_run_closure_batches_no_replace BEFORE INSERT ON sop_run_closure_batches WHEN EXISTS ( SELECT 1 FROM sop_run_closure_batches WHERE batch = NEW.batch AND action = NEW.action ) BEGIN SELECT RAISE(ABORT, 'sop_run_closure_batches 只增不改'); END",
+    "sop_run_closure_batches_no_update ON sop_run_closure_batches: CREATE TRIGGER sop_run_closure_batches_no_update BEFORE UPDATE ON sop_run_closure_batches BEGIN SELECT RAISE(ABORT, 'sop_run_closure_batches 只增不改'); END",
+    "sop_run_closure_events_no_delete ON sop_run_closure_events: CREATE TRIGGER sop_run_closure_events_no_delete BEFORE DELETE ON sop_run_closure_events BEGIN SELECT RAISE(ABORT, 'sop_run_closure_events 只增不改'); END",
+    "sop_run_closure_events_no_replace ON sop_run_closure_events: CREATE TRIGGER sop_run_closure_events_no_replace BEFORE INSERT ON sop_run_closure_events WHEN EXISTS ( SELECT 1 FROM sop_run_closure_events WHERE id = NEW.id OR (batch = NEW.batch AND action = NEW.action AND sop_slug = NEW.sop_slug) ) BEGIN SELECT RAISE(ABORT, 'sop_run_closure_events 只增不改'); END",
+    "sop_run_closure_events_no_update ON sop_run_closure_events: CREATE TRIGGER sop_run_closure_events_no_update BEFORE UPDATE ON sop_run_closure_events BEGIN SELECT RAISE(ABORT, 'sop_run_closure_events 只增不改'); END",
     "sop_run_file_audit_no_delete ON sop_run_file_audit: CREATE TRIGGER sop_run_file_audit_no_delete BEFORE DELETE ON sop_run_file_audit BEGIN SELECT RAISE(ABORT, 'sop_run_file_audit 只增不改'); END",
     "sop_run_file_audit_no_replace ON sop_run_file_audit: CREATE TRIGGER sop_run_file_audit_no_replace BEFORE INSERT ON sop_run_file_audit WHEN EXISTS (SELECT 1 FROM sop_run_file_audit WHERE id = NEW.id) BEGIN SELECT RAISE(ABORT, 'sop_run_file_audit 只增不改'); END",
     "sop_run_file_audit_no_update ON sop_run_file_audit: CREATE TRIGGER sop_run_file_audit_no_update BEFORE UPDATE ON sop_run_file_audit BEGIN SELECT RAISE(ABORT, 'sop_run_file_audit 只增不改'); END",

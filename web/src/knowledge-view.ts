@@ -37,12 +37,22 @@ export function asItem(v: unknown): KnowledgeItem | null {
   return { key: str(x.key), kind: str(x.kind), title: str(x.title), summary: str(x.summary), status: typeof x.status === 'string' && x.status ? x.status : null,
     tags: Array.isArray(x.tags) ? x.tags.filter((t): t is string => typeof t === 'string' && t.trim() !== '') : [], created: str(x.created), updated: str(x.updated), scope_label: str(x.scope_label), decided_by_name: typeof x.decided_by_name === 'string' && x.decided_by_name.trim() ? x.decided_by_name.trim() : null };
 }
-/** 列表应答：{ items, source }。形状不对的条目丢掉；source 认不出当 ok */
-export function asList(body: unknown): { items: KnowledgeItem[]; source: KnowledgeSource } {
-  const b = (body && typeof body === 'object' ? body : {}) as { items?: unknown; source?: unknown };
+/** 旧应答缺计数时可以显示已收到的条目。 */
+export function asList(body: unknown) {
+  const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
   const items = Array.isArray(b.items) ? b.items.map(asItem).filter((x): x is KnowledgeItem => x !== null) : [];
   const source: KnowledgeSource = b.source === 'not_ready' || b.source === 'degraded' || b.source === 'not_connected' ? b.source : 'ok';
-  return { items, source };
+  const counts = countsOf(items);
+  const reported = b.counts;
+  if (reported && typeof reported === 'object') {
+    const values = reported as Record<string, unknown>;
+    const keys = Object.keys(counts) as KnowledgeTab[];
+    if (keys.every((k) => typeof values[k] === 'number' && Number.isSafeInteger(values[k]) && (values[k] as number) >= 0)) {
+      for (const k of keys) counts[k] = values[k] as number;
+    }
+  }
+  const offset = typeof b.offset === 'number' && Number.isSafeInteger(b.offset) && b.offset >= 0 ? b.offset : 0;
+  return { items, source, counts, offset, previousCursor: str(b.previous_cursor) || null, nextCursor: str(b.next_cursor) || null };
 }
 
 /** 状态怎么说：依据是仲裁结果，检查是总结论；认不出的不显示（不露代号） */
@@ -76,6 +86,7 @@ export function problemOf(status: number, where: 'list' | 'detail'): { text: str
   if (status === 401) return { text: '请先登录。', retry: false };
   if (status === 403) return { text: KNOWLEDGE_FORBIDDEN, retry: false };
   if (status === 404 && where === 'detail') return { text: '没有这一条。', retry: false };
+  if (where === 'list' && (status === 400 || status === 409)) return { text: '分页已更新，请回到第一页。', retry: false };
   if (status === 503) return { text: '经验库暂时读不到，稍后再试。', retry: true };
   if (status === 0) return { text: '连不上服务器，稍后再试。', retry: true };
   return { text: '读不到经验库，稍后再试。', retry: true };

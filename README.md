@@ -416,7 +416,6 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   red-lines.ts（红线清单：越不过去的规则，每条写明在哪儿管着、哪个对抗组盯着；scripts/red-lines-test.mjs 核对每条都有带 [red-line:<id>] 的对抗例）
   judgment.ts（判定：Cordis 事件 `judgment/judge`，内置监听器照六步判·scopedVerdict 认 dept:<x>、area:<x>：领域 x 在、没撤时两种都认（dept: 只限过渡清单 DEPT_AREA_TRANSITIONAL 里的台、经验库动作），领域撤了都不认，还没迁的部门照旧只认 dept:；areaVerdict 是领域自己的动作）
   grant-scope-view.ts（授予范围的展示口径：scope_name（部门名、领域名）和 scope_effect（all / area / dept / none），给授予列表、单条、/api/auth/me、以某人的身份看用；只用于展示，不参与放行）
-  layerfs-shadow.ts（LayerFS 影子发布结果持久化：只回写 commit_id 为空的版本行，失败标记后可重试）
   skill-shadow.ts（技能影子副本：推一版（migrate-layerfs 和补推共用，推完读回摘要一致才记 succeeded）、定时补推（挂在根上下文上随之停·对外断开时整轮跳过、不记失败·LayerFS 没配置不做·连不上这一轮停下、日志只在通断变化时打·异常的版本退避·二进制记 skipped））
   login-gate.ts（全站登录门 WM_LOGIN_GATE：enforce 时页面 302 登录、API 401）
   mcp-tools.ts（MCP 工具注册表）
@@ -495,8 +494,10 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   routes/report-governance.ts（报告治理的会话和站内入口）
   routes/owner-personal-tokens.ts（属主签发、撤销个人令牌；业务请求按精确动作与台限制）
   services/owner-personal-tokens.ts（个人令牌摘要、期限和使用记录）
+  services/sop-run-closure.ts（旧 SOP 运行的只读演练、批次收口与撤销）
   attention-sources.ts（「关注」要用、来源里还没有现成函数的只读查询：席位未答的提问）
   bench-mcp.ts（数据视图的 MCP 工具：授予按「会话 × 台 × 工具」记在自己的表里，不放进会话的 grants·申请由会话提、台的管理层批·读也按台限定·执行时把台库的方法对到工具名上）
+  bench-card-health.ts（#1086 卡片地址是市场自己的数据视图台页面 /use/<台> 时健康巡检怎么记：认相对地址和本站已知来源的 /use/<台>·已对应到台的卡片按台算在线、不探测，没对应的记「待对应」并写下一步，不判离线·纯函数，不碰库）
   bench-registry.ts（视图台的登记：主库里只记有这个台、叫什么、谁建的、绑到哪个部门和团队·登记过的台才有库，没登记的标识一律当作不存在·改绑留痕·卡片 id 为主、台标识为别名：入口写卡片 id 或台标识都认（resolveBenchRef），只给 workbench_id 就开出 wb-<卡片 id>·纯数字标识不许登记·删卡片时登记和授予一起删（removeCardBench）·绑定的标识要是没撤的领域或还没迁的部门，撤了的领域拒）
   bench-store.ts（台库对市场进程的接口：读写不在市场进程里跑，这里只排队、转发给工作线程、看时限、线程出事时收拾·台按标识固定分到几条道上（一道一个线程，默认核数减一、至多 4）·大写入（按体量估，不按行数）全局一次一件、做完换线程·读 3 秒写 15 秒，时限加宽限过了还不停才强行终止线程并另起·排队有上限·接口全异步·还没有对外入口，不判权限）
   bench-store-core.ts（台库的逻辑本体，在工作线程里跑：每个视图台一份自己的库，在数据目录 `bench-stores/` 下·数据集与列定义的版本·整份替换、追加、按主键更新和删行（逐行校验、幂等键、上限）·快照与退回·视图描述的版本、生效指针、并发保存不覆盖、回退只移指针·变更与写入记录只存摘要·视图取数（一次取齐各组件的数据）和表单提交·三道数据量上限·时间由调用方给、一个台的读写排成一队·到时限自己停下并回滚·运行时不引用 `db.ts`，建表语句由调用方递进来）
@@ -506,6 +507,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   attention.ts（「关注」：Cordis 服务 `attention`·各来源注册提供方、可撤销·汇总当前这个人的条目和各类条数）
   binding.ts（A2A 人工绑定）
   endpoint-stats-store.ts（端点命中计数的存取；表在 db.ts，计数口径在 endpoint-stats.ts）
+  layerfs-shadow.ts（LayerFS 影子发布结果持久化：只回写 commit_id 为空的版本行，失败标记后可重试）
   read-grants.ts（待办读授权的存取：ygl-trees 项目授权与 SOP 运行读授权的运行号）
   change-request.ts（人审变更请求；detailOf 给审核卡片看内容所需的最少字段：版本从几到几、目标版本说明、删除连带几个版本几个文件、不可恢复）
   custom-role.ts（自定义角色：Cordis 服务 `customRoles`·从内置预设复制、改、删、属主放行、导出·每步留痕·带来管理类或决定类权限的要属主放行）
