@@ -3057,3 +3057,28 @@ export function benchSqlKit(d: BenchDialect): BenchSqlKit {
   db.exec('DROP INDEX IF EXISTS idx_tasks_material; CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_intake_run ON tasks(intake_run_id) WHERE intake_run_id IS NOT NULL');
 }
 
+/** 工作台事件的投递表与到期索引：原在 workbench-events.ts 的 initWorkbenchEvents 里建，搬来和 workbench_events、workbench_event_log 放在一起（两者都已在上面建好）。语句逐字照搬 */
+db.exec(`
+CREATE TABLE IF NOT EXISTS workbench_event_deliveries (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL REFERENCES workbench_events(event_id),
+  target_team TEXT NOT NULL,
+  target_url TEXT NOT NULL,
+  caller_session TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('held','pending','sent','dead','cancelled')),
+  message TEXT NOT NULL DEFAULT '', -- 待投递的完整信封（含 reply token 明文）；sent/dead 后清空，明文只在待投期间存在
+  attempts INTEGER NOT NULL DEFAULT 0,
+  next_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_error TEXT NOT NULL DEFAULT '',
+  sent_at TEXT NOT NULL DEFAULT '',
+  reply_token_sha256 TEXT NOT NULL DEFAULT '',
+  decision TEXT NOT NULL DEFAULT '' CHECK (decision IN ('','accept','decline','ask')),
+  decision_reason TEXT NOT NULL DEFAULT '',
+  decision_ref TEXT NOT NULL DEFAULT '',
+  decided_by TEXT NOT NULL DEFAULT '',
+  decided_at TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (event_id, target_team)
+);
+CREATE INDEX IF NOT EXISTS idx_wbe_deliveries_due ON workbench_event_deliveries(status, next_at);
+`);
