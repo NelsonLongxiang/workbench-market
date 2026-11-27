@@ -4,6 +4,7 @@
  */
 import type { IncomingMessage } from 'node:http';
 import type { DatabaseSync } from 'node:sqlite';
+import { ensurePortalObservationSchema } from './db-schema-injected.ts';
 import { createPortalObservationStore } from './services/portal-observation-store.ts';
 
 export const PORTAL_CLIENT_CLASSES = [
@@ -45,13 +46,7 @@ export function portalTargetId(url: string): number | null {
  */
 export function createPortalObservation(db: DatabaseSync, registered: (id: number) => boolean,
   now: () => Date = () => new Date()) {
-  db.exec(
-    'CREATE TABLE IF NOT EXISTS portal_observation_counts (' +
-    'target_id INTEGER NOT NULL CHECK(target_id>0), client_class TEXT NOT NULL CHECK(client_class IN (' +
-    PORTAL_CLIENT_CLASSES.map(c => "'" + c + "'").join(',') +
-    ')), utc_day TEXT NOT NULL, hits INTEGER NOT NULL CHECK(hits>0),' +
-    'PRIMARY KEY(target_id,client_class,utc_day))'
-  );
+  ensurePortalObservationSchema(db, PORTAL_CLIENT_CLASSES); // 建表在 db-schema-injected.ts（注入库模块的建表只放那里）
   const st = createPortalObservationStore(db);
   const increment = st.increment();
   const startedAt = now().toISOString();

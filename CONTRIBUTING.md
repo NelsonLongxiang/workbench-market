@@ -47,7 +47,7 @@
 | 路由 | `server/src/routes/<域>.ts`，自带注册函数，经 HTTP 服务（`http`）注册，报上动作名和类别（`{ action: '<域>.<动词>', kind }`） | 写进 `server/src/index.ts`；直接挂在 Express 上 |
 | 登录方式 | `server/src/login-providers/` 下的一个插件，登记进那里的清单 | 改核心 |
 | SQL | `server/src/services/` 里对应域的服务 | 写在路由处理函数或别的模块里 |
-| 表、列 | `server/src/db.ts`（幂等迁移） | 在别的文件里建表、改表 |
+| 表、列 | `server/src/db.ts`（幂等迁移）；库由调用方注入的模块（不碰主库的）的建表放 `server/src/db-schema-injected.ts`（只收注入的库、只放 DDL） | 在别的文件里建表、改表 |
 | SQL 里要用的当前时间 | 代码生成（`new Date().toISOString()` 或毫秒数），作为参数传进 SQL | 在 SQL 里写 `datetime('now')`、`CURRENT_TIMESTAMP` 这类取时间的写法 |
 | SQL 写法 | 两种库（SQLite、PostgreSQL）都认的写法：`ON CONFLICT … DO UPDATE / DO NOTHING`、`RETURNING id`、`COALESCE` | 新增 SQLite 特有的写法（`INSERT OR REPLACE / IGNORE`、`lastInsertRowid`、`rowid`、`json_*` 函数等，清单见 `tech-route.json` 里 `sql-dialect` 的说明） |
 | 环境变量 | 所属模块自己的 Config（`server/src/config.ts` 的 `defineConfig`；服务类插件写成 `static Config`），启动时取一次并校验，同时写进 README | 在用到的地方直接读 `process.env` |

@@ -394,6 +394,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   context.ts（服务容器）
   db-busy.ts（库被别的连接锁着写时最多等多久：DB_BUSY_TIMEOUT_MS = 5000。市场主库、判定比对库用它，台库每次读写取它和那一次时限中较小的；部署切换时新旧进程短暂重叠写不直接报 database is locked，超过上限照样报错。多个进程同时写同一个库仍不支持）
   db.ts（schema+迁移）
+  db-schema-injected.ts（只为调用方传入的 SQLite 连接建表，不导入或打开主库）
   design-standard.ts（MCP design_standard 工具的 design token 标准只读读取）
   design-tokens-css.ts（DESIGN.md 生成的 tokens.css 服务端出口）
   endpoint-stats.ts（端点数）
@@ -472,6 +473,10 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   workbench-vars.ts（#336 工作台变量与常量：按台隔离、revision 乐观锁、常量保护）
 server/src/login-providers/  登录提供方插件（身份的具体实现只放这里，核心不引用）：index.ts（清单：这个部署装哪些提供方） feishu/index.ts（飞书登录方式：授权码流程，向 `identity` 登记一个登录方式，凭证从凭据库取） local/index.ts（账号密码登录方式：站内表单、一次性码，账号经 `localAccounts` 服务核对）
 server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·cookie·setting·mcp（域服务）；其余一个文件一行，按文件名排序：
+  portal-observation-store.ts（注入库中门户观察的计数和汇总）
+  sop-read-grants.ts（SOP 运行读能力摘要与主体授权查询）
+  sop-run-access-store.ts（注入库中 SOP 运行访问记录、写门配置和事务）
+  workbench-events-store.ts（工作台事件、投递和事件日志的存取）
   a2a-followups.ts（席位发来的消息（跟进）的登记：收下、按投递与对端计数、事项对话里的未读、看过、回复）
   a2a-handles.ts（市场 A2A 会话句柄 `market/<node8>` 的唯一性：生成时避开已占用的，存量撞车的不上卡、入站失败关闭）
   a2a-idempotency.ts（`/a2a/direct` 幂等登记：task_id → 指纹 sha256，30 分钟窗口，落库，重启后同一 task_id 仍判 replay / conflict；只存摘要不存原文）
