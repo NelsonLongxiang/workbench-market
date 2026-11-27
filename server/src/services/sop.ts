@@ -2,6 +2,7 @@
 import type { SQLInputValue } from 'node:sqlite';
 import { Service } from '@deepseek-ai/cordis';
 import { db } from '../db.ts';
+import { staleSopRunEvents } from './sop-run-closure.ts';
 
 /** #309 public run-list contract: explicit metadata only, never spread stored rows. */
 function runMetadata(row:any) {
@@ -29,6 +30,10 @@ export class SopService extends Service {
   runWriteCredential(id: number): { status: string; upload_token: string } | undefined {
     return db.prepare('SELECT status, upload_token FROM sop_runs WHERE id = ?').get(id) as { status: string; upload_token: string } | undefined;
   }
+  /** 给新建的运行写上传令牌 */
+  runSetUploadToken(id: SQLInputValue, token: string) {
+    return db.prepare('UPDATE sop_runs SET upload_token = ? WHERE id = ?').run(token, id);
+  }
   runStatusData(id: number) {
     return db.prepare('SELECT status, data FROM sop_runs WHERE id = ?').get(id);
   }
@@ -42,6 +47,9 @@ export class SopService extends Service {
   /** 治理时间线的 A2A 回执：这个 SOP 的执行记录上、task_id 不空的（原文自 /api/sops/:slug/timeline） */
   receiptsBySlug(slug: string) {
     return db.prepare("SELECT r.task_id, r.caller, r.receipt_status, r.run_id FROM a2a_run_ctx r WHERE r.task_id != '' AND r.run_id IN (SELECT id FROM sop_runs WHERE sop_slug = ?)").all(slug);
+  }
+  closureEventsBySlug(slug: string) {
+    return staleSopRunEvents(db, slug);
   }
   runsBySlug(slug: string) {
     return db.prepare('SELECT * FROM sop_runs WHERE sop_slug = ? ORDER BY id DESC').all(slug).map(runMetadata);

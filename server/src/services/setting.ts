@@ -5,6 +5,17 @@ import { db } from '../db.ts';
 /** 管理员口令的加盐哈希在 settings 表里的键。设置出口一律剔除这一项，口令只经 /api/admin-token 设置与校验。 */
 export const ADMIN_TOKEN_KEY = 'admin_token_sha256';
 
+/** 按键取 settings 的值（不经 SettingService 上下文）；没有就是 undefined */
+export function settingValue(key: string): string | undefined {
+  const r = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value?: string } | undefined;
+  return r?.value;
+}
+
+/** 记下技能库最近一次重建的时间（库时钟） */
+export function markWmSkillsRebuilt(): void {
+  db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_wm_skills_rebuild', datetime('now'))").run();
+}
+
 export class SettingService extends Service {
   constructor(ctx: any) {
     super(ctx, 'setting');
@@ -28,4 +39,10 @@ export class SettingService extends Service {
   all() {
     return db.prepare('SELECT key, value FROM settings').all();
   }
+}
+
+/** 按键取 settings 的原值（不经 SettingService 上下文；口令哈希那一项调用方别拿来外发） */
+export function settingRaw(key: string): string | undefined {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
+  return row?.value;
 }

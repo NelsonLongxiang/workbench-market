@@ -138,6 +138,8 @@ interface EventCore {
   due?: string;
   /** 优先级 P0～P3（#941 第 1a 步）：只记在 recorded 那一行，事项建出来时取；市场自己用（以后决定验收怎么走），不进发给接收方的信封 */
   priority?: string;
+  /** 整队派发由具备放行权的人提交时，记录免过目的原因。 */
+  submitReason?: string;
 }
 
 /**
@@ -169,7 +171,7 @@ function recordEvent(core: EventCore, targets: Target[], routed: 'target' | 'def
     }
     const info = db.prepare('INSERT INTO workbench_event_deliveries (event_id, target_team, target_url, caller_session, status, message, reply_token_sha256) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(eventId, t.agent_node, t.notify_url, callerSession, held ? 'held' : 'pending', dispatchText(core, message), token === '' ? '' : sha256(token));
-    log(eventId, Number(info.lastInsertRowid), 'market', held ? 'held' : 'queued', { target_team: t.agent_node });
+    log(eventId, Number(info.lastInsertRowid), 'market', held ? 'held' : 'queued', { target_team: t.agent_node, ...(core.submitReason ? { reason: core.submitReason } : {}) });
   }
   return eventId;
 }
@@ -188,6 +190,7 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
     cockpitId?: number;
     /** 优先级（调用方已经核过是 P0～P3）；不给就是缺省 P2，recorded 里不写 */
     priority?: string;
+    submitReason?: string;
     /** 附件（只带引用）：信封里列名字、类型、大小、sha256 和取件地址，内容不进正文 */
     attachments?: { id: number; name: string; mime: string; size: number; sha256: string }[] } }): string {
   const targets = assignableTeams().filter((t) => t.agent_node === task.arranged.team);
@@ -202,6 +205,7 @@ export function recordTaskCenterEvent(task: { id: number; data: Record<string, u
     ...(task.arranged.directedSeatId ? { directedSeatId: task.arranged.directedSeatId } : {}),
     ...(task.arranged.cockpitId ? { cockpitId: task.arranged.cockpitId } : {}),
     ...(task.arranged.priority ? { priority: task.arranged.priority } : {}),
+    submitReason: task.arranged.submitReason,
     ...(task.arranged.directedFallback ? { directedFallback: task.arranged.directedFallback } : {}),
   };
   const fields: Record<string, unknown> = { id: task.id };
@@ -278,7 +282,7 @@ function settle(row: DeliveryRow, status: 'sent' | 'dead' | 'cancelled', error =
  * 放行（只有这一处）：把这个事件 held 的投递转成待发，每条记一行 released。管理员的旧入口和负责人的新入口（POST /api/work-items/:id/release）都调它。
  *   actor 记放行的人；actingFor 是代谁办（团队没有负责人时管理层代办记 team-lead），记进那一行的 detail，事项时间线照它写「代某某办」
  */
-export function releaseCore(eventId: string, actor: string, actingFor = ''): { status: number; body: Record<string, unknown> } {
+export function releaseCore(eventId: string, actor: string, actingFor = '', reason = ''): { status: number; body: Record<string, unknown> } {
   const blocked = releaseBlock(eventId);
   if (blocked) return blocked;
   db.exec('BEGIN IMMEDIATE');
@@ -287,7 +291,8 @@ export function releaseCore(eventId: string, actor: string, actingFor = ''): { s
     released = db.prepare("SELECT id FROM workbench_event_deliveries WHERE event_id = ? AND status = 'held'").all(eventId) as { id: number }[];
     for (const r of released) {
       db.prepare("UPDATE workbench_event_deliveries SET status = 'pending', next_at = datetime('now') WHERE id = ?").run(r.id);
-      log(eventId, r.id, actor, 'released', actingFor ? { acting_for: actingFor } : undefined);
+      const detail = { ...(actingFor ? { acting_for: actingFor } : {}), ...(reason ? { reason } : {}) };
+      log(eventId, r.id, actor, 'released', actingFor || reason ? detail : undefined);
     }
     db.exec('COMMIT');
   } catch (e) { db.exec('ROLLBACK'); throw e; }

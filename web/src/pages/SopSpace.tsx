@@ -8,7 +8,7 @@ import { DownloadOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import { ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import { api, downloadAuthed } from '../api';
-import type { SopApp, SopDefinition, SopRun, SopRunFile } from '../types';
+import type { SopApp, SopDefinition, SopRun, SopRunClosureEvent, SopRunFile } from '../types';
 import WmPage from '../components/WmPage';
 import RelTime from '../components/RelTime';
 import { SOP_STATUS } from './Sops';
@@ -16,6 +16,7 @@ import { SOP_STATUS } from './Sops';
 export const RUN_STATUS: Record<SopRun['status'], { color: string; label: string }> = {
   running: { color: 'processing', label: '执行中' },
   finished: { color: 'success', label: '已完成' },
+  expired: { color: 'default', label: '已过期' },
 };
 
 export function SopStatusTag({ status }: { status: SopApp['status'] }) {
@@ -36,6 +37,7 @@ export default function SopSpace() {
   const [sop, setSop] = useState<SopApp | null | undefined>(undefined);
   const [runs, setRuns] = useState<SopRun[]>([]);
   const [runsLoading, setRunsLoading] = useState(true);
+  const [closureEvents, setClosureEvents] = useState<SopRunClosureEvent[]>([]);
   const [def, setDef] = useState<SopDefinition | null>(null);
   const [defErr, setDefErr] = useState('');
 
@@ -45,6 +47,14 @@ export default function SopSpace() {
     setRunsLoading(true);
     api.listSopRuns({ slug }).then(setRuns).catch((e) => message.error(`加载执行记录失败：${(e as Error).message}`)).finally(() => setRunsLoading(false));
     api.getSopDefinition(slug).then((d) => { if (Array.isArray(d?.steps)) { setDef(d); setDefErr(''); } else { setDef(null); setDefErr('定义数据不完整'); } }).catch((e) => { setDef(null); setDefErr((e as Error).message); });
+  }, [slug, message]);
+
+  useEffect(() => {
+    let live = true;
+    setClosureEvents([]);
+    api.getSopClosureEvents(slug).then(r => { if (live) setClosureEvents(r.closure_events ?? []); })
+      .catch(() => { if (live) message.error('加载收口记录失败'); });
+    return () => { live = false; };
   }, [slug, message]);
 
   if (sop === undefined) return <WmPage trail={[{ title: slug }]} loading />;
@@ -83,7 +93,14 @@ export default function SopSpace() {
         onChange={(k) => setParams(k === 'runs' ? {} : { tab: k }, { replace: true })}
         destroyInactiveTabPane
         items={[
-          { key: 'runs', label: `执行记录 ${runs.length}`, children: <RunsTable slug={slug} runs={runs} loading={runsLoading} published={sop.status === 'published'} /> },
+          { key: 'runs', label: `执行记录 ${runs.length}`, children: <>
+            {closureEvents.length > 0 && <section aria-label="运行收口动态" className="wm-mb-2">
+              {closureEvents.map(event => <Typography.Paragraph key={event.batch + '/' + event.action}>
+                <RelTime value={event.at} /> · {event.action === 'close' ? '收口' : '撤销收口'} {event.run_count} 条运行 · 批次 {event.batch} · {event.reason}
+              </Typography.Paragraph>)}
+            </section>}
+            <RunsTable slug={slug} runs={runs} loading={runsLoading} published={sop.status === 'published'} />
+          </> },
           { key: 'deliverables', label: '交付物', children: <Deliverables runs={runs} /> },
           { key: 'definition', label: '定义', children: <Definition sop={sop} def={def} defErr={defErr} /> },
         ]}

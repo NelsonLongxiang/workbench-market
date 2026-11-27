@@ -45,6 +45,9 @@ with sync_playwright() as p:
     pg.goto(f'{M}/settings'); pg.wait_for_selector('[data-testid=pt-list]')
     pg.wait_for_function("() => document.querySelector('[data-testid=pt-list]').textContent.includes('还没有签过个人令牌')")
     check('设置页有「个人令牌」卡片、空清单，属主看得到「签发令牌」', pg.locator('[data-testid=pt-new]').count() == 1)
+    guidance = pg.locator('[data-testid=pt-https-note]').all_inner_texts()
+    check('个人令牌卡说明从 HTTPS 打开设置，以及没有地址时找部署维护方', len(guidance) == 1
+          and 'HTTPS' in guidance[0] and '部署维护方' in guidance[0], guidance)
     pg.locator('[data-testid=pt-new]').click(); pg.wait_for_selector('.ant-modal [data-testid=pt-draft-name]')
     issue = pg.locator('[data-testid=pt-issue]')
     check('没填之前「签发」不能点，说名字怎么写', issue.is_disabled() and '名字' in pg.locator('[data-testid=pt-draft-problem]').inner_text())
@@ -101,5 +104,18 @@ with sync_playwright() as p:
     ctx = ctx_for(cfg['session_other']); pg = ctx.new_page(); pg.set_default_timeout(15000)
     pg.goto(f'{M}/settings'); pg.wait_for_selector('[data-testid=pt-problem]')
     check('卡片说只有属主，没有「签发令牌」', '属主' in pg.locator('[data-testid=pt-problem]').inner_text() and pg.locator('[data-testid=pt-new]').count() == 0)
+    ctx.close()
+
+    print('六、正式地址拒绝')
+    ctx = ctx_for(cfg['session_owner']); pg = ctx.new_page(); pg.set_default_timeout(15000)
+    pg.route('**/api/owner/personal-tokens', lambda r: r.fulfill(status=403, json={
+        'error': 'personal_token_surface_denied', 'message': '请从市场的正式地址打开个人令牌设置。',
+    }))
+    pg.goto(f'{M}/settings')
+    problem = pg.locator('[data-testid=pt-problem]')
+    problem.wait_for()
+    text = problem.inner_text()
+    check('正式地址被拒时，卡片告诉属主改用 HTTPS 或联系部署维护方', 'HTTPS' in text and '部署维护方' in text
+          and pg.locator('[data-testid=pt-new]').count() == 0, text)
     ctx.close(); b.close()
 print(f'\npersonal-tokens-browser: {ok} 过 / {fail} 败'); sys.exit(1 if fail else 0)

@@ -7,7 +7,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { SOCKET_ROOT_MAX, UsageError, checkoutDecls, classify, expand, materialGaps, parseArgs, runtimeTooLong, stripShallowFetch, summarize } from './ci-run-block.mjs';
+import { SOCKET_ROOT_MAX, UsageError, checkoutDecls, classify, expand, innerArgs, isInstall, materialGaps, parseArgs, reexecForReviewEnv, runtimeTooLong, stripShallowFetch, summarize } from './ci-run-block.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..');
 let pass = 0, fail = 0;
@@ -76,6 +76,74 @@ console.log('一、执行前的核对（纯函数）');
   ok('参数：--worktree、--out 必须显式；不认识的参数、--step 0、值缺失都是用法错误',
     J([usageOf(() => parseArgs(['--out', 'x'])), usageOf(() => parseArgs(['--worktree', 'x'])), usageOf(() => parseArgs(['--worktree', 'w', '--out', 'o', '--nope'])), usageOf(() => parseArgs(['--worktree', 'w', '--out', 'o', '--step', '0'])), usageOf(() => parseArgs(['--worktree', 'w', '--out', '--plan'])), usageOf(() => parseArgs(['--worktree', 'w', '--out', 'o', '--step', '2', '--step-name', 'x']))])
       === J(['usage', 'usage', 'usage', 'usage', 'usage', 'ok']));
+}
+
+console.log('一b、文本兜底加固（#1084 评审的非阻断观察）');
+{
+  const c = (run) => { const r = classify({ name: 'x', run }, 1, {}, ctx); return r.status + ':' + r.reason; };
+  const refused = {
+    pull: 'git pull --depth=1 origin main',
+    pullSince: 'git pull --shallow-since=2020-01-01 origin main',
+    abbrDepth: 'git fetch --dep=1 origin main',
+    abbrDeepen: 'git fetch --deepe=1 origin',
+    abbrUnshallow: 'git fetch --unsh origin',
+    dquoted: 'git fetch "--depth=1" origin main',
+    squoted: "git fetch '--deepen=1' origin",
+    subst: 'echo $(git fetch --depth=1 origin main)',
+    afterEcho: 'echo start && git fetch --depth=1 origin main',
+  };
+  const refusedGot = Object.fromEntries(Object.entries(refused).map(([k, run]) => [k, c(run)]));
+  ok('浅取复查扩到 git pull，认带引号的选项名和 git 接受的缩写（--dep、--deepe、--unsh），echo 里套命令替换的照样拒：一律不跑',
+    Object.values(refusedGot).every((v) => v === 'insufficient:shallow-fetch'), refusedGot);
+  const allowed = {
+    commentLine: '# git fetch --depth=1 origin main 在 CI 里才跑\necho ok',
+    trailingComment: 'echo hi # git pull --depth 1',
+    echoText: 'echo "use git fetch --depth=1 to make a shallow clone"',
+    printfText: "printf '%s\\n' 'git fetch --deepen=1'",
+    plainFetch: 'git fetch origin main',
+    plainPull: 'git pull origin main',
+    hashInQuotes: 'echo "#x" && git fetch origin main',
+  };
+  const allowedGot = Object.fromEntries(Object.entries(allowed).map(([k, run]) => [k, c(run)]));
+  const viaShell = {
+    procSubIn: 'echo <(git fetch --depth=1 origin main)',
+    procSubOut: "printf '%s' >(git fetch --depth=1 origin main)",
+    echoPipeBash: 'echo "git fetch --depth=1 origin main" | bash',
+    printfPipeSh: "printf 'git fetch --depth=1 origin main\\n' | sh",
+    echoToScript: 'echo "git fetch --depth=1 origin main" > x.sh; bash x.sh',
+    unPrefix: 'git fetch --un origin',
+  };
+  const viaShellGot = Object.fromEntries(Object.entries(viaShell).map(([k, run]) => [k, c(run)]));
+  ok('#1097 B1：echo/printf 的内容经进程替换、管道交给 shell、写成脚本再跑时照样拒（这一行一段也不剔）；--un 也认作 --unshallow',
+    Object.values(viaShellGot).every((v) => v === 'insufficient:shallow-fetch'), viaShellGot);
+  ok('注释里、不含命令替换的 echo/printf 文字里提到浅取不误拒；普通 fetch、pull 照跑',
+    Object.values(allowedGot).every((v) => v === 'run:'), allowedGot);
+  const inst = ['pnpm exec playwright install-deps', 'npx playwright install-deps chromium', 'pnpm dlx playwright install chromium', 'yarn', 'npm i', 'sudo apt-get update'];
+  const notInst = ['npm run ci', 'npm run add', 'pnpm test -- add', 'pnpm run install-check', 'git add .', 'pip --version', 'pnpm --filter web exec tsc --noEmit'];
+  const instGot = Object.fromEntries(inst.map((r) => [r, isInstall(r)]));
+  const notInstGot = Object.fromEntries(notInst.map((r) => [r, isInstall(r)]));
+  ok('安装：pnpm exec / npx 的 playwright install-deps、dlx、裸 yarn、npm i、apt-get 都认出；npm run ci、npm run add、pnpm test -- add、git add、pip --version 不算安装',
+    Object.values(instGot).every(Boolean) && !Object.values(notInstGot).some(Boolean), [instGot, notInstGot]);
+  ok('真实 job 那条 pnpm install --frozen-lockfile 仍判安装、不跑', c('pnpm install --frozen-lockfile') === 'not-run:install');
+  const wrapped = ['time pnpm install', 'env CI=1 pnpm install', 'echo a | xargs -n1 pnpm install', 'nohup pnpm install &', 'timeout 60 npm ci', 'exec npm ci', '! pnpm install', 'corepack pnpm install', 'npx pnpm install', 'npm exec -- pnpm install', 'bash -c "cd x && pnpm install"'];
+  const wrappedGot = Object.fromEntries(wrapped.map((r) => [r, isInstall(r)]));
+  ok('#1097 B2：命令名前有前缀或包装（time、env、xargs、nohup、timeout、exec、!、corepack、npx pnpm、npm exec --、bash -c）照样认作安装',
+    Object.values(wrappedGot).every(Boolean), wrappedGot);
+  const step9 = [
+    'retry 4 python -m pip install --retries 5 "playwright==${PLAYWRIGHT_VERSION}" \\',
+    '  || fail "pip 装 playwright 四次都没成"',
+    'retry 4 python -m playwright install chromium || fail "下载 Chromium 四次都没成"',
+    'sudo timeout 240 apt-get install -y --no-install-recommends $missing',
+  ].join('\n');
+  ok('#1097 B2：真实 ci.yml browser-security 第 9 步（retry 4 python -m pip install、retry 4 python -m playwright install、sudo timeout 240 apt-get）判安装、不跑',
+    c(step9) === 'not-run:install' && isInstall('retry 4 python -m pip install x') && isInstall('retry 4 python -m playwright install chromium') && isInstall('sudo timeout 240 apt-get install -y x'));
+  const outer = ['--worktree', 'w', '--review-env', '--out', 'o', '--step', '2', '--step-name', 'x'];
+  const inner = innerArgs(outer);
+  const po = parseArgs(outer), pi = parseArgs(inner);
+  ok('--review-env 转交：内层参数去掉 --review-env、补上 --inside-review-env，其余原样且顺序不变；外层转交、内层不再转交',
+    J(inner) === J(['--worktree', 'w', '--out', 'o', '--step', '2', '--step-name', 'x', '--inside-review-env'])
+    && reexecForReviewEnv(po) === true && reexecForReviewEnv(pi) === false
+    && reexecForReviewEnv(parseArgs([...outer, '--inside-review-env'])) === false, [inner, po.reviewEnv, pi.inside]);
 }
 
 console.log('一b、上游材料预检（纯函数；夹具只在 tmp/）');

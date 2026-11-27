@@ -43,10 +43,10 @@ async function loadDetail(id: string): Promise<Detail | null> {
   try {
     const r = await apiFetch(`/api/work-items/${encodeURIComponent(id)}`);
     if (!r.ok) return null;
-    const j = await r.json() as { item?: { seat?: unknown; target_team?: unknown }; asks?: Ask[] };
+    const j = await r.json() as { item?: { seat?: unknown; target_team?: unknown; target_team_name?: unknown }; asks?: Ask[] };
     const open = (j.asks ?? []).filter((a) => a.status === 'open').pop() as (Ask & { id?: unknown }) | undefined;
     const options = Array.isArray(open?.options) ? open.options.filter((o): o is string => typeof o === 'string') : [];
-    return { seat: typeof j.item?.seat === 'string' ? j.item.seat : '', team: typeof j.item?.target_team === 'string' ? j.item.target_team : '', options, suggested: typeof open?.default === 'string' ? open.default : '', askId: open?.id !== undefined && open?.id !== null ? String(open.id) : '' };
+    return { seat: typeof j.item?.seat === 'string' ? j.item.seat : '', team: typeof j.item?.target_team_name === 'string' ? j.item.target_team_name : teamLabel(typeof j.item?.target_team === 'string' ? j.item.target_team : ''), options, suggested: typeof open?.default === 'string' ? open.default : '', askId: open?.id !== undefined && open?.id !== null ? String(open.id) : '' };
   } catch { return null; }
 }
 
@@ -110,7 +110,7 @@ export default function DecisionCard({ item, admin, onDone, more = true }: { ite
     : isAsk
     ? `${waitingLabel(item.waiting_for, { seat, people: [item.creator ?? {}], name: item.waiting_for_name })} 问`
     : item.source === 'work-items' && detail
-      ? [seat && `承接 ${seatLabel(seat)}`, detail.team && `派给 ${teamLabel(detail.team)}`].filter(Boolean).join(' · ')
+      ? [seat && `承接 ${seatLabel(seat)}`, detail.team && `派给 ${detail.team}`].filter(Boolean).join(' · ')
       : waitingLabel(item.waiting_for, { seat, people: [item.creator ?? {}], name: item.waiting_for_name });
   // 建立人的名字：服务端给的 creator_name（#657）优先，没有再看 creator 自带的显示名；都没有就不写名字（不露标识）
   const creatorName = (item.creator_name || '').trim() || (item.creator?.display_name || '').trim();

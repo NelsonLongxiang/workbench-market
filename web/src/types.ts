@@ -118,12 +118,20 @@ export interface SopRun {
   id: number;
   sop_slug: string;
   sop_version: number;
-  status: 'running' | 'finished';
+  status: 'running' | 'finished' | 'expired';
   started_by: string;
   steps: number;
   started_at: string;
   updated_at: string;
   finished_at: string;
+}
+
+export interface SopRunClosureEvent {
+  batch: string;
+  action: 'close' | 'undo';
+  run_count: number;
+  reason: string;
+  at: string;
 }
 
 /** #318 SOP 定义（GET /api/sops/:slug/definition）：只有步骤 key / 标题，不含步骤正文 HTML。 */

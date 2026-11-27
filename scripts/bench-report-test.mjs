@@ -108,7 +108,7 @@ async function boot(name, extraEnv = {}, { expectFail = false } = {}) {
 /** 一份合格的模板（维度的第二版模板）：月份参数、一句摘要、订单明细一个槽（按编号作行键）、封面、表格、合计统计；论断要 1～2 条结论、0～3 条风险 */
 const tpl = (over = {}) => ({
   schema_version: 2, title: '合成·月度经营',
-  parameters: { period: { type: 'month', required: true } }, fields: { summary: { required: true, max_length: 500 } },
+  parameters: { period: { type: 'month', required: true } }, fields: { summary: { required: true, max_length: 500 }, subject_name: { required: false, max_length: 120 } },
   slots: {
     orders: { columns: [{ name: 'id', type: 'integer', label: '单号' }, { name: 'amount', type: 'decimal', label: '金额' }], key: ['id'], max_rows: 3, completeness: 'all' },
   },
@@ -376,7 +376,7 @@ try {
       let json = null; try { json = JSON.parse(text); } catch { /* 出错时是一句话 */ }
       return { isError: res?.isError === true, rpcError: r.json?.error?.code ?? null, json, text };
     };
-    const made = await call('report_generate', { bench: 'synth-orders', ...G({ subject: 'card:synth-orders@mcp' }) });
+    const made = await call('report_generate', { bench: 'synth-orders', ...G({ subject: 'card:synth-orders@mcp', inputs: { ...INPUTS, fields: { ...INPUTS.fields, subject_name: '合成登记对象' } } }) });
     const mid = made.json?.report?.id;
     const aiDispute = await call('report_respond', { bench: 'synth-orders', id: mid, claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：AI 觉得不对' });
     const got = await call('report_get', { bench: 'synth-orders', id: mid });
@@ -389,6 +389,9 @@ try {
         && smuggle.isError && (other.isError || other.rpcError !== null),
       'R3 MCP 会话生成：producer 是 mcp:会话名、记 AI；AI 反驳记 AI、位置 mcp，不算未处理的反驳；带来源的拒；没授予的台调不到',
       { made: made.text?.slice(0, 200), ai: aiDispute.json?.response, got: got.json?.claims?.[0]?.open_dispute, listed: listed.json?.reports?.length, smuggle: smuggle.isError, other: other.text?.slice(0, 80) });
+    check(got.json?.names?.producer_label === 'synth-report-seat' && listed.json?.names?.actors?.['mcp:synth-report-seat'] === 'synth-report-seat'
+      && got.json?.report?.subject_name === '合成登记对象' && listed.json?.reports?.[0]?.subject_name === '合成登记对象'
+      && got.json?.report?.subject === 'card:synth-orders@mcp', 'R3b 清单和详情读回登记对象名与提交会话名，保留原对象键');
     // 人在 AI 那份上反驳：算；报告被更正之后旧报告上的不算
     const human = await respond(boss, { claim_key: 'conclusion-1', stance: 'dispute', reason: '合成：人也觉得不对' }, mid);
     const before = await read(mid);
@@ -396,6 +399,86 @@ try {
     const after = await read(mid);
     check(human.status === 201 && before?.claims?.[0]?.open_dispute === true && fix.status === 201 && after?.report?.superseded_by === fix.json?.report?.id && after?.claims?.[0]?.open_dispute === false && after?.open_disputes === 0,
       'R4 人的反驳算未处理；这份报告被更正之后，旧报告上的反驳不再算（看新报告）', { human: human.status, before: before?.claims?.[0]?.open_dispute, after: after?.claims?.[0]?.open_dispute, sb: after?.report?.superseded_by });
+  }
+
+  console.log('R5 MCP 生成前读回维度、模板和绑定');
+  {
+    const admin = { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } };
+    const newSession = async name => (await srv.call('POST', '/api/mcp/sessions', { ...admin, body: { name } })).json;
+    const genSeat = await newSession('synth-report-preflight');
+    const readSeat = await newSession('synth-report-template-reader');
+    const noGrant = await newSession('synth-report-no-grant');
+    const setGrant = (session, tools) => bv(boss, 'PUT', '/synth-orders/mcp-grants', { session, tools });
+    const granted = await setGrant('synth-report-preflight', ['report_generate']);
+    const onlyRead = await setGrant('synth-report-template-reader', ['report_template_get']);
+    const call = async (seat, name, args, method = 'tools/call') => {
+      const r = await srv.call('POST', '/mcp', { headers: { authorization: 'Bearer ' + seat.token }, body: { jsonrpc: '2.0', id: 1, method, params: { name, arguments: args } } });
+      const text = r.json?.result?.content?.[0]?.text;
+      let data; try { data = text ? JSON.parse(text) : r.json?.result; } catch { /* 工具错误为文本 */ }
+      return { data, rpcCode: r.json?.error?.code, isError: r.json?.result?.isError, text };
+    };
+    const tools = ['report_dimension_get', 'report_template_get', 'report_binding_get'];
+    const args = { bench: 'synth-orders', dimension: 'monthly' };
+    const dim = await cli('GET', '/api/report-dimensions/monthly');
+    const version = dim.json?.dimension?.active_version;
+    const template = await cli('GET', '/api/report-dimensions/monthly/templates/' + version);
+    const binding = await bv(boss, 'GET', '/synth-orders/reports/monthly/binding');
+    const expected = [dim.json, template.json, binding.json];
+    const values = await Promise.all(tools.map(name => call(genSeat, name, args)));
+    const listed = await call(genSeat, '', {}, 'tools/list');
+    const info = await call(genSeat, 'access_info', { tool: 'report_binding_get' });
+    check(granted.status === 200 && values.every((r, i) => JSON.stringify(r.data) === JSON.stringify(expected[i]))
+      && tools.every(name => listed.data?.tools?.some(tool => tool.name === name))
+      && info.data?.tool?.granted_benches?.join() === 'synth-orders',
+      'R5a 仅授 report_generate 即可发现并调用三个工具，返回与 HTTP 读面一致');
+    const expectedOld = await cli('GET', '/api/report-dimensions/monthly/templates/1');
+    const own = await call(readSeat, 'report_template_get', { ...args, version: 1 });
+    const wrongTool = await call(readSeat, 'report_dimension_get', args);
+    const badVersion = await call(genSeat, 'report_template_get', { ...args, version: 0 });
+    check(onlyRead.status === 200 && JSON.stringify(own.data) === JSON.stringify(expectedOld.json)
+      && wrongTool.rpcCode === -32601 && badVersion.isError === true,
+      'R5b 显式只读授予可取指定模板版，无其他工具权，非法版本拒绝');
+    const denied = await Promise.all(tools.flatMap(name => [
+      call(noGrant, name, args), call(genSeat, name, { ...args, bench: 'synth-orders-other' }),
+      call(genSeat, name, { ...args, dimension: 'zdim' }), call(genSeat, name, { ...args, dimension: 'pending' }),
+      call(genSeat, name, { ...args, dimension: 'missing' }),
+    ]));
+    check(denied.every(r => r.rpcCode === -32601 && r.data === undefined),
+      'R5c 无授予、越台、未绑定维度与未知维度均按 not_granted 返回，不暴露对象');
+    // 模拟台迁离领域后保留的历史绑定。服务端仍须按当前领域收窄读取。
+    const db = new DatabaseSync(join(srv.data, 'bench-stores', 'synth-orders.sqlite'));
+    try {
+      // 仅在隔离测试库造停留在旧领域的绑定，使用与新版台库相同的协议标识。
+      db.function('bench_protocol_v2', () => 1);
+      db.prepare('INSERT INTO bs_report_bindings (dimension_id, version, template_version, slots, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('zdim', 1, 1, JSON.stringify(BINDING), 'synthetic-fixture', Date.now());
+    } finally { db.close(); }
+    const foreign = await Promise.all(tools.map(name => call(genSeat, name, { ...args, dimension: 'zdim' })));
+    const rest = await srv.call('POST', '/api/mcp-rest/tools/report_template_get', { headers: { authorization: 'Bearer ' + genSeat.token }, body: { ...args, dimension: 'zdim' } });
+    check(foreign.every(r => r.rpcCode === -32601 && r.data === undefined) && rest.status === 403 && !rest.json?.template,
+      'R5f 有历史绑定也不得读取当前台范围之外的领域，REST 同样拒绝');
+    const dimId = 'mcp-read-lifecycle';
+    await cli('POST', '/api/report-dimensions', { id: dimId, title: '合成预检绑定' });
+    await pub(dimId, { body: tpl() });
+    await srv.call('POST', '/api/report-dimensions/' + dimId + '/templates/1/review', { ...sys, body: {} });
+    await cli('POST', '/api/report-dimensions/' + dimId + '/activate', { version: 1 });
+    const initial = await bind(boss, BINDING, 0, dimId);
+    const path = '/synth-orders/reports/' + dimId + '/binding';
+    const stopped = await bv(boss, 'POST', path + '/stop', { base: 1, reason: '合成停用后重绑' });
+    const stoppedHttp = await bv(boss, 'GET', path);
+    const stoppedMcp = await call(genSeat, 'report_binding_get', { ...args, dimension: dimId });
+    const rebound = await bind(boss, BINDING, 2, dimId);
+    const reboundHttp = await bv(boss, 'GET', path);
+    const reboundMcp = await call(genSeat, 'report_binding_get', { ...args, dimension: dimId });
+    check(initial.status === 200 && stopped.status === 200 && stoppedMcp.data?.binding?.version === 2
+      && stoppedMcp.data.binding.disabled === true && stoppedMcp.data.binding.disabled_reason === '合成停用后重绑'
+      && JSON.stringify(stoppedMcp.data) === JSON.stringify(stoppedHttp.json)
+      && rebound.status === 200 && reboundMcp.data?.binding?.version === 3 && reboundMcp.data.binding.disabled === undefined
+      && reboundMcp.data.binding.disabled_reason === undefined && JSON.stringify(reboundMcp.data) === JSON.stringify(reboundHttp.json),
+      'R5d 停用后立即读到版本、停用理由；重绑返回新版本与现行槽，和 HTTP 一致');
+    const revoked = await setGrant('synth-report-preflight', []);
+    const nextReads = await Promise.all(tools.map(name => call(genSeat, name, args)));
+    check(revoked.status === 200 && nextReads.every(r => r.rpcCode === -32601), 'R5e 撤掉生成授予，派生读权限立即失效');
   }
 
   console.log('R6 回应要读得了（第 14 条）；一个人一条链（第 15 条）；接别人的链头、对整份报告的反驳（#932 独立验收）');
@@ -491,7 +574,7 @@ try {
       && nm.sources.every((x, i) => x.slot === r.report.sources[i].slot && x.view === '看板' && (x.block === null || typeof x.block === 'string'));
     const ln = ls.json?.names;
     const listOk = ls.status === 200 && ln && Object.entries(ln.dimensions).every(([d, t]) => t === dimTitle(d)) && Object.values(ln.dimensions).some((t) => t)
-      && Object.entries(ln.actors).every(([a, n]) => n === pName(a)) && Object.keys(ln.actors).length >= 1;
+      && Object.entries(ln.actors).every(([a, n]) => n === (pName(a) ?? (a === 'mcp:synth-report-seat' ? 'synth-report-seat' : null))) && Object.keys(ln.actors).length >= 1;
     check(nm?.dimension === dimTitle(r?.report?.dimension_id) && nm?.dimension && actorsOk && posOk && srcOk && listOk,
       'R7b 给人看的名字：读报告带维度标题、产出方和回应者的显示名、位置写成「角色名 + 范围名」（* 是全公司、MCP 会话是 mcp）、来源的视图标题；清单带维度标题、产出方显示名；和库里一致，取不到是 null',
       { names: nm, list: ln, posAlpha, posAi });

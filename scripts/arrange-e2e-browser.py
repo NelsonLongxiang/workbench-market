@@ -102,6 +102,34 @@ with sync_playwright() as p:
     check('抽屉里照服务端说「这个团队现在不能派，换一个」，不跳走', failure.count() == 1 and pg.locator('[data-testid=arrange-form]').is_visible() and '/work-items/' not in pg.url, pg.url)
     st1, after = my_items()
     check('接口里没有多出一件', st0 == 200 and st1 == 200 and sorted(after) == sorted(before) and item_id in after, {'before': before, 'after': after})
+    # ---------- 四、属主安排后没有新的过目卡（#1143） ----------
+    release_path = f'/api/work-items/{item_id}/release'
+    denied = api.post(M + release_path, headers=SAME, data={})
+    check('普通员工不能放行这件由团队负责过目的 held 单', denied.status == 403 and denied.json().get('error') == 'work_item_release_not_yours', denied.status)
+    policy = api.put(M + '/api/task-center/policy', headers=ADMIN, data={'agent_dispatch_enabled': True})
+    check('测试开启任务中心总开关', policy.status == 200, policy.status)
+    ctx.add_cookies([{'name': 'session_id', 'value': cfg['owner_session'], 'url': M}])
+    owner_title = '合成：属主整队派发免过目'
+    open_drawer()
+    pick_team('合成甲队')
+    fill(owner_title, '合成：核对直接派发', '合成：一份核对记录')
+    with pg.expect_response(lambda res: res.request.method == 'POST' and res.url.endswith('/api/work-items')) as created_response:
+        pg.locator('[data-testid=arrange-submit]').click()
+    created = created_response.value
+    arranged = created.json()
+    check('真实页面提交后服务端直接派出，事项不是 held', created.status == 201 and arranged.get('state') == 'delivered' and arranged.get('held') is False, arranged)
+    pg.wait_for_url(re.compile(r'/work-items/wi_[^/?#]+$'))
+    check('浏览器跳转到刚建的事项', pg.url.endswith('/' + arranged['item_id']), pg.url)
+    with pg.expect_response(lambda res: res.url.split('?')[0].endswith('/api/attention') and res.ok) as attention_response:
+        pg.goto(M + '/')
+    pending = attention_response.value.json().get('items', [])
+    pg.locator('[data-testid=home-decide-loading]').wait_for(state='hidden')
+    check('属主首页：普通员工建的 held 单仍有过目卡；属主新单没有过目卡',
+          any(x.get('source_id') == item_id and x.get('category') == 'glance' for x in pending)
+          and all(x.get('source_id') != arranged['item_id'] for x in pending)
+          and pg.get_by_text(owner_title, exact=True).count() == 0)
+    released = api.post(M + release_path, headers=SAME, data={})
+    check('属主浏览器会话可放行旧 held 单', released.status == 200 and released.json().get('released') == 1, released.status)
     b.close()
 print(f'arrange-e2e-browser: {ok} 过 / {fail} 失败')
 sys.exit(1 if fail else 0)

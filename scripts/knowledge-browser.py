@@ -5,7 +5,7 @@
   三、读不到：403 管理口令说「经验库是业务内容」；503 暂时读不到、带再试一次；
   四、详情：markdown 正文、依据的原文（出处只认 http/https 链接）；404 一律「没有这一条」；503 不当成空。"""
 import json, os, re, sys
-from urllib.parse import urlparse, unquote
+from urllib.parse import parse_qs, urlparse, unquote
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 cfg = json.load(open(sys.argv[1]))
 M = cfg['base']
@@ -74,6 +74,17 @@ def on_kn(route):
     if u.path == '/api/knowledge':
         m = mode['list']
         if m == 'ok': return fake(route, {'items': ITEMS + ([MGMT_ONLY] if who['role'] == 'management' else []), 'source': 'ok'})
+        if m == 'large':
+            q = parse_qs(u.query)
+            counts = {'all': 665, 'claim': 396, 'kb': 206, 'skill': 0, 'verify': 63}
+            if q.get('cursor') == ['vanished']:
+                return fake(route, {'error': 'cursor_expired'}, 409)
+            if q.get('kind') == ['claim']:
+                return fake(route, {'items': [ITEMS[0]], 'source': 'ok', 'counts': counts, 'offset': 0})
+            end = q.get('cursor') == ['public-page-anchor']
+            return fake(route, {'items': [it('page2' if end else 'page1', 'kb', '后一页的记录' if end else '首页的记录')],
+                                'source': 'ok', 'counts': counts, 'offset': 500 if end else 0,
+                                'next_cursor': None if end else 'public-page-anchor', 'previous_cursor': None})
         if m == 'degraded': return fake(route, {'items': ITEMS[:2], 'source': 'degraded'})
         if m == 'not_ready': return fake(route, {'items': [], 'source': 'not_ready'})
         if m == 'not_connected': return fake(route, {'items': [], 'source': 'not_connected'})
@@ -110,6 +121,7 @@ with sync_playwright() as p:
     if SHOT: pg.wait_for_timeout(500); pg.screenshot(path=SHOT.replace('.png', '-列表.png'))
     pg.locator('[data-testid=kn-tabs]').get_by_text('经验 1').click()
     pg.wait_for_function("() => new URLSearchParams(location.search).get('k') === 'kb'")
+    pg.wait_for_selector('[data-testid=kn-list]')
     check('点「经验」：地址带 ?k=kb，只剩那一条经验', rows.count() == 1 and '经验' in rows.nth(0).locator('[data-testid=kn-item-kind]').inner_text())
     # 换成管理层：应答里多了「只给管理层」的那条，页面照着多画一条
     who['role'] = 'management'; pg.goto(M + '/knowledge'); pg.wait_for_selector('[data-testid=kn-list]')
@@ -142,6 +154,21 @@ with sync_playwright() as p:
     check('详情暂时读不到（503）：说暂时读不到、带再试一次，不当成空', '暂时读不到' in pg.locator('[data-testid=kn-detail-problem]').inner_text() and pg.get_by_role('button', name='再试一次').count() == 1 and '没有这一条' not in pg.locator('main').inner_text())
     mode['detail'] = 'ok'; pg.get_by_role('button', name='再试一次').click(); pg.wait_for_selector('[data-testid=kn-detail]')
     check('「再试一次」之后画出来了', True)
+
+    print('六、超过一页')
+    mode['list'] = 'large'
+    pg.goto(M + '/knowledge'); pg.wait_for_selector('[data-testid=kn-pagination]')
+    labels = pg.locator('[data-testid=kn-tabs] .ant-segmented-item-label').all_inner_texts()
+    check('页签用服务端全量可见计数，分页提示显示总数', labels == ['全部 665', '依据 396', '经验 206', '方法 0', '检查 63'] and '共 665 条' in pg.locator('[data-testid=kn-pagination]').inner_text(), labels)
+    pg.get_by_role('button', name='下一页').click(); pg.get_by_text('后一页的记录').wait_for()
+    check('下一页走接口游标，新记录和范围提示正确', parse_qs(urlparse(pg.url).query).get('cursor') == ['public-page-anchor'] and '第 501' in pg.locator('[data-testid=kn-pagination]').inner_text() and pg.get_by_role('button', name='下一页').is_disabled(), pg.url)
+    pg.get_by_role('button', name='上一页').click(); pg.get_by_text('首页的记录').wait_for()
+    check('上一页返回首页且清掉游标', 'cursor' not in parse_qs(urlparse(pg.url).query))
+    pg.get_by_role('button', name='下一页').click(); pg.get_by_text('后一页的记录').wait_for()
+    pg.locator('[data-testid=kn-tabs]').get_by_text('依据 396').click(); pg.get_by_text(ITEMS[0]['title']).wait_for()
+    check('换类别重置游标，仍显示所有类别总数', parse_qs(urlparse(pg.url).query) == {'k': ['claim']} and pg.locator('[data-testid=kn-tabs]').get_by_text('经验 206').count() == 1)
+    pg.goto(M + '/knowledge?cursor=vanished'); pg.get_by_role('button', name='回到第一页').click(); pg.get_by_text('首页的记录').wait_for()
+    check('失效游标提示能够回到第一页', 'cursor=' not in pg.url)
 
     print('二、来源')
     mode['list'] = 'degraded'; pg.goto(M + '/knowledge'); pg.wait_for_selector('[data-testid=kn-list]')

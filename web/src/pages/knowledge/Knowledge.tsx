@@ -2,7 +2,7 @@
  *  数据来自 GET /api/knowledge（#717，只含这个人看得到的，新的在前）。顶上那一句照原型；下面按四类筛（地址带 ?k=），一条一行，点了看详情。
  *  这个实例没接上经验库的来源：中性地说「经验库未接入」；经验库还没同步成过：整页说「还在准备」；最近一轮没同步上：列表照常，上面轻提示可能不是最新的。读不到按状态码说（knowledge-view.ts 的 problemOf）。
  *  条目的编号只用在地址里，不写在页面的字上。 */
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Alert, Button, Card, Empty, List, Segmented, Skeleton, Space, Tag, theme, Typography } from 'antd';
 import { BookOutlined, BulbOutlined, CheckOutlined, SafetyOutlined } from '@ant-design/icons';
@@ -10,8 +10,8 @@ import WmPage from '../../components/WmPage';
 import RelTime from '../../components/RelTime';
 import { getKnowledge, getProjectDepts } from '../../api';
 import {
-  KNOWLEDGE_EMPTY, KNOWLEDGE_INTRO, KNOWLEDGE_KINDS, SOURCE_DEGRADED, SOURCE_NOT_CONNECTED, SOURCE_NOT_READY, asList, countsOf, emptyKindText, itemsOf, kindLabel, problemOf, statusOf, tabFromQuery,
-  type KnowledgeItem, type KnowledgeKind, type KnowledgeSource, type KnowledgeTab,
+  KNOWLEDGE_EMPTY, KNOWLEDGE_INTRO, KNOWLEDGE_KINDS, SOURCE_DEGRADED, SOURCE_NOT_CONNECTED, SOURCE_NOT_READY, asList, emptyKindText, itemsOf, kindLabel, problemOf, statusOf, tabFromQuery,
+  type KnowledgeKind, type KnowledgeTab,
 } from '../../knowledge-view';
 
 export const KIND_ICON: Record<KnowledgeKind, ReactNode> = { claim: <SafetyOutlined />, kb: <BookOutlined />, skill: <BulbOutlined />, verify: <CheckOutlined /> };
@@ -20,7 +20,7 @@ export const kindTag = (kind: string) => <Tag color={KIND_COLOR[kind] ?? 'defaul
 const TONE_COLOR: Record<string, string | undefined> = { success: 'success', error: 'error', warning: 'warning', default: undefined };
 export const statusTag = (status: string | null) => { const s = statusOf(status); return s ? <Tag color={TONE_COLOR[s.tone]} data-testid="kn-item-status">{s.text}</Tag> : null; };
 
-type State = { phase: 'loading' } | { phase: 'ok'; items: KnowledgeItem[]; source: KnowledgeSource } | { phase: 'error'; status: number };
+type State = { query: string; phase: 'ok'; data: ReturnType<typeof asList> } | { query: string; phase: 'error'; status: number };
 
 export default function Knowledge() {
   const { token } = theme.useToken();
@@ -28,13 +28,21 @@ export default function Knowledge() {
   const tone = { success: ['var(--wm-color-success-bg)', 'var(--wm-color-success)'], info: ['var(--wm-color-info-bg)', 'var(--wm-color-info)'], purple: [token['purple-1'], token['purple-6']] } as const;
   const [q, setQ] = useSearchParams();
   const tab = tabFromQuery(q.get('k'));
-  const [s, setS] = useState<State>({ phase: 'loading' });
-  const load = useCallback(async () => {
-    setS({ phase: 'loading' });
-    const r = await getKnowledge();
-    setS(r.status === 200 ? { phase: 'ok', ...asList(r.body) } : { phase: 'error', status: r.status });
-  }, []);
-  useEffect(() => { void load(); }, [load]);
+  const cursor = q.get('cursor') ?? '';
+  const [retry, setRetry] = useState(0);
+  const query = String(retry) + ':' + tab + ':' + cursor;
+  const [result, setResult] = useState<State | null>(null);
+  const s = result?.query === query ? result : null;
+  const go = (category: KnowledgeTab, key?: string | null) => {
+    setQ({ ...(category === 'all' ? {} : { k: category }), ...(key ? { cursor: key } : {}) });
+  };
+  useEffect(() => {
+    let active = true;
+    void getKnowledge({ kind: tab === 'all' ? undefined : tab, cursor }).then((r) => {
+      if (active) setResult(r.status === 200 ? { query, phase: 'ok', data: asList(r.body) } : { query, phase: 'error', status: r.status });
+    });
+    return () => { active = false; };
+  }, [query, tab, cursor]);
   // 「项目对应的部门」的入口：只给读得了那张表的人（接口回 200 的，管理层和属主），别人连入口都没有
   const [canProjects, setCanProjects] = useState(false);
   useEffect(() => { let live = true; void getProjectDepts().then((r) => { if (live) setCanProjects(r.status === 200); }); return () => { live = false; }; }, []);
@@ -49,26 +57,28 @@ export default function Knowledge() {
   )} />;
 
   let body: ReactNode;
-  if (s.phase === 'loading') body = <Card data-testid="kn-loading"><Skeleton active paragraph={{ rows: 5 }} /></Card>;
+  if (!s) body = <Card data-testid="kn-loading"><Skeleton active paragraph={{ rows: 5 }} /></Card>;
   else if (s.phase === 'error') {
     const p = problemOf(s.status, 'list')!;
-    body = <Alert type={p.retry ? 'warning' : 'info'} showIcon data-testid="kn-problem" message={p.text} action={p.retry ? <Button size="small" onClick={() => void load()}>再试一次</Button> : undefined} />;
-  } else if (s.source === 'not_connected') {
+    const action = cursor && (s.status === 400 || s.status === 409) ? <Button size="small" onClick={() => go(tab)}>回到第一页</Button>
+      : p.retry ? <Button size="small" onClick={() => setRetry((n) => n + 1)}>再试一次</Button> : undefined;
+    body = <Alert type={p.retry ? 'warning' : 'info'} showIcon data-testid="kn-problem" message={p.text} action={action} />;
+  } else if (s.data.source === 'not_connected') {
     // 没接上不是出错：中性的空态，不用警示色、不给「再试一次」
     body = <Card data-testid="kn-not-connected"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={SOURCE_NOT_CONNECTED} />{kinds}</Card>;
-  } else if (s.source === 'not_ready') {
+  } else if (s.data.source === 'not_ready') {
     body = <Card data-testid="kn-not-ready"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={SOURCE_NOT_READY} />{kinds}</Card>;
-  } else if (s.items.length === 0) {
+  } else if (s.data.counts.all === 0) {
     body = <Card data-testid="kn-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={KNOWLEDGE_EMPTY} />{kinds}</Card>;
   } else {
-    const counts = countsOf(s.items);
-    const shown = itemsOf(s.items, tab);
+    const { counts, offset, previousCursor, nextCursor, items, source } = s.data;
+    const shown = itemsOf(items, tab);
     body = <Space direction="vertical" size={16} className="wm-w-full">
-      {s.source === 'degraded' && <Alert type="info" showIcon data-testid="kn-degraded" message={SOURCE_DEGRADED} />}
-      <Segmented<KnowledgeTab> value={tab} data-testid="kn-tabs" onChange={(v) => setQ(v === 'all' ? {} : { k: v })}
+      {source === 'degraded' && <Alert type="info" showIcon data-testid="kn-degraded" message={SOURCE_DEGRADED} />}
+      <Segmented<KnowledgeTab> value={tab} data-testid="kn-tabs" onChange={(v) => go(v)}
         options={[{ label: `全部 ${counts.all}`, value: 'all' }, ...KNOWLEDGE_KINDS.map((k) => ({ label: `${k.label} ${counts[k.key]}`, value: k.key }))]} />
       {shown.length === 0
-        ? <Card data-testid="kn-kind-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyKindText(tab)} /></Card>
+        ? <Card data-testid="kn-kind-empty"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={cursor ? '这页没有更多条目。' : emptyKindText(tab)} /></Card>
         : <Card size="small" data-testid="kn-list"><List dataSource={shown} rowKey="key" renderItem={(x) => (
           <List.Item data-testid="kn-item">
             <List.Item.Meta
@@ -84,6 +94,11 @@ export default function Knowledge() {
               </Space>} />
           </List.Item>
         )} /></Card>}
+      {(cursor || nextCursor) && <Space wrap data-testid="kn-pagination">
+        <Typography.Text type="secondary" aria-live="polite">{shown.length ? '显示第 ' + (offset + 1) + '–' + (offset + shown.length) + ' 条，共 ' + counts[tab] + ' 条' : '共 ' + counts[tab] + ' 条'}</Typography.Text>
+        <Button disabled={!cursor} onClick={() => go(tab, previousCursor)}>上一页</Button>
+        <Button disabled={!nextCursor} onClick={() => go(tab, nextCursor)}>下一页</Button>
+      </Space>}
     </Space>;
   }
 

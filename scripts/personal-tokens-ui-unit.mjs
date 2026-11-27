@@ -11,7 +11,7 @@ const NOW = Date.parse('2026-11-25T12:00:00Z'), DAY = 86400000;
 const TOKEN = 'wmu_' + 'Ab9_-'.repeat(8) + 'xyz';
 const row = (id, more = {}) => ({ id, principal: 'user:owner', name: '令牌' + id, scopes: ['bench:read'], benches: ['ecom'], created_at: NOW - 5 * DAY, expires_at: NOW + 25 * DAY, last_used_at: null, revoked_at: null, ...more });
 
-ok('一行：只挑认得的字段，原文、哈希、principal 不留', J(Object.keys(tokenRowOf(row('a', { token: 'wmu_secret', token_sha256: 'x' })))) === J(['id', 'name', 'scopes', 'benches', 'createdAt', 'expiresAt', 'lastUsedAt', 'revokedAt']) && tokenRowOf({ id: 'a' }) === null && tokenRowOf(null) === null);
+ok('一行：只挑认得的字段，原文、哈希、principal 不留', J(Object.keys(tokenRowOf(row('a', { token: 'wmu_secret', token_sha256: 'x' })))) === J(['id', 'name', 'scopes', 'benches', 'assistant', 'createdAt', 'expiresAt', 'lastUsedAt', 'revokedAt']) && tokenRowOf({ id: 'a' }) === null && tokenRowOf(null) === null);
 ok('一行：台必须是数组（后端没有「全部台」）', tokenRowOf(row('a', { benches: 'all' })) === null && tokenRowOf(row('a', { benches: [] })).benches.length === 0);
 const list = tokensOf({ personal_tokens: [row('old', { created_at: NOW - 9 * DAY }), row('rev', { revoked_at: NOW - DAY }), row('exp', { expires_at: NOW - 1 }), row('new'), { bad: 1 }] }, NOW);
 ok('清单读 personal_tokens：可用在前（新签在上）、过期次之、撤销最后；坏行跳过；旧键 tokens 不认', J(list.map((t) => t.id)) === '["new","old","exp","rev"]' && tokensOf({ tokens: [row('x')] }, NOW).length === 0 && tokensOf(null, NOW).length === 0);
@@ -22,16 +22,23 @@ ok('作用域：正好是契约五项，只有报告维度不按台', J(SCOPES.m
 ok('作用域说法：认得的写中文，认不得的只说有几项、不露代号', scopesLabel(tokenRowOf(row('s', { scopes: ['bench:read', 'secret:x'] }))) === '读台数据、另有 1 项');
 ok('台说法：标题、没标题用标识、空的说只有报告维度', benchesLabel(tokenRowOf(row('b', { benches: ['a', 'z'] })), new Map([['a', '甲台']])) === '甲台、z' && benchesLabel(tokenRowOf(row('b', { benches: [] })), new Map()).includes('报告维度'));
 const d = (more) => ({ ...newDraft(), name: 'laptop wm', scopes: ['bench:read'], benches: ['ecom'], ...more });
-ok('新表单：缺省 30 天，名字作用域台都空；上限 90 天', J(newDraft()) === J({ name: '', scopes: [], benches: [], days: 30 }) && MAX_DAYS === 90);
+ok('新表单：缺省 30 天，名字作用域台都空；上限 90 天', J(newDraft()) === J({ name: '', scopes: [], benches: [], days: 30, assistant: false }) && MAX_DAYS === 90);
 ok('名字和服务端同一条：1～48、字母数字开头、前后无空格、只收空格点短横下划线', draftProblem(d({ name: '' })).includes('名字') && draftProblem(d({ name: ' a' })).includes('名字') && draftProblem(d({ name: 'a ' })).includes('名字') && draftProblem(d({ name: '_a' })).includes('名字')
   && draftProblem(d({ name: 'a'.repeat(49) })).includes('名字') && draftProblem(d({ name: 'a/b' })).includes('名字') && draftProblem(d({ name: '笔记本 wm_1.x-2' })) === null && draftProblem(d({ name: 'a'.repeat(48) })) === null);
 ok('作用域与台：至少一项；按台的必须选台，只有报告维度可以不选', draftProblem(d({ scopes: [] })).includes('能做的事') && draftProblem(d({ benches: [] })).includes('台') && draftProblem(d({ scopes: ['report-dimensions'], benches: [] })) === null && needsBench(['report-dimensions', 'view']) && !needsBench(['report-dimensions']));
 ok('有效期：1～90 整数', draftProblem(d({ days: 91 })).includes('90') && draftProblem(d({ days: 0 })) !== null && draftProblem(d({ days: 1.5 })) !== null && draftProblem(d({ days: 90 })) === null);
 ok('签发请求体：作用域去重按契约次序、台去重排序、天数原样、名字不改', J(issueBody(d({ name: '甲', scopes: ['view', 'bench:read', 'view'], benches: ['z', 'a', 'z'], days: 7 }))) === J({ name: '甲', scopes: ['bench:read', 'view'], benches: ['a', 'z'], expires_in_days: 7 }));
+ok('#1064 交给助理代办：勾上才带 delegate=assistant；清单行认 delegate，别的值不算', J(issueBody(d({ assistant: true }))).includes('"delegate":"assistant"') && !('delegate' in issueBody(d({})))
+  && tokenRowOf(row('h', { delegate: 'assistant' })).assistant === true && tokenRowOf(row('h', { delegate: 'other' })).assistant === false && tokenRowOf(row('h', {})).assistant === false);
 ok('签发应答：只认 wmu_ 加 43 位的原文，读 personal_token；没有原文当没签成', issuedOf({ token: TOKEN, personal_token: row('n') }).row.id === 'n' && issuedOf({ token: TOKEN + 'x', personal_token: row('n') }) === null && issuedOf({ token: 'wmu_short' }) === null && issuedOf({ personal_token: row('n') }) === null);
 ok('清单读不到：401 请先登录、403 分清非属主/非 HTTPS/非同源会话、404 还没上线、别的稍后再试', listProblem({ status: 401 }).text.includes('请先登录') && listProblem({ status: 403, body: { error: 'personal_token_owner_required' } }).text.includes('属主') && listProblem({ status: 403, body: { error: 'personal_token_surface_denied' } }).text.includes('HTTPS')
   && listProblem({ status: 403, body: { error: 'personal_token_owner_session_required' } }).text.includes('本人的登录') && listProblem({ status: 404 }).type === 'info' && listProblem({ status: 500 }).text.includes('稍后') && listProblem({ status: 200 }) === null && listProblem(null) === null);
 ok('清单 403 带中文句子时照说（如拿令牌访问：这个接口不接受个人令牌），已知代号的说法优先', listProblem({ status: 403, body: { error: 'personal_token_route_denied', message: '这个接口不接受个人令牌' } }).text === '这个接口不接受个人令牌' && listProblem({ status: 403, body: { error: 'personal_token_surface_denied', message: 'x 中' } }).text.includes('HTTPS'));
+ok('正式地址 403：清单和签发失败都说要用 HTTPS 及向谁确认地址', ['list', 'action'].every((where) => {
+  const refusal = { status: 403, body: { error: 'personal_token_surface_denied', message: '请从市场的正式地址打开个人令牌设置。' } };
+  const text = where === 'list' ? listProblem(refusal).text : actionProblem(refusal);
+  return text.includes('HTTPS') && text.includes('部署维护方');
+}));
 ok('操作没办成：服务端中文句子照说（名字重了），代号不露；撤销 404、断网各有说法；204 算办成', actionProblem({ status: 409, body: { error: 'personal_token_name_taken', message: '此令牌名称已使用，请换一个名字' } }) === '此令牌名称已使用，请换一个名字'
   && actionProblem({ status: 404, body: { error: 'personal_token_missing' } }).includes('找不到') && actionProblem({ status: 403, body: { error: 'forbidden' } }) === '你的账号现在不能做这一步。' && actionProblem({ status: 0, body: null }).includes('连不上') && actionProblem({ status: 204, body: null }) === null);
 const CAT = { available_scopes: [{ id: 'bench:read', label: '读取台数据', description: '查询数据' }, { id: 'report-dimensions', label: '管理报告维度', description: '维度模板' }], limits: { default_expires_in_days: 14, min_expires_in_days: 2, max_expires_in_days: 60 } };

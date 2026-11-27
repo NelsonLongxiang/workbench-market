@@ -6,6 +6,8 @@ import { BlockFrame } from '../Frame';
 import { snapSpan } from '../blocks-view';
 import { BLOCK_TYPE_LIST } from './block-types.ts';
 import { renderBenchBlock, type BlockCtx } from './render-block';
+import { BlockAnchorContext } from '../../components/PageToc';
+import { blockAnchor } from '../../page-toc-view';
 
 export const BenchBlockContext = createContext<BlockCtx | null>(null);
 function BenchGrid({ children }: { children?: ReactNode }) { return <DashGrid top>{children}</DashGrid>; }
@@ -48,7 +50,10 @@ function BenchBlockElement({ element }: ComponentRenderProps<{ index?: number }>
   const { index } = element.props;
   if (!context || typeof index !== 'number') return null;
   const block = context.result?.blocks[index];
-  return block ? <BlockBoundary block={block} index={index} context={context} /> : null;
+  if (!block) return null;
+  // #1099 块锚点：单独成页（带外框）时每块有 b<序号> 锚点；拼进驾驶舱面板的不给（一页里会有好几份同样的序号）
+  const anchor = context.props.frame === 'none' ? null : blockAnchor(index);
+  return <BlockAnchorContext.Provider value={anchor}><BlockBoundary block={block} index={index} context={context} /></BlockAnchorContext.Provider>;
 }
 export const benchRegistry: ComponentRegistry = {
   BenchGrid: BenchGrid as ComponentRegistry[string],

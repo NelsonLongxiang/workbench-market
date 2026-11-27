@@ -267,6 +267,15 @@ body {
   color: var(--wm-color-nav-text) !important;
 }
 
+/* #1098 顶栏：「上一页」、市场标识、面包屑（深底上用导航的浅色字，当前一级用高亮色） */
+.wm-use-brand { display: flex; align-items: center; }
+.wm-use-crumbs { min-width: 0; }
+.wm-use-crumbs ol { flex-wrap: nowrap; align-items: center; }
+.wm-use-crumbs a, .wm-use-crumbs .ant-breadcrumb-separator { color: var(--wm-color-nav-text) !important; }
+.wm-use-crumbs a:hover { color: var(--wm-color-nav-text-active) !important; background: transparent !important; }
+.wm-use-crumbs [aria-current=page] { color: var(--wm-color-nav-text-active); }
+.wm-use-crumbs .wm-use-title { white-space: nowrap; }
+
 .wm-use-bar .wm-mono {
   color: var(--wm-color-nav-text);
 }
@@ -285,12 +294,34 @@ body {
 .wm-bp-bar-extra { margin-left: auto; display: flex; align-items: center; gap: var(--wm-space-2); }
 .wm-bp-head { display: flex; align-items: center; gap: var(--wm-space-4); padding: var(--wm-space-3) var(--wm-space-6); background: var(--wm-color-surface); border-bottom: 1px solid var(--wm-color-border); flex: none; flex-wrap: wrap; }
 .wm-bp-title { margin: 0; font-size: var(--wm-font-size-title); font-weight: var(--wm-font-weight-subtitle); color: var(--wm-color-text); }
-.wm-bp-tabs { display: flex; align-items: center; gap: var(--wm-space-1); flex-wrap: wrap; }
+.wm-bp-tabbar { display: flex; align-items: center; gap: var(--wm-space-1); flex: 1 1 0; min-width: 0; }
+/* #1099 页签条只占一行：放不下横向滚动（不显示滚动条），最右「更多」 */
+.wm-bp-tabs { display: flex; align-items: center; gap: var(--wm-space-1); flex-wrap: nowrap; overflow-x: auto; min-width: 0; scrollbar-width: none; }
+.wm-bp-tabs::-webkit-scrollbar { display: none; }
+.wm-bp-tabs .wm-ck-tab { flex: none; white-space: nowrap; }
+/* #1099 块锚点、本页目录、回到顶部 */
+.wm-toc-layout { display: grid; grid-template-columns: minmax(0, 1fr) 200px; gap: var(--wm-space-4); align-items: start; }
+.wm-toc-main { min-width: 0; }
+.wm-toc-narrow { grid-template-columns: minmax(0, 880px) 200px; }
+.wm-toc { position: sticky; top: 0; max-height: calc(100vh - 160px); overflow-y: auto; padding: var(--wm-space-2) 0; font-size: var(--wm-font-size-caption); }
+.wm-toc-title { color: var(--wm-color-text-secondary); padding: 0 var(--wm-space-2) var(--wm-space-1); }
+.wm-toc ul { list-style: none; margin: 0; padding: 0; border-left: 1px solid var(--wm-color-border); }
+.wm-toc li a { display: block; padding: 2px var(--wm-space-2); margin-left: -1px; border-left: 2px solid transparent; color: var(--wm-color-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wm-toc li.wm-toc-l2 a { padding-left: var(--wm-space-4); }
+.wm-toc li.wm-toc-l3 a { padding-left: var(--wm-space-6); }
+.wm-toc li a:hover { color: var(--wm-color-text); }
+.wm-toc li a.on { color: var(--wm-color-primary); border-left-color: var(--wm-color-primary); }
+[data-anchor], .wm-rp-body section[id] { scroll-margin-top: var(--wm-space-4); }
+.wm-anchor-flash { animation: wm-anchor-flash 1.8s ease-out; }
+@keyframes wm-anchor-flash { 0%, 35% { box-shadow: 0 0 0 3px var(--wm-color-primary-subtle); background-color: var(--wm-color-primary-subtle); } 100% { box-shadow: 0 0 0 3px transparent; } }
+.wm-anchor-copy { margin-left: var(--wm-space-1); opacity: 0.55; vertical-align: middle; }
+.wm-anchor-copy:hover, .wm-anchor-copy:focus-visible { opacity: 1; }
+.wm-back-top { position: fixed; right: var(--wm-space-6); bottom: var(--wm-space-6); z-index: 10; }
 .wm-bp-refresh { margin-left: auto; }
 .wm-bp-body { flex: 1; min-height: 0; overflow: auto; padding: var(--wm-space-4) var(--wm-space-6) var(--wm-space-6); }
 .wm-bp-state { margin-top: var(--wm-space-6); }
 /* 报告页（/use/<卡片 id>/reports，报告第 1 步 PR D） */
-.wm-rp-groups { display: flex; flex-direction: column; gap: var(--wm-space-4); max-width: 960px; }
+.wm-rp-groups { display: flex; flex-direction: column; gap: var(--wm-space-4); }
 .wm-rp-group { background: var(--wm-color-surface); border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-md); padding: var(--wm-space-4); }
 .wm-rp-group-head { display: flex; align-items: baseline; gap: var(--wm-space-3); flex-wrap: wrap; }
 .wm-rp-group-title { margin: 0; font-size: var(--wm-font-size-subtitle); overflow-wrap: anywhere; }

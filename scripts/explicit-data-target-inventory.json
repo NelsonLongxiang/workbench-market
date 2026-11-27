@@ -27,7 +27,6 @@
     "scripts/skill-snap-183-smoke.mjs",
     "scripts/skills-s0-smoke.mjs",
     "scripts/skills-s0b-smoke.mjs",
-    "scripts/sop-remote-write-smoke.mjs",
     "scripts/unified-bindings-smoke.mjs"
   ],
   "directScripts": [

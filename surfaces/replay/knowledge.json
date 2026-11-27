@@ -134,7 +134,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "773", "etag": "W/\"305-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "883", "etag": "W/\"373-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -174,7 +174,11 @@
                   "decided_by_name": null
                 }
               ],
-              "source": "not_ready"
+              "source": "not_ready",
+              "counts": { "all": 3, "claim": 0, "kb": 3, "skill": 0, "verify": 0 },
+              "offset": 0,
+              "previous_cursor": null,
+              "next_cursor": null
             }
           }
         },
@@ -187,7 +191,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "private, no-store", "content-length": "276", "etag": "W/\"114-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "headers": { "cache-control": "private, no-store", "content-length": "386", "etag": "W/\"182-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
             "body": {
               "items": [
                 {
@@ -203,7 +207,11 @@
                   "decided_by_name": null
                 }
               ],
-              "source": "not_ready"
+              "source": "not_ready",
+              "counts": { "all": 1, "claim": 0, "kb": 1, "skill": 0, "verify": 0 },
+              "offset": 0,
+              "previous_cursor": null,
+              "next_cursor": null
             }
           }
         },
