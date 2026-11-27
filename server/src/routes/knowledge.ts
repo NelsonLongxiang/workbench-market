@@ -1,6 +1,6 @@
 /**
  * 经验库（/knowledge 页面的接口）：
- *   GET /api/knowledge?kind=claim|kb|skill|verify  这个人看得到的条目（新的在前）。
+ *   GET /api/knowledge?kind=claim|kb|skill|verify&cursor=<键>  可见条目（新的在前）和这个人的各类总数。
  *   GET /api/knowledge/status                      同步状态（管理员看：上次成功、上次失败的原因、条数；不带条目内容）。
  *   GET/PUT /api/knowledge/project-depts           「项目 → 部门」对照（管理层、属主看和改；改了记一行）。
  *   GET /api/knowledge/:key                        一条的详情（正文现取）。看不到的和不存在的回同一个 404。
@@ -53,10 +53,16 @@ export function registerKnowledgeRoutes(app: HttpService, deps: KnowledgeRouteDe
       kind = KINDS.find((k) => PAGE_KIND[k] === raw);
       if (!kind) return void res.status(400).json({ error: 'kind_invalid', message: 'kind 只能是 claim、kb、skill、verify' });
     }
-    let items;
-    try { items = knowledge().list(actor, { kind }); } catch { return void res.status(503).json(JUDGMENT_DOWN); }
-    // 来源的大致状态（不带原因、不带条数）：not_connected「未接入」、not_ready「还在准备」、degraded「可能不是最新的」、ok
-    res.json({ items, source: knowledge().sourceState() });
+    const cursor = req.query.cursor;
+    if (cursor !== undefined && (typeof cursor !== 'string' || !KEY_RE.test(cursor))) {
+      return void res.status(400).json({ error: 'cursor_invalid', message: '分页地址不正确' });
+    }
+    let page;
+    try { page = knowledge().list(actor, { kind, cursor }); } catch { return void res.status(503).json(JUDGMENT_DOWN); }
+    // 已删、看不到或不属本类别的游标用相同应答。
+    if (!page) return void res.status(409).json({ error: 'cursor_expired', message: '分页已更新，请回到第一页' });
+    const { items, ...pagination } = page;
+    res.json({ items, source: knowledge().sourceState(), ...pagination });
   }));
 
   // 同步状态：运维信息（不带条目内容）。直接按统一判定判，和判定比对零差异：认管理类（knowledge.sync-status）的授予——
