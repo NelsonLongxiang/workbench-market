@@ -41,6 +41,8 @@ export type SeatKey = { host: string; team: string; seat: string; seat_id: strin
 export type TeamStatus = 'unclaimed' | 'off-roster' | 'node-changed' | 'lead-vacant' | 'active';
 export type Actor = { by: string; principal: string | null };
 export type TeamRefusal = { ok: false; http: 400 | 403 | 404 | 409 | 422; code: string; message: string };
+type SeatSessionTarget = { ok: true; node: NodeBinding; seat: SeatKey; actor: { principal: string; display_name: string } };
+type SeatSessionRefusal = TeamRefusal | { ok: false; http: 401; code: string; message: string };
 export type Lead = { principal: string; display_name: string; source: 'explicit' | 'department' };
 export type Member = {
   seat: string; seat_id: string; name: string; role: string; online: boolean; router: boolean;
@@ -127,6 +129,23 @@ export class TeamService extends Service {
     const t = this.rosterTeams().get(tkey(k.host, k.team));
     if (!t) return null;
     return t.seats.find((s) => sameSeat({ host: k.host, team: k.team, seat: s.seat, seat_id: s.seat_id }, k)) ?? null;
+  }
+
+  /** 转发会话前解析可信节点和当前席位，只认启用的登录人及其已确认关系。 */
+  resolveSeatSessionTarget(principal: string | null, key: SeatKey): SeatSessionTarget | SeatSessionRefusal {
+    const person = principal ? this.personActive(principal) : null;
+    if (!principal || !person) return { ok: false, http: 401, code: 'seat_session_login_required', message: '请用启用的个人账号登录后查看席位会话' };
+
+    const node = currentNode(key.host);
+    const listed = node ? this.rosterSeat(key) : null;
+    const hidden = () => refuse(404, 'seat_session_not_found', '当前看不到这个席位的会话');
+    if (!node || !listed || (key.seat_id && key.seat_id !== listed.seat_id)) return hidden();
+
+    const seat = { host: key.host, team: key.team, seat: listed.seat, seat_id: listed.seat_id };
+    const assignment = this.activeAssignment(seat);
+    const ownsSeat = assignment?.team === seat.team && assignment.principal_id === principal;
+    if (!ownsSeat && !this.leads(seat).some((lead) => lead.principal === principal)) return hidden();
+    return { ok: true, node, seat, actor: { principal, display_name: person.display_name } };
   }
 
   // ---------- 登记 ----------
