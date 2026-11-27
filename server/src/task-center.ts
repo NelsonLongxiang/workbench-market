@@ -13,6 +13,7 @@ import { directedSeatsDeclared } from './a2a.ts';
 import { peerRootOf, type A2aPeerService } from './services/a2a-peers.ts';
 import { rosterHostOfRoot, rosterSeatById } from './services/a2a-roster.ts';
 import { relationOf } from './team-relation.ts';
+import { canDispatchWithoutReview } from './work-item-access.ts';
 import { ATTACHMENTS_PER_ITEM, bindAttachments, ownUnbound } from './services/work-item-attachments.ts';
 
 export const taskCenterSteps = [
@@ -56,8 +57,7 @@ export function taskView(row: any) {
  * 建 tasks 行，同一事务里 recordTaskCenterEvent 记事件和投递；事项、held → 放行 → 派出、撤回全是现成的。
  * 建立人是本人（requester 记进 recorded，事项服务照 8f 的规则认）。
  *   · 派给：只能是 assignableTeams()（绑在任务中心上的通知绑定），投递只发给这一个团队
- *   · 先过目：review 缺省 true，一律 held 等负责人放行（团队没有负责人时管理层代办，POST /api/work-items/:id/release）；review:false 只在中心总开关开、并且设置 staff_direct_dispatch 是 on 时直接派出，
- *     否则照样 held，应答带原因 review_required_by_policy
+ *   · 先过目：中心总开关开启时，整队派发的派单人有放行权则直接派出。其他人缺省 held，只有 review:false 且员工直派开启才直接派出。
  *   · 幂等：同一个人同一个 idempotency_key 再发回第一次的结果；键相同、请求体不同 409
  *   · 限流：每人每分钟 arrange_rate_per_minute（缺省 5）件、每天 arrange_rate_per_day（缺省 50）件，管理员在设置里调
  *   · 指名（规范 14 第 3 步，可选 seat_id = 名册里的 seatId）：带了才是指名，不带就是交给团队（总工分派），服务端不默认指名。
@@ -195,7 +195,8 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
     const pinned = directed && !directed.fallback ? directed : null;
     const reviewNow = pinned ? (pinned.handoff === 'own-seat' ? b.review === true : false) : review;
     const centerOn = taskCenterPolicy().agent_dispatch_enabled;
-    const direct = !reviewNow && centerOn && limits.staffDirect;
+    const releaseWithoutReview = centerOn && !pinned && canDispatchWithoutReview(requester, team, target.notify_url);
+    const direct = releaseWithoutReview || (!reviewNow && centerOn && limits.staffDirect);
     const at = sqlTime(now);
     const taskId = tasks.insertArranged({ title: v.title, payload, sha256: sha, requester, dispatch: direct, at });
     const fields: Record<string, unknown> = { title: v.title, intent: v.intent, references: '', deliverable: v.deliverable, target: team, due };
@@ -205,7 +206,8 @@ export function arrangeTask(raw: unknown, requester: string, now: Date = new Dat
       arranged: { team, submitter: requester, ...(v.object ? { object: v.object } : {}), ...(v.phase ? { phase: v.phase } : {}), ...(cockpitId ? { cockpitId } : {}), ...(priority ? { priority } : {}),
         ...(attRows.length ? { attachments: attRows.map((a) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, sha256: a.sha256 })) } : {}),
         ...(pinned ? { handoff: pinned.handoff, reviewBy: pinned.handoff === 'own-seat' && reviewNow ? 'requester' as const : '' as const, directedSeatId: seatId } : {}),
-        ...(directed?.fallback ? { directedFallback: { seat_id: seatId, reason: 'peer_not_declared' } } : {}) },
+        ...(directed?.fallback ? { directedFallback: { seat_id: seatId, reason: 'peer_not_declared' } } : {}),
+        ...(releaseWithoutReview ? { submitReason: '派单人有放行权，免过目' } : {}) },
     });
     if (attIds.length && bindAttachments(attIds, requester, eventId, now.toISOString()) !== attIds.length) throw new Error('附件挂到事件上没有全部成功');
     if (area && !items.setArea(itemIdForEvent(eventId), area.area, 'chosen', '')) throw new Error('事项没有落到领域上');

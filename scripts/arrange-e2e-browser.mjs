@@ -18,7 +18,7 @@ const PORT = 20000 + Math.floor(Math.random() * 12000);
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN_TOKEN = 'synthetic-arrange-e2e-admin';
 const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'off', WM_CONTROL_PORT: '0',
-  IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: join(TMP, 'ext') };
+  IDENTITY_SEAM_ROOT: ROOT, IDENTITY_FAKE_ADMIN_GRANT: 'owner', WM_OUTBOUND: 'off', WM_EXTENSIONS_DIR: join(TMP, 'ext') };
 for (const k of ['WM_ODOO_URL', 'WM_ODOO_ORIGINS']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', '--import', pathToFileURL(join(ROOT, 'scripts/identity-fake-preload.mjs')).href, 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });
 let serverErr = ''; server.stderr.on('data', (c) => (serverErr += c));
@@ -35,7 +35,7 @@ try {
     teams[name] = (await r.json()).id;
   }
   const cfg = join(TMP, 'browser.json');
-  writeFileSync(cfg, JSON.stringify({ base, admin_token: ADMIN_TOKEN, alpha_session: SESSIONS.alpha, bindings: teams }));
+  writeFileSync(cfg, JSON.stringify({ base, admin_token: ADMIN_TOKEN, alpha_session: SESSIONS.alpha, owner_session: SESSIONS.admin, bindings: teams }));
   const py = spawn(pythonBin(), ['scripts/arrange-e2e-browser.py', cfg], { stdio: 'inherit' });
   code = await new Promise((x, j) => { py.on('error', j); py.on('exit', x); });
 } catch (e) {
