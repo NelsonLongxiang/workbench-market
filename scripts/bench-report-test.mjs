@@ -401,6 +401,86 @@ try {
       'R4 人的反驳算未处理；这份报告被更正之后，旧报告上的反驳不再算（看新报告）', { human: human.status, before: before?.claims?.[0]?.open_dispute, after: after?.claims?.[0]?.open_dispute, sb: after?.report?.superseded_by });
   }
 
+  console.log('R5 MCP 生成前读回维度、模板和绑定');
+  {
+    const admin = { headers: { ...REMOTE, 'x-admin-token': ADMIN_TOKEN } };
+    const newSession = async name => (await srv.call('POST', '/api/mcp/sessions', { ...admin, body: { name } })).json;
+    const genSeat = await newSession('synth-report-preflight');
+    const readSeat = await newSession('synth-report-template-reader');
+    const noGrant = await newSession('synth-report-no-grant');
+    const setGrant = (session, tools) => bv(boss, 'PUT', '/synth-orders/mcp-grants', { session, tools });
+    const granted = await setGrant('synth-report-preflight', ['report_generate']);
+    const onlyRead = await setGrant('synth-report-template-reader', ['report_template_get']);
+    const call = async (seat, name, args, method = 'tools/call') => {
+      const r = await srv.call('POST', '/mcp', { headers: { authorization: 'Bearer ' + seat.token }, body: { jsonrpc: '2.0', id: 1, method, params: { name, arguments: args } } });
+      const text = r.json?.result?.content?.[0]?.text;
+      let data; try { data = text ? JSON.parse(text) : r.json?.result; } catch { /* 工具错误为文本 */ }
+      return { data, rpcCode: r.json?.error?.code, isError: r.json?.result?.isError, text };
+    };
+    const tools = ['report_dimension_get', 'report_template_get', 'report_binding_get'];
+    const args = { bench: 'synth-orders', dimension: 'monthly' };
+    const dim = await cli('GET', '/api/report-dimensions/monthly');
+    const version = dim.json?.dimension?.active_version;
+    const template = await cli('GET', '/api/report-dimensions/monthly/templates/' + version);
+    const binding = await bv(boss, 'GET', '/synth-orders/reports/monthly/binding');
+    const expected = [dim.json, template.json, binding.json];
+    const values = await Promise.all(tools.map(name => call(genSeat, name, args)));
+    const listed = await call(genSeat, '', {}, 'tools/list');
+    const info = await call(genSeat, 'access_info', { tool: 'report_binding_get' });
+    check(granted.status === 200 && values.every((r, i) => JSON.stringify(r.data) === JSON.stringify(expected[i]))
+      && tools.every(name => listed.data?.tools?.some(tool => tool.name === name))
+      && info.data?.tool?.granted_benches?.join() === 'synth-orders',
+      'R5a 仅授 report_generate 即可发现并调用三个工具，返回与 HTTP 读面一致');
+    const expectedOld = await cli('GET', '/api/report-dimensions/monthly/templates/1');
+    const own = await call(readSeat, 'report_template_get', { ...args, version: 1 });
+    const wrongTool = await call(readSeat, 'report_dimension_get', args);
+    const badVersion = await call(genSeat, 'report_template_get', { ...args, version: 0 });
+    check(onlyRead.status === 200 && JSON.stringify(own.data) === JSON.stringify(expectedOld.json)
+      && wrongTool.rpcCode === -32601 && badVersion.isError === true,
+      'R5b 显式只读授予可取指定模板版，无其他工具权，非法版本拒绝');
+    const denied = await Promise.all(tools.flatMap(name => [
+      call(noGrant, name, args), call(genSeat, name, { ...args, bench: 'synth-orders-other' }),
+      call(genSeat, name, { ...args, dimension: 'zdim' }), call(genSeat, name, { ...args, dimension: 'pending' }),
+      call(genSeat, name, { ...args, dimension: 'missing' }),
+    ]));
+    check(denied.every(r => r.rpcCode === -32601 && r.data === undefined),
+      'R5c 无授予、越台、未绑定维度与未知维度均按 not_granted 返回，不暴露对象');
+    // 模拟台迁离领域后保留的历史绑定。服务端仍须按当前领域收窄读取。
+    const db = new DatabaseSync(join(srv.data, 'bench-stores', 'synth-orders.sqlite'));
+    try {
+      // 仅在隔离测试库造停留在旧领域的绑定，使用与新版台库相同的协议标识。
+      db.function('bench_protocol_v2', () => 1);
+      db.prepare('INSERT INTO bs_report_bindings (dimension_id, version, template_version, slots, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run('zdim', 1, 1, JSON.stringify(BINDING), 'synthetic-fixture', Date.now());
+    } finally { db.close(); }
+    const foreign = await Promise.all(tools.map(name => call(genSeat, name, { ...args, dimension: 'zdim' })));
+    const rest = await srv.call('POST', '/api/mcp-rest/tools/report_template_get', { headers: { authorization: 'Bearer ' + genSeat.token }, body: { ...args, dimension: 'zdim' } });
+    check(foreign.every(r => r.rpcCode === -32601 && r.data === undefined) && rest.status === 403 && !rest.json?.template,
+      'R5f 有历史绑定也不得读取当前台范围之外的领域，REST 同样拒绝');
+    const dimId = 'mcp-read-lifecycle';
+    await cli('POST', '/api/report-dimensions', { id: dimId, title: '合成预检绑定' });
+    await pub(dimId, { body: tpl() });
+    await srv.call('POST', '/api/report-dimensions/' + dimId + '/templates/1/review', { ...sys, body: {} });
+    await cli('POST', '/api/report-dimensions/' + dimId + '/activate', { version: 1 });
+    const initial = await bind(boss, BINDING, 0, dimId);
+    const path = '/synth-orders/reports/' + dimId + '/binding';
+    const stopped = await bv(boss, 'POST', path + '/stop', { base: 1, reason: '合成停用后重绑' });
+    const stoppedHttp = await bv(boss, 'GET', path);
+    const stoppedMcp = await call(genSeat, 'report_binding_get', { ...args, dimension: dimId });
+    const rebound = await bind(boss, BINDING, 2, dimId);
+    const reboundHttp = await bv(boss, 'GET', path);
+    const reboundMcp = await call(genSeat, 'report_binding_get', { ...args, dimension: dimId });
+    check(initial.status === 200 && stopped.status === 200 && stoppedMcp.data?.binding?.version === 2
+      && stoppedMcp.data.binding.disabled === true && stoppedMcp.data.binding.disabled_reason === '合成停用后重绑'
+      && JSON.stringify(stoppedMcp.data) === JSON.stringify(stoppedHttp.json)
+      && rebound.status === 200 && reboundMcp.data?.binding?.version === 3 && reboundMcp.data.binding.disabled === undefined
+      && reboundMcp.data.binding.disabled_reason === undefined && JSON.stringify(reboundMcp.data) === JSON.stringify(reboundHttp.json),
+      'R5d 停用后立即读到版本、停用理由；重绑返回新版本与现行槽，和 HTTP 一致');
+    const revoked = await setGrant('synth-report-preflight', []);
+    const nextReads = await Promise.all(tools.map(name => call(genSeat, name, args)));
+    check(revoked.status === 200 && nextReads.every(r => r.rpcCode === -32601), 'R5e 撤掉生成授予，派生读权限立即失效');
+  }
+
   console.log('R6 回应要读得了（第 14 条）；一个人一条链（第 15 条）；接别人的链头、对整份报告的反驳（#932 独立验收）');
   {
     // 只能回应、读不了报告的人（自定义角色只列 report-respond，范围 *）：和报告不存在一样 404，应答一字不差，库里没多一行

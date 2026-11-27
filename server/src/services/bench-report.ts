@@ -18,8 +18,7 @@ import type { McpService } from './mcp.ts';
 import { SEAT_SUBJECT_PREFIX } from './seat-tokens.ts';
 import type { ReportDimensionService } from './report-dimension.ts';
 import type { GrantService } from './grant.ts';
-import { createHash } from 'node:crypto';
-import { ReportError, actorKindOf, checkBinding, imageNodesOf, materialize, prepareInputs, sha256, slotSpecs, type FrozenBody, type ReportTemplate } from './report-compile.ts';
+import { IMAGE_BYTES_MAX, IMAGE_NODES_MAX, ReportError, actorKindOf, checkBinding, hashImages, materialize, prepareInputs, sha256, slotSpecs, type FrozenBody, type ReportTemplate } from './report-compile.ts';
 import { fetchImage, ImageError } from '../bench-image.ts';
 import type { PrincipalService } from './principal.ts';
 import { scopeView } from '../grant-scope-view.ts';
@@ -89,8 +88,13 @@ export function usableDimension(bench: BenchEntry, dimension: unknown): { id: st
   return { id: dimension, version: d.active_version, sha256: t.sha256, template: t.body as ReportTemplate };
 }
 /** 编排的拒收转成 400（details 里是 report_<代号>，说是哪一处），别的照原样抛 */
+const LIMIT_WORD: Record<string, string> = { count: `图片张数超过 ${IMAGE_NODES_MAX} 张`, bytes: `图片总字节超过 ${IMAGE_BYTES_MAX / 1024 / 1024}MB` };
+const asBench = (e: ReportError) => new BenchError('invalid', `报告没过校验：${e.code}（${e.path}${e.detail ? '，' + (LIMIT_WORD[e.detail] ?? e.detail) : ''}）`, [`report_${e.code}`, ...(e.detail ? [e.detail] : [])]);
 export function compiled<T>(fn: () => T): T {
-  try { return fn(); } catch (e) { if (e instanceof ReportError) throw new BenchError('invalid', `报告没过校验：${e.code}（${e.path}）`, [`report_${e.code}`]); throw e; }
+  try { return fn(); } catch (e) { if (e instanceof ReportError) throw asBench(e); throw e; }
+}
+async function compiledAsync<T>(fn: () => Promise<T>): Promise<T> {
+  try { return await fn(); } catch (e) { if (e instanceof ReportError) throw asBench(e); throw e; }
 }
 const onlyKeys = (body: unknown, allowed: string[], what: string): Row => {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new BenchError('invalid', `要给一个对象：${what}`);
@@ -128,20 +132,15 @@ export type ReportImageConfig = { galleryBase: string | null };
  * 取不到就不出报告（没有哈希可冻）：对外断开、忙 503，超时 504，其余 400；details 里是 report_image_unavailable 和代取的错误代号
  */
 export async function freezeImages(body: FrozenBody, images: ReportImageConfig): Promise<void> {
-  const hashes = new Map<string, string>();
-  for (const n of imageNodesOf(body.body)) {
-    let h = hashes.get(n.src);
-    if (h === undefined) {
-      try {
-        h = createHash('sha256').update((await fetchImage(n.src, images.galleryBase)).body).digest('hex');
-      } catch (e) {
-        if (!(e instanceof ImageError)) throw e;
-        throw new BenchError(e.http === 503 ? 'busy' : e.http === 504 ? 'timeout' : 'invalid', `报告里的图片取不到，冻结不了：${e.message}`, ['report_image_unavailable', e.code]);
-      }
-      hashes.set(n.src, h);
+  // 总字节超了（#1081）照编排校验的口径报：report_image_limit，第二项写明是 bytes
+  await compiledAsync(() => hashImages(body.body, async (src) => {
+    try {
+      return (await fetchImage(src, images.galleryBase)).body;
+    } catch (e) {
+      if (!(e instanceof ImageError)) throw e;
+      throw new BenchError(e.http === 503 ? 'busy' : e.http === 504 ? 'timeout' : 'invalid', `报告里的图片取不到，冻结不了：${e.message}`, ['report_image_unavailable', e.code]);
     }
-    n.sha256 = h;
-  }
+  }));
 }
 
 /** 生成并冻结一份报告。来源（视图版本、哈希、行数）、产出方由服务端填：请求里写了就拒 */

@@ -149,11 +149,13 @@ try {
     let json = null; try { json = await r.json(); } catch { /* 不是 JSON */ }
     return { status: r.status, body: json };
   };
+  const MGMT = { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` };
   const answer = (source, source_id, ans, input = {}, headers = ADMIN, extra = {}) => call('POST', '/api/attention/answer', headers, { source, source_id: String(source_id), answer: ans, input, ...extra });
-  // 代办放行只认管理层授予（不认管理门）：给会话登录的管理员一份管理层授予（本机命令行即属主，走完起草→提交→放行）
+  // 属主处理站内管理事项，纯管理层会话核代办放行和席位答复。
   {
     await call('GET', '/api/auth/me', ADMIN);
-    const g = await call('POST', '/api/grants', {}, { principal: 'user:root-admin', role: 'management', scope: '*', reason: '合成：持有管理层授予的人' });
+    await call('GET', '/api/auth/viewer', MGMT);
+    const g = await call('POST', '/api/grants', {}, { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：持有管理层授予的人' });
     await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}, {});
     const ok = await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {}, {});
     if (ok.status !== 200) throw new Error(`管理层授予没放成：${JSON.stringify(ok)}`);
@@ -217,16 +219,16 @@ try {
   }
   {
     const itemOf = (ev) => `wi_${ev}`;
-    const n = await answer('work-items', itemOf(S.release.new), 'release');
+    const n = await answer('work-items', itemOf(S.release.new), 'release', {}, MGMT);
     // 「关注」的放行转给事项的放行入口（团队没有负责人，管理层代办）：和直接调那个入口逐字段相同
-    const o = await call('POST', `/api/work-items/${itemOf(S.release.old)}/release`, ADMIN, {});
+    const o = await call('POST', `/api/work-items/${itemOf(S.release.old)}/release`, MGMT, {});
     // 放行之后投递 worker 会马上去试发（发不出去会记 retry、改 attempts），那是 worker 的事、先后不定：只比两个入口造成的那几种动作
     const dl = (ev) => strip(q('SELECT target_team, status FROM workbench_event_deliveries WHERE event_id = ?', ev)).map((d) => ({ ...d, status: d.status === 'held' ? 'held' : d.status === 'cancelled' ? 'cancelled' : 'released' }));
     const lg = (ev) => strip(q("SELECT actor, action, detail FROM workbench_event_log WHERE event_id = ? AND action IN ('recorded', 'held', 'queued', 'released', 'cancelled') ORDER BY id", ev));
     const st = (ev) => q('SELECT state FROM work_items WHERE id = ?', itemOf(ev))[0]?.state;
     const norm = (b) => JSON.parse(JSON.stringify(b).replace(/wbe-[0-9a-f]{16}/g, 'wbe-X').replace(/"(id|delivery_id)":\d+/g, '"$1":0'));
     const acting = lg(S.release.new).filter((r) => r.action === 'released').map((r) => JSON.parse(r.detail).acting_for);
-    check(n.status === o.status && n.status === 200 && sameApart(norm(n.body.result), norm(o.body)) && same(dl(S.release.new), dl(S.release.old)) && same(lg(S.release.new), lg(S.release.old)) && st(S.release.new) === 'delivered' && st(S.release.old) === 'delivered' && acting.length > 0 && acting.every((a) => a === 'team-lead'),
+    check(n.status === o.status && n.status === 200 && sameApart(norm(n.body.result), norm(o.body)) && same(dl(S.release.new), dl(S.release.old)) && same(lg(S.release.new), lg(S.release.old)) && st(S.release.new) === 'delivered' && st(S.release.old) === 'delivered' && acting.length > 0 && acting.every((a) => a === 'team-lead') && lg(S.release.new).filter((r) => r.action === 'released').every((r) => r.actor === 'user:no-flag'),
       '事项·放行（转给事项的放行入口，管理层代办）：投递、事件日志（谁放行的、代谁办）、事项状态、应答逐字段相同', show({ n, o, logs: [lg(S.release.new), lg(S.release.old)] }));
     const nw = await answer('work-items', itemOf(S.withdraw.new), 'withdraw');
     const ow = await call('POST', `/api/task-center/tasks/${S.withdrawTask.old}/withdraw`, ADMIN, {});
@@ -317,16 +319,12 @@ try {
   {
     // 席位的提问：管理门（口令）看得到全部，但答复是替建立人做业务决定（L21）——口令不带答法、答了被拒；持有管理层授予的人（user:no-flag）代办
     const TOKEN = { ...SAME, 'x-admin-token': ADMIN_TOKEN };
-    const MGMT = { ...SAME, cookie: `session_id=${SESSIONS.noAdminFlag}` };
-    await call('GET', '/api/auth/viewer', MGMT);
-    const g = await call('POST', '/api/grants', {}, { principal: 'user:no-flag', role: 'management', scope: '*', reason: '合成：管理层' });
-    await call('POST', `/api/grants/${g.body?.grant?.id}/submit`, {}); await call('POST', `/api/grants/${g.body?.grant?.id}/approve`, {});
     const before = await call('GET', '/api/attention', TOKEN);
     const tokenRow = before.body.items.find((x) => x.source === 'seat-asks' && x.source_id === String(S.ask.delivery));
     const byToken = await answer('seat-asks', S.ask.delivery, 'answer', { text: '口令答' }, TOKEN);
     const stillOpen = JSON.parse(q('SELECT open_asks FROM work_items WHERE id = ?', `wi_${S.ask.event}`)[0].open_asks).length;
-    check(g.status === 201 && tokenRow && tokenRow.answers.length === 0 && [400, 403].includes(byToken.status) && stillOpen === 1,
-      '席位的提问在「关注」里；口令看得到但不带答法，答了被拒（L21：只过了管理门不能替建立人做决定），提问还开着', show({ g: g.status, tokenRow, byToken, stillOpen }));
+    check(tokenRow && tokenRow.answers.length === 0 && [400, 403].includes(byToken.status) && stillOpen === 1,
+      '席位的提问在「关注」里；口令看得到但不带答法，答了被拒（L21：只过了管理门不能替建立人做决定），提问还开着', show({ tokenRow, byToken, stillOpen }));
     const mrow = (await call('GET', '/api/attention', MGMT)).body?.items?.find((x) => x.source === 'seat-asks' && x.source_id === String(S.ask.delivery));
     check(JSON.stringify(mrow?.answers) === JSON.stringify(['answer']), '持有管理层授予的人：「关注」里这条带答法', show(mrow));
     const a = await answer('seat-asks', S.ask.delivery, 'answer', { text: '店铺 A' }, MGMT);

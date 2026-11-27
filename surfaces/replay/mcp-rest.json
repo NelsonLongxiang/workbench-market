@@ -14,9 +14,14 @@
     "GET /api/mcp-rest/sop/runs/:id/files",
     "GET /api/mcp-rest/sop/runs/:id/files/:fileId",
     "PUT /api/mcp-rest/uploads/:ticket",
+    "GET /api/mcp-rest/downloads/:ticket",
     "GET /api/mcp-rest/results/:id"
   ],
-  "exempt": [{ "route": "GET /openapi.json", "class": "invalid", "why": "OpenAPI 文档只看会话，不读请求里的别的东西", "shown_by": "open/openapi" }, { "route": "GET /api/mcp-rest/openapi.json", "class": "invalid", "why": "同上", "shown_by": "open/openapi-rest-path" }],
+  "exempt": [
+    { "route": "GET /openapi.json", "class": "invalid", "why": "OpenAPI 文档只看会话，不读请求里的别的东西", "shown_by": "open/openapi" },
+    { "route": "GET /api/mcp-rest/openapi.json", "class": "invalid", "why": "同上", "shown_by": "open/openapi-rest-path" },
+    { "route": "GET /api/mcp-rest/downloads/:ticket", "class": "unauthorized", "why": "下载票本身就是凭据，没有会话令牌可拒：没有、用过、过期、会话吊销、授权收回、台或文件对不上，一律同一句 404（不泄露是哪一种）", "shown_by": "open/dticket-get" }
+  ],
   "scenarios": [
     {
       "name": "open",
@@ -117,7 +122,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "34277", "etag": "W/\"85e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "35212", "etag": "W/\"898c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -607,7 +612,7 @@
                     "tags": ["tools"],
                     "operationId": "app_files_list",
                     "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 RES",
-                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。下载票：交给只管取件的工具时，不要把会话令牌给它——带 ticket_for_id（文件 id）申请一张只读的短时下载票（2 分钟、默认 1 次、max_uses 最多 5；只绑这一份文件，不能列文件、读台数据或上传），应答里的 download_url 直接 GET 即得文件字节；revoke_ticket（应答里的 ticket_ref）提前撤销。申请和撤销都沿用本工具对这个台的授权，不带 limit / before_id。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -616,7 +621,14 @@
                         "application/json": {
                           "schema": {
                             "type": "object",
-                            "properties": { "slug": { "type": "string" }, "limit": { "type": "integer", "description": "条数（默认 50，上限 200）" }, "before_id": { "type": "integer" } },
+                            "properties": {
+                              "slug": { "type": "string" },
+                              "limit": { "type": "integer", "description": "条数（默认 50，上限 200）" },
+                              "before_id": { "type": "integer" },
+                              "ticket_for_id": { "type": "integer", "description": "申请这份文件的短时下载票（文件 id，来自列表的 items[].id）；不和 limit / before_id / revoke_ticket 同用" },
+                              "max_uses": { "type": "integer", "description": "只在申请下载票时用：这张票最多能取几次（1 到 5，默认 1；Range、条件请求也各算一次）" },
+                              "revoke_ticket": { "type": "string", "description": "撤销自己发的下载票：填应答里的 ticket_ref（dt-xxxxxxxx）" }
+                            },
                             "required": ["slug"],
                             "additionalProperties": false
                           }
@@ -1051,7 +1063,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "34277", "etag": "W/\"85e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "35212", "etag": "W/\"898c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -1541,7 +1553,7 @@
                     "tags": ["tools"],
                     "operationId": "app_files_list",
                     "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 RES",
-                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。下载票：交给只管取件的工具时，不要把会话令牌给它——带 ticket_for_id（文件 id）申请一张只读的短时下载票（2 分钟、默认 1 次、max_uses 最多 5；只绑这一份文件，不能列文件、读台数据或上传），应答里的 download_url 直接 GET 即得文件字节；revoke_ticket（应答里的 ticket_ref）提前撤销。申请和撤销都沿用本工具对这个台的授权，不带 limit / before_id。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -1550,7 +1562,14 @@
                         "application/json": {
                           "schema": {
                             "type": "object",
-                            "properties": { "slug": { "type": "string" }, "limit": { "type": "integer", "description": "条数（默认 50，上限 200）" }, "before_id": { "type": "integer" } },
+                            "properties": {
+                              "slug": { "type": "string" },
+                              "limit": { "type": "integer", "description": "条数（默认 50，上限 200）" },
+                              "before_id": { "type": "integer" },
+                              "ticket_for_id": { "type": "integer", "description": "申请这份文件的短时下载票（文件 id，来自列表的 items[].id）；不和 limit / before_id / revoke_ticket 同用" },
+                              "max_uses": { "type": "integer", "description": "只在申请下载票时用：这张票最多能取几次（1 到 5，默认 1；Range、条件请求也各算一次）" },
+                              "revoke_ticket": { "type": "string", "description": "撤销自己发的下载票：填应答里的 ticket_ref（dt-xxxxxxxx）" }
+                            },
                             "required": ["slug"],
                             "additionalProperties": false
                           }
@@ -1812,7 +1831,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "13283", "etag": "W/\"33e3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "content-length": "14051", "etag": "W/\"36e3-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "gateway": "on",
               "session": "replay-none",
@@ -1880,6 +1899,9 @@
                 { "name": "report_list", "description": "[数据视图·必须限定到台] 这个台上的报告清单（不带正文），可按维度、事物筛；", "category": "read", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
                 { "name": "report_get", "description": "[数据视图·必须限定到台] 读一份报告：冻结的成品、来源（视图版本、哈希、行数）、论断（各带回应和有没有未处理的反驳）、对整份报告的回应、验收声明", "category": "read", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
                 { "name": "report_generate", "description": "[数据视图·必须限定到台] 按这个台对维度的绑定生成并冻结一份报告：服务端取数、核模板、核论断；", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
+                { "name": "report_dimension_get", "description": "[数据视图·必须限定到台] 读本台已绑定的报告维度及模板版本清单，含生效版本", "category": "read", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
+                { "name": "report_template_get", "description": "[数据视图·必须限定到台] 读本台已绑定维度的模板正文和摘要；", "category": "read", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
+                { "name": "report_binding_get", "description": "[数据视图·必须限定到台] 读本台对这个维度的最新绑定，含模板版本、数据槽和停用原因", "category": "read", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] },
                 { "name": "report_respond", "description": "[数据视图·必须限定到台] 对一份报告的一条论断表态：认可、反驳或补充，理由必填；", "category": "write", "granted": false, "bench_scoped": true, "scope": "必须限定到台", "granted_benches": [] }
               ],
               "capabilities": [
@@ -3020,6 +3042,71 @@
           "what": "发票的会话已吊销：用票时再核，403，未保存",
           "request": { "method": "PUT", "path": "/api/mcp-rest/uploads/{{tk3}}", "headers": { "content-type": "application/octet-stream" }, "text": "ticket 的内容\n" },
           "response": { "status": 403, "type": "application/json; charset=utf-8", "headers": { "content-length": "96", "etag": "W/\"60-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" }, "body": { "error": "发这张票的会话已吊销，或已不再有这项授权：票作废，未保存" } }
+        },
+        {
+          "id": "dticket-setup",
+          "what": "布置：app_files_list 带 ticket_for_id 申请 a.txt 的下载票，max_uses 2（只比状态码），存下 download_path",
+          "compare": "status",
+          "request": {
+            "method": "POST",
+            "path": "/api/mcp-rest/tools/app_files_list",
+            "headers": { "authorization": "Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+            "json": { "slug": "replay-data", "ticket_for_id": 1, "max_uses": 2 }
+          },
+          "save": { "dt1": "ticket" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "dticket-get",
+          "route": "GET /api/mcp-rest/downloads/:ticket",
+          "class": "normal",
+          "what": "下载票取件：不带会话令牌，200，字节、ETag = sha256、attachment、nosniff、no-store",
+          "request": { "method": "GET", "path": "/api/mcp-rest/downloads/{{dt1}}", "headers": {} },
+          "response": {
+            "status": 200,
+            "type": "text/plain",
+            "headers": { "accept-ranges": "bytes", "cache-control": "no-store", "content-disposition": "attachment; filename*=UTF-8''a.txt", "content-length": "17", "etag": "\"a2192eeb9b7585151f53f0baf01f577d46936ffe0f97e38988506e01c07906a3\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-sha256": "a2192eeb9b7585151f53f0baf01f577d46936ffe0f97e38988506e01c07906a3", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "0123456789abcdef\n"
+          }
+        },
+        {
+          "id": "dticket-range",
+          "route": "GET /api/mcp-rest/downloads/:ticket",
+          "class": "normal",
+          "what": "同一张票第二次（Range bytes=0-3）：206，也算一次",
+          "request": { "method": "GET", "path": "/api/mcp-rest/downloads/{{dt1}}", "headers": { "range": "bytes=0-3" } },
+          "response": {
+            "status": 206,
+            "type": "text/plain",
+            "headers": { "accept-ranges": "bytes", "cache-control": "no-store", "content-disposition": "attachment; filename*=UTF-8''a.txt", "content-length": "4", "content-range": "bytes 0-3/17", "etag": "\"a2192eeb9b7585151f53f0baf01f577d46936ffe0f97e38988506e01c07906a3\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-content-sha256": "a2192eeb9b7585151f53f0baf01f577d46936ffe0f97e38988506e01c07906a3", "x-content-type-options": "nosniff", "x-powered-by": "Express" },
+            "body": "0123"
+          }
+        },
+        {
+          "id": "dticket-used-up",
+          "route": "GET /api/mcp-rest/downloads/:ticket",
+          "class": "invalid",
+          "what": "次数用完（max_uses 2）：404，和编造的票同一句话",
+          "request": { "method": "GET", "path": "/api/mcp-rest/downloads/{{dt1}}", "headers": {} },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "106", "etag": "W/\"6a-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "下载票不存在、已用完、已过期或已失效：重新调 app_files_list 申请一张" }
+          }
+        },
+        {
+          "id": "dticket-forged",
+          "route": "GET /api/mcp-rest/downloads/:ticket",
+          "class": "invalid",
+          "what": "编造的票（写法对、库里没有），带 If-None-Match: *：404，不是 304",
+          "request": { "method": "GET", "path": "/api/mcp-rest/downloads/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "headers": { "if-none-match": "*" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "no-store", "content-length": "106", "etag": "W/\"6a-<指纹>\"", "referrer-policy": "no-referrer", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "下载票不存在、已用完、已过期或已失效：重新调 app_files_list 申请一张" }
+          }
         }
       ]
     },
@@ -3083,7 +3170,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "68743", "etag": "W/\"10c87-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "69678", "etag": "W/\"1102e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -3941,7 +4028,7 @@
                     "tags": ["tools"],
                     "operationId": "app_files_list",
                     "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 RES",
-                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。下载票：交给只管取件的工具时，不要把会话令牌给它——带 ticket_for_id（文件 id）申请一张只读的短时下载票（2 分钟、默认 1 次、max_uses 最多 5；只绑这一份文件，不能列文件、读台数据或上传），应答里的 download_url 直接 GET 即得文件字节；revoke_ticket（应答里的 ticket_ref）提前撤销。申请和撤销都沿用本工具对这个台的授权，不带 limit / before_id。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -3950,7 +4037,14 @@
                         "application/json": {
                           "schema": {
                             "type": "object",
-                            "properties": { "slug": { "type": "string" }, "limit": { "type": "integer", "description": "条数（默认 50，上限 200）" }, "before_id": { "type": "integer" } },
+                            "properties": {
+                              "slug": { "type": "string" },
+                              "limit": { "type": "integer", "description": "条数（默认 50，上限 200）" },
+                              "before_id": { "type": "integer" },
+                              "ticket_for_id": { "type": "integer", "description": "申请这份文件的短时下载票（文件 id，来自列表的 items[].id）；不和 limit / before_id / revoke_ticket 同用" },
+                              "max_uses": { "type": "integer", "description": "只在申请下载票时用：这张票最多能取几次（1 到 5，默认 1；Range、条件请求也各算一次）" },
+                              "revoke_ticket": { "type": "string", "description": "撤销自己发的下载票：填应答里的 ticket_ref（dt-xxxxxxxx）" }
+                            },
                             "required": ["slug"],
                             "additionalProperties": false
                           }
@@ -4591,7 +4685,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "cache-control": "no-store", "content-length": "34277", "etag": "W/\"85e5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "35212", "etag": "W/\"898c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "openapi": "3.1.0",
               "info": { "title": "workbench-market MCP tools (REST)", "version": "0.1.0", "description": "与 /mcp 同一批工具、同一个会话令牌（Authorization: Bearer <会话令牌>）。含两部分：文件与资源接口（大文件原始字节上传、二进制下载支持 Range/ETag、列文件/读台数据/读 SOP run，授权映射到对应工具）与工具映射（每个工具一个 POST /api/mcp-rest/tools/{name}）。只列当前会话可调用的（会话 replay-agent）；缺权限时调 access_info 查看目录、用 access_request 申请。" },
@@ -5081,7 +5175,7 @@
                     "tags": ["tools"],
                     "operationId": "app_files_list",
                     "summary": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 RES",
-                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。",
+                    "description": "读自产台的文件提交列表（倒序游标分页，含下载 url），用来找文件；验证刚上传的文件不需要它，上传应答自带核对结果。只读；可以按台授权（app_files_list@台id 这种写法，台 id 是这个自产台在市场里的卡片）。大文件用 REST 下载：GET /api/mcp-rest/apps/<slug>/files/<id>（同一会话令牌，二进制直出，支持 Range/ETag；入口见 access_info 的 rest_base 与 openapi_url）。下载票：交给只管取件的工具时，不要把会话令牌给它——带 ticket_for_id（文件 id）申请一张只读的短时下载票（2 分钟、默认 1 次、max_uses 最多 5；只绑这一份文件，不能列文件、读台数据或上传），应答里的 download_url 直接 GET 即得文件字节；revoke_ticket（应答里的 ticket_ref）提前撤销。申请和撤销都沿用本工具对这个台的授权，不带 limit / before_id。",
                     "x-category": "read",
                     "x-granted": true,
                     "requestBody": {
@@ -5090,7 +5184,14 @@
                         "application/json": {
                           "schema": {
                             "type": "object",
-                            "properties": { "slug": { "type": "string" }, "limit": { "type": "integer", "description": "条数（默认 50，上限 200）" }, "before_id": { "type": "integer" } },
+                            "properties": {
+                              "slug": { "type": "string" },
+                              "limit": { "type": "integer", "description": "条数（默认 50，上限 200）" },
+                              "before_id": { "type": "integer" },
+                              "ticket_for_id": { "type": "integer", "description": "申请这份文件的短时下载票（文件 id，来自列表的 items[].id）；不和 limit / before_id / revoke_ticket 同用" },
+                              "max_uses": { "type": "integer", "description": "只在申请下载票时用：这张票最多能取几次（1 到 5，默认 1；Range、条件请求也各算一次）" },
+                              "revoke_ticket": { "type": "string", "description": "撤销自己发的下载票：填应答里的 ticket_ref（dt-xxxxxxxx）" }
+                            },
                             "required": ["slug"],
                             "additionalProperties": false
                           }

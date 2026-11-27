@@ -459,6 +459,13 @@ export const listBenchViews = () => benchViewsGet('/api/bench-views');
 export const getBenchViewDoc = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/view`);
 /** 视图台页面的入口：ref 写卡片 id 或台标识。200 时 body 是 BenchEntry；读不到的、不存在的、没开台库的、还没有视图描述的都是同一个 404（页面照原来的方式打开卡片）；没登录 401 */
 export type BenchEntry = { bench: { slug: string; title: string; workbench_id: number | null; /** 卡片现在的名字：只给能改名的人；没有对应卡片是 null */ card_title?: string | null }; version: number; title: string; default_view: string; views: { key: string; title: string }[]; can: { rename: boolean; /** 能进这个台的 MCP 管理页（#904） */ mcp: boolean; /** 能批台上的 MCP 申请 */ mcp_decide: boolean; /** 能看这个台的报告（报告第 1 步 PR D） */ reports: boolean; /** 能对报告回应 */ respond: boolean } };
+/** #1086 改台对应的卡片：PUT /api/bench-views/<台标识>/workbench { workbench_id }，null 是去掉对应；只有管理层（和改台名同一个判法）。返回状态码和应答体；断网当状态码 0 */
+export async function linkBenchCard(slug: string, workbenchId: number | null): Promise<{ status: number; body: unknown }> {
+  try {
+    const r = await fetch(`/api/bench-views/${encodeURIComponent(slug)}/workbench`, { method: 'PUT', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ workbench_id: workbenchId }) });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
 /** 改台名（#905）：PUT /api/bench-views/<卡片 id>/title，{ title } 或 { from_card: true }，带 base_title（页面看到的名字）防覆盖。返回状态码和应答体；断网当状态码 0 */
 export async function renameBenchTitle(ref: string | number, body: { title?: string; from_card?: true; base_title: string }): Promise<{ status: number; body: unknown }> {
   try {
@@ -524,7 +531,12 @@ export async function submitBenchForm(ref: string | number, req: { view: string;
 }
 /** 经验库（#717）：列表 GET /api/knowledge（只含这个人看得到的）、一条的详情 GET /api/knowledge/:key。带登录的 cookie，不带管理口令（口令读不了业务内容）。
  *  返回状态码和应答体，让页面给说法；断网当状态码 0 */
-export const getKnowledge = () => benchViewsGet('/api/knowledge');
+export function getKnowledge(options: { kind?: string; cursor?: string } = {}) {
+  const q = new URLSearchParams();
+  if (options.kind) q.set('kind', options.kind);
+  if (options.cursor) q.set('cursor', options.cursor);
+  return benchViewsGet('/api/knowledge' + (q.size ? '?' + q : ''));
+}
 export const getKnowledgeItem = (key: string) => benchViewsGet(`/api/knowledge/${encodeURIComponent(key)}`);
 /** 「项目 → 部门」对照（#729）：读、改一行（department 给 null 是清掉）。返回状态码和应答体，让页面给说法；断网当状态码 0 */
 export const getProjectDepts = () => benchViewsGet('/api/knowledge/project-depts');
