@@ -4,7 +4,7 @@ import { Button, Skeleton, Typography } from 'antd';
 import { getLifecycle } from '../api';
 import { LINES_DOWN } from '../home-view';
 import { loginHref } from '../login-href';
-import type { LifecycleRead, LifecycleResult, LifecycleTime } from '../lifecycle-view';
+import { historicalLifecycleSnapshot, type LifecycleRead, type LifecycleResult, type LifecycleTime } from '../lifecycle-view';
 
 export function useLifecycleData<T>(read: (get: LifecycleRead) => Promise<LifecycleResult<T>>) {
   const [attempt, setAttempt] = useState(0);
@@ -20,7 +20,7 @@ export function useLifecycleData<T>(read: (get: LifecycleRead) => Promise<Lifecy
       if (!active) return;
       setResult(next);
       if (next.kind === 'ok') {
-        setLastGood({ value: next.value, time: { ...next.time, lastOk: next.time.lastOk ?? new Date().toISOString() } });
+        setLastGood(next);
       } else if (next.kind === 'login' || next.kind === 'forbidden' || next.kind === 'not-installed') {
         setLastGood(null);
       }
@@ -32,7 +32,7 @@ export function useLifecycleData<T>(read: (get: LifecycleRead) => Promise<Lifecy
     });
     return () => { active = false; window.clearTimeout(timer); controller.abort(); };
   }, [read, attempt]);
-  return { result, lastGood, loading, retry: () => setAttempt((value) => value + 1) };
+  return { result, history: historicalLifecycleSnapshot(result, lastGood), loading, retry: () => setAttempt((value) => value + 1) };
 }
 
 const WORDING = {

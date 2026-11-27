@@ -215,6 +215,58 @@ with sync_playwright() as p:
         stale.wait_for()
         check('全景数据过期保留上次成功数量和时点，当期显示未知', stale.locator('[data-testid=lifecycle-kpi]').inner_text() == '—' and '上次成功数量：1' in stale.inner_text() and '2026-11-27T10:00:00' in stale.inner_text(), stale.inner_text())
     ctx.unroute('**/api/lifecycle/board', changing_board)
+
+    # F1：首访与页面刷新时，没有组件内历史。只读响应本身给出上次成功快照。
+    snapshot_time = {'stale': True, 'as_of': '2026-11-27T10:00:00Z', 'last_ok': '2026-11-27T09:59:00Z'}
+    reported_board = {'ok': True, 'data': {**board_data, **snapshot_time,
+        'summary': {'products': 7, 'by_stage': {'stage-review': 7}, 'sources_stale': 1},
+        'products': [{'pd': f'历史对象 {i}'} for i in range(7)], 'sources': [{'stale': True}]}}
+    reported_lines = {**objects, **snapshot_time}
+    response_mode = 'history'
+    requests = []
+    def first_visit(route):
+        path = route.request.url
+        requests.append(route.request.method)
+        if '/stages' in path:
+            route.fulfill(status=200, json=stage_payload)
+        elif response_mode == 'missing':
+            route.fulfill(status=200, json={'ok': True, **snapshot_time})
+        elif response_mode in [401, 403]:
+            route.fulfill(status=response_mode, json={})
+        elif response_mode == 'stale-zero':
+            route.fulfill(status=200, json=stale_board if '/board' in path else {**empty_items, **snapshot_time})
+        else:
+            route.fulfill(status=200, json=reported_board if '/board' in path else reported_lines)
+    ctx.route('**/api/lifecycle/**', first_visit)
+    for path in ['/', '/lifecycle']:
+        pg.goto(M + path, wait_until='networkidle')
+        for visit in ['首访', '刷新']:
+            if visit == '刷新':
+                pg.reload(wait_until='networkidle')
+            stale = pg.locator('[data-testid=lifecycle-state][data-state=stale]')
+            stale.wait_for()
+            text = stale.inner_text()
+            history = pg.get_by_role('region', name='上次成功的阶段数量')
+            shown = (pg.locator('[data-testid=home-row]').count() == 2 and pg.locator('[data-testid=home-cell]').first.is_disabled()
+                if path == '/' else history.count() == 1 and 'stage-review' in history.inner_text() and history.locator('dd').inner_text() == '7')
+            check(f'F1 {path} {visit}：保留完整历史数据及两个时点，当前为未知', shown
+                and stale.locator('[data-testid=lifecycle-kpi]').inner_text() == '—' and '以下为上次成功结果' in text
+                and '上次成功数量：' + ('2' if path == '/' else '7') in text and '2026-11-27T09:59:00' in text
+                and '2026-11-27T10:00:00' in text and '暂无可展示' not in text, text)
+        for mode, expected in [('missing', 'unknown'), ('stale-zero', 'stale'), (401, 'login'), (403, 'forbidden')]:
+            response_mode = mode
+            if mode == 'missing':
+                pg.reload(wait_until='networkidle')
+            else:
+                pg.goto(M + path, wait_until='networkidle')
+            state = pg.locator(f'[data-testid=lifecycle-state][data-state={expected}]')
+            state.wait_for()
+            check(f'F1 {path} {mode}：不会显示当前零或泄露先前历史', state.locator('[data-testid=lifecycle-kpi]').inner_text() == '—'
+                and '上次成功数量：7' not in state.inner_text() and '上次成功数量：2' not in state.inner_text()
+                and not pg.get_by_text('stage-review', exact=True).count() and not pg.locator('[data-testid=home-row]').count(), state.inner_text())
+        response_mode = 'history'
+    check('F1 历史和权限回归仅发 GET', bool(requests) and set(requests) == {'GET'}, requests)
+    ctx.unroute('**/api/lifecycle/**', first_visit)
     ctx.close()
     # 真服务端（#639）：合成身份来源在数据目录里有 fake-identity-down 时不回答——服务端自己回 502 identity_unavailable，不是页面里截的
     import os

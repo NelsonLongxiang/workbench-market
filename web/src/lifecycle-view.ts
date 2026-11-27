@@ -10,7 +10,19 @@ export type LifecycleReply = {
 type FailureKind = 'not-installed' | 'unavailable' | 'unknown' | 'login' | 'forbidden' | 'identity-down';
 export type LifecycleFailure = { kind: FailureKind; retryAt?: number; requestId?: string };
 export type LifecycleTime = { asOf?: string; lastOk?: string; stale: boolean };
-export type LifecycleResult<T> = LifecycleFailure | { kind: 'ok' | 'stale'; value: T; time: LifecycleTime };
+type LifecycleSnapshot<T> = { value: T; time: LifecycleTime };
+export type LifecycleResult<T> = LifecycleFailure | (LifecycleSnapshot<T> & { kind: 'ok' | 'stale' });
+
+/** A complete stale reply is a historical snapshot even on the first request. */
+export function historicalLifecycleSnapshot<T>(result: LifecycleResult<T> | null, lastGood: LifecycleSnapshot<T> | null): LifecycleSnapshot<T> | null {
+  if (result?.kind !== 'stale') return null;
+  if (!lastGood) return result;
+  // Compare the effective data times when both are known. On a tie, keep the
+  // last complete live read, which may cover more than the degraded source.
+  const asOf = result.time.asOf ?? result.time.lastOk;
+  const lastAsOf = lastGood.time.asOf ?? lastGood.time.lastOk;
+  return asOf && (!lastAsOf || Date.parse(asOf) > Date.parse(lastAsOf)) ? result : lastGood;
+}
 export type LifecycleRead = (path: string) => Promise<LifecycleReply>;
 
 function record(value: unknown): Record<string, unknown> | undefined {

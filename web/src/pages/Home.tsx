@@ -21,7 +21,7 @@ export default function Home() {
   const [name, setName] = useState<string | null>(null);
   const lifecycle = useLifecycleData(readHomepageLines);
   const current = lifecycle.result?.kind === 'ok' ? lifecycle.result.value : null;
-  const previous = lifecycle.result?.kind === 'stale' ? lifecycle.lastGood : null;
+  const previous = lifecycle.history;
   const { type, objects } = current ?? previous?.value ?? { type: null, objects: [] };
   const [attention, setAttention] = useState<AttentionItem[]>([]);
   /** 身份服务连不上：等你拍板的事取不到，不能当成「没有」 */
@@ -106,7 +106,7 @@ export default function Home() {
 
       <div className="wm-sec-h">
         <h3>等你拍板</h3><span className="wm-sec-n" data-testid="home-decide-n">{attDown ? '暂时取不到' : now.length}</span>
-        {focus && <Typography.Text type="secondary" className="wm-caption">只看 {focusRow?.label ?? focus.object} · {focusStage?.name ?? focus.stage}（<button type="button" className="wm-link-btn" onClick={() => setFocus(null)}>看全部</button> · <button type="button" className="wm-link-btn" onClick={() => setArrange(true)}>就这一步安排一件事</button>）</Typography.Text>}
+        {visibleFocus && <Typography.Text type="secondary" className="wm-caption">只看 {focusRow?.label ?? visibleFocus.object} · {focusStage?.name ?? visibleFocus.stage}（<button type="button" className="wm-link-btn" onClick={() => setFocus(null)}>看全部</button> · <button type="button" className="wm-link-btn" onClick={() => setArrange(true)}>就这一步安排一件事</button>）</Typography.Text>}
         <Link to="/attention" className="wm-sec-more">全部 →</Link>
       </div>
       {!attLoaded

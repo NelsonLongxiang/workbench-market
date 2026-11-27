@@ -22,10 +22,9 @@ function Overview({ search, extension }: { search: string; extension?: ReactNode
   const path = query.size ? 'board?' + query.toString() : 'board';
   const read = useCallback((get: LifecycleRead) => readLifecycleBoard(get, path), [path]);
   const lifecycle = useLifecycleData(read);
-  const { result, lastGood } = lifecycle;
+  const { result, history } = lifecycle;
   const data = result?.kind === 'ok' ? result.value : null;
   const filter = [pd, asOf].filter(Boolean).join(' · ');
-  const previous = result?.kind === 'stale' ? lastGood?.value : undefined;
   const extra = data ? <Button onClick={lifecycle.retry} loading={lifecycle.loading}>刷新全景</Button> : undefined;
   if (extension && data) return <>
     {data.products === 0 && <LifecycleStatus {...lifecycle} admin={admin} label="生命周期对象" filter={filter} />}
@@ -37,9 +36,9 @@ function Overview({ search, extension }: { search: string; extension?: ReactNode
       <p>生命周期对象　{data.products}</p>
       <dl>{Object.entries(data.stages).map(([stage, n]) => <div key={stage}><dt>{stage}</dt><dd>{n}</dd></div>)}</dl>
     </section> : <LifecycleStatus {...lifecycle} admin={admin} label="生命周期对象" filter={filter}
-      last={lastGood ? { count: lastGood.value.products, time: lastGood.time } : undefined} />}
-    {previous && <section className="wm-home-box" aria-label="上次成功的阶段数量">
-      <dl>{Object.entries(previous.stages).map(([stage, n]) => <div key={stage}><dt>{stage}</dt><dd>{n}</dd></div>)}</dl>
+      last={history ? { count: history.value.products, time: history.time } : undefined} />}
+    {history && <section className="wm-home-box" aria-label="上次成功的阶段数量">
+      <dl>{Object.entries(history.value.stages).map(([stage, n]) => <div key={stage}><dt>{stage}</dt><dd>{n}</dd></div>)}</dl>
     </section>}
   </WmPage>;
 }

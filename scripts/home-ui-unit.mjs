@@ -4,7 +4,7 @@
 import { cleanWho, seatLabel, teamLabel, waitingLabel } from '../web/src/people.ts';
 import { SEAT_ASKS_MORE, answerChoices, decideCount, groupCards, isMine, isStuck, seatAsksMore, stuckLabel, stuckTotal } from '../web/src/attention-view.ts';
 import { cardWording, splitAskTitle, buildRows, splitRows, daysLabel, filterAttention, greeting, objectLabel, panoramaType, stageColumns, summaryLine, decideLine, toggleFocus } from '../web/src/home-view.ts';
-import { lifecycleRetryAt, readHomepageLines, readLifecycleBoard } from '../web/src/lifecycle-view.ts';
+import { historicalLifecycleSnapshot, lifecycleRetryAt, readHomepageLines, readLifecycleBoard } from '../web/src/lifecycle-view.ts';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
@@ -118,6 +118,16 @@ const retryStart = Date.parse('2026-11-27T10:00:00Z');
 ok('Retry-After：支持相对秒和HTTP绝对日期，忽略过去日期', lifecycleRetryAt('3', retryStart) === retryStart + 3000
   && lifecycleRetryAt('Fri, 27 Nov 2026 10:00:02 GMT', retryStart) === retryStart + 2000
   && lifecycleRetryAt('Fri, 27 Nov 2026 09:59:59 GMT', retryStart) === undefined);
+
+const staleAt = (value, asOf) => ({ kind: 'stale', value, time: { asOf, stale: true } });
+const older = staleAt(7, '2026-11-27T10:00:00Z');
+const newer = staleAt(8, '2026-11-27T10:01:00Z');
+const cached = { value: 3, time: { asOf: '2026-11-27T10:00:30Z', stale: false } };
+ok('F1 首访使用完整过期响应，保留其数据时间', historicalLifecycleSnapshot(older, null) === older);
+ok('F1 选更新的历史，时间相同时保留最近完整实时读取', historicalLifecycleSnapshot(older, cached) === cached
+  && historicalLifecycleSnapshot(newer, cached) === newer
+  && historicalLifecycleSnapshot(staleAt(0, cached.time.asOf), cached) === cached);
+ok('F1 未知或无权时不渲染任何之前的历史', ['unknown', 'login', 'forbidden'].every(kind => historicalLifecycleSnapshot({ kind }, cached) === null));
 
 console.log(`\nhome-ui-unit: ${pass} 过 / ${fail} 败`);
 process.exit(fail ? 1 : 0);
