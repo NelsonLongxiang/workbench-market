@@ -9,7 +9,7 @@ import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { spawn } from './owned-script-fixture.mjs';
-import { CLOSE_REASON, previewStaleSopRuns } from '../server/src/services/sop-run-closure.ts';
+import { CLOSE_REASON, previewStaleSopRuns, updateStaleSopRuns } from '../server/src/services/sop-run-closure.ts';
 
 const root = process.cwd();
 const task = join(root, 'tmp', 'sop-run-closure-test');
@@ -86,6 +86,28 @@ async function readSurfaces() {
 
 try {
   const { db } = await import('../server/src/db.ts');
+  db.prepare('INSERT INTO sop_runs(id,sop_slug,sop_version,started_at,updated_at) VALUES(15,?,1,?,?)').run('boundary-sop', cutoff, cutoff);
+  const close = (batch, at) => edit(conn => updateStaleSopRuns(conn, 'close', batch, at));
+  const first = close('empty-1087', now);
+  assert.deepEqual(first, { mode: 'close', batch: 'empty-1087', reason: CLOSE_REASON, changed: 0, matched: 0, by_sop: [] });
+  const runAtBoundary = () => ({ ...db.prepare('SELECT status,cache_revision FROM sop_runs WHERE id = 15').get() });
+  assert.deepEqual(close('empty-1087', now + 1000), { ...first, repeated: true }, 'successful empty batch must stay empty across cutoff');
+  assert.deepEqual(runAtBoundary(), { status: 'running', cache_revision: 0 });
+  assert.equal(db.prepare("SELECT count(*) AS n FROM sop_run_closure_events WHERE batch = 'empty-1087'").get().n, 0);
+  const batchReceipts = () => db.prepare("SELECT action FROM sop_run_closure_batches WHERE batch = 'empty-1087' ORDER BY action").all().map(row => row.action);
+  assert.deepEqual(batchReceipts(), ['close']);
+  assert.throws(() => db.exec('DELETE FROM sop_run_closure_batches'));
+  assert.throws(() => db.exec("UPDATE sop_run_closure_batches SET at = 'changed'"));
+  assert.throws(() => db.exec('INSERT OR REPLACE INTO sop_run_closure_batches SELECT * FROM sop_run_closure_batches'));
+  const undoEmpty = () => edit(conn => updateStaleSopRuns(conn, 'undo', 'empty-1087', now + 1000));
+  assert.deepEqual(undoEmpty(), { ...first, mode: 'undo' });
+  assert.deepEqual(undoEmpty(), { ...first, mode: 'undo', repeated: true });
+  assert.deepEqual(batchReceipts(), ['close', 'undo']);
+  assert.throws(() => close('empty-1087', now + 1000), /批次已撤销/);
+  assert.equal(close('new-1087', now + 1000).changed, 1);
+  assert.deepEqual(runAtBoundary(), { status: 'expired', cache_revision: 1 });
+  assert.equal(db.prepare("SELECT count(*) AS n FROM sop_run_closure_events WHERE batch = 'new-1087'").get().n, 1);
+  console.log('B1: zero-match close survives reopen and cutoff, zero undo is idempotent, and a fresh batch matches');
   const app = db.prepare("INSERT INTO apps(slug,title,kind,status,active_version) VALUES(?,?,'sop','published',1)");
   for (const slug of ['first-sop','second-sop']) app.run(slug, slug);
   const insert = db.prepare('INSERT INTO sop_runs(id,sop_slug,sop_version,status,data,hot_pending,started_at,updated_at,finished_at) VALUES(?,?,1,?,?,?,?,?,?)');

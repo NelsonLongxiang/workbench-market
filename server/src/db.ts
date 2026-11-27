@@ -333,7 +333,19 @@ CREATE TABLE IF NOT EXISTS sop_runs (
   finished_at TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_sop_runs_slug ON sop_runs (sop_slug, status);
--- #1087：每个批次、动作和 SOP 只记一条动态；entries_json 只存运行编号和撤销校验摘要。
+-- #1087：成功的批次动作都留回执，空批次也占用原批次号。
+CREATE TABLE IF NOT EXISTS sop_run_closure_batches (
+  batch TEXT NOT NULL,
+  action TEXT NOT NULL CHECK (action IN ('close','undo')),
+  at TEXT NOT NULL,
+  PRIMARY KEY (batch, action)
+);
+CREATE TRIGGER IF NOT EXISTS sop_run_closure_batches_no_update BEFORE UPDATE ON sop_run_closure_batches BEGIN SELECT RAISE(ABORT, 'sop_run_closure_batches 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS sop_run_closure_batches_no_delete BEFORE DELETE ON sop_run_closure_batches BEGIN SELECT RAISE(ABORT, 'sop_run_closure_batches 只增不改'); END;
+CREATE TRIGGER IF NOT EXISTS sop_run_closure_batches_no_replace BEFORE INSERT ON sop_run_closure_batches WHEN EXISTS (
+  SELECT 1 FROM sop_run_closure_batches WHERE batch = NEW.batch AND action = NEW.action
+) BEGIN SELECT RAISE(ABORT, 'sop_run_closure_batches 只增不改'); END;
+-- 每个批次、动作和 SOP 只记一条动态；entries_json 只存运行编号和撤销校验摘要。
 CREATE TABLE IF NOT EXISTS sop_run_closure_events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   batch TEXT NOT NULL,
@@ -2619,6 +2631,7 @@ export const APPEND_ONLY_TRIGGERS: readonly string[] = [
   'mcp_grant_audit_no_update', 'mcp_grant_audit_no_delete', 'mcp_grant_audit_no_replace',
   'sop_run_file_audit_no_update', 'sop_run_file_audit_no_delete', 'sop_run_file_audit_no_replace',
   'sop_run_upgrade_audit_no_update', 'sop_run_upgrade_audit_no_delete', 'sop_run_upgrade_audit_no_replace',
+  'sop_run_closure_batches_no_update', 'sop_run_closure_batches_no_delete', 'sop_run_closure_batches_no_replace',
   'sop_run_closure_events_no_update', 'sop_run_closure_events_no_delete', 'sop_run_closure_events_no_replace',
   'workbench_var_audit_no_update', 'workbench_var_audit_no_delete', 'workbench_var_audit_no_replace',
   'a2a_roster_changes_no_update', 'a2a_roster_changes_no_delete', 'a2a_roster_changes_no_replace',

@@ -57,6 +57,7 @@ function changeBatch(db: DatabaseSync, action: 'close' | 'undo', batch: string, 
   const update = db.prepare('UPDATE sop_runs SET status = ? WHERE id = ? AND status = ?');
   const append = db.prepare('INSERT INTO sop_run_closure_events (batch, action, sop_slug, entries_json, run_count, reason, at) VALUES (?, ?, ?, ?, ?, ?, ?)');
   const at = new Date(now).toISOString();
+  db.prepare('INSERT INTO sop_run_closure_batches (batch, action, at) VALUES (?, ?, ?)').run(batch, action, at);
   for (const { sop_slug, entries } of groups) {
     for (const { id } of entries) {
       if (update.run(to, id, from).changes !== 1) throw new Error('运行状态已变化，批次未执行');
@@ -74,12 +75,15 @@ export function updateStaleSopRuns(db: DatabaseSync, action: 'close' | 'undo', b
   try {
     const events = db.prepare('SELECT action, sop_slug, entries_json FROM sop_run_closure_events WHERE batch = ? ORDER BY sop_slug').all(batch) as { action: 'close' | 'undo'; sop_slug: string; entries_json: string }[];
     const original: Group[] = events.filter(row => row.action === 'close').map(({ sop_slug, entries_json }) => ({ sop_slug, entries: JSON.parse(entries_json) as Entry[] }));
-    const undone = events.some(row => row.action === 'undo');
+    const receipts = db.prepare('SELECT action FROM sop_run_closure_batches WHERE batch = ?').all(batch);
+    // An older nonempty batch may already have per-SOP events without a separate receipt.
+    const closed = original.length > 0 || receipts.some(row => row.action === 'close');
+    const undone = receipts.some(row => row.action === 'undo') || events.some(row => row.action === 'undo');
     if (action === 'close' && undone) throw new Error('该批次已撤销，请使用新的批次号');
-    if (action === 'undo' && original.length === 0) throw new Error('找不到已执行的收口批次');
+    if (action === 'undo' && !closed) throw new Error('找不到已执行的收口批次');
 
     let result;
-    if ((action === 'close' && original.length) || undone) {
+    if ((action === 'close' && closed) || undone) {
       result = { mode: action, batch, reason: CLOSE_REASON, changed: 0, ...distribution(original), repeated: true };
     } else if (action === 'close') {
       result = changeBatch(db, action, batch, candidateGroups(db, now), now);
