@@ -10,6 +10,10 @@ export const BlockAnchorContext = createContext<string | null>(null);
 export const useBlockAnchor = () => useContext(BlockAnchorContext);
 
 const scrollerOf = (el: Element | null): HTMLElement | null => (el?.closest('.wm-bp-body') as HTMLElement | null) ?? null;
+function anchorElement(key: string): HTMLElement | null {
+  const el = document.getElementById(key);
+  return el?.dataset.anchor === key ? el : null;
+}
 const FLASH_MS = 1800;
 function flash(el: HTMLElement) {
   el.classList.remove('wm-anchor-flash'); void el.offsetWidth; el.classList.add('wm-anchor-flash');
@@ -24,7 +28,7 @@ export function useAnchorJump(ready: boolean, scope: string) {
     const key = anchorFromHash(hash);
     if (!ready || !key || done.current === `${scope}#${key}`) return;
     const r = requestAnimationFrame(() => {
-      const el = document.getElementById(key);
+      const el = anchorElement(key);
       if (!el) return;
       done.current = `${scope}#${key}`;
       el.scrollIntoView({ block: 'start' });
@@ -60,7 +64,7 @@ export function PageToc({ entries }: { entries: TocEntry[] }) {
     if (!sc) return;
     const spy = () => {
       const base = sc.getBoundingClientRect().top;
-      const tops = entries.flatMap((e) => { const el = document.getElementById(e.key); return el ? [{ key: e.key, top: el.getBoundingClientRect().top - base }] : []; });
+      const tops = entries.flatMap((e) => { const el = anchorElement(e.key); return el ? [{ key: e.key, top: el.getBoundingClientRect().top - base }] : []; });
       setActive(activeTocKey(tops, 80, sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 2 && sc.scrollTop > 0, sc.clientHeight, anchorFromHash(window.location.hash)));
     };
     spy();
@@ -69,7 +73,7 @@ export function PageToc({ entries }: { entries: TocEntry[] }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keys]);
   const go = (key: string) => {
-    const el = document.getElementById(key);
+    const el = anchorElement(key);
     if (!el) return;
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}#${encodeURIComponent(key)}`);

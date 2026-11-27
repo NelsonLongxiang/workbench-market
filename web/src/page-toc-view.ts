@@ -14,19 +14,27 @@ export function viewTocEntries(blocks: readonly { type?: unknown; title?: unknow
   return list.flatMap((b, i) => (typeof b?.title === 'string' && b.title.trim() ? [{ key: blockAnchor(i), title: b.title.trim(), level: 1 }] : []));
 }
 
-type RNode = { id?: unknown; type?: unknown; title?: unknown; children?: unknown };
+/** 冻结正文的位置在报告生命周期内稳定。报告号和位置组成页面锚点，业务 ID 仍用于 data-node。 */
+export function reportSectionAnchor(report: number, path: readonly number[]): string {
+  return `report-section-${report}-${path.join('-')}`;
+}
+
+type RNode = { type?: unknown; title?: unknown; children?: unknown };
 /** 报告的目录：章节（有标题的 section）按出现次序，层级跟着嵌套；章节不超过 TOC_MIN_BLOCKS 个不出目录 */
-export function reportTocEntries(nodes: unknown): TocEntry[] {
+export function reportTocEntries(nodes: unknown, report: number): TocEntry[] {
   const out: TocEntry[] = [];
-  const walk = (ns: unknown, level: number) => {
+  const walk = (ns: unknown, level: number, parent: readonly number[]) => {
     if (!Array.isArray(ns)) return;
-    for (const n of ns as RNode[]) {
-      if (!n || typeof n !== 'object') continue;
-      if (n.type === 'section' && typeof n.id === 'string' && n.id && typeof n.title === 'string' && n.title.trim()) out.push({ key: n.id, title: n.title.trim(), level });
-      walk(n.children, n.type === 'section' ? level + 1 : level);
-    }
+    (ns as RNode[]).forEach((n, index) => {
+      if (!n || typeof n !== 'object') return;
+      const path = [...parent, index];
+      if (n.type === 'section') {
+        if (typeof n.title === 'string' && n.title.trim()) out.push({ key: reportSectionAnchor(report, path), title: n.title.trim(), level });
+        walk(n.children, level + 1, path);
+      } else if (n.type === 'grid') walk(n.children, level, path);
+    });
   };
-  walk(nodes, 1);
+  walk(nodes, 1, []);
   return out.length > TOC_MIN_BLOCKS ? out : [];
 }
 

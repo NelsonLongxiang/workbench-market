@@ -580,6 +580,28 @@ with sync_playwright() as p:
     except Exception: pass
     pg.wait_for_timeout(300); geo = pg.evaluate(GEO)
     check('从「更多」选「巡检看板」：换到这份视图，它也露在页签条里', geo['cur'] == '巡检看板' and geo['curIn'], geo)
+
+    pg.goto(f'{M}/use/{CARD}?v=vk-x17')
+    pg.wait_for_selector('[data-testid=bench-page-tab][aria-selected=true]')
+    more.wait_for()
+    pg.set_viewport_size({'width': 1024, 'height': 900})
+    try: pg.wait_for_function(f'() => ({GEO})().curIn', timeout=3000)
+    except Exception: pass
+    geo = pg.evaluate(GEO)
+    check('B1：1440 缩到 1024 仍溢出时，当前页签完整可见', more.count() == 1 and geo['cur'] == '合成视角17' and geo['curIn'], geo)
+
+    pg.evaluate("() => { document.querySelector('.wm-bp-tabs').scrollLeft = 0; }")
+    pg.wait_for_function(f'() => !({GEO})().curIn')
+    more.click()
+    current_item = pg.locator('[data-testid=bench-page-tabs-more-item]', has_text='合成视角17')
+    current_item.wait_for()
+    before = (pg.url, len(log['render']))
+    current_item.click()
+    try: pg.wait_for_function(f'() => ({GEO})().curIn', timeout=3000)
+    except Exception: pass
+    geo = pg.evaluate(GEO)
+    check('B1：更多里重选当前项只显露页签，不导航或重新取数', geo['cur'] == '合成视角17' and geo['curIn'] and before == (pg.url, len(log['render'])), (geo, before, pg.url, len(log['render'])))
+    pg.set_viewport_size({'width': 1440, 'height': 900})
     mode['entry'] = 'ok'
 
     print('五、入口')

@@ -3,6 +3,16 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button, Dropdown } from 'antd';
 import { DownOutlined } from '@ant-design/icons';
 
+/** 只横向滚页签条本身，避免滚动页面。 */
+function revealSelected(el: HTMLDivElement | null) {
+  const selected = el?.querySelector<HTMLElement>('[role=tab][aria-selected=true]');
+  if (!el || !selected) return;
+  const strip = el.getBoundingClientRect();
+  const tab = selected.getBoundingClientRect();
+  if (tab.left < strip.left) el.scrollLeft -= strip.left - tab.left;
+  else if (tab.right > strip.right) el.scrollLeft += tab.right - strip.right;
+}
+
 export default function ViewTabs({ views, view, onPick, children }: { views: { key: string; title: string }[]; view: string; onPick: (key: string) => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const [over, setOver] = useState(false);
@@ -10,20 +20,15 @@ export default function ViewTabs({ views, view, onPick, children }: { views: { k
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const check = () => setOver(el.scrollWidth > el.clientWidth + 1);
+    const check = () => {
+      setOver(el.scrollWidth > el.clientWidth + 1);
+      revealSelected(el);
+    };
     check();
-    const ro = new ResizeObserver(check); ro.observe(el);
-    return () => ro.disconnect();
-  }, [views.length]);
-  useEffect(() => {
-    const el = ref.current;
-    const cur = el?.querySelector<HTMLElement>('[role=tab][aria-selected=true]');
-    if (!el || !cur) return;
-    // 只横着滚页签条本身，不动页面。按屏幕上的位置和页签条比（offsetLeft 是相对最近的定位祖先算的，不是相对页签条）
-    const s = el.getBoundingClientRect(), r = cur.getBoundingClientRect();
-    if (r.left < s.left) el.scrollLeft -= s.left - r.left;
-    else if (r.right > s.right) el.scrollLeft += r.right - s.right;
-  }, [view, over]);
+    const observer = new ResizeObserver(check);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [view, views]);
   // 打开「更多」时算哪些页签没露全
   const measure = () => {
     const el = ref.current;
@@ -38,7 +43,10 @@ export default function ViewTabs({ views, view, onPick, children }: { views: { k
       <div ref={ref} className="wm-bp-tabs" role="tablist" aria-label="视图" onScroll={() => { if (hidden.length) measure(); }}>{children}</div>
       {over ? (
         <Dropdown trigger={['click']} onOpenChange={(o) => { if (o) measure(); }}
-          menu={{ items, selectedKeys: [view], onClick: ({ key }) => onPick(String(key)) }}>
+          menu={{ items, selectedKeys: [view], onClick: ({ key }) => {
+            if (key === view) revealSelected(ref.current);
+            else onPick(key);
+          } }}>
           <Button size="small" type="text" data-testid="bench-page-tabs-more">更多 <DownOutlined /></Button>
         </Dropdown>
       ) : null}
