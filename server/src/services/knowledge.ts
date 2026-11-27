@@ -302,22 +302,44 @@ export class KnowledgeService extends Service {
     } catch (e) { try { db.exec('ROLLBACK'); } catch { /* 事务已经不在了 */ } throw e; }
   }
 
-  /** 这个人看得到的条目，新的在前，最多 limit 条；kind 是页面上的四类之一或不给 */
-  list(actor: JudgedActor, opts: { kind?: YglKind; limit?: number } = {}): KnowledgeView[] {
+  /** 分类计数和分页共用同一遍可见性过滤。游标只引用已公开的条目键。 */
+  list(actor: JudgedActor, opts: { kind?: YglKind; cursor?: string } = {}) {
     const can = visibility(actor);
     const projects = this.projectMap();
-    const rows = (opts.kind
-      ? db.prepare('SELECT * FROM knowledge_items WHERE kind = ? ORDER BY updated DESC, ygl_id').all(opts.kind)
-      : db.prepare('SELECT * FROM knowledge_items ORDER BY updated DESC, kind, ygl_id').all()) as Row[];
-    const out: KnowledgeView[] = [];
     const deciders = this.deciders();
-    for (const r of rows) {
-      const scope = effectiveScope(r, projects);
+    const counts = { all: 0, claim: 0, kb: 0, skill: 0, verify: 0 };
+    const items: KnowledgeView[] = [];
+    const limit = 500;
+    const preceding: string[] = [];
+    let found = !opts.cursor;
+    let offset = 0;
+    let previousCursor: string | null = null;
+    let hasMore = false;
+    const rows = db.prepare('SELECT * FROM knowledge_items ORDER BY updated DESC, kind, ygl_id').iterate() as Iterable<Row>;
+    for (const row of rows) {
+      const scope = effectiveScope(row, projects);
       if (!can(scope)) continue;
-      out.push(withDecider(view(r, scope), r, deciders));
-      if (out.length >= (opts.limit ?? 500)) break;
+      counts.all++;
+      counts[PAGE_KIND[row.kind]]++;
+      if (opts.kind && row.kind !== opts.kind) continue;
+      if (!found) {
+        // 只保留游标前一页的公开键，便于从直接打开的游标地址向前翻。
+        const slot = offset % limit;
+        offset++;
+        if (row.key === opts.cursor) {
+          found = true;
+          previousCursor = offset > limit ? preceding[slot] : null;
+        } else {
+          preceding[slot] = row.key;
+        }
+      } else if (items.length < limit) {
+        items.push(withDecider(view(row, scope), row, deciders));
+      } else {
+        hasMore = true;
+      }
     }
-    return out;
+    if (!found) return null;
+    return { items, counts, offset, previous_cursor: previousCursor, next_cursor: hasMore ? items.at(-1)!.key : null };
   }
 
   /**

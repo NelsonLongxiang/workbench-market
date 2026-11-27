@@ -531,7 +531,12 @@ export async function submitBenchForm(ref: string | number, req: { view: string;
 }
 /** 经验库（#717）：列表 GET /api/knowledge（只含这个人看得到的）、一条的详情 GET /api/knowledge/:key。带登录的 cookie，不带管理口令（口令读不了业务内容）。
  *  返回状态码和应答体，让页面给说法；断网当状态码 0 */
-export const getKnowledge = () => benchViewsGet('/api/knowledge');
+export function getKnowledge(options: { kind?: string; cursor?: string } = {}) {
+  const q = new URLSearchParams();
+  if (options.kind) q.set('kind', options.kind);
+  if (options.cursor) q.set('cursor', options.cursor);
+  return benchViewsGet('/api/knowledge' + (q.size ? '?' + q : ''));
+}
 export const getKnowledgeItem = (key: string) => benchViewsGet(`/api/knowledge/${encodeURIComponent(key)}`);
 /** 「项目 → 部门」对照（#729）：读、改一行（department 给 null 是清掉）。返回状态码和应答体，让页面给说法；断网当状态码 0 */
 export const getProjectDepts = () => benchViewsGet('/api/knowledge/project-depts');
