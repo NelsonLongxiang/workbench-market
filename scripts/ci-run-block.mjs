@@ -105,6 +105,7 @@ export class UsageError extends Error {}
 // 秒级基线按脚本名识别，不依赖步骤编号或可见标题。这里补足不以 -unit.mjs 命名的单测。
 const FAST_TESTS = new Set([
   'ci-run-block-test.mjs',
+  'mcp-service-sqlite-test.mjs',
   'skill-tool-names-test.mjs',
   'work-item-service-test.mjs',
   'sop-page-path-defense-test.mjs',

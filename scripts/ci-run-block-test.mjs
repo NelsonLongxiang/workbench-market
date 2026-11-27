@@ -361,6 +361,18 @@ console.log('三、快基线 profile');
   const real = fastSelection(steps);
   ok('真实 CI 快基线包含全部必需项；app-html 和技能工具名检查均可在清单定位',
     real.missing.length === 0 && ['app-html-unit.mjs', 'skill-tool-names-test.mjs'].every(check => real.steps.some(step => step.checks.includes(check))), real.missing);
+
+  const sqlite = 'mcp-service-sqlite-test.mjs';
+  const sqliteStep = steps.findIndex(step => step.run?.trim() === 'node scripts/' + sqlite);
+  ok('真实 CI 快基线选中 MCP SQLite 必需单测',
+    sqliteStep >= 0 && real.steps.some(step => step.index === sqliteStep + 1 && step.checks.includes(sqlite)), real);
+
+  const withoutSqlite = fastSelection(steps.filter((_, index) => index !== sqliteStep));
+  const otherResults = withoutSqlite.steps.map(() => ({ status: 'pass' }));
+  const incomplete = summarize(otherResults, withoutSqlite.missing.length > 0);
+  ok('删除真实 CI 的 MCP SQLite 步骤后，即使其余步骤全过也必须 INCOMPLETE',
+    sqliteStep >= 0 && J(withoutSqlite.missing) === J([sqlite]) && incomplete.status === 'INCOMPLETE'
+    && incomplete.code === 3 && incomplete.failed === 0 && incomplete.passed === otherResults.length, incomplete);
 }
 
 {
