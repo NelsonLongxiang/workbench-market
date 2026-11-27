@@ -186,6 +186,56 @@ try {
       '按类筛：kind=kb 只给经验；页面的四类之外（比如 ygl-trees 自己的 note）400；匿名带坏参数照样 401（先认人）', show({ kb: (kb.json?.items ?? []).length, bad: bad.status, badAnon: badAnon.status }));
   }
 
+  // 665 条可见数据和三条隐藏数据。同一时间戳跨页，检查排序与游标都不泄露上游 ID。
+  {
+    const conn = new DatabaseSync(join(srv.dataDir, 'workbench-market.db'), { timeout: 5000 });
+    const insert = conn.prepare('INSERT INTO knowledge_items (kind, ygl_id, key, title, scope, updated, seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const publicKey = (n) => 'p' + String(n).padStart(21, '0');
+    let serial = 0;
+    const add = (kind, scope, updated) => {
+      const n = ++serial;
+      insert.run(kind, 'pager-fixture-' + String(n).padStart(4, '0'), publicKey(n), '分页夹具 ' + n, scope, updated, 1);
+    };
+    const time = '2098-01-01T00:00:00Z';
+    const get = (obj = {}, principal = SESSIONS.alpha) => srv.call('GET', '/api/knowledge?' + new URLSearchParams(obj), as(principal));
+    try {
+      for (const [kind, number] of [['claim', 396], ['note', 205], ['check', 63]]) {
+        for (let n = 0; n < number; n++) add(kind, '*', time);
+      }
+      for (const scope of ['restricted', 'dept:sales', 'dept:ops']) add('skill', scope, time);
+      const expected = { all: 665, claim: 396, kb: 206, skill: 0, verify: 63 };
+      const first = await get(), next = await get({ cursor: first.json?.next_cursor ?? '' }), filter = await get({ kind: 'claim' });
+      check(first.status === 200 && show(first.json?.counts) === show(expected) && first.json.items.length === 500
+        && first.json.next_cursor === first.json.items.at(-1).key && !first.text.includes('pager-fixture-'),
+        '分页：665 条可见按分类全量计数，第一页仍最多 500，游标只复用公开键', show({ counts: first.json?.counts, rows: first.json?.items?.length, cursor: first.json?.next_cursor }));
+      const merged = [...(first.json?.items ?? []), ...(next.json?.items ?? [])];
+      check(next.status === 200 && next.json?.offset === 500 && next.json?.next_cursor === null && next.json?.previous_cursor === null
+        && show(next.json?.counts) === show(expected) && merged.length === 665 && new Set(merged.map(x => x.key)).size === 665
+        && merged[0].key === publicKey(602) && merged[499].key === publicKey(437) && merged[500].key === publicKey(438),
+        '分页：同秒排序稳定，全部两页不重不漏，第二页计数和第一页一致', show({ received: merged.length, offset: next.json?.offset, last: next.json?.next_cursor }));
+      const leads = await get({ kind: 'skill' }, SESSIONS.beta);
+      check(filter.status === 200 && filter.json?.items?.length === 396 && filter.json.items.every(x => x.kind === 'claim') && show(filter.json.counts) === show(expected)
+        && leads.json?.counts?.skill === 1 && leads.json?.items?.length === 1,
+        '分类列表仍返回所有可见类别的计数；部门人员只计自己可看的隐藏类别', show({ selected: filter.json?.counts, lead: leads.json?.counts }));
+      const forged = await get({ cursor: 'bad' });
+      const hidden = await get({ cursor: publicKey(serial) });
+      const absent = await get({ cursor: publicKey(9999) });
+      check(forged.status === 400 && hidden.status === 409 && hidden.text === absent.text,
+        '非法游标 400，不可见与不存在的游标均 409 且逐字相同', show({ bad: forged.status, hidden: hidden.status, missing: absent.status }));
+      for (let n = 0; n < 500; n++) add('note', '*', time);
+      const expandedFirst = await get();
+      const expandedSecond = await get({ cursor: expandedFirst.json.next_cursor });
+      const third = await get({ cursor: expandedSecond.json.next_cursor });
+      const back = await get({ cursor: third.json?.previous_cursor ?? '' });
+      check(third.status === 200 && third.json?.offset === 1000 && third.json.previous_cursor === expandedFirst.json.next_cursor
+        && back.json?.offset === 500 && show(back.json?.items.map(x => x.key)) === show(expandedSecond.json?.items.map(x => x.key)),
+        '分页：第三页的上一页游标返回正确的第二页', show({ third: third.status, offset: third.json?.offset, back: back.json?.offset }));
+    } finally {
+      conn.prepare('DELETE FROM knowledge_items WHERE seen_at = 1 AND ygl_id LIKE ?').run('pager-fixture-%');
+      conn.close();
+    }
+  }
+
   // ---------- 三、不露内部标识 ----------
   {
     const texts = [all.text, (await srv.call('GET', `/api/knowledge/${keyOf('合成经验：全公司')}`, as(SESSIONS.alpha))).text, (await srv.call('GET', `/api/knowledge/${keyOf('合成依据：样品要复检')}`, as(SESSIONS.noAdminFlag))).text];
