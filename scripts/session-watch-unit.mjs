@@ -74,6 +74,20 @@ const run = async () => {
     const r2 = await guardedFetch(async () => ({ status: 200, json: async () => ({ ok: 1 }), text: async () => 't' }), w6, 'http://wm.invalid')('/api/x');
     ok('没换人：正文照常交回', JSON.stringify(await r2.json()) === '{"ok":1}' && (await r2.text()) === 't');
   }
+  {
+    const origin = 'http://wm.invalid';
+    let redirected = 0, checked = 0;
+    const stub = { generation: () => 0, saw401: () => checked++ };
+    const marked = { 'X-WM-Login-Required': '1' };
+    const call = (url, status, headers) => guardedFetch(async () => new Response('{}', { status, headers }), stub, origin, () => redirected++)(url);
+    await call('/api/settings', 401, {});
+    await call('/api/settings', 403, marked);
+    await call('http://elsewhere.invalid/api/data', 401, marked);
+    await call('/outside-api', 401, marked);
+    ok('无标记的管理口令 401 只复查，403、站外及非 API 都不导航', redirected === 0 && checked === 1);
+    await call(new URL(origin + '/api/settings'), 401, marked);
+    ok('同源 API 的登录门标记立即导航', redirected === 1 && checked === 1);
+  }
   console.log(`\nsession-watch-unit: ${pass} 过 / ${fail} 败`);
   process.exit(fail ? 1 : 0);
 };

@@ -10,6 +10,10 @@ import { BenchView, type ViewResult } from '../bench-blocks/BenchView';
 import { getBenchView, submitBenchForm, type BenchEntry } from '../api';
 import { useChangePoll } from '../bench-change-poll';
 import UseTopBar from '../components/UseTopBar';
+import BenchLink from './BenchLink';
+import { BackToTop, TocLayout, useAnchorJump } from '../components/PageToc';
+import ViewTabs from '../components/ViewTabs';
+import { viewTocEntries } from '../page-toc-view';
 import { BENCH_VIEWS_OFF, benchViewError, isBenchViewsOff } from '../cockpit-frame-view';
 import { afterReload, formError, pageTitle, paramsFromQuery, pollAction, shouldRefreshEntry, toQuery, viewFromQuery, type PollAction } from '../bench-page-view';
 import BenchRename from './BenchRename';
@@ -73,6 +77,8 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
   }, [load]);
 
   const go = (v: string, p: Record<string, string>) => setQ(new URLSearchParams(toQuery(entry, v, p)), { replace: false });
+  // #1099 打开带 #<块键> 的地址：这份视图画好以后定位到那一块
+  useAnchorJump(s.phase === 'ok', view);
   const submit = async (block: number, values: Record<string, unknown>) => {
     const version = s.phase === 'ok' ? s.result.version : entry.version;
     const r = await submitBenchForm(cardId, { view, block, version, values });
@@ -85,6 +91,7 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
       <UseTopBar cardId={cardId} page="bench" title={<span className="wm-use-title" data-testid="bench-page-name">{entry.bench.title}</span>}>
         <div className="wm-bp-bar-extra">
           <BenchRename cardId={cardId} entry={entry} refreshEntry={refreshEntry} />
+          <BenchLink cardId={cardId} entry={entry} refreshEntry={refreshEntry} />
           <ReportsLink cardId={cardId} entry={entry} />
           {entry.can.mcp ? <Link to={`/bench-mcp/${encodeURIComponent(entry.bench.slug)}`} data-testid="bench-page-mcp"><Button type="text" size="small" icon={<ApiOutlined />}>MCP 授权</Button></Link> : null}
           <Link to={`/market/wb/${encodeURIComponent(cardId)}`} data-testid="bench-page-detail"><Button type="text" size="small" icon={<InfoCircleOutlined />}>详情</Button></Link>
@@ -93,13 +100,11 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
       <div className="wm-bp-head">
         <h1 className="wm-bp-title" data-testid="bench-page-title">{entry.title}</h1>
         {entry.views.length > 1 ? (
-          <div className="wm-bp-tabs" role="tablist" aria-label="视图">
-            {entry.views.map((v) => (
+          <ViewTabs views={entry.views} view={view} onPick={(k) => { if (k !== view) go(k, {}); }}>{entry.views.map((v) => (
               <button key={v.key} type="button" role="tab" aria-selected={v.key === view} className={v.key === view ? 'wm-ck-tab on' : 'wm-ck-tab'} onClick={() => { if (v.key !== view) go(v.key, {}); }} data-testid="bench-page-tab">
                 {v.title}
               </button>
-            ))}
-          </div>
+            ))}</ViewTabs>
         ) : null}
         <Button size="small" type="text" icon={<ReloadOutlined />} loading={refreshing && s.phase === 'ok'} onClick={() => { setRefreshing(true); void refreshEntry(); void load(); }} className="wm-bp-refresh" data-testid="bench-page-refresh">刷新</Button>
       </div>
@@ -108,7 +113,8 @@ export default function BenchPage({ cardId, entry, refreshEntry }: { cardId: str
         {s.phase === 'loading' ? <div className="wm-dash-card" data-testid="bench-page-loading"><Skeleton active paragraph={{ rows: 6 }} /></div>
           : s.phase === 'off' ? <div className="wm-bp-state" data-testid="bench-page-off"><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={BENCH_VIEWS_OFF} /></div>
             : s.phase === 'error' ? <div className="wm-bp-state" data-testid="bench-page-error"><Result status="warning" title={s.text} extra={<Button onClick={() => { setS({ phase: 'loading' }); void load(); }}>再试一次</Button>} /></div>
-              : <BenchView result={s.result} tableBench={cardId} imageBench={cardId} tableDisabled={refreshing || s.requestKey !== key} frame="card" filterValue={params} onParams={(p) => go(view, p)} onSubmit={submit} />}
+              : <TocLayout entries={viewTocEntries(s.result.blocks)}><BenchView result={s.result} tableBench={cardId} imageBench={cardId} tableDisabled={refreshing || s.requestKey !== key} frame="card" filterValue={params} onParams={(p) => go(view, p)} onSubmit={submit} /></TocLayout>}
+        <BackToTop />
       </main>
     </div>
   );

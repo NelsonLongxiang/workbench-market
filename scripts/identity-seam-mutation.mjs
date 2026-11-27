@@ -15,8 +15,12 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { spawnTestTree, killTestTreeSync, testTreeResult } from './lib/test-process-tree.mjs';
 
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  console.log('Usage: node scripts/identity-seam-mutation.mjs [--jobs 1|2] [--only id[,id]] [--list]\n--help, -h  Show usage only; never create copies or run suites.');
+  process.exit(0);
+}
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 const OUT = join(ROOT, 'tmp', `identity-mutation-${process.pid}`);
@@ -576,14 +580,18 @@ function plant(name, mutant) {
 // 每一套在自己的进程组里跑（detached）。套件结束之后（包括超时、自己崩了、没收好它起的实例），把整组收掉，
 // 确认都退出了再删副本：不然实例还在往副本里写，删目录会撞上（ENOTEMPTY）
 const groups = new Set();
+const children = new Map();
+const WIN = process.platform === 'win32';
 const groupAlive = (pgid) => { try { process.kill(-pgid, 0); return true; } catch { return false; } };
 async function reap(pgid) {
-  try { process.kill(-pgid, 'SIGKILL'); } catch { /* 组里已经没有进程了 */ }
+  if (WIN) { const child = children.get(pgid); if (child) killTestTreeSync(child); }
+  else { try { process.kill(-pgid, 'SIGKILL'); } catch { /* 组里已经没有进程了 */ } }
   for (let i = 0; i < 100 && groupAlive(pgid); i++) await new Promise((r) => setTimeout(r, 50));
   if (groupAlive(pgid)) console.warn(`  ⚠ 进程组 ${pgid} 5 秒内没退干净（不影响结果）`);
   groups.delete(pgid);
+  children.delete(pgid);
 }
-process.on('exit', () => { for (const g of groups) { try { process.kill(-g, 'SIGKILL'); } catch { /* 已退出 */ } } });
+process.on('exit', () => { for (const g of groups) { if (WIN) { try { killTestTreeSync(children.get(g)); } catch { /* exit cleanup failure is retained by parent status */ } } else { try { process.kill(-g, 'SIGKILL'); } catch { /* 已退出 */ } } } });
 /** 删副本：带重试；还是删不掉只打一行警告，不把检查全过的结果改成失败 */
 function removeTree(dir) {
   try { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
@@ -592,16 +600,17 @@ function removeTree(dir) {
 
 // 跑的是副本里的脚本：夹具也在副本里，改坏夹具的变体才作数
 const run = (script, tree) => new Promise((done) => {
-  const child = spawn(process.execPath, [join(tree, 'scripts', script), '--root', tree], { cwd: tree, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
-  groups.add(child.pid);
+  const child = spawnTestTree(process.execPath, [join(tree, 'scripts', script), '--root', tree], { cwd: tree, stdio: ['ignore', 'pipe', 'pipe'] });
+  if (child.pid) { groups.add(child.pid); children.set(child.pid, child); }
   const out = [], err = [];
   child.stdout.on('data', (b) => out.push(b));
   child.stderr.on('data', (b) => err.push(b));
   // 超时：整组杀掉（不只是套件本身）
-  const timer = setTimeout(() => { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* 已退出 */ } }, 5 * 60 * 1000);
+  const timer = setTimeout(() => { if (WIN) killTestTreeSync(child); else { try { process.kill(-child.pid, 'SIGKILL'); } catch { /* 已退出 */ } } }, 5 * 60 * 1000);
   child.on('close', (code) => {
     clearTimeout(timer);
-    const r = { status: typeof code === 'number' ? code : null, stdout: Buffer.concat(out).toString('utf8'), stderr: Buffer.concat(err).toString('utf8') };
+    const result = testTreeResult(child, code);
+    const r = { status: typeof result.code === 'number' ? result.code : null, stdout: Buffer.concat(out).toString('utf8'), stderr: Buffer.concat(err).toString('utf8') + (result.error || '') };
     reap(child.pid).then(() => done(r));
   });
 });
@@ -628,7 +637,10 @@ removeTree(OUT);
 try {
   // 绿：没改过的副本，两套都过。先证明「抄一份」这件事本身不会把测试弄红。
   const clean = plant('unchanged', null);
-  for (const script of [CONTRACT, SERVICE, FOLD, SMOKE, FEISHU, OFFBOARD, GRANTS, JUDGE, ZERO]) {
+  // --only is a bounded debug run: prove the exact suites its selected mutants use, not unrelated suites.
+  // The unfiltered integration run retains all original nine baseline suites.
+  const baselineSuites = ONLY ? [...new Set(SELECTED.flatMap(m => m.suites))] : [CONTRACT, SERVICE, FOLD, SMOKE, FEISHU, OFFBOARD, GRANTS, JUDGE, ZERO];
+  for (const script of baselineSuites) {
     const r = await runTwice(script, clean);
     note(r.status === 0, `没改过的副本：${script} 通过`, r.status === 0 ? '' : tailOf(r));
   }

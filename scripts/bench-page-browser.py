@@ -25,6 +25,8 @@ ENTRY = {'bench': {'slug': SLUG, 'title': '合成·巡检台', 'workbench_id': 4
 ENTRY2 = {**ENTRY, 'version': 6, 'title': '合成巡检总览·二',
           'views': [{'key': 'vk-board', 'title': '巡检看板'}, {'key': 'vk-rows', 'title': '巡检明细'}, {'key': 'vk-extra', 'title': '新加的视角'}]}
 ENTRY3 = {**ENTRY, 'version': 7, 'title': '合成巡检总览·三', 'views': [ENTRY['views'][0]]}
+# #1099 页签多的台：20 份视图
+MANY = {**ENTRY, 'views': ENTRY['views'] + [{'key': f'vk-x{i}', 'title': f'合成视角{i}'} for i in range(18)]}
 SITE = {'name': 'site', 'kind': 'search', 'label': '区域'}
 OWNER = {'name': 'owner', 'kind': 'search', 'label': '负责人'}
 FORM = {'type': 'form', 'title': '登记一次巡检', 'span': 6, 'columns': [{'name': 'site', 'type': 'text', 'label': '区域', 'required': True}, {'name': 'n', 'type': 'integer', 'label': '件数'}], 'submit_label': '登记'}
@@ -54,7 +56,7 @@ def view_result(view, params):
     if mode.get('records') in ('on', 'truncated'):
         block = RECORDS if mode['records'] == 'on' else {**RECORDS, 'data': {**RECORDS['data'], 'truncated': True}}
         return {'title': ENTRY['title'], 'version': 5, 'view': {'key': view, 'title': '巡检看板'}, 'params': params, 'blocks': [block]}
-    vt = next(v['title'] for v in ENTRY['views'] if v['key'] == view)
+    vt = next((v['title'] for v in MANY['views'] + ENTRY2['views'] if v['key'] == view), view)
     n = 63 if not params.get('site') else 7
     rows = [{'site': '东区', 'n': 21, 'state': '正常'}, {'site': '西区', 'n': 42, 'state': '待查'}] if not params.get('site') else [{'site': params['site'], 'n': 7, 'state': '正常'}]
     blocks = [{'type': 'filter-bar', 'fields': [SITE, OWNER] if mode['filters'] == 'two' else [SITE], 'span': 12},
@@ -86,7 +88,7 @@ def mgr_entry(): return {**ENTRY, 'bench': {**ENTRY['bench'], 'title': mgr['titl
 def fake(route, body, status=200): route.fulfill(status=status, content_type='application/json', body=json.dumps(body))
 def on_bv(route):
     u = urlparse(route.request.url); parts = u.path.split('/')
-    if parts[3] != str(CARD): return route.continue_()  # 别的卡片走实例里真的入口
+    if parts[3] not in (str(CARD), SLUG): return route.continue_()  # 别的卡片走实例里真的入口（#1086：按台标识打开的也截下）
     rest = '/'.join(parts[4:])
     if rest == 'entry':
         log['entry'] += 1
@@ -98,6 +100,7 @@ def on_bv(route):
         if mode['entry'] == 'v3': return fake(route, ENTRY3)
         if mode['entry'] == 'mgr': return fake(route, mgr_entry())
         if mode['entry'] == 'reports': return fake(route, {**ENTRY, 'can': {'reports': True}})
+        if mode['entry'] == 'many': return fake(route, MANY)
         if mode['entry'] == 'hold': held_entry.append((route, mgr_entry())); return None  # 应答照发出那一刻的名字，由测试晚些放行
         return fake(route, ENTRY)
     if rest == 'render':
@@ -117,6 +120,9 @@ def on_bv(route):
         if mode['form'] == '409': return fake(route, {'error': 'conflict', 'message': '版本变了'}, 409)
         if mode['form'] == '403': return fake(route, {'error': 'bench_views_forbidden'}, 403)
         return fake(route, {'ok': True})
+    if rest == 'workbench':  # #1086 对应卡片
+        body = json.loads(route.request.post_data or '{}'); log.setdefault('link', []).append(body)
+        return fake(route, {'bench': {**mgr_entry()['bench'], 'workbench_id': body.get('workbench_id')}, 'changed': True})
     if rest == 'title':
         body = json.loads(route.request.post_data or '{}'); log['title'].append(body)
         if mode['title'] == '409': return fake(route, {'error': 'conflict', 'message': '台的名字已经被改过了，先重新读一次再改'}, 409)
@@ -420,7 +426,8 @@ with sync_playwright() as p:
     first = cards.first
     check('字段一律当纯文本：带 <script>、<img onerror> 的标题原样当文字显示，页面上没有这两个元素、脚本没跑', XSS in first.inner_text() and first.locator('script, img').count() == 0 and pg.evaluate('() => window.__xss === undefined'), first.inner_text()[:200])
     check('空值写「—」、空日期写「未填」；徽标照说法（进行中）', '—' in first.inner_text() and '未填' in first.inner_text() and '进行中' in first.inner_text())
-    check('没定义说法的取值：照原值显示，标「未定义的取值」', '未定义的取值' in cards.nth(1).inner_text())
+    fallback = cards.nth(1).locator('.wm-rec-badges').inner_text().strip()
+    check('没有中文标签的徽标直接显示原值', fallback == 'weird', fallback)
     link = first.locator('[data-testid=rec-link]')
     check('来源链接只显示说法，不露网址；新窗口打开、带 noopener noreferrer；悬停和读屏给主机名', link.inner_text() == '查看依据' and 'ok.example/doc' not in first.inner_text()
           and link.get_attribute('target') == '_blank' and link.get_attribute('rel') == 'noopener noreferrer' and 'ok.example' in (link.get_attribute('title') or '') and 'ok.example' in (link.get_attribute('aria-label') or ''), (link.get_attribute('title'), link.get_attribute('aria-label')))
@@ -490,6 +497,131 @@ with sync_playwright() as p:
     except Exception: pass
     check('新标签直接打开 /use/<id>：「上一页」回全景，不离开站点', pgn.url.startswith(M) and urlparse(pgn.url).path == '/', pgn.url)
     pgn.close(); mode['entry'] = 'ok'
+
+    print('十一、对应卡片（#1086）')
+    mode['render'] = 'ok'; mode['entry'] = 'ok'
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-bb=stat][data-bb-state=ready]')
+    check('没有管理层授予（入口没给 can.rename）：顶栏不出「对应卡片」', pg.locator('[data-testid=bench-page-link]').count() == 0)
+    mode['entry'] = 'mgr'
+    pg.goto(f'{M}/use/{CARD}'); pg.wait_for_selector('[data-testid=bench-page-link]')
+    pg.locator('[data-testid=bench-page-link]').click(); pg.wait_for_selector('[data-testid=bench-link-current]')  # Modal 的 testid 落在零尺寸的外壳上，等对话框里的字
+    check('管理层：顶栏有「对应卡片」，对话框写现在对应的卡片名', mgr['card'] in pg.locator('[data-testid=bench-link-current]').inner_text(), pg.locator('[data-testid=bench-link-current]').inner_text())
+    pg.locator('[data-testid=bench-link-select]').click()
+    opt = pg.locator('.ant-select-item-option', has_text='合成·本站台卡'); opt.first.wait_for()
+    check('选卡片：清单来自市场里登记的卡片，写名字和编号', opt.count() == 1 and f"#{cfg['self_card']}" in opt.first.inner_text(), opt.all_inner_texts())
+    opt.first.click()
+    n0 = len(log.get('link', [])); pg.locator('[data-testid=bench-link-save]').click()
+    try: pg.wait_for_function(f"() => location.pathname === '/use/{SLUG}'", timeout=10000)  # 等不到由下面的断言带着地址报
+    except Exception: pass
+    # 地址换了以后要等入口重新取完才画台页面（CI 上比本机慢）；等不到由下面的断言报
+    try: pg.wait_for_selector('[data-testid=bench-page]', timeout=10000)
+    except Exception: pass
+    check('保存：发 PUT /workbench { workbench_id: 选的卡片 }；页面换成按台标识打开，留在这个台上', log['link'][n0:] == [{'workbench_id': cfg['self_card']}] and urlparse(pg.url).path == f'/use/{SLUG}' and pg.locator('[data-testid=bench-page]').count() == 1, (log.get('link'), pg.url))
+    pg.locator('[data-testid=bench-page-link]').click(); pg.wait_for_selector('[data-testid=bench-link-remove]')
+    n0 = len(log['link']); pg.locator('[data-testid=bench-link-remove]').click()
+    until(pg, lambda: len(log['link']) > n0)
+    check('去掉对应：发 { workbench_id: null }', log['link'][n0:] == [{'workbench_id': None}], log['link'])
+    # 卡片地址是本站 /use/<台标识>、还没对应：/use/<卡片 id> 写明下一步，不显示「指向市场本身，请改地址」；管理层有直达按钮
+    pg.goto(f"{M}/use/{cfg['self_card']}"); pg.wait_for_selector('[data-testid=use-bench-hint]')
+    pg.wait_for_selector('[data-testid=use-bench-go]')
+    hint = pg.locator('[data-testid=use-bench-hint]').inner_text()
+    check('本站台地址的卡片：说这是数据视图台、写台名和下一步（「对应卡片」），不露台标识', mgr['title'] in hint and '对应卡片' in hint and SLUG not in hint and '请管理员改一下登记的地址' not in hint, hint)
+    pg.locator('[data-testid=use-bench-go]').click(); pg.wait_for_function(f"() => location.pathname === '/use/{SLUG}'")
+    try: pg.wait_for_selector('[data-testid=bench-page]', timeout=10000)  # 地址换了以后要等入口取完才画台页面；等不到由下面的断言报
+    except Exception: pass
+    check('管理层点「去台上对应」：到这个台的页面', pg.locator('[data-testid=bench-page]').count() == 1, pg.url)
+    mode['entry'] = 'ok'
+    pg.goto(f"{M}/use/{cfg['self_card']}"); pg.wait_for_selector('[data-testid=use-bench-hint]')
+    pg.wait_for_function("() => document.querySelector('[data-testid=use-bench-hint]')?.innerText.includes('合成·巡检台')")
+    check('不是管理层：只有说明，没有「去台上对应」', pg.locator('[data-testid=use-bench-go]').count() == 0)
+
+    print('十二、块锚点、本页目录、页签条（#1099）')
+    mode['render'] = 'ok'; mode['entry'] = 'ok'
+    pg.goto(f'{M}/use/{CARD}?v=vk-board#b4'); pg.wait_for_selector('[data-bb=table][data-bb-state=ready]')
+    try: pg.wait_for_function("() => document.getElementById('b4')?.classList.contains('wm-anchor-flash')", timeout=5000)
+    except Exception: pass
+    jump = pg.evaluate("""() => { const m = document.querySelector('.wm-bp-body').getBoundingClientRect(), el = document.getElementById('b4'); if (!el) return null;
+      const r = el.getBoundingClientRect(); return { kind: el.dataset.bb, inView: r.top >= m.top - 2 && r.top < m.bottom - 40, flash: el.classList.contains('wm-anchor-flash') }; }""")
+    check('打开带 #b4 的链接：第 5 块（巡检记录）有这个锚点，定位到看得见的地方并高亮', bool(jump) and jump['kind'] == 'table' and jump['inView'] and jump['flash'], jump)
+    pg.wait_for_timeout(300)
+    on = pg.locator('[data-testid=page-toc] a[aria-current=true]').all_inner_texts()
+    check('跳到的块靠近页底、滚不到顶：目录高亮的仍是它（巡检记录），不被「滚到底」抢成最后一条', on == ['巡检记录'], on)
+    # 期望照这次取数的合成应答算（有标题的块按次序；块键是它在应答里的序号）
+    vb = view_result('vk-board', {})['blocks']
+    exp_toc = [b['title'] for b in vb if b.get('title')]
+    plan = 'b' + str(next(i for i, b in enumerate(vb) if b.get('title') == '改巡检计划'))
+    toc = [x.inner_text().strip() for x in pg.locator('[data-testid=page-toc] a').all()]
+    check('超过 3 块：右侧有本页目录，条目是有标题的块（筛选栏没标题不进）', len(vb) > 3 and toc == exp_toc and '' not in toc, (toc, exp_toc))
+    pg.locator('[data-testid=page-toc] a', has_text='改巡检计划').click()
+    try: pg.wait_for_function(f"() => location.hash === '#{plan}'", timeout=5000)
+    except Exception: pass
+    cur = pg.locator('[data-testid=page-toc] a[aria-current=true]')
+    check('点目录条目：地址换成这一块的 #键，这一条高亮', pg.evaluate('() => location.hash') == f'#{plan}' and cur.count() == 1 and cur.inner_text().strip() == '改巡检计划', (pg.evaluate('() => location.hash'), cur.all_inner_texts()))
+    pg.evaluate("() => { window.__copied = null; navigator.clipboard.writeText = (t) => { window.__copied = t; return Promise.resolve(); }; }")
+    pg.locator('[data-testid=copy-anchor][data-anchor=b3]').click()
+    try: pg.wait_for_function('() => window.__copied !== null', timeout=5000)
+    except Exception: pass
+    want = pg.evaluate("() => location.origin + location.pathname + location.search + '#b3'")
+    check('块标题旁「复制本块链接」：复制的是当前地址（保留视图）加 #b3；统计卡没有这个按钮', pg.evaluate('() => window.__copied') == want and pg.locator('[data-bb=stat] [data-testid=copy-anchor]').count() == 0, (pg.evaluate('() => window.__copied'), want))
+    ps = ctx.new_page(); ps.route('**/api/bench-views/**', on_bv); ps.set_viewport_size({'width': 1440, 'height': 420}); ps.set_default_timeout(10000)
+    ps.goto(f'{M}/use/{CARD}?v=vk-board'); ps.wait_for_selector('[data-bb=table][data-bb-state=ready]'); ps.wait_for_selector('[data-testid=page-toc]')
+    act = lambda: (ps.locator('[data-testid=page-toc] a[aria-current=true]').all_inner_texts() or [''])[0].strip()
+    first = act()
+    ps.evaluate("() => { const m = document.querySelector('.wm-bp-body'); m.scrollTop = m.scrollHeight; }")
+    try: ps.wait_for_function("() => document.querySelector('[data-testid=page-toc] a[aria-current=true]')?.textContent === '改巡检计划'", timeout=5000)
+    except Exception: pass
+    check('滚动时目录高亮跟着走：在顶上是第一条，滚到底是最后一条', first == '本月巡检' and act() == '改巡检计划', (first, act()))
+    try: ps.wait_for_selector('[data-testid=back-to-top]', timeout=5000)
+    except Exception: pass
+    check('滚过一屏出现「回到顶部」', ps.locator('[data-testid=back-to-top]').count() == 1)
+    if ps.locator('[data-testid=back-to-top]').count(): ps.locator('[data-testid=back-to-top]').click()
+    try: ps.wait_for_function("() => document.querySelector('.wm-bp-body').scrollTop === 0", timeout=5000)
+    except Exception: pass
+    check('点「回到顶部」：回到页首，按钮收起', ps.evaluate("() => document.querySelector('.wm-bp-body').scrollTop") == 0 and ps.locator('[data-testid=back-to-top]').count() == 0)
+    ps.close()
+    mode['entry'] = 'many'
+    pg.goto(f'{M}/use/{CARD}?v=vk-x17'); pg.wait_for_selector('[data-testid=bench-page-tab][aria-selected=true]'); pg.wait_for_timeout(300)
+    GEO = """() => { const s = document.querySelector('.wm-bp-tabs').getBoundingClientRect(); const tabs = [...document.querySelectorAll('[data-testid=bench-page-tab]')];
+      const c = document.querySelector('[data-testid=bench-page-tab][aria-selected=true]'); const r = c.getBoundingClientRect();
+      return { n: tabs.length, rows: new Set(tabs.map((t) => Math.round(t.getBoundingClientRect().top))).size, h: Math.round(s.height), cur: c.textContent, curIn: r.left >= s.left - 1 && r.right <= s.right + 1 }; }"""
+    geo = pg.evaluate(GEO)
+    check('20 个页签：只占一行，当前页签（最后一个）露在页签条里', geo['n'] == 20 and geo['rows'] == 1 and geo['h'] <= 40 and geo['cur'] == '合成视角17' and geo['curIn'], geo)
+    more = pg.locator('[data-testid=bench-page-tabs-more]')
+    check('放不下：最右有「更多」', more.count() == 1)
+    more.click()
+    # 菜单里一条都没有时不在这里抛错，由下面的断言带着当时的清单报
+    try: pg.wait_for_selector('[data-testid=bench-page-tabs-more-item]', timeout=5000)
+    except Exception: pass
+    items = [x.inner_text().strip() for x in pg.locator('[data-testid=bench-page-tabs-more-item]').all()]
+    check('「更多」里列出没露全的页签：有第一个「巡检看板」，没有当前这个', '巡检看板' in items and '合成视角17' not in items, items)
+    if pg.locator('[data-testid=bench-page-tabs-more-item]', has_text='巡检看板').count(): pg.locator('[data-testid=bench-page-tabs-more-item]', has_text='巡检看板').click()
+    try: pg.wait_for_function("() => document.querySelector('[data-testid=bench-page-tab][aria-selected=true]')?.textContent === '巡检看板'", timeout=10000)
+    except Exception: pass
+    pg.wait_for_timeout(300); geo = pg.evaluate(GEO)
+    check('从「更多」选「巡检看板」：换到这份视图，它也露在页签条里', geo['cur'] == '巡检看板' and geo['curIn'], geo)
+
+    pg.goto(f'{M}/use/{CARD}?v=vk-x17')
+    pg.wait_for_selector('[data-testid=bench-page-tab][aria-selected=true]')
+    more.wait_for()
+    pg.set_viewport_size({'width': 1024, 'height': 900})
+    try: pg.wait_for_function(f'() => ({GEO})().curIn', timeout=3000)
+    except Exception: pass
+    geo = pg.evaluate(GEO)
+    check('B1：1440 缩到 1024 仍溢出时，当前页签完整可见', more.count() == 1 and geo['cur'] == '合成视角17' and geo['curIn'], geo)
+
+    pg.evaluate("() => { document.querySelector('.wm-bp-tabs').scrollLeft = 0; }")
+    pg.wait_for_function(f'() => !({GEO})().curIn')
+    more.click()
+    current_item = pg.locator('[data-testid=bench-page-tabs-more-item]', has_text='合成视角17')
+    current_item.wait_for()
+    before = (pg.url, len(log['render']))
+    current_item.click()
+    try: pg.wait_for_function(f'() => ({GEO})().curIn', timeout=3000)
+    except Exception: pass
+    geo = pg.evaluate(GEO)
+    check('B1：更多里重选当前项只显露页签，不导航或重新取数', geo['cur'] == '合成视角17' and geo['curIn'] and before == (pg.url, len(log['render'])), (geo, before, pg.url, len(log['render'])))
+    pg.set_viewport_size({'width': 1440, 'height': 900})
+    mode['entry'] = 'ok'
 
     print('列格式和仅详情列')
     mode['format'] = True

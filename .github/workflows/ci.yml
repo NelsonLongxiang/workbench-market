@@ -11,6 +11,11 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Windows test process ownership (synthetic only)
+        run: node --test scripts/lib/test-process-tree.test.mjs
       - name: Synthetic Odoo operator guards (no credentials or network)
         shell: pwsh
         run: ./scripts/ops/odoo-readonly-preflight-test.ps1
@@ -358,9 +363,11 @@ jobs:
           PYTHON: python
         run: node scripts/explicit-script-targets-test.mjs
       - name: 变异运行器自测（评审用的 scripts/mutation-run.mjs：锚点恰好命中、逐条还原并核工作树、进程组停止；夹具只在 tmp/）
-        run: node scripts/mutation-run-test.mjs
+        run: node --test scripts/lib/test-process-tree.test.mjs && node scripts/mutation-run-test.mjs
       - name: 轻量工作树依赖复用自测
         run: node --test scripts/worktree-review-env-test.mjs
+      - name: MCP 变更列表与权限申请事务单测（隔离 SQLite）
+        run: node scripts/mcp-service-sqlite-test.mjs
       - name: 经验库接入启动自检行单测（ygl-trees 入口、YGL_HOME 与 ygl-trees.db、同步周期，缺哪样 warn 点名；#894、#1089）
         run: node scripts/knowledge-startup-line-unit.mjs
       - name: 本机 CI 复放入口单测（scripts/ci-run-block.mjs：只剔共享浅取·actions、安装、诊断步骤不跑·未知表达式不猜·全跑全过才退出 0；夹具只在 tmp/）
@@ -481,7 +488,7 @@ jobs:
       - name: SOP checkpoint deadlines and active-list completeness (#337, #338; synthetic only)
         run: node scripts/sop-state-checkpoints-test.mjs && node scripts/sop-state-http-test.mjs && node scripts/sop-state-restart-test.mjs
       - name: SOP list privacy and upload-token rotation (#309, synthetic only)
-        run: node scripts/sop-list-privacy-test.mjs && node scripts/sop-query-token-test.mjs && node scripts/sop-upload-token-rotation-test.mjs && node scripts/sop-list-privacy-http-test.mjs && node scripts/sop-run-read-auth-test.mjs
+        run: node scripts/sop-list-privacy-test.mjs && node scripts/sop-query-token-test.mjs && node scripts/sop-upload-token-rotation-test.mjs && node scripts/sop-list-privacy-http-test.mjs && node scripts/sop-run-read-auth-test.mjs && node scripts/sop-run-closure-test.mjs
       - name: Verifier criterion65 portal call-chain mutations (synthetic snapshot only)
         run: node scripts/portal-call-chain-test.mjs && node scripts/verifier-masked-import-test.mjs
       - name: 统一待办 ygl-trees 项目上限与总预算（合成入口）
@@ -652,6 +659,10 @@ jobs:
         run: node scripts/work-item-extras-unit.mjs
       - name: 台页与报告页顶栏单测（#1098：面包屑每一级去哪、「上一页」直接打开时回全景）
         run: node scripts/use-topbar-unit.mjs
+      - name: 台和主页卡片的对应（#1086：本站台页面地址显示「待对应」不判离线、对应卡片的结果说法；同源卡片巡检不探测、对应后在线）
+        run: node scripts/bench-link-ui-unit.mjs && node scripts/bench-card-health-test.mjs
+      - name: 块锚点与本页目录单测（#1099：块键、目录条目、地址里的 #、本块链接、滚动高亮）
+        run: node scripts/page-toc-unit.mjs
       - name: 数字显示格式单测（#1085 报告 $format 与统计卡、#1095 数据视图列 format 共用一个实现）
         run: node scripts/value-format-unit.mjs && node scripts/bench-column-format-test.mjs
       - name: 「团队」页单测（纯函数——团队状态、负责人、成员归谁用、计数、空和读不到的说法、建部门校验；单列一步）
