@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /** 安全对抗例组（总工 F5 新规·#242 根因机械化）：安全旗标 PR 闸必跑——
  *  每组 ≥5 例：正例拒 + 对照放行。当前组：S1 SSRF 注册白名单；S4 门户 Odoo 会话转发（scripts/portal-odoo-session-smoke.mjs）。新增安全面按组追加。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { appendFileSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { runEnvFace } from './security-env-face.mjs';
 import { runPortalOdooSessionGroup } from './portal-odoo-session-smoke.mjs';
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const DATA = 'tmp/sec-adv-' + Date.now().toString(36);
 let pass = 0, fail = 0;
 let environment = { status: 'NEEDS-MATERIAL', reason: 'probe not reached' };

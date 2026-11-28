@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /** P0-a-1 四表判据冒烟（判据先红后绿·总工 direct-85d3c5ab 节奏②）：
  *  四表（skills/skill_versions/role_bundles/install_ledger）结构判据——DDL 落地前红，落地后绿。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
 import { requireDataSource } from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
-const PORT = 9921;
+const PORT = await freePort();
 const DATA = 'tmp/e2e-sk1-data';
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };

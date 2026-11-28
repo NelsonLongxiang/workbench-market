@@ -15,6 +15,7 @@
  *   G12 按 run 凭据：读凭证只放行该 run 的读与附件下载，上传令牌只放行该 run（执行中）的附件上传；换 run、伪造、吊销、结束都拦
  *   G11 首次 enforce 轮换按台令牌密钥：开门前的旧令牌 401、新令牌放行、记号与密钥 600、日志无密钥、第二次启动不再轮换
  *   G10 off：匿名照旧可读、不跳登录、health 报 off；口令轮换后旧 cookie 失效；非法开关值拒绝启动 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
@@ -46,8 +47,8 @@ await new Promise((r) => odoo.listen(0, '127.0.0.1', r));
 const ODOO = `http://127.0.0.1:${odoo.address().port}`;
 const gh = await startFakeGithub();
 
-function start(extra, tag, dataDir) {
-  const PORT = 21000 + Math.floor(Math.random() * 11000);
+async function start(extra, tag, dataDir) {
+  const PORT = await freePort();
   const DATA = dataDir ?? mkdtempSync(resolve('tmp', `login-gate-${tag}-`));
   const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '', WM_GITHUB_API: gh.api, ...extra };
   for (const k of Object.keys(extra)) if (extra[k] === undefined) delete env[k];
@@ -86,7 +87,7 @@ const rawWs = (port, path, cookie) => new Promise((resolveWs) => {
 
 // ================= enforce =================
 console.log('== enforce（MCP_GATEWAY=off 一并设上，验证被强制开）==');
-const E = start({ WM_LOGIN_GATE: 'enforce', MCP_GATEWAY: 'off', ADMIN_TOKEN: ADMIN, WM_ODOO_URL: ODOO, WM_ODOO_ORIGINS: ODOO }, 'enforce');
+const E = await start({ WM_LOGIN_GATE: 'enforce', MCP_GATEWAY: 'off', ADMIN_TOKEN: ADMIN, WM_ODOO_URL: ODOO, WM_ODOO_ORIGINS: ODOO }, 'enforce');
 try {
   ok('enforce 实例就绪', await ready(E), E.out().slice(-400));
   const B = E.B;
@@ -334,7 +335,7 @@ try {
 
 // ================= off（行为不变）+ 口令未设置 + 每分钟限频 + 口令轮换 =================
 console.log('== off（缺省）==');
-const O = start({ WM_LOGIN_GATE: undefined, ADMIN_TOKEN: undefined, MCP_GATEWAY: 'off' }, 'off');
+const O = await start({ WM_LOGIN_GATE: undefined, ADMIN_TOKEN: undefined, MCP_GATEWAY: 'off' }, 'off');
 try {
   ok('off 实例就绪', await ready(O), O.out().slice(-400));
   const B = O.B;
@@ -362,7 +363,7 @@ try {
 // ================= 来源 IP（反代后的真实客户端） =================
 console.log('== 来源 IP（同机反代）==');
 {
-  const R = start({ WM_LOGIN_GATE: 'enforce', ADMIN_TOKEN: ADMIN }, 'realip');
+  const R = await start({ WM_LOGIN_GATE: 'enforce', ADMIN_TOKEN: ADMIN }, 'realip');
   try {
     ok('G13 实例就绪', await ready(R), R.out().slice(-300));
     const B = R.B;
@@ -390,7 +391,7 @@ console.log('== 首次 enforce 轮换按台令牌 ==');
   const DATA = mkdtempSync(resolve('tmp', 'login-gate-rotate-'));
   const tokOf = async (B) => /<meta name="wm-app-token" content="([0-9a-f]{64})">/.exec(await (await req(B, 'GET', '/apps/rot-app/', {})).text())?.[1] ?? '';
   const keyFile = join(DATA, '.wm-app-token.key'), mark = join(DATA, '.wm-app-token.gate');
-  const A = start({ WM_LOGIN_GATE: 'off', ADMIN_TOKEN: ADMIN, MCP_GATEWAY: 'off' }, 'rotate', DATA);
+  const A = await start({ WM_LOGIN_GATE: 'off', ADMIN_TOKEN: ADMIN, MCP_GATEWAY: 'off' }, 'rotate', DATA);
   let oldTok = '', fileId = 0;
   try {
     ok('G11 off 实例就绪', await ready(A), A.out().slice(-300));
@@ -403,7 +404,7 @@ console.log('== 首次 enforce 轮换按台令牌 ==');
     ok('G11 off 不写轮换记号', !existsSync(mark));
   } finally { await stop(A, true); }
   const keyBefore = readFileSync(keyFile, 'utf8');
-  const E1 = start({ WM_LOGIN_GATE: 'enforce', ADMIN_TOKEN: ADMIN }, 'rotate', DATA);
+  const E1 = await start({ WM_LOGIN_GATE: 'enforce', ADMIN_TOKEN: ADMIN }, 'rotate', DATA);
   let newTok = '';
   try {
     ok('G11 首次 enforce 实例就绪', await ready(E1), E1.out().slice(-300));
@@ -419,7 +420,7 @@ console.log('== 首次 enforce 轮换按台令牌 ==');
     ok('G11 日志写明轮换但不含新旧密钥', E1.out().includes('已轮换按台令牌密钥') && !E1.out().includes(keyAfter.trim()) && !E1.out().includes(keyBefore.trim()));
     ok('G11 没留下临时文件', !readdirSafe(DATA).some((n) => n.endsWith('.tmp')));
   } finally { await stop(E1, true); }
-  const E2 = start({ WM_LOGIN_GATE: 'enforce', ADMIN_TOKEN: ADMIN }, 'rotate', DATA);
+  const E2 = await start({ WM_LOGIN_GATE: 'enforce', ADMIN_TOKEN: ADMIN }, 'rotate', DATA);
   try {
     ok('G11 第二次 enforce 实例就绪', await ready(E2), E2.out().slice(-300));
     ok('G11 第二次启动不再轮换：令牌不变、无轮换日志', (await tokOf(E2.B)) === newTok && !E2.out().includes('已轮换按台令牌密钥'));
@@ -429,7 +430,7 @@ console.log('== 首次 enforce 轮换按台令牌 ==');
 // ================= 非法开关值 =================
 console.log('== 非法开关值 ==');
 for (const v of ['on', 'Enforce', 'enforce ', '1']) {
-  const X = start({ WM_LOGIN_GATE: v, ADMIN_TOKEN: ADMIN }, 'bad');
+  const X = await start({ WM_LOGIN_GATE: v, ADMIN_TOKEN: ADMIN }, 'bad');
   const code = await Promise.race([X.exited, sleep(15000).then(() => 'timeout')]);
   ok(`G10 WM_LOGIN_GATE=${JSON.stringify(v)} 拒绝启动`, code !== 'timeout' && code !== 0 && X.out().includes('WM_LOGIN_GATE'), String(code));
   await stop(X);

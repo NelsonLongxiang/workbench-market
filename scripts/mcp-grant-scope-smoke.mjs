@@ -2,12 +2,13 @@
 /** #452 MCP 授权限定到单个台（工具@台）冒烟（独立实例：全新 DATA_DIR + ADMIN_TOKEN + MCP_GATEWAY=on）。
  *  覆盖：grants 收 workbench_vars_get/set@台、台不存在/不支持按台的工具 400；台内可调、台外 MCP 与 REST 都按未授权拒绝并记审计；
  *  全局授权行为不变；access_info 标出限定的台；access_request 申请 工具@台、批准后生效；台删除后旧的 工具@台 在下次保存时剔除。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = Number(process.env.GW_PORT) > 0 ? Number(process.env.GW_PORT) : 20000 + Math.floor(Math.random() * 20000);
+const PORT = Number(process.env.GW_PORT) > 0 ? Number(process.env.GW_PORT) : await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-mcp-grant-scope-' + Date.now().toString(36);
 let pass = 0, fail = 0;

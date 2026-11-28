@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /** #170 P1②③ 冒烟：①非 HTTPS Secure 剥离 ②__Host- 保留 Path=/+Secure ③泛化根路径（"/static/x"→/go/<id>/static/x）④外部 URL/已带前缀不误改。
  *  隔离：空的 DATA_DIR（tmp/ 下现建、跑完删），不读任何真实数据，直接 node 就能跑，接在 CI 里。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createServer } from 'node:http';
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const TP = PORT + 1;
 mkdirSync('tmp', { recursive: true });
 const DATA = mkdtempSync(resolve('tmp', 'e2e-p13-'));

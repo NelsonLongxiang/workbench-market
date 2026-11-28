@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #178 S10 回归冒烟：①候选≤30 全量（不截断）②>30 可排序取前 30 ③全 0/并列不砍（>30 照发·分批）。 */
@@ -6,7 +7,7 @@ import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const GW = PORT + 1;
 const DATA = 'tmp/e2e-s10-' + Date.now().toString(36);
 const H = { 'Content-Type': 'application/json', 'X-Admin-Token': 's10' };

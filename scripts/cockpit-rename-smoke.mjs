@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /** 驾驶舱改名冒烟（direct-3b98f8c2 用户报障件）：后端 PUT name 已在——本件验前端构建产物含改名入口 + API 链端到端。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 
-const PORT = 9931;
+const PORT = await freePort();
 const DATA = 'tmp/e2e-rename-data';
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };

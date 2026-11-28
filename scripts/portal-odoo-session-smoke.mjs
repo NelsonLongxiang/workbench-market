@@ -7,6 +7,7 @@
  *  正例拒：普通台 GET/POST/只有会话/多个同名/WS；攻击者源登记成 type=odoo、地址带 :8069；以前算可信 Odoo 源的台，
  *  带上同源脚本可伪造的 wm_sso_ok、或旧的 state 回跳参数，都收不到 session_id；首访也不再 302 去 Odoo 登录。
  *  对照：其它 cookie 原样转发。另起一个旧变量都不设的实例，结论相同。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { createServer, request } from 'node:http';
@@ -69,7 +70,7 @@ export async function runPortalOdooSessionGroup() {
   const real = await startCaptureUpstream(); // 以前算「可信 Odoo」的源（旧变量还指着它）
   const DATA = resolve('tmp/sec-portal-sid-' + Date.now().toString(36));
   mkdirSync(DATA, { recursive: true });
-  const PORT = 20000 + Math.floor(Math.random() * 12000);
+  const PORT = await freePort();
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
     cwd: process.cwd(), stdio: ['ignore', 'ignore', 'pipe'],
     env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'sec-portal', WM_ODOO_ORIGINS: `http://127.0.0.1:${real.port}`, WM_ODOO_URL: `http://127.0.0.1:${real.port}/odoo`, WM_ODOO_LOGIN_PROXY: '1' },
@@ -157,7 +158,7 @@ export async function runPortalOdooSessionGroup() {
   // 随机端口偶发撞车（CI 上见过一次未就绪）：换端口最多起三次；失败时带上服务端日志尾，便于定位
   let PORT2 = 0, child2 = null, log2 = '';
   for (let attempt = 1; attempt <= 3 && !child2; attempt++) {
-    PORT2 = 20000 + Math.floor(Math.random() * 12000);
+    PORT2 = await freePort();
     const env2 = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT2), DATA_DIR: DATA2, ADMIN_TOKEN: 'sec-portal2' };
     delete env2.WM_ODOO_ORIGINS; delete env2.WM_ODOO_URL; delete env2.LC_ODOO_URL;
     const c = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: process.cwd(), stdio: ['ignore', 'ignore', 'pipe'], env: env2 });

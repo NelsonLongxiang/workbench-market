@@ -11,12 +11,13 @@
  *     access_info {ref} 只查得到自己的申请，别的会话的和不存在的同一句；台申请照旧不核台存不存在（没有授予的会话看不出台存不存在），应答说清写错了怎么办。
  * 测试数据都是合成的。
  */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { linkSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-mcp-newcomer-' + Date.now().toString(36);
 const ADMIN = 'newcomer-synthetic-admin';

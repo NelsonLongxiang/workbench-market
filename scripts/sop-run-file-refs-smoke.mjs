@@ -8,6 +8,7 @@
 //   R5（有 PYTHON 且装了 Playwright 时）执行页多选逐个上传：成功、失败各自显示，剩余配额可见
 //   R6 上传核对结果：带对的 sha256（表单字段或请求头）→ sha256-verified；不带 → unverified 且 sha256 与内容一致；
 //      带错的、格式错、头与字段不一致 → 400，库里和盘上都不留
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -17,7 +18,7 @@ import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 mkdirSync('tmp', { recursive: true });
 const DATA = mkdtempSync(resolve('tmp', 'sop-refs-'));
-const PORT = 22000 + Math.floor(Math.random() * 10000);
+const PORT = await freePort();
 const B = 'http://127.0.0.1:' + PORT;
 const ADMIN = 'sop-refs-admin';
 const gh = await startFakeGithub();

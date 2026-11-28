@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** 分拣投递开关冒烟（#19 残件 ②a·判据先红后绿）。
@@ -9,7 +10,7 @@ const SOURCE_DATA_DIR = requireDataSource();
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
-const PORT = 9861;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-dispatch-sort-data';
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 'dsort-tok' };

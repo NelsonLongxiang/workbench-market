@@ -2,6 +2,7 @@
 /** 自产台 / SOP 台卡片健康与 run 读回字段冒烟（独立实例、合成数据）：
  *  ① /apps/<slug>/、/sop/<slug>/ 卡片探测不发 HTTP，但要核实台本身还在——台不存在、SOP 未上架都记 down 并写明原因；
  *  ② sop_run_get（带读能力）返回 started_at / updated_at / finished_at，与无读能力的元数据视图一致。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -11,7 +12,7 @@ let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
 const TMP = resolve('tmp/self-hosted-health-smoke-' + Date.now().toString(36));
 mkdirSync(join(TMP, 'data'), { recursive: true });
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN = 'synthetic-selfhealth-admin';
 const gh = await startFakeGithub();

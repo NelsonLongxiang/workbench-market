@@ -12,6 +12,7 @@
  * 代码改了、技能没跟上，这里会红。隔离实例：全新数据目录、NODE_ENV=test、合成的管理口令，用测试专用的 WM_MCP_RESULT_LIMITS 把阈值调到 16 000 字节：目录（约 11 KB）照常整份回，设计规范（约 24 KB）给引用。
  *   node scripts/skill-capability-access-examples-test.mjs
  */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
@@ -28,7 +29,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const text = readFileSync(SKILL, 'utf8').replace(/\r\n/g, '\n');
 const blocks = [...text.matchAll(/```json (mcp|rest):([a-z_]+)\n([\s\S]*?)```/g)].map((m, i) => ({ n: i + 1, via: m[1], tool: m[2], body: m[3] }));
 
-const port = 20000 + Math.floor(Math.random() * 12000);
+const port = await freePort();
 const base = `http://127.0.0.1:${port}`;
 const data = join(ROOT, 'tmp', `skill-capability-${Date.now().toString(36)}`);
 rmSync(data, { recursive: true, force: true });

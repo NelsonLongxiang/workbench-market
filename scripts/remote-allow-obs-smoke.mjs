@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** S3 豁免面可观测冒烟（评审席裁下批·PR#72 真事故锚·判据先红后绿）。
@@ -12,8 +13,8 @@ import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 
-const PORT = 9858;
-const PORT2 = 9859;
+const PORT = await freePort();
+const PORT2 = await freePort();
 const DATA = 'tmp/e2e-s3obs-data';
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };

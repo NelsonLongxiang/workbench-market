@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /** SandboxService+sop_run_sandbox 判据冒烟（先红）——第十域/MCP 工具/layerfs:// URI 分流。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 9991;
+const PORT = await freePort();
 const DATA = 'tmp/e2e-sbx-data';
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  PASS ' + n + ' ' + x); } else { fail++; console.log('  FAIL ' + n + ' ' + x); } };

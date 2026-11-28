@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #170 P0 冒烟（判据先红）：①强制 gzip 的上游响应经 /go/ 字节完好（不因文本改写损坏）②identity 上游收到 accept-encoding:identity③明文 HTML 仍能改写（回归）。 */
@@ -7,7 +8,7 @@ import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { gzipSync } from 'node:zlib';
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const TP = PORT + 1;
 const DATA = 'tmp/e2e-gz-' + Date.now().toString(36);
 const H = { 'Content-Type': 'application/json', 'X-Admin-Token': 'gz' };

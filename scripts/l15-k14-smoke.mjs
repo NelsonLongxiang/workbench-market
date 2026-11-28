@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #94 收官后复核 ①④ 冒烟（L15 数据丢失+K14 越权读·判据先红后绿·监督席 direct-7eab77a9 加急）。
@@ -22,6 +23,7 @@ async function waitReady(url, ms = 15000) {
   return false;
 }
 const gh = await startFakeGithub(); // 自产台/SOP 台只从 GitHub main 同步：本机替身仓库
+const P9950 = await freePort(), P9951 = await freePort(), P9952 = await freePort(); // 原写死 9950–9952，改系统分配
 const mkInst = (port, data, env = {}) => spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
   cwd: process.cwd(), env: { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'l15-tok', WM_GITHUB_API: gh.api, ...env }, stdio: 'ignore',
 });
@@ -39,10 +41,10 @@ const dirsOf = (data, slug) => (existsSync(data + '/apps/' + slug) ? readdirSync
 {
   const DATA = 'tmp/e2e-l15a-' + Date.now().toString(36);
   await snapInst(DATA);
-  const ch = mkInst(9950, DATA);
+  const ch = mkInst(P9950, DATA);
   try {
-    await waitReady('http://127.0.0.1:9950/api/health');
-    for (let i = 1; i <= 5; i++) await pubApp('http://127.0.0.1:9950', 'l15-nosvc', i);
+    await waitReady(`http://127.0.0.1:${P9950}/api/health`);
+    for (let i = 1; i <= 5; i++) await pubApp(`http://127.0.0.1:${P9950}`, 'l15-nosvc', i);
     await new Promise((r) => setTimeout(r, 500));
     const ds = dirsOf(DATA, 'l15-nosvc');
     ok('L15a 无服务 5 版——全保留（无 Commit 不删）', ds.length === 5, `dirs=${ds.join(',')}`);
@@ -71,11 +73,11 @@ const dirsOf = (data, slug) => (existsSync(data + '/apps/' + slug) ? readdirSync
   const LP = await new Promise((r) => lfs.listen(0, '127.0.0.1', () => r(lfs.address().port)));
   const DATA = 'tmp/e2e-l15bc-' + Date.now().toString(36);
   await snapInst(DATA);
-  const ch = mkInst(9951, DATA, { LAYERFS_SERVICE_URL: `http://127.0.0.1:${LP}`, LAYERFS_SERVICE_TOKEN: TOKEN });
+  const ch = mkInst(P9951, DATA, { LAYERFS_SERVICE_URL: `http://127.0.0.1:${LP}`, LAYERFS_SERVICE_TOKEN: TOKEN });
   try {
-    await waitReady('http://127.0.0.1:9951/api/health');
+    await waitReady(`http://127.0.0.1:${P9951}/api/health`);
     const sts = [];
-    for (let i = 1; i <= 6; i++) { const r = await pubApp('http://127.0.0.1:9951', 'l15-svc', i); sts.push(r.status); }
+    for (let i = 1; i <= 6; i++) { const r = await pubApp(`http://127.0.0.1:${P9951}`, 'l15-svc', i); sts.push(r.status); }
     console.log('    [dbg] publish sts:', sts.join(','));
     let ds = dirsOf(DATA, 'l15-svc');
     for (let i = 0; i < 12 && ds.length > 3; i++) { await new Promise((r) => setTimeout(r, 300)); ds = dirsOf(DATA, 'l15-svc'); }
@@ -83,9 +85,9 @@ const dirsOf = (data, slug) => (existsSync(data + '/apps/' + slug) ? readdirSync
     ok('L15b 有服务 6 版——commit 版 prune ≤3', ds.length <= 3 && ds.includes('v6'), ds.join(','));
     // L15c：服务死→回滚冷版拒
     dead = true;
-    const act = await fetch('http://127.0.0.1:9951/api/apps/l15-svc/activate', { method: 'POST', headers: ADMIN, body: JSON.stringify({ version: 1, reviewed_by: 'l15' }) });
+    const act = await fetch(`http://127.0.0.1:${P9951}/api/apps/l15-svc/activate`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ version: 1, reviewed_by: 'l15' }) });
     ok('L15c 服务死回滚冷版——拒（4xx/5xx 不切指针）', act.status >= 400, `status=${act.status}`);
-    const d2 = await (await fetch('http://127.0.0.1:9951/api/apps/l15-svc')).json();
+    const d2 = await (await fetch(`http://127.0.0.1:${P9951}/api/apps/l15-svc`)).json();
     ok('L15c2 active 仍 v6（指针未切）', Number((d2.app ?? d2).active_version) === 6, String((d2.app ?? d2).active_version));
   } finally { ch.kill(); lfs.close(); await new Promise((r) => setTimeout(r, 400)); }
 }
@@ -93,12 +95,12 @@ const dirsOf = (data, slug) => (existsSync(data + '/apps/' + slug) ? readdirSync
 {
   const DATA = 'tmp/e2e-k14-' + Date.now().toString(36);
   await snapInst(DATA);
-  const ch = mkInst(9952, DATA);
+  const ch = mkInst(P9952, DATA);
   try {
-    await waitReady('http://127.0.0.1:9952/api/health');
+    await waitReady(`http://127.0.0.1:${P9952}/api/health`);
     // 装一个 DATA_DIR 外目录（产库快照路径·绝对形）→verify 应拒读（400/500）而非逐文件读
-    const inst = await fetch('http://127.0.0.1:9952/api/skills/jf:taste/install', { method: 'POST', headers: ADMIN, body: JSON.stringify({ installed_path: SOURCE_DATA_DIR + '/skill-snapshots' }) });
-    const vf = await fetch('http://127.0.0.1:9952/api/skills/jf:taste/verify');
+    const inst = await fetch(`http://127.0.0.1:${P9952}/api/skills/jf:taste/install`, { method: 'POST', headers: ADMIN, body: JSON.stringify({ installed_path: SOURCE_DATA_DIR + '/skill-snapshots' }) });
+    const vf = await fetch(`http://127.0.0.1:${P9952}/api/skills/jf:taste/verify`);
     const vj = await vf.json().catch(() => ({}));
     ok('K14 越权形拒（verify 不读 DATA_DIR 外·ok 非 true 即拒面）', vj.ok !== true || vf.status >= 400, `status=${vf.status} ok=${vj.ok}`);
   } finally { ch.kill(); await new Promise((r) => setTimeout(r, 400)); }

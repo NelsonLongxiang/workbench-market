@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #94 P2 冒烟（L5 留3版+L6 冷回读·判据先红后绿）。
@@ -11,7 +12,7 @@ import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 9899;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = process.env.LAYERFS_SMOKE_DATA ?? 'tmp/e2e-p2-data';
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 'p2-tok' };

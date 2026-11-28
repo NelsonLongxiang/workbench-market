@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #94 v3 S0 收尾批七件冒烟（监督席 direct-67b3d67f·K1-K9 复核红在案·判据先红后绿）。
@@ -16,7 +17,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const PORT = 9870;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-s0b-data';
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 's0b-tok' };

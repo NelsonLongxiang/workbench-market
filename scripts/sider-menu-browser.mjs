@@ -7,6 +7,7 @@
  *  旧路由照开 · 业务面四组按序且无管理组 · 日常组默认展开 · 侧栏文字对比度 ≥4.5 · 每页专属图标 ·
  *  控制面无口令无管理组、输口令后管理组出现且默认折叠、点开可跳转。
  *  需先 pnpm --filter web build（服务端托管 web/dist）。全新 DATA_DIR + 随机回环端口；合成口令。 */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -17,7 +18,7 @@ if (!existsSync('web/dist/index.html')) { console.error('缺 web/dist：先跑 p
 const TMP = resolve('tmp/sider-menu-browser-' + Date.now().toString(36));
 mkdirSync(join(TMP, 'data'), { recursive: true });
 const gh = await startFakeGithub(); // 来源收敛（属主 2026-11-02）：SOP 台只从 GitHub main 同步，测试用本机替身
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN: 'synthetic-menu-admin', WM_GITHUB_API: gh.api };
 for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT']) delete env[k]; // 控制面用缺省 PORT+1

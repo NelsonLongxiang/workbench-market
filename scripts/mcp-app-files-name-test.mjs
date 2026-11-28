@@ -8,6 +8,7 @@
  *  四、multipart 两个入口（/api/apps/<台>/files、/api/mcp-rest/apps/<台>/files）：DEL 和方向控制符拒收 400，不落库、不留临时文件
  * 测试数据都是合成的。
  */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,7 +18,7 @@ let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
 const J = (x) => JSON.stringify(x);
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-mcp-files-name-' + Date.now().toString(36);
 const ADMIN = 'files-name-synthetic-admin';

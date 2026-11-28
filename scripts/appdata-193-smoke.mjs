@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #193 五缺���冒烟：F3 匿名写删 401/403 · F4 软删后下载/改 note 404 · F5 删不存在 404 · F8 配额全量计数 · F11 MCP 同步（app_sync）过锁。 */
@@ -6,7 +7,7 @@ import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const DATA = 'tmp/e2e-193-' + Date.now().toString(36);
 const H = { 'Content-Type': 'application/json', 'X-Admin-Token': 'k193' };
 let pass = 0, fail = 0;

@@ -11,6 +11,7 @@
  *  六、审计与日志：取件、拒绝都记在发票的会话名下，只记编号；调用记录和服务日志里找不到票的原文
  * 测试数据都是合成的。
  */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
@@ -75,7 +76,7 @@ console.log('零、票的仓库');
 }
 
 // ---------- 实例 ----------
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const BASE = 'http://127.0.0.1:' + PORT;
 const DATA = 'tmp/e2e-mcp-download-ticket-' + Date.now().toString(36);
 const ADMIN = 'download-ticket-synthetic-admin';

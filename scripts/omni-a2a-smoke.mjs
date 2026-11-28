@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /** A2A 源冒烟（omni-inbox v2 预建 · 双出口规约——映射出口与降级出口显式区分，防空转绿）。
  *  替身 /__dsh_a2a/state 回放 dsh-open-a2a-net PR#32 形状（tasks 在途 + tasksRecent 归档）。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 import { createServer as createServerCap } from 'node:http';
 import { createServer } from 'node:http';
 
-const PORT = 9856;
+const PORT = await freePort(); // 系统分配；下面的替身与 cap 实例各取各的
 const BASE = `http://127.0.0.1:${PORT}`;
+const STUB_PORT = await freePort(), CAP_STUB_PORT = await freePort(), CAP_PORT = await freePort();
 const DATA = 'tmp/e2e-a2asrc-data';
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
@@ -35,7 +37,7 @@ const stub = createServer((req, res) => {
   res.writeHead(200, { 'content-type': 'application/json' });
   res.end(JSON.stringify(FIXTURE));
 });
-await new Promise((r) => stub.listen(9857, '127.0.0.1', r));
+await new Promise((r) => stub.listen(STUB_PORT, '127.0.0.1', r));
 
 async function waitReady(url, ms = 20000) {
   const end = Date.now() + ms;
@@ -57,7 +59,7 @@ const startSrv = (extraEnv = {}) => spawn(process.execPath, ['--disable-warning=
 
 try {
   // ── 出口一：映射（源启用 + key 正确）──
-  let child = startSrv({ A2A_STATE_URL: 'http://127.0.0.1:9857', A2A_API_KEY: 'test-key' });
+  let child = startSrv({ A2A_STATE_URL: `http://127.0.0.1:${STUB_PORT}`, A2A_API_KEY: 'test-key' });
   if (!(await waitReady(BASE + '/api/health'))) { console.log('  ✗ 实例未就绪'); process.exit(1); }
   let r = await json(`${BASE}/api/tasks`);
   const a2a = (r.body?.tasks ?? []).filter((t) => t.source === 'a2a');
@@ -79,16 +81,16 @@ try {
       if (req.headers['x-api-key'] !== 'test-key') { res.writeHead(401); return res.end('{}'); }
       res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(big));
     });
-    await new Promise((r2) => stubCap.listen(9855, '127.0.0.1', r2));
-    // 起新隔离实例指替身（端口 9855）——过 31s 缓存窗用独立端口 9856 实例
+    await new Promise((r2) => stubCap.listen(CAP_STUB_PORT, '127.0.0.1', r2));
+    // 起新隔离实例指替身（CAP_STUB_PORT）——过 31s 缓存窗用独立端口实例（CAP_PORT）
     const childCap = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'src/index.ts'], {
       cwd: 'server',
-      env: (() => { const e = { ...process.env, PORT: '9860', DATA_DIR: '../tmp/e2e-a2acap', ADMIN_TOKEN: 'cap', YGL_HOME: new URL('../tmp/a2a-cap-no-ygl', import.meta.url).pathname, A2A_STATE_URL: 'http://127.0.0.1:9855', A2A_API_KEY: 'test-key' }; delete e.REDIS_URL; return e; })(),
+      env: (() => { const e = { ...process.env, PORT: String(CAP_PORT), DATA_DIR: '../tmp/e2e-a2acap', ADMIN_TOKEN: 'cap', YGL_HOME: new URL('../tmp/a2a-cap-no-ygl', import.meta.url).pathname, A2A_STATE_URL: `http://127.0.0.1:${CAP_STUB_PORT}`, A2A_API_KEY: 'test-key' }; delete e.REDIS_URL; return e; })(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    if (!(await waitReady('http://127.0.0.1:9860/api/health'))) { ok('cap 实例就绪', false); }
+    if (!(await waitReady(`http://127.0.0.1:${CAP_PORT}/api/health`))) { ok('cap 实例就绪', false); }
     else {
-      const rc = await fetch('http://127.0.0.1:9860/api/tasks', { headers: { 'X-Admin-Token': 'cap' } }).then((r) => r.json()).catch(() => null);
+      const rc = await fetch(`http://127.0.0.1:${CAP_PORT}/api/tasks`, { headers: { 'X-Admin-Token': 'cap' } }).then((r) => r.json()).catch(() => null);
       const done = (rc?.tasks ?? []).filter((t) => t.source === 'a2a' && t.status === 'done');
       ok('ARCHIVE_CAP 投影忠实消费（替身 64 行→信封 64）', done.length === 64, `done=${done.length}`);
       ok('newest-first 顺序保持（r66 在列、r03 在列）',

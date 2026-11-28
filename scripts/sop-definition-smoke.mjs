@@ -2,6 +2,7 @@
 /** #318 GET /api/sops/:slug/definition 冒烟（独立实例、合成数据）：
  *  published 匿名可读且只有步骤 key/标题（不带步骤正文）· draft / deprecated 匿名 403、管理员 200 ·
  *  ?version 读指定版本 · 不存在的版本 404 · 坏 version 400 · 冷版本（目录不在）404 version_not_materialized · 非 SOP 404。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -11,7 +12,7 @@ let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
 const TMP = resolve('tmp/sop-definition-smoke-' + Date.now().toString(36));
 mkdirSync(join(TMP, 'data'), { recursive: true });
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN = 'synthetic-sopdef-admin';
 const gh = await startFakeGithub();

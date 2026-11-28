@@ -7,6 +7,7 @@
  *  ④ SPA 顶栏显示登录身份与「退出」；会话失效后 SPA 的接口 401 整页去登录页（next 回当前页）；退出后再进被拦
  *  ⑤ next 指向站外时登录后落在首页
  *  需先 pnpm --filter web build。合成口令、中性 slug、本机 GitHub 替身、随机回环端口；不碰生产。 */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -17,7 +18,7 @@ if (!existsSync('web/dist/index.html')) { console.error('缺 web/dist：先跑 p
 const TMP = resolve('tmp/login-gate-browser-' + Date.now().toString(36));
 mkdirSync(join(TMP, 'data'), { recursive: true });
 const gh = await startFakeGithub();
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const env = { ...process.env, WM_LOGIN_GATE: 'enforce', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN: 'synthetic-login-gate-browser', WM_GITHUB_API: gh.api, REDIS_URL: '' };
 for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT', 'MCP_GATEWAY']) delete env[k];

@@ -7,6 +7,7 @@
  *   回到这里：由原申请会话验证工具——批了的调得了，驳回的照旧不行；申请状态和留痕照页面上办的记着。
  * 身份用合成的（identity-fake-provider）。隔离目录 tmp/bench-mcp-ui-*，跑完清掉。需先 pnpm --filter web build。
  */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -19,7 +20,7 @@ const ROOT = resolve('.');
 const TMP = resolve('tmp/bench-mcp-ui-' + Date.now().toString(36));
 for (const d of ['data', 'home', 'ext']) mkdirSync(join(TMP, d), { recursive: true });
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
-const PORT = 21000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN_TOKEN = 'synthetic-bench-mcp-ui-admin';
 const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), HOME: join(TMP, 'home'), ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0',

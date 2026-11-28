@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // R2: default policy and enabled-policy startup observability, all on fresh test instances.
 // #258 breaking：ALLOW_PUBLIC_NET=1 不再放行公网（只告警），公网拒 403 url_not_allowlisted，混淆/元数据 403 url_hard_denied。
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { once } from 'node:events';
@@ -18,7 +19,7 @@ async function waitReady(url, child) {
   throw new Error('isolated server not ready: ' + url);
 }
 for (const enabled of [false, true]) {
-  const port = 20000 + Math.floor(Math.random() * 12000);
+  const port = await freePort();
   const data = mkdtempSync(join('tmp', 'r2-ssrf-'));
   const env = { ...process.env, PORT: String(port), DATA_DIR: data, MCP_GATEWAY: 'off', NODE_ENV: 'test', ADMIN_TOKEN: 'r2-test' };
   delete env.ALLOW_PUBLIC_NET; // default means absent, not inherited from the invoking shell

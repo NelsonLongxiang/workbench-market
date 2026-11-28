@@ -3,6 +3,7 @@
  *  起一个全新的合成实例（随机回环端口、合成口令），用管理口令建一个驾驶舱，里面先挂两份数据视图的引用（存的只是名字）。
  *  数据视图的接口（台的清单、视图描述、取数）在页面里用 page.route 截下、换成合成的应答：这样不用造台、也不依赖谁有台的权限。
  *  需先 pnpm --filter web build。 */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -11,7 +12,7 @@ import { join, resolve } from 'node:path';
 if (!existsSync('web/dist/index.html')) { console.error('缺 web/dist：先跑 pnpm --filter web build'); process.exit(2); }
 const TMP = resolve('tmp/cockpit-bench-view-browser-' + Date.now().toString(36));
 for (const d of ['data', 'home', 'ext']) mkdirSync(join(TMP, d), { recursive: true });
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN_TOKEN = 'synthetic-cockpit-bv-admin';
 const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'off', WM_CONTROL_PORT: '0',

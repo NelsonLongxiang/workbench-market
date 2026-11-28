@@ -6,6 +6,7 @@
  *  ④ 互通：磁盘文件无明文；上游 openVault 用同一主密码读得到；模拟 DSH 插件在外部写入后，市场列表能看见。
  *  ⑩ 主密码门槛：新建库拒短/全数字/常见/弱口令且不落盘；强口令能建；旧的弱主密码库照常解锁并带提示。
  *  收尾：每个实例按进程组停（SIGTERM，10s 后 SIGKILL），已被信号杀掉的不再等；整套 180s 看门狗，超时报出卡在哪一步并 exit 1。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawnTestTree, killTestTreeSync } from './lib/test-process-tree.mjs';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
@@ -40,10 +41,9 @@ const watchdog = setTimeout(() => {
   process.exit(1);
 }, 180_000);
 
-function boot(tag, extraEnv) {
+async function boot(tag, extraEnv) {
   // 同一轮里各实例的业务面与控制面端口互不重复（以前纯随机，八个实例偶尔撞上同一端口，后起的那个直接退出）
-  let port;
-  do port = 20000 + Math.floor(Math.random() * 12000); while (servers.some((x) => [x.port, x.control].some((q) => q === port || q === port + 1)));
+  const port = await freePort(); // 系统分配，业务面与控制面（+1）一并预留；同一轮各实例互不重复
   const data = join(TMP, `data-${tag}`); mkdirSync(data, { recursive: true });
   const env = { ...process.env, NODE_ENV: 'test', MCP_GATEWAY: 'off', PORT: String(port), DATA_DIR: data, ...extraEnv };
   for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_DEV_ORIGIN', 'WM_CONTROL_PORT']) if (!(k in extraEnv)) delete env[k];
@@ -88,7 +88,7 @@ const keysAre = (body, want) => !!body && typeof body === 'object' && JSON.strin
 
 try {
   const vaultFile = join(TMP, 'vault', 'default.json');
-  const A = boot('a', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile });
+  const A = await boot('a', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile });
   ok('业务面与控制面都起来', (await up(A.port)) && (await up(A.control)), A.err().slice(-300));
   const C = `http://127.0.0.1:${A.control}`;
   // 控制面浏览器：写带 Origin；同源 GET 只带 Sec-Fetch-Site（浏览器真实形态）
@@ -139,7 +139,7 @@ try {
 
   // 冷却 30s 太长，换一个实例继续（同一库文件 → 顺带验证跨实例可重开）
   await stop(A);
-  const B = boot('b', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile });
+  const B = await boot('b', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile });
   ok('第二实例起来', (await up(B.port)) && (await up(B.control)));
   const CB = `http://127.0.0.1:${B.control}`;
   const cwB = { origin: CB, host: `127.0.0.1:${B.control}`, 'x-admin-token': TOK };
@@ -250,7 +250,7 @@ try {
 
   section('⑤ 环境变量主密码');
   await stop(B);
-  const D = boot('d', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD: MASTER });
+  const D = await boot('d', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD: MASTER });
   ok('第三实例起来', await up(D.port));
   r = await http(D.control, 'GET', '/api/vault/entries', { 'x-admin-token': TOK });
   ok('DSH_VAULT_PASSWORD 存在时控制面按需自动解锁', r.status === 200 && r.body?.entries?.length === 6, `${r.status} ${r.text.slice(0, 160)}`);
@@ -265,7 +265,7 @@ try {
   const pwFile = join(TMP, 'vault-master.txt');
   writeFileSync(pwFile, MASTER + '\n', { mode: 0o600 });
   // 文件为准：同时配了错的环境变量也不回落
-  const PF = boot('pf', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: pwFile, DSH_VAULT_PASSWORD: 'wrong-env-master-not-used' });
+  const PF = await boot('pf', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: pwFile, DSH_VAULT_PASSWORD: 'wrong-env-master-not-used' });
   ok('主密码文件实例起来', await up(PF.port));
   r = await http(PF.control, 'GET', '/api/vault/status', { 'x-admin-token': TOK });
   ok('状态报 password_source=file、页面不出解锁框', r.status === 200 && r.body?.password_source === 'file' && r.body?.env_password === true, JSON.stringify(r.body).slice(0, 160));
@@ -277,14 +277,14 @@ try {
   r = await http(PF.control, 'GET', '/api/vault/entries', { 'x-admin-token': TOK });
   ok('上锁后下一次访问自动重开', r.status === 200 && r.body?.entries?.length === 6, `${r.status}`);
   await stop(PF);
-  const PG = boot('pg', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: join(TMP, 'no-such-master.txt'), DSH_VAULT_PASSWORD: MASTER });
+  const PG = await boot('pg', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: join(TMP, 'no-such-master.txt'), DSH_VAULT_PASSWORD: MASTER });
   ok('缺文件实例起来', await up(PG.port));
   r = await http(PG.control, 'GET', '/api/vault/entries', { 'x-admin-token': TOK });
   ok('主密码文件读不到 → 503，不回落环境变量', r.status === 503 && r.body?.code === 'vault_password_file', `${r.status} ${r.text.slice(0, 120)}`);
   await stop(PG);
 
   section('⑤c 凭据库专用域名（WM_VAULT_HOST）：主域名 403、专用域名免输入、围栏');
-  const VH = boot('vh', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: pwFile, WM_VAULT_HOST: 'Vault.Synthetic.Test' });
+  const VH = await boot('vh', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: pwFile, WM_VAULT_HOST: 'Vault.Synthetic.Test' });
   ok('专用域名实例起来', await up(VH.port));
   const onHost = (h) => ({ 'x-admin-token': TOK, host: h });
   r = await http(VH.port, 'GET', '/api/vault/entries', onHost(`127.0.0.1:${VH.port}`));
@@ -315,7 +315,7 @@ try {
   }
 
   section('⑤d 主域名开放开关（WM_VAULT_SERVER_PASSWORD_ON_MAIN=accept-same-origin-risk）');
-  const VM = boot('vm', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: pwFile, WM_VAULT_SERVER_PASSWORD_ON_MAIN: 'accept-same-origin-risk' });
+  const VM = await boot('vm', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: pwFile, WM_VAULT_SERVER_PASSWORD_ON_MAIN: 'accept-same-origin-risk' });
   ok('开关实例起来', await up(VM.port));
   r = await http(VM.port, 'GET', '/api/vault/entries', { 'x-admin-token': TOK });
   ok('开关打开：主域名上管理员直接读', r.status === 200 && r.body?.entries?.length === 6, `${r.status} ${r.text.slice(0, 120)}`);
@@ -324,7 +324,7 @@ try {
   r = await http(VM.port, 'GET', '/api/vault/entries');
   ok('开关打开：非管理员仍 403', r.status === 403 && r.body?.code !== 'vault_control_only', `${r.status}`);
   await stop(VM);
-  const VN = boot('vn', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: pwFile });
+  const VN = await boot('vn', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: vaultFile, DSH_VAULT_PASSWORD_FILE: pwFile });
   ok('无开关实例起来', await up(VN.port));
   r = await http(VN.port, 'GET', '/api/vault/entries', { 'x-admin-token': TOK });
   ok('开关没开：主域名仍 403 vault_control_only', r.status === 403 && r.body?.code === 'vault_control_only', `${r.status}`);
@@ -338,19 +338,19 @@ try {
   }
 
   section('⑥ 未设口令 = 凭据库休眠');
-  const E = boot('e', { WM_VAULT_PATH: join(TMP, 'vault-e', 'default.json') });
+  const E = await boot('e', { WM_VAULT_PATH: join(TMP, 'vault-e', 'default.json') });
   ok('第四实例起来', await up(E.port));
   r = await http(E.port, 'GET', '/api/vault/status', { 'x-admin-token': 'anything' });
   ok('无 ADMIN_TOKEN 时一律 403', r.status === 403, `${r.status}`);
 
   section('⑦ 缺省库文件不是 DSH 插件那份');
   const dshHome = join(TMP, 'dsh-home');
-  const F = boot('f', { ADMIN_TOKEN: TOK, DSH_HOME: dshHome });
+  const F = await boot('f', { ADMIN_TOKEN: TOK, DSH_HOME: dshHome });
   ok('第五实例起来', await up(F.port));
   r = await http(F.port, 'GET', '/api/vault/status', { 'x-admin-token': TOK });
   ok('缺省路径在 DATA_DIR 下、shared_with_dsh=false', r.body?.path === join(TMP, 'data-f', 'vault', 'default.json') && r.body.shared_with_dsh === false, r.text.slice(0, 200));
   await stop(F);
-  const G = boot('g', { ADMIN_TOKEN: TOK, DSH_HOME: dshHome, WM_VAULT_PATH: join(dshHome, 'vault', 'default.json') });
+  const G = await boot('g', { ADMIN_TOKEN: TOK, DSH_HOME: dshHome, WM_VAULT_PATH: join(dshHome, 'vault', 'default.json') });
   ok('第六实例起来', await up(G.port));
   r = await http(G.port, 'GET', '/api/vault/status', { 'x-admin-token': TOK });
   ok('显式指向 DSH 插件库文件 → shared_with_dsh=true', r.body?.shared_with_dsh === true, r.text.slice(0, 200));
@@ -364,7 +364,7 @@ try {
   await stop(G);
 
   section('⑨ 闲置上锁：取验证码不算活动');
-  const H = boot('h', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: join(TMP, 'vault-h', 'default.json'), WM_VAULT_IDLE_MIN: '0.03' });
+  const H = await boot('h', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: join(TMP, 'vault-h', 'default.json'), WM_VAULT_IDLE_MIN: '0.03' });
   ok('第七实例起来', await up(H.port));
   await cli(H.port, 'POST', '/api/vault/unlock', { password: MASTER });
   const idOtp = (await cli(H.port, 'POST', '/api/vault/entries', { title: 'otp', otpSecret: OTP })).body?.id;
@@ -375,7 +375,7 @@ try {
 
   section('⑩ 主密码门槛（只管新建库）');
   const pDir = join(TMP, 'vault-p'), pFile = join(pDir, 'default.json');
-  const P = boot('p', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: pFile });
+  const P = await boot('p', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: pFile });
   ok('第八实例起来', await up(P.port));
   const nothingOnDisk = () => !existsSync(pDir) || readdirSync(pDir).length === 0;
   for (const [label, pw, want] of [
@@ -405,7 +405,7 @@ try {
   const legacy = await openVault({ masterPassword: '1234', path: oFile });
   await legacy.add({ title: '旧库里的条目', password: 'Synthetic-Legacy-Pw' });
   await legacy.lock();
-  const O = boot('o', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: oFile });
+  const O = await boot('o', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: oFile });
   ok('第九实例起来', await up(O.port));
   r = await cli(O.port, 'POST', '/api/vault/unlock', { password: '1234' });
   ok('旧的弱主密码库照常解锁，并提示低于新标准', r.status === 200 && r.body?.unlocked === true && r.body.count === 1 && r.body.weak_master === true && r.body.weak_reasons.length > 0, `${r.status} ${r.text.slice(0, 200)}`);
@@ -415,7 +415,7 @@ try {
   await stop(O);
 
   const qDir = join(TMP, 'vault-q');
-  const Q = boot('q', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: join(qDir, 'default.json'), DSH_VAULT_PASSWORD: '1234' });
+  const Q = await boot('q', { ADMIN_TOKEN: TOK, WM_VAULT_PATH: join(qDir, 'default.json'), DSH_VAULT_PASSWORD: '1234' });
   ok('第十实例起来', await up(Q.port));
   r = await cli(Q.control, 'GET', '/api/vault/entries');
   ok('环境变量弱主密码也不能新建库（400、不落盘）', r.status === 400 && r.body?.code === 'vault_weak_master' && /DSH_VAULT_PASSWORD/.test(r.body.error) && (!existsSync(qDir) || readdirSync(qDir).length === 0), `${r.status} ${r.text.slice(0, 200)}`);

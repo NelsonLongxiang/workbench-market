@@ -4,6 +4,7 @@
  *        SOP 执行页内联同一份变量，页面自有样式不再写死色值。
  *  浏览器（Python Playwright，PYTHON 指定解释器；SKIP_BROWSER=1 只跑 HTTP 部分）：执行页与市场前端同主色/次级文字色/字号/字体；
  *        示例自产台（docs/examples/self-built-tokens.html）正文、状态、面与线全部取变量。 */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,7 +15,7 @@ let pass = 0, fail = 0;
 const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ ${name}`); } else { fail++; console.log(`  ✗ ${name} ${extra}`); } };
 const TMP = resolve('tmp/tokens-surface-' + Date.now().toString(36));
 mkdirSync(join(TMP, 'data'), { recursive: true });
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN = 'synthetic-tokens-admin';
 const gh = await startFakeGithub();

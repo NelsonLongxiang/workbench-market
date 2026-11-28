@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** 页面接线冒烟（监督席 direct-c869d6db）：①Runner 页含上传控件+令牌逻辑 ②严格模式创建响应带 token→上传 201→完成 ③无 token 401。
@@ -6,7 +7,7 @@ const SOURCE_DATA_DIR = requireDataSource();
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
-const PORT = 10015;
+const PORT = await freePort();
 const DATA = 'tmp/e2e-pw-' + Date.now().toString(36);
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 'pw-tok' };
 let pass = 0, fail = 0;

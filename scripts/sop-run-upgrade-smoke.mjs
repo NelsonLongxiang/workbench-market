@@ -5,6 +5,7 @@
 //   U2 升级只限管理员或本机命令行；要写 reason；expected_version 不符 409
 //   U3 升级后版本变成当前版，已填数据原样保留；完成按新规则校验
 //   U4 已是当前版、已完成的 run 不能升级；审计记版本、操作者、理由，不记字段值
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -13,7 +14,7 @@ import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 mkdirSync('tmp', { recursive: true });
 const DATA = mkdtempSync(resolve('tmp', 'sop-upgrade-'));
-const PORT = 22000 + Math.floor(Math.random() * 10000);
+const PORT = await freePort();
 const B = 'http://127.0.0.1:' + PORT;
 const ADMIN = 'sop-upgrade-admin';
 const gh = await startFakeGithub();

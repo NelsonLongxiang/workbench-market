@@ -2,11 +2,12 @@
 /** 来源收敛冒烟（属主 2026-11-02）：非挂载类工作台（自产台 / SOP 台）只接受 GitHub 仓库 main 分支。
  *  判据：直接传文件 / patch / MCP app_publish 一律拒；/api/apps/<slug>/sync 从 main 头拉取、版本记 commit；
  *  独立仓库与集中仓库子目录两种组织都行；同 commit 重拉不出新版；来源非法拒；发布门禁照旧；MCP 只能重拉已登记来源。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 9871;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-github-source-data';
 let pass = 0, fail = 0;

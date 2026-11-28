@@ -15,7 +15,7 @@
  *   node scripts/departments-smoke.mjs              测本仓库
  *   node scripts/departments-smoke.mjs --root DIR   测另一棵目录树
  */
-import { createServer } from 'node:net';
+import { freePort, withPortRetry } from './lib/free-port.mjs';
 import { mkdirSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -38,16 +38,16 @@ const check = (ok, label, detail = '') => { if (ok) pass++; else fail++; console
 const show = (o) => JSON.stringify(o);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function freePort() {
-  const probe = createServer();
-  await new Promise((r) => probe.listen(0, '127.0.0.1', r));
-  const { port } = probe.address();
-  await new Promise((r) => probe.close(r));
-  return port;
-}
-
 let child = null;
+// 探测 socket 关掉到子进程绑定之间端口可能被别人占走（CI job 140966065610：自检全部 surface-not-listening 后拒绝启动），
+// 所以起不来且是端口原因时换端口重起；别的原因照旧直接失败。
 async function boot() {
+  return withPortRetry(async () => {
+    try { return await bootOnce(); }
+    catch (e) { if (child && child.exitCode === null) child.kill(); throw e; }
+  });
+}
+async function bootOnce() {
   const port = await freePort();
   const data = join(OUT, 'data'), home = join(OUT, 'home'), ext = join(OUT, 'ext');
   for (const d of [data, home, ext]) mkdirSync(d, { recursive: true });

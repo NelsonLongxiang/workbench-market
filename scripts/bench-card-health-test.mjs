@@ -5,6 +5,7 @@
  *       （相对地址 /use/… 登记时就被准入拒了——内部路径只收 /apps/、/sop/——所以实例里只造本站的绝对地址，相对地址只在纯函数里核）
  *       地址是别处的卡片照常探测（连不上就离线），没有被一并跳过；对应以后 /use/<卡片 id> 的入口就是这个台。
  *  隔离目录 tmp/bench-card-health-*，跑完清掉。数据都是合成的。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -28,7 +29,7 @@ const ROOT = resolve('.');
 const TMP = resolve('tmp/bench-card-health-' + Date.now().toString(36));
 for (const d of ['data', 'home', 'ext']) mkdirSync(join(TMP, d), { recursive: true });
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
-const PORT = 21000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), HOME: join(TMP, 'home'), ADMIN_TOKEN: 'synthetic-bench-card-health', REDIS_URL: '', MCP_GATEWAY: 'off', WM_CONTROL_PORT: '0',
   IDENTITY_SEAM_ROOT: ROOT, WM_EXTENSIONS_DIR: join(TMP, 'ext'), WM_BENCH_VIEWS: 'on' };

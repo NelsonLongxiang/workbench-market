@@ -13,6 +13,7 @@
 //   V9 删台：变量随台删除（审计留存）
 //   V10 对抗：拒绝的应答不透露台在不在（匿名、非管理员页面、别台令牌对不存在的台和存在的台同一个 403）；
 //       台号只认十进制（0x2、02、2e0 回 400，不落到 2 号台）；留痕 limit 小数不 500
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createHmac } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync } from 'node:fs';
@@ -22,7 +23,7 @@ import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 mkdirSync('tmp', { recursive: true });
 const DATA = mkdtempSync(resolve('tmp', 'wbvars-'));
-const PORT = 22000 + Math.floor(Math.random() * 10000);
+const PORT = await freePort();
 const B = 'http://127.0.0.1:' + PORT;
 const ADMIN = 'wbvars-test';
 const gh = await startFakeGithub();

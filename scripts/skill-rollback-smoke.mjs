@@ -2,6 +2,7 @@
 /** 技能回滚=移「当前版本」指针：发 v1/v2 后回滚到 v1 不再撞 (skill_id, tree_digest) 唯一索引（旧实现复制出同指纹 N+1 → 500）；
  *  回滚后缺省取装/导出/下载/安装计划/校验都拿 v1 的内容，含 base64 二进制的版本逐字节一致；经 MCP 变更申请批准的同一执行体可前移回 v2；
  *  发布新版恢复跟随最新；预置的孤儿 v{N+1}/（旧实现回滚失败留下的）发布时先挪进 .orphans/，不混进新版本。合成数据 + 全新 DATA_DIR + 随机回环端口。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,7 +15,7 @@ mkdirSync(DATA, { recursive: true });
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: DATA, ADMIN_TOKEN: 'rb-smoke' };
 for (const k of ['REDIS_URL', 'LAYERFS_SERVICE_URL', 'LAYERFS_SERVICE_TOKEN', 'LAYERFS_SERVICE_TOKEN_FILE', 'WM_EXTENSIONS_DIR']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });

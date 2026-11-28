@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #94 S3 导出包与 agent 端校验冒烟（K14+K15·判据先红后绿）。
@@ -10,7 +11,7 @@ const SOURCE_DATA_DIR = requireDataSource();
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
-const PORT = 9925;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = process.env.LAYERFS_SMOKE_DATA ?? 'tmp/e2e-s3-data';
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 's3-tok' };

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #198 裁 A 冒烟：①页面注入 wm-app-token ②Origin:null+令牌 → ACAO null 且 data 200 ③无/错令牌不发 ACAO ④异台令牌不通过。 */
@@ -6,7 +7,7 @@ import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const DATA = 'tmp/e2e-198-' + Date.now().toString(36);
 const H = { 'Content-Type': 'application/json', 'X-Admin-Token': 'k198' };
 let pass = 0, fail = 0;

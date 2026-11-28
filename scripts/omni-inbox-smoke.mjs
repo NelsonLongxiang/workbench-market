@@ -2,12 +2,13 @@
 /** 统一待办冒烟（omni-inbox · J1/J5 自查版 · 独立实例）：
  *  ① 信封字段 ② 合成 ygl 正例与故障对照（不读宿主工作区）
  *  ③ market 派单信封 ④ 无共享缓存，故障立即生效 ⑤ 驾驶舱布局保存（J3） */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 9847;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-omni-data';
 let pass = 0, fail = 0;

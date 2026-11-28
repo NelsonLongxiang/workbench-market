@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #164 P1② MCP app_files_upload 冒烟：①上传 200+id/url ②文件面列表可见（同表同链）③超 100MB→413 ④缺参→400。 */
@@ -6,7 +7,7 @@ import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 10047;
+const PORT = await freePort();
 const DATA = 'tmp/e2e-up-' + Date.now().toString(36);
 const H = { 'Content-Type': 'application/json', 'X-Admin-Token': 'up' };
 let pass = 0, fail = 0;

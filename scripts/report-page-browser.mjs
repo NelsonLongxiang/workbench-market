@@ -3,6 +3,7 @@
  *  起一个全新的合成实例（随机回环端口、合成口令、合成身份），用管理口令登记一张合成卡片（没有台库）；
  *  入口和报告的接口在页面里用 page.route 截下、换成合成的应答（报告、回应的状态在测试里记着），并记下页面发了什么。
  *  需先 pnpm --filter web build。 */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,7 +15,7 @@ const ROOT = resolve('.');
 const TMP = resolve('tmp/report-page-browser-' + Date.now().toString(36));
 for (const d of ['data', 'home', 'ext']) mkdirSync(join(TMP, d), { recursive: true });
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN_TOKEN = 'synthetic-report-page-admin';
 const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'off', WM_CONTROL_PORT: '0',

@@ -5,11 +5,12 @@
  *  ③HTML div 开闭配对失衡拒。判据另含：正常发布不受影响（护栏）+ sop kind 同门（对齐）。
  *  属主 2026-11-02 来源收敛后发布只走 GitHub main 同步（POST /api/apps/<slug>/sync）：内容先进替身仓库 main，门禁在同步路径上照样生效。
  */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 9854;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-pubgate-data';
 let pass = 0, fail = 0;

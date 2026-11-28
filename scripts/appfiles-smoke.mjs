@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /** 自产台文件提交面冒烟（独立实例）：所有资源类型——上传→列表→下载→校验→100MB 上限→删除清理。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -14,7 +15,7 @@ async function waitReady(url, ms = 20000) {
 import { rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 9817;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-appfiles-data';
 let pass = 0, fail = 0;

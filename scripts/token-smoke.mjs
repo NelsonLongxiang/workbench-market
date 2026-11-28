@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /** 管理员口令安全冒烟（评审 #27）：出口剔除哈希 / 加盐存储 / 旧格式兼容 / 鉴权正负例。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 import { writeLegacyTokenFixture } from './token-smoke-db.mjs';
 
-const PORT = Number(process.env.TK_PORT) > 0 ? Number(process.env.TK_PORT) : 20000 + Math.floor(Math.random() * 12000); // E2E 内并发避端口撞
+const PORT = Number(process.env.TK_PORT) > 0 ? Number(process.env.TK_PORT) : await freePort(); // E2E 内并发避端口撞
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-token-data';
 let pass = 0, fail = 0;

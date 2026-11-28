@@ -5,6 +5,7 @@
 //   L1 完成时逐行按文件面核：文件不在本记录、sha256 与实际内容不一致（含同名不同内容）、文件名不一致都拦下
 //   L2 角色缺失按结构规则拦；合规后完成成功；引用来的文件同样可以登记
 //   L3（有 PYTHON 且装了 Playwright 时）执行页表格编辑器：选文件自动带出 sha256，选角色，保存后完成成功
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,7 +15,7 @@ import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
 mkdirSync('tmp', { recursive: true });
 const DATA = mkdtempSync(resolve('tmp', 'sop-file-list-'));
-const PORT = 22000 + Math.floor(Math.random() * 10000);
+const PORT = await freePort();
 const B = 'http://127.0.0.1:' + PORT;
 const ADMIN = 'sop-file-list-admin';
 const gh = await startFakeGithub();

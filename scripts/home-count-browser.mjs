@@ -10,6 +10,7 @@
  *  第二段（管理层代办）：alpha 再给 team-b 建两件 → 团队没有负责人，持有管理层授予的人（user:no-flag）代办：
  *    这两件在「可以代办」那一组，不进角标、不算进总结句的等你拍板数，三处都是 0、仍然一致；总结句说「另有 2 件别人的事你可以代办」。
  *  需先 pnpm --filter web build。全新 DATA_DIR + 随机回环端口；合成身份、合成口令。 */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -24,7 +25,7 @@ const TMP = resolve('tmp/home-count-browser-' + Date.now().toString(36));
 for (const d of ['data', 'home', 'ext']) mkdirSync(join(TMP, d), { recursive: true });
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
 const gh = await startFakeGithub();
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN_TOKEN = 'synthetic-home-count-admin';
 const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'off', WM_CONTROL_PORT: '0',

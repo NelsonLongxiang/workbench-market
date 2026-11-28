@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #94 v3 S1 统一人审门冒烟（K10-K12+L14·判据先红后绿）。
@@ -10,7 +11,7 @@ const SOURCE_DATA_DIR = requireDataSource();
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
-const PORT = 9875;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-s1-data';
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 's1-tok' };

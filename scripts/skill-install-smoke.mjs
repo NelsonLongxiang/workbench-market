@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /** P1-b 钉装与审计冒烟（判据先红 · 方案 §1 P1-b 四面）：
  *  钉装（ledger 行 expected=digest）/ 装载校验（篡改红）/ 回撤 / role-pack 展开清单 ——端点未实现时红。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 
-const PORT = 9961;
+const PORT = await freePort();
 const DATA = 'tmp/e2e-p1b-data';
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };

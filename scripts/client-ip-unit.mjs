@@ -2,6 +2,7 @@
 /** 来源 IP 单测（server/src/login-gate.ts clientIp / trustedProxies · WM_TRUSTED_PROXIES）：
  *  缺省只认回环写入的 X-Real-IP/XFF；容器里 nginx 经 docker 网桥（如 172.17.0.1）转进来时，配了可信网段才按 X-Real-IP 分开计来源；
  *  不可信对端伪造的 X-Real-IP/XFF 一律不生效；IPv6 与 ::ffff: 映射；非法项列出且服务端拒绝启动。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -33,7 +34,7 @@ ok('trustedProxies：合法项收下，非法项列出', t.entries.length === 3 
 
 // 非法值拒绝启动
 const dir = mkdtempSync(join(tmpdir(), 'wm-trusted-proxies-'));
-const port = 20000 + Math.floor(Math.random() * 12000);
+const port = await freePort();
 const env = { ...process.env, NODE_ENV: 'test', MCP_GATEWAY: 'off', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: dir, WM_TRUSTED_PROXIES: '172.17.0.0/12, nope' };
 const p = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'ignore', 'pipe'] });
 let err = ''; p.stderr.on('data', (c) => (err += c));

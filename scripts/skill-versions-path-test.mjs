@@ -11,11 +11,12 @@
  * 隔离：空的 DATA_DIR（tmp/ 下现建、跑完删），MCP 网关开，不读任何真实数据。
  *   node scripts/skill-versions-path-test.mjs
  */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from './owned-script-fixture.mjs';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const B = `http://127.0.0.1:${PORT}`;
 const ADMIN = 'skv-admin-token';
 mkdirSync('tmp', { recursive: true });

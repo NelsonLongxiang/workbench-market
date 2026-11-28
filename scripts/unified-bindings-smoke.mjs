@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** 统一绑定面冒烟（联合评审①裁定 C·判据先红后绿）。
@@ -8,7 +9,7 @@ const SOURCE_DATA_DIR = requireDataSource();
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
-const PORT = 9856;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-ubind-data';
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 'ubind-test-token' };

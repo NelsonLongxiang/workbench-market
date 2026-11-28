@@ -4,6 +4,7 @@
  *  没有台的卡片、不存在的卡片、没登录：走实例里真的入口（404 / 401）；
  *  是视图台的那一种：入口、取数、交表单在页面里用 page.route 截下、换成合成的应答，并记下页面发了什么。
  *  需先 pnpm --filter web build。 */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -15,7 +16,7 @@ const ROOT = resolve('.');
 const TMP = resolve('tmp/bench-page-browser-' + Date.now().toString(36));
 for (const d of ['data', 'home', 'ext']) mkdirSync(join(TMP, d), { recursive: true });
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN_TOKEN = 'synthetic-bench-page-admin';
 const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'off', WM_CONTROL_PORT: '0',

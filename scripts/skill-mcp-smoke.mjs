@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /** P1-a MCP 工具面冒烟（判据先红）：skills_list/skill_versions/skill_install_plan 三工具——
  *  未注册时 tools/list 缺名（红）→实现后在场且调用返回种子/版本链/计划。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 
-const PORT = 9951;
+const PORT = await freePort();
 const DATA = 'tmp/e2e-p1a-data';
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };

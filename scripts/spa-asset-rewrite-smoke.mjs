@@ -6,12 +6,13 @@
  *  ④外链/协议相对/data: 不误改（护栏）
  *  隔离：空的 DATA_DIR（tmp/ 下现建、跑完删），不读任何真实数据，直接 `node scripts/spa-asset-rewrite-smoke.mjs` 就能跑，接在 CI 里。
  */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createServer } from 'node:http';
 
-const PORT = 9970;
+const PORT = await freePort();
 mkdirSync('tmp', { recursive: true });
 const DATA = mkdtempSync(resolve('tmp', 'e2e-white-'));
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 'ws-tok' };

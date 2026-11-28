@@ -19,6 +19,7 @@
 //   W13 发送途中撤回：撤回如实报 in_flight，落定记 sent + sent-after-withdraw（不把 cancelled 事后改写）
 //   终态判据非空：注入一条 73h 前的 held，判据必须抓到
 //   W14 阶段八 8b：每个事件都建出事项、状态和来源对得上；监听器没出错；只跑回填和实时建的逐行相同
+import { freePort } from './lib/free-port.mjs';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
@@ -37,7 +38,7 @@ const { verifyOriginClaim } = await import(pathToFileURL(originSrc).href);
 
 mkdirSync('tmp', { recursive: true });
 const data = mkdtempSync(resolve('tmp', 'wbe-'));
-const port = 21000 + Math.floor(Math.random() * 11000);
+const port = await freePort();
 const base = 'http://127.0.0.1:' + port;
 const gh = await startFakeGithub();
 const env = { ...process.env, NODE_ENV: 'test', IDENTITY_SEAM_ROOT: resolve('.'), IDENTITY_FAKE_ADMIN_GRANT: 'admin', WM_GITHUB_API: gh.api, PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'wbe-test', MCP_GATEWAY: 'on', REDIS_URL: '', LAYERFS_SERVICE_URL: '', MARKET_PUBLIC_URL: base, A2A_OUTBOX_BACKOFF_SCALE: '0.0001' };

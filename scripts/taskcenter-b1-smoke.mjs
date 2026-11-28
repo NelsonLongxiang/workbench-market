@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /** #159 M3 B1 冒烟：①三表在位 ②applyTaskTransition 每迁移恰一条事件 ③事件只增（无更新语句面）④两把锁默认关 ⑤同录入二次发布拒。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const DATA = 'tmp/e2e-159b1-' + Date.now().toString(36);
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  \u2713 ' + n); } else { fail++; console.log('  \u2717 ' + n + ' ' + x); } };

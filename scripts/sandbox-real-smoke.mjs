@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** 沙箱真调用闸冒烟（#94 P0·总工立第三闸：真 tools/call 往返·工具名/grep 不算·判据先红后绿）。
@@ -11,7 +12,7 @@ import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 
-const PORT = 9865;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-sandbox-real-data';
 let pass = 0, fail = 0;

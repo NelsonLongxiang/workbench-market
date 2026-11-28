@@ -10,6 +10,7 @@
 //   O6 旧库升级：没有 owner 列的库启动后补列，常量按 mcp:/odoo: 最后写入者回填，共享身份留空
 //   O8 Odoo 下线后的旧作者 odoo:<登录名>：站内登录的人（user:<主体>）名下保留着这条历史 Odoo 绑定才算作者，能修订、能设成公共；
 //      没绑的人（哪怕是管理员）不算；新写入的 owner 不再收 odoo:（400），收 user:
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -23,8 +24,8 @@ let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ✓ ' + n); } else { fail++; console.log('  ✗ ' + n + ' ' + x); } };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function start(DATA, fake = false) {
-  const PORT = 22000 + Math.floor(Math.random() * 10000);
+async function start(DATA, fake = false) {
+  const PORT = await freePort();
   const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, ADMIN_TOKEN: ADMIN, MCP_GATEWAY: 'on', NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '', ...(fake ? { IDENTITY_SEAM_ROOT: resolve('.') } : {}) };
   const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', ...(fake ? ['--import', pathToFileURL(resolve('scripts/identity-fake-preload.mjs')).href] : []), 'server/src/index.ts'], { env, stdio: ['ignore', 'ignore', 'pipe'] });
   let err = ''; child.stderr.on('data', (c) => (err += c));
@@ -52,7 +53,7 @@ async function call(base, method, path, headers, body) {
 const vpath = (id, key) => `/api/workbenches/${id}/vars/${encodeURIComponent(key)}`;
 
 const DATA = mkdtempSync(resolve('tmp', 'const-owner-'));
-const i = start(DATA);
+const i = await start(DATA);
 try {
   ok('实例就绪（MCP 网关开）', await ready(i), i.err().slice(-300));
   const wb = await call(i.base, 'POST', '/api/workbenches', CLI, { name: 'Const Owner', url: 'http://127.0.0.1:9/', type: 'web' });
@@ -148,7 +149,7 @@ try {
 console.log('▶ O8 旧作者 odoo:<登录名>');
 {
   const D8 = mkdtempSync(resolve('tmp', 'const-owner-odoo-'));
-  const k = start(D8, true);
+  const k = await start(D8, true);
   try {
     ok('实例就绪（假身份来源）', await ready(k), k.err().slice(-300));
     const page = (sid) => ({ 'content-type': 'application/json', 'sec-fetch-site': 'same-origin', origin: k.base, cookie: `session_id=${sid}` });
@@ -218,7 +219,7 @@ console.log('▶ O6 旧库升级回填');
   ins.run('c_mcp', 'const', '1', 'mcp:seat-old'); ins.run('c_odoo', 'const', '1', 'odoo:someone'); ins.run('c_app', 'const', '1', 'app:demo');
   ins.run('c_admin', 'const', '1', 'admin'); ins.run('v_mcp', 'var', '1', 'mcp:seat-old');
   db.close();
-  const j = start(OLD);
+  const j = await start(OLD);
   try {
     ok('旧库实例就绪', await ready(j), j.err().slice(-300));
   } finally { await stop(j); }

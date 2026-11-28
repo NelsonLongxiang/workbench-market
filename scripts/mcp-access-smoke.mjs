@@ -3,12 +3,13 @@
  *  覆盖：未授权会话 access_info 看得到完整目录且 granted 正确、tools/list 始终列出两个免授权工具；
  *  access_request 校验、同组去重、每小时 10 条限频；非管理员（含会话令牌）批准 403；管理员批准 = 并集、tools/list 立即可见、审计同事务；
  *  驳回不动 grants；已吊销会话不能批准；app_data_submit 与 REST 同核——违约 400 + violations、合规写入、幂等键；匿名 /mcp 仍 401。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = Number(process.env.GW_PORT) > 0 ? Number(process.env.GW_PORT) : 20000 + Math.floor(Math.random() * 12000);
+const PORT = Number(process.env.GW_PORT) > 0 ? Number(process.env.GW_PORT) : await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-mcp-access-' + Date.now().toString(36);
 const SLUG = 'access-demo';
