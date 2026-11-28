@@ -330,6 +330,10 @@ export const ASKED: Readonly<Record<string, { global: Kind; scoped: Kind | null 
   // 报告（docs/report-step1.md 第四节；报告第 1 步 PR B）：绑模板、生成、读，和视图描述、取数同一档
   'bench-store.report-bind': { global: 'write', scoped: 'write' },
   'bench-store.report-bind-stop': { global: 'decide', scoped: null },
+  // 数据集退役与恢复（#1015 首版）：只认范围「全部」的专用动作授权，不收窄到部门、领域；预检和确认、恢复各判各的
+  'bench-store.dataset-lifecycle-precheck': { global: 'decide', scoped: null },
+  'bench-store.dataset-retire': { global: 'decide', scoped: null },
+  'bench-store.dataset-restore': { global: 'decide', scoped: null },
   'bench-store.report-generate': { global: 'write', scoped: 'write' },
   'bench-store.report-read': { global: 'write', scoped: 'write' },
   'bench-store.report-respond': { global: 'write', scoped: 'write' },

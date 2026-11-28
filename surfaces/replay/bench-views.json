@@ -37,7 +37,12 @@
     "GET /api/report-subjects/:subject",
     "POST /api/bench-views/:bench/reports/:id/responses",
     "PUT /api/bench-views/:bench/title",
-    "GET /api/bench-views/:bench/changes"
+    "GET /api/bench-views/:bench/changes",
+    "GET /api/bench-views/:bench/retired-datasets",
+    "POST /api/bench-views/:bench/datasets/:name/retire/precheck",
+    "POST /api/bench-views/:bench/datasets/:name/retire",
+    "POST /api/bench-views/:bench/datasets/:name/restore/precheck",
+    "POST /api/bench-views/:bench/datasets/:name/restore"
   ],
   "exempt": [],
   "scenarios": [
@@ -5278,6 +5283,488 @@
             "type": "text/csv; charset=utf-8",
             "headers": { "cache-control": "private, no-store", "content-disposition": "attachment; filename*=UTF-8''table-rows-v1.csv", "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-content-type-options": "nosniff", "x-powered-by": "Express", "x-row-count": "2", "x-table-revision": "<每个实例随机·string·64>", "x-view-version": "1" },
             "body": "﻿\"编号\",\"结果\"\r\n\"1\",\"'=literal-synthetic\"\r\n\"2\",\"other-synthetic\"\r\n"
+          }
+        }
+      ]
+    },
+    {
+      "name": "retire",
+      "what": "数据集退役与恢复（#1015 首版）：alpha 有管理层授予（范围全部）能预检、确认、恢复；beta 只有普通员工授予，预检和确认都被拒。预检发的短期确认票每次都不一样（vary），确认用 save 带过去。",
+      "env": { "WM_BENCH_VIEWS": "on", "ADMIN_TOKEN": "replay-synthetic-admin", "MCP_GATEWAY": "on" },
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["identity-fake"],
+      "steps": [
+        {
+          "id": "seen-alpha",
+          "what": "（准备）让假提供方认出的人进主体表",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "seen-beta",
+          "what": "（准备）让假提供方认出的人进主体表",
+          "compare": "status",
+          "request": { "method": "GET", "path": "/api/auth/viewer", "headers": { "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-mgr-draft",
+          "what": "（准备）本机命令行起草授予",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants", "headers": {}, "json": { "scope": "*", "reason": "合成：退役回放", "principal": "user:alpha", "role": "management" } },
+          "save": { "g_mgr": "grant.id" },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "grant-mgr-submit",
+          "what": "（准备）提交",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{g_mgr}}/submit", "headers": {} },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "grant-mgr-approve",
+          "what": "（准备）放行",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/grants/{{g_mgr}}/approve", "headers": {} },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "bench-create",
+          "what": "（准备）建台",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/bench-views", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" }, "json": { "slug": "demo", "title": "示例台" } },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "def-old",
+          "what": "（准备）定义 old_orders",
+          "compare": "status",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/datasets/old_orders",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "订单", "key": ["id"], "columns": [{ "name": "id", "type": "integer", "label": "编号" }, { "name": "region", "type": "text", "label": "地区" }] }
+          },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "def-used",
+          "what": "（准备）定义 used_orders",
+          "compare": "status",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/datasets/used_orders",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "title": "订单", "key": ["id"], "columns": [{ "name": "id", "type": "integer", "label": "编号" }, { "name": "region", "type": "text", "label": "地区" }] }
+          },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "view-put",
+          "what": "（准备）视图引用 used_orders",
+          "compare": "status",
+          "request": {
+            "method": "PUT",
+            "path": "/api/bench-views/demo/view",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "doc": { "title": "台", "views": [{ "key": "v", "title": "v", "blocks": [{ "type": "table", "query": { "dataset": "used_orders", "sort": [{ "col": "id" }] } }] }] }, "base": 0, "note": "引用 used_orders" }
+          },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "list-anon",
+          "route": "GET /api/bench-views/:bench/retired-datasets",
+          "class": "unauthorized",
+          "what": "没登录读「已退役」清单",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/retired-datasets", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "list-staff",
+          "route": "GET /api/bench-views/:bench/retired-datasets",
+          "class": "unauthorized",
+          "what": "没有专用授权的员工读清单",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/retired-datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "list-nobench",
+          "route": "GET /api/bench-views/:bench/retired-datasets",
+          "class": "invalid",
+          "what": "台不存在",
+          "request": { "method": "GET", "path": "/api/bench-views/ghost/retired-datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "27", "etag": "W/\"1b-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_not_found" }
+          }
+        },
+        {
+          "id": "list-empty",
+          "route": "GET /api/bench-views/:bench/retired-datasets",
+          "class": "normal",
+          "what": "还没有退役的：空清单",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/retired-datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "bench": "demo", "datasets": [] }
+          }
+        },
+        {
+          "id": "rpre-anon",
+          "route": "POST /api/bench-views/:bench/datasets/:name/retire/precheck",
+          "class": "unauthorized",
+          "what": "没登录预检",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/datasets/old_orders/retire/precheck", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "rpre-staff",
+          "route": "POST /api/bench-views/:bench/datasets/:name/retire/precheck",
+          "class": "unauthorized",
+          "what": "员工预检",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/datasets/old_orders/retire/precheck", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "rpre-badname",
+          "route": "POST /api/bench-views/:bench/datasets/:name/retire/precheck",
+          "class": "invalid",
+          "what": "数据集名写法不对",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/datasets/Bad-Name/retire/precheck", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "预检不带请求体，数据集名写法要对" }
+          }
+        },
+        {
+          "id": "rpre-ghost",
+          "route": "POST /api/bench-views/:bench/datasets/:name/retire/precheck",
+          "class": "invalid",
+          "what": "没有这个数据集",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/datasets/ghost_ds/retire/precheck", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 404,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "55", "etag": "W/\"37-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "not_found", "message": "没有这个数据集" }
+          }
+        },
+        {
+          "id": "rpre-used",
+          "route": "POST /api/bench-views/:bench/datasets/:name/retire/precheck",
+          "class": "normal",
+          "what": "被现行视图引用：列出阻断，不发票",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/datasets/used_orders/retire/precheck", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "143", "etag": "W/\"8f-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "bench": "demo", "dataset": "used_orders", "title": "订单", "rows": 0, "bytes": 0, "state": "active", "blockers": [{ "kind": "view", "view": "v", "block": 0 }] }
+          }
+        },
+        {
+          "id": "rpre-ok",
+          "route": "POST /api/bench-views/:bench/datasets/:name/retire/precheck",
+          "class": "normal",
+          "what": "没被引用：预检通过，发票",
+          "vary": { "ticket": "random", "ticket_ref": "random", "expires_at": 60000 },
+          "request": { "method": "POST", "path": "/api/bench-views/demo/datasets/old_orders/retire/precheck", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "save": { "tk": "ticket" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "215", "etag": "W/\"d7-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "bench": "demo", "dataset": "old_orders", "title": "订单", "rows": 0, "bytes": 0, "state": "active", "blockers": [], "ticket": "<每个实例随机·string·43>", "ticket_ref": "<每个实例随机·string·11>", "expires_at": 1893456300000 }
+          }
+        },
+        {
+          "id": "ret-anon",
+          "route": "POST /api/bench-views/:bench/datasets/:name/retire",
+          "class": "unauthorized",
+          "what": "没登录确认",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/old_orders/retire",
+            "headers": { "x-forwarded-for": "198.51.100.7" },
+            "json": { "ticket": "{{tk}}", "confirm_name": "old_orders", "reason": "合成：回放", "operation_id": "op-replay-0001" }
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "ret-staff",
+          "route": "POST /api/bench-views/:bench/datasets/:name/retire",
+          "class": "unauthorized",
+          "what": "员工确认",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/old_orders/retire",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" },
+            "json": { "ticket": "{{tk}}", "confirm_name": "old_orders", "reason": "合成：回放", "operation_id": "op-replay-0001" }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "ret-noname",
+          "route": "POST /api/bench-views/:bench/datasets/:name/retire",
+          "class": "invalid",
+          "what": "没复述名字",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/old_orders/retire",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "ticket": "{{tk}}", "confirm_name": "other", "reason": "合成：回放", "operation_id": "op-replay-0001" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "115", "etag": "W/\"73-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "确认需要复述数据集名、理由（1～500 字）、操作号和预检凭据" }
+          }
+        },
+        {
+          "id": "ret-badticket",
+          "route": "POST /api/bench-views/:bench/datasets/:name/retire",
+          "class": "invalid",
+          "what": "票是瞎写的",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/old_orders/retire",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "ticket": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "confirm_name": "old_orders", "reason": "合成：回放", "operation_id": "op-replay-0001" }
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "conflict", "message": "预检凭据无效、已过期、已用过或数据集已变化，请重新预检" }
+          }
+        },
+        {
+          "id": "ret-ok",
+          "route": "POST /api/bench-views/:bench/datasets/:name/retire",
+          "class": "normal",
+          "what": "退役",
+          "vary": { "ticket_ref": "random" },
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/old_orders/retire",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "ticket": "{{tk}}", "confirm_name": "old_orders", "reason": "合成：回放", "operation_id": "op-replay-0001" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "115", "etag": "W/\"73-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "bench": "demo", "dataset": "old_orders", "action": "retire", "state": "retired", "revision": 2, "ticket_ref": "<每个实例随机·string·11>" }
+          }
+        },
+        {
+          "id": "ret-replay",
+          "route": "POST /api/bench-views/:bench/datasets/:name/retire",
+          "class": "invalid",
+          "what": "同一张票再用一次",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/old_orders/retire",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "ticket": "{{tk}}", "confirm_name": "old_orders", "reason": "合成：回放", "operation_id": "op-replay-0001" }
+          },
+          "response": {
+            "status": 409,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "114", "etag": "W/\"72-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "conflict", "message": "预检凭据无效、已过期、已用过或数据集已变化，请重新预检" }
+          }
+        },
+        {
+          "id": "list-one",
+          "route": "GET /api/bench-views/:bench/retired-datasets",
+          "class": "normal",
+          "what": "退役之后清单里有它",
+          "request": { "method": "GET", "path": "/api/bench-views/demo/retired-datasets", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "110", "etag": "W/\"6e-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "bench": "demo", "datasets": [{ "name": "old_orders", "title": "订单", "row_count": 0, "data_bytes": 0, "revision": 2 }] }
+          }
+        },
+        {
+          "id": "spre-anon",
+          "route": "POST /api/bench-views/:bench/datasets/:name/restore/precheck",
+          "class": "unauthorized",
+          "what": "没登录恢复预检",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/datasets/old_orders/restore/precheck", "headers": { "x-forwarded-for": "198.51.100.7" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "spre-staff",
+          "route": "POST /api/bench-views/:bench/datasets/:name/restore/precheck",
+          "class": "unauthorized",
+          "what": "员工恢复预检",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/datasets/old_orders/restore/precheck", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "spre-badname",
+          "route": "POST /api/bench-views/:bench/datasets/:name/restore/precheck",
+          "class": "invalid",
+          "what": "数据集名写法不对",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/datasets/Bad-Name/restore/precheck", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "80", "etag": "W/\"50-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "预检不带请求体，数据集名写法要对" }
+          }
+        },
+        {
+          "id": "spre-active",
+          "route": "POST /api/bench-views/:bench/datasets/:name/restore/precheck",
+          "class": "normal",
+          "what": "没退役的：恢复预检阻断，不发票",
+          "request": { "method": "POST", "path": "/api/bench-views/demo/datasets/used_orders/restore/precheck", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "183", "etag": "W/\"b7-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "bench": "demo", "dataset": "used_orders", "title": "订单", "rows": 0, "bytes": 0, "state": "active", "blockers": [{ "kind": "state", "reason": "not_retired" }, { "kind": "view", "view": "v", "block": 0 }] }
+          }
+        },
+        {
+          "id": "spre-ok",
+          "route": "POST /api/bench-views/:bench/datasets/:name/restore/precheck",
+          "class": "normal",
+          "what": "已退役的：恢复预检发票",
+          "vary": { "ticket": "random", "ticket_ref": "random", "expires_at": 60000 },
+          "request": { "method": "POST", "path": "/api/bench-views/demo/datasets/old_orders/restore/precheck", "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" } },
+          "save": { "tk2": "ticket" },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "216", "etag": "W/\"d8-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "bench": "demo", "dataset": "old_orders", "title": "订单", "rows": 0, "bytes": 0, "state": "retired", "blockers": [], "ticket": "<每个实例随机·string·43>", "ticket_ref": "<每个实例随机·string·11>", "expires_at": 1893456300000 }
+          }
+        },
+        {
+          "id": "res-anon",
+          "route": "POST /api/bench-views/:bench/datasets/:name/restore",
+          "class": "unauthorized",
+          "what": "没登录恢复",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/old_orders/restore",
+            "headers": { "x-forwarded-for": "198.51.100.7" },
+            "json": { "ticket": "{{tk2}}", "confirm_name": "old_orders", "reason": "合成：回放", "operation_id": "op-replay-0002" }
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "26", "etag": "W/\"1a-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "login_required" }
+          }
+        },
+        {
+          "id": "res-staff",
+          "route": "POST /api/bench-views/:bench/datasets/:name/restore",
+          "class": "unauthorized",
+          "what": "员工恢复",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/old_orders/restore",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-beta-00001" },
+            "json": { "ticket": "{{tk2}}", "confirm_name": "old_orders", "reason": "合成：回放", "operation_id": "op-replay-0002" }
+          },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "33", "etag": "W/\"21-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "bench_views_forbidden" }
+          }
+        },
+        {
+          "id": "res-noreason",
+          "route": "POST /api/bench-views/:bench/datasets/:name/restore",
+          "class": "invalid",
+          "what": "没理由",
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/old_orders/restore",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "ticket": "{{tk2}}", "confirm_name": "old_orders", "reason": " ", "operation_id": "op-replay-0002" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "115", "etag": "W/\"73-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "error": "invalid", "message": "确认需要复述数据集名、理由（1～500 字）、操作号和预检凭据" }
+          }
+        },
+        {
+          "id": "res-ok",
+          "route": "POST /api/bench-views/:bench/datasets/:name/restore",
+          "class": "normal",
+          "what": "恢复",
+          "vary": { "ticket_ref": "random" },
+          "request": {
+            "method": "POST",
+            "path": "/api/bench-views/demo/datasets/old_orders/restore",
+            "headers": { "x-forwarded-for": "198.51.100.7", "sec-fetch-site": "same-origin", "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "ticket": "{{tk2}}", "confirm_name": "old_orders", "reason": "合成：回放", "operation_id": "op-replay-0002" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "115", "etag": "W/\"73-<指纹>\"", "vary": "Origin, Cookie, X-Admin-Token", "x-powered-by": "Express" },
+            "body": { "bench": "demo", "dataset": "old_orders", "action": "restore", "state": "active", "revision": 3, "ticket_ref": "<每个实例随机·string·11>" }
           }
         }
       ]

@@ -37,6 +37,7 @@ import { bindReport, generateReport, listReports, readReport, respondReport, SUB
 import { fetchImage, ImageError, viewRefersImage } from '../bench-image.ts';
 import { imageNodesOf } from '../services/report-compile.ts';
 import { createHash } from 'node:crypto';
+import { issueRetireTicket, takeRetireTicket } from '../dataset-retire-tickets.ts';
 
 export type BenchViewsConfig = { on: boolean; imageGalleryBase: string | null };
 /** 启动时读一次：WM_BENCH_VIEWS（on / off，缺省 on；不需要时显式 off 关掉）；WM_IMAGE_GALLERY_BASE（图库前缀，可不设）。不合法拒绝启动 */
@@ -340,6 +341,72 @@ export function registerBenchViewRoutes(app: HttpService, deps: BenchViewRouteDe
       return res.json({ binding: await store.reportBindingStop(dimension, { base, reason, actor: actor.id, at: Date.now() }, fence) });
     } catch (err) { fail(res, err); }
   }));
+
+  // —— 数据集退役与恢复（#1015 首版）：预检发短期确认票，确认和恢复各自再判权、再核台库围栏 ——
+  // 只认站内同源、当前启用且覆盖对应全局动作的自然人；管理口令、本机内置身份、MCP 会话都不行。无权限时不打开台库、不泄露台和数据集是否存在。
+  const LIFECYCLE_NAME_RE = /^[a-z][a-z0-9_]{0,47}$/;
+  const lifecycleDigest = (c: unknown): string => createHash('sha256').update(JSON.stringify(c)).digest('hex');
+  const lifecycleActor = async (req: express.Request, res: express.Response, action: string): Promise<{ id: string } | null> => {
+    const actor = await who(req, res);
+    if (!actor) return null;
+    if (actor.type !== 'principal' || actor.kind !== 'person' || actor.status !== 'active' || !everywhere(actor, action)) return forbid(res);
+    return { id: actor.id };
+  };
+  const lifecyclePrecheck = (lifecycle: 'retire' | 'restore') => wrap(async (req, res) => {
+    if (!deps.on) return res.status(404).json({ error: 'bench_views_off' });
+    const who1 = await lifecycleActor(req, res, 'bench-store.dataset-lifecycle-precheck');
+    if (!who1) return;
+    const bench = getBench(req.params.bench);
+    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
+    try {
+      const name = String(req.params.name);
+      if (!LIFECYCLE_NAME_RE.test(name) || (req.body && Object.keys(req.body).length)) throw new BenchError('invalid', '预检不带请求体，数据集名写法要对');
+      const pre = await (await benchStore(bench.slug)).datasetPrecheck(name);
+      const want = lifecycle === 'retire' ? 'active' : 'retired';
+      const blockers = [
+        ...(pre.context.state !== want ? [{ kind: 'state', reason: lifecycle === 'retire' ? 'already_retired' : 'not_retired' }] : []),
+        ...(lifecycle === 'retire' && pre.public_area ? [{ kind: 'public_area', reason: 'public_area_not_retirable' }] : []),
+        ...pre.references,
+      ];
+      const issued = blockers.length ? null : issueRetireTicket({ action: lifecycle, actor: who1.id, bench: bench.slug, benchCreatedAt: bench.created_at, dataset: name, contextSha256: lifecycleDigest(pre.context) });
+      if (!blockers.length && !issued) return res.status(429).json({ error: 'retire_ticket_limit', message: '未用的确认票太多，稍后再试' });
+      return res.json({ bench: bench.slug, dataset: name, title: pre.title, rows: pre.rows, bytes: pre.bytes, state: pre.context.state, blockers, ...(issued ? { ticket: issued.ticket, ticket_ref: issued.ref, expires_at: issued.expires_at } : {}) });
+    } catch (err) { fail(res, err); }
+  });
+  const lifecycleConfirm = (lifecycle: 'retire' | 'restore') => wrap(async (req, res) => {
+    if (!deps.on) return res.status(404).json({ error: 'bench_views_off' });
+    const fence = captureBenchStorageFence();
+    const who1 = await lifecycleActor(req, res, lifecycle === 'retire' ? 'bench-store.dataset-retire' : 'bench-store.dataset-restore');
+    if (!who1) return;
+    const bench = getBench(req.params.bench);
+    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
+    try {
+      const name = String(req.params.name), body = req.body ?? {};
+      const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
+      if (!LIFECYCLE_NAME_RE.test(name) || typeof body !== 'object' || Object.keys(body).some(k => !['ticket', 'confirm_name', 'reason', 'operation_id'].includes(k)) ||
+        body.confirm_name !== name || !reason || reason.length > 500 || typeof body.operation_id !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(body.operation_id)) {
+        throw new BenchError('invalid', '确认需要复述数据集名、理由（1～500 字）、操作号和预检凭据');
+      }
+      const store = await benchStore(bench.slug);
+      const context = await store.datasetFence(name);
+      const ref = takeRetireTicket(body.ticket, { action: lifecycle, actor: who1.id, bench: bench.slug, benchCreatedAt: bench.created_at, dataset: name, contextSha256: lifecycleDigest(context) });
+      if (!ref) throw new BenchError('conflict', '预检凭据无效、已过期、已用过或数据集已变化，请重新预检');
+      const fenceResult = await store.datasetLifecycle({ expected: context, operationId: body.operation_id, action: lifecycle, reason, actor: who1.id, at: Date.now() }, fence);
+      return res.json({ bench: bench.slug, dataset: name, action: lifecycle, state: fenceResult.state, revision: fenceResult.revision, ticket_ref: ref });
+    } catch (err) { fail(res, err); }
+  });
+  app.get('/api/bench-views/:bench/retired-datasets', { action: 'bench-store.dataset-lifecycle-precheck', kind: 'decide', statusNotVerdict: NOT_VERDICT }, wrap(async (req, res) => {
+    if (!deps.on) return res.status(404).json({ error: 'bench_views_off' });
+    const who1 = await lifecycleActor(req, res, 'bench-store.dataset-lifecycle-precheck');
+    if (!who1) return;
+    const bench = getBench(req.params.bench);
+    if (!bench) return res.status(404).json({ error: 'bench_not_found' });
+    try { return res.json({ bench: bench.slug, datasets: await (await benchStore(bench.slug)).retiredDatasets() }); } catch (err) { fail(res, err); }
+  }));
+  app.post('/api/bench-views/:bench/datasets/:name/retire/precheck', { action: 'bench-store.dataset-lifecycle-precheck', kind: 'decide', statusNotVerdict: NOT_VERDICT }, lifecyclePrecheck('retire'));
+  app.post('/api/bench-views/:bench/datasets/:name/retire', { action: 'bench-store.dataset-retire', kind: 'decide', statusNotVerdict: NOT_VERDICT }, lifecycleConfirm('retire'));
+  app.post('/api/bench-views/:bench/datasets/:name/restore/precheck', { action: 'bench-store.dataset-lifecycle-precheck', kind: 'decide', statusNotVerdict: NOT_VERDICT }, lifecyclePrecheck('restore'));
+  app.post('/api/bench-views/:bench/datasets/:name/restore', { action: 'bench-store.dataset-restore', kind: 'decide', statusNotVerdict: NOT_VERDICT }, lifecycleConfirm('restore'));
   app.post('/api/bench-views/:bench/reports', { action: 'bench-store.report-generate', kind: 'write', statusNotVerdict: NOT_VERDICT }, on('bench-store.report-generate', async (req, res, s, actor, fence) => {
     const out = await generateReport(benchOf(req), s, req.body, actor, Date.now(), fence!, { galleryBase: deps.imageGalleryBase ?? null });
     res.status(201);

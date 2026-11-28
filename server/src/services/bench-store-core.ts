@@ -59,7 +59,7 @@ export const BENCH_METHODS = new Map<string, 'read' | 'write'>([
   ['reportBindingGet', 'read'], ['reportSlots', 'read'], ['reportGet', 'read'], ['reportList', 'read'], ['reportCounts', 'read'],
   ['responsesOf', 'read'],
   ['reportBindingPut', 'write'], ['reportInsert', 'write'], ['responseInsert', 'write'],
-  ['datasetStorageTotals', 'read'], ['datasetFence', 'read'], ['datasetLifecycle', 'write'], ['reportBindingContext', 'read'], ['reportBindingSnapshot', 'read'], ['reportBindingStop', 'write'], ['reportBindingReceipt', 'read'],
+  ['datasetStorageTotals', 'read'], ['datasetFence', 'read'], ['datasetPrecheck', 'read'], ['retiredDatasets', 'read'], ['datasetLifecycle', 'write'], ['reportBindingContext', 'read'], ['reportBindingSnapshot', 'read'], ['reportBindingStop', 'write'], ['reportBindingReceipt', 'read'],
 ]);
 
 /** 卡片的一个常量或变量（和主库 workbench_vars 的一行同形，只是不带 workbench_id） */
@@ -536,6 +536,41 @@ export class BenchStoreCore {
     }
   }
   datasets(): Promise<DatasetDef[]> { return this.serial(async () => [...(await this.load()).values()]); }
+  /** 已退役的数据集（元数据，不含行）：退役页面「已退役数据集」用 */
+  retiredDatasets(): Promise<{ name: string; title: string; row_count: number; data_bytes: number; revision: number }[]> {
+    return this.serial(async () => (await this.conn.all("SELECT d.name, d.title, d.row_count, d.data_bytes, l.revision FROM bs_dataset_catalog d JOIN bs_dataset_lifecycle l ON l.name = d.name WHERE l.state = 'retired' ORDER BY d.name"))
+      .map(r => ({ name: String(r.name), title: String(r.title), row_count: Number(r.row_count), data_bytes: Number(r.data_bytes), revision: Number(r.revision) })));
+  }
+  /**
+   * 退役预检：和退役时的引用检查是同一套规则，但不抛错、逐条列出。读不出来的现行报告槽也算一条阻断（解析失败继续阻断退役）。
+   * 公共区数据集首版不退役，也在这里说明。恢复预检（数据集已退役）references 为空。
+   */
+  datasetPrecheck(name: string): Promise<{ context: DatasetContext; title: string; rows: number; bytes: number; public_area: boolean; references: { kind: 'view' | 'report'; view?: string; block?: number; dimension?: string; reason?: string }[] }> {
+    return this.serial(async () => {
+      const stamp = await this.datasetStamp(name);
+      const context: DatasetContext = { ...stamp, viewRevision: await this.revisionOf('view_revision'), bindingRevision: await this.revisionOf('binding_revision') };
+      const meta = (await this.conn.all('SELECT title, columns, row_count, data_bytes FROM bs_dataset_catalog WHERE name = ?', [name]))[0];
+      if (!meta) throw new BenchError('not_found', '没有这个数据集');
+      const references: { kind: 'view' | 'report'; view?: string; block?: number; dimension?: string; reason?: string }[] = [];
+      if (stamp.state === 'active') {
+        const doc = await this.currentViewDoc();
+        for (const v of doc?.views ?? []) v.blocks.forEach((b, i) => {
+          const options = b.type === 'filter-bar' && Array.isArray(b.fields) ? b.fields.map(f => f.options) : [];
+          if ((isObj(b.query) && b.query.dataset === name) || b.dataset === name || options.some(o => isObj(o) && o.dataset === name)) references.push({ kind: 'view', view: v.key, block: i });
+        });
+        const rows = await this.conn.all(`SELECT b.dimension_id, b.slots FROM bs_report_bindings b
+          WHERE b.version = (SELECT MAX(m.version) FROM bs_report_bindings m WHERE m.dimension_id = b.dimension_id)
+          AND NOT EXISTS (SELECT 1 FROM bs_report_binding_stops s WHERE s.dimension_id = b.dimension_id AND s.version = b.version)`);
+        for (const row of rows) {
+          try {
+            const slots = await this.reportSlotsFor(doc, JSON.parse(String(row.slots)));
+            if (Object.values(slots).some(s => s.dataset === name)) references.push({ kind: 'report', dimension: String(row.dimension_id) });
+          } catch { references.push({ kind: 'report', dimension: String(row.dimension_id), reason: 'unresolvable' }); }
+        }
+      }
+      return { context, title: String(meta.title), rows: Number(meta.row_count), bytes: Number(meta.data_bytes), public_area: hasProvenance({ columns: JSON.parse(String(meta.columns)) }), references };
+    });
+  }
   datasetStorageTotals(): Promise<{ datasets: number; rows: number; bytes: number }> {
     return this.serial(async () => {
       const row = (await this.conn.all('SELECT COUNT(*) AS datasets, COALESCE(SUM(row_count), 0) AS rows, COALESCE(SUM(data_bytes), 0) AS bytes FROM bs_dataset_catalog'))[0];
