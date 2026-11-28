@@ -60,7 +60,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [{ "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "id": 1, "data": { "n": 1 }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }],
@@ -79,7 +79,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "147", "etag": "W/\"93-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "147", "etag": "W/\"93-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "slug": "replay-data", "items": [{ "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }], "count": 1, "has_more": true, "next_before_id": 2 }
           }
         },
@@ -92,7 +92,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "160", "etag": "W/\"a0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "160", "etag": "W/\"a0-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "slug": "replay-data", "items": [{ "id": 1, "data": { "n": 1 }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }], "count": 1, "has_more": false, "next_before_id": null }
           }
         },
@@ -105,7 +105,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [{ "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "id": 1, "data": { "n": 1 }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }],
@@ -124,7 +124,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [{ "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "id": 1, "data": { "n": 1 }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }],
@@ -143,7 +143,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [{ "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "id": 1, "data": { "n": 1 }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }],
@@ -210,7 +210,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "168", "etag": "W/\"a8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "168", "etag": "W/\"a8-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "slug": "replay-other", "items": [{ "id": 4, "data": { "other": true }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }], "count": 1, "has_more": false, "next_before_id": null }
           }
         },
@@ -515,7 +515,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1524", "etag": "W/\"5f4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "1524", "etag": "W/\"5f4-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [
@@ -551,7 +551,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "265", "etag": "W/\"109-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "265", "etag": "W/\"109-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [{ "id": 18, "data": { "submitter_ticket": "fake.ticket", "n": 21 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "id": 17, "data": { "n": 20 }, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }],
@@ -647,7 +647,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1445", "etag": "W/\"5a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "1445", "etag": "W/\"5a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [
@@ -682,7 +682,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1038", "etag": "W/\"40e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "1038", "etag": "W/\"40e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [
@@ -708,7 +708,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "527", "etag": "W/\"20f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "527", "etag": "W/\"20f-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [
@@ -731,7 +731,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "534", "etag": "W/\"216-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "534", "etag": "W/\"216-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [
@@ -778,7 +778,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "363", "etag": "W/\"16b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "363", "etag": "W/\"16b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-other",
               "items": [{ "id": 5, "original_name": "o.txt", "mime": "text/plain", "size": 22, "note": "", "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss", "url": "/api/apps/replay-other/files/5" }],
@@ -966,7 +966,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1596", "etag": "W/\"63c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "1596", "etag": "W/\"63c-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [
@@ -1314,7 +1314,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1924", "etag": "W/\"784-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "1924", "etag": "W/\"784-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [
@@ -1394,7 +1394,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "1445", "etag": "W/\"5a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "1445", "etag": "W/\"5a5-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [
@@ -1522,7 +1522,7 @@
           "response": {
             "status": 200,
             "type": "application/json; charset=utf-8",
-            "headers": { "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "headers": { "cache-control": "no-store", "content-length": "230", "etag": "W/\"e6-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": {
               "slug": "replay-data",
               "items": [{ "id": 2, "data": {}, "created_by": "", "created_at": "YYYY-MM-DD hh:mm:ss" }, { "id": 1, "data": { "n": 1 }, "created_by": "seed", "created_at": "YYYY-MM-DD hh:mm:ss" }],
