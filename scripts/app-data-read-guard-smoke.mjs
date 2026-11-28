@@ -215,6 +215,12 @@ try {
       '#266 A16/A21 下载：Cache-Control no-store、Referrer-Policy no-referrer、nosniff、CSP default-src none + sandbox（附件和 inline 图片都是）', show({ txt, img }));
     check(locked(doc) && /^inline/.test(doc.disp) && !/sandbox/.test(doc.csp),
       '#266 下载 inline 的 PDF：同样不缓存、不外带，CSP 关住脚本，但不加 sandbox（不然浏览器的 PDF 阅读器打不开）', show(doc));
+    // 列表读（台数据、附件列表）：返回的是这个台的业务数据，和下载一样不进任何缓存；被拒的 403 本来就是 no-store
+    const listHdr = async (route, h) => { const x = await srv.call('GET', `/api/apps/rb/${route}`, h); return { status: x.status, cc: x.headers.get('cache-control') }; };
+    const lData = await listHdr('data', { ...REMOTE, 'x-app-token': tB }), lFiles = await listHdr('files', { ...REMOTE, 'x-app-token': tB });
+    const lDenied = await listHdr('data', REMOTE);
+    check(lData.status === 200 && lData.cc === 'no-store' && lFiles.status === 200 && lFiles.cc === 'no-store' && lDenied.status === 403 && lDenied.cc === 'no-store',
+      '#266 列表读（台数据、附件列表）：带令牌 200 与被拒 403 都是 Cache-Control no-store', show({ lData, lFiles, lDenied }));
     // 带台令牌的台页面：不进任何缓存、不随 Referer 外带
     mkdirSync(join(srv.data, 'apps', 'ra', 'v1'), { recursive: true });
     writeFileSync(join(srv.data, 'apps', 'ra', 'v1', 'index.html'), '<html><head></head><body>synthetic page</body></html>');

@@ -141,6 +141,7 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
       id: r.id, data: JSON.parse(r.data || '{}'), created_by: r.created_by, created_at: r.created_at,
     }));
     const has_more = rows.length === limit;
+    res.set('Cache-Control', 'no-store'); // #266 A16：台的业务数据，和下载、被拒一样不进任何缓存
     res.json({ slug: a.slug, items, count: items.length, has_more, next_before_id: has_more ? items[items.length - 1].id : null });
   }));
 
@@ -170,6 +171,7 @@ export function registerAppDataRoutes(app: HttpService, deps: AppDataDeps): void
       ? await svc<AppDataService>('appData').filePage(a.slug, beforeId, limit)
       : await svc<AppDataService>('appData').filePage(a.slug, 0, limit);
     const items = (rows as any[]).map((r) => ({ ...r, url: `/api/apps/${a.slug}/files/${r.id}` }));
+    res.set('Cache-Control', 'no-store'); // #266 A16：附件列表里的地址可带查看凭证，同样不进任何缓存
     res.json({ slug: a.slug, items, count: items.length, has_more: rows.length === limit, next_before_id: rows.length === limit ? items[items.length - 1].id : null, quota: await appFilesQuota(a.slug) });
   }));
 
