@@ -289,6 +289,8 @@ export class BenchStore {
     return call(this.slug, method, args);
   }
   datasets(): ReturnType<Core['datasets']> { return this.rpc('datasets', []); }
+  retiredDatasets(): ReturnType<Core['retiredDatasets']> { return this.rpc('retiredDatasets', []); }
+  datasetPrecheck(...a: Parameters<Core['datasetPrecheck']>): ReturnType<Core['datasetPrecheck']> { return this.rpc('datasetPrecheck', a); }
   datasetStorageTotals(): ReturnType<Core['datasetStorageTotals']> { return this.rpc('datasetStorageTotals', []); }
   datasetFence(...a: Parameters<Core['datasetFence']>): ReturnType<Core['datasetFence']> { return this.rpc('datasetFence', a); }
   datasetLifecycle(...a: Parameters<Core['datasetLifecycle']>): ReturnType<Core['datasetLifecycle']> { return this.rpc('datasetLifecycle', a); }

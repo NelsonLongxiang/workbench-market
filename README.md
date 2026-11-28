@@ -435,6 +435,7 @@ server/src/      （一个文件一行，按文件名排序；新文件只插一
   skill-snap-path.ts（技能快照的磁盘相对路径，只此一处：`skill-snapshots/<encodeURIComponent(全 slug)>/v<n>`；服务端发布和 scripts/skill-import.mjs、scripts/skill-upload-one.mjs 写快照都用它，snapshot_path 存这个相对形，跨源同名技能各有各的目录，#183、#810）
   upload-tickets.ts（MCP 上传票：先申请、再直传——票只存 sha256、只能用一次、10 分钟过期、每会话 20 张、全局 1000 张，只在内存里；发票在 skill_file_put / app_files_upload 不带内容时，用票在 PUT /api/mcp-rest/uploads/<票>）
   download-tickets.ts（MCP 附件短时下载票：app_files_list 带 ticket_for_id 申请——只读、只绑一份文件和发票的会话，票只存 sha256、2 分钟过期、默认 1 次最多 5 次、每会话 20 张、全局 1000 张，只在内存里；用票在 GET /api/mcp-rest/downloads/<票>，用票时再核会话、授权、台和文件）
+  dataset-retire-tickets.ts（数据集退役、恢复的短期确认票，#1015 首版：预检发、确认用一次；只存 sha256、5 分钟过期、绑动作、账号、台、数据集和当时的整套上下文摘要，每账号最多 10 张、全局 500 张，只在内存里）
   upload-file-name.ts（上传文件名的统一规则：台文件的 base64、上传票、REST 原始字节、两个 multipart 入口、工作项附件、SOP 运行文件共用，技能包路径和台与 SOP 源码发布的路径逐段用；拒路径分隔符、控制字符、DEL、方向控制符）
   redis.ts（Redis 连接和 SOP 执行实例的热态：连接只有这一条；SOP 的读写经共用状态层的 sop 句柄，只碰 wm:sop: 开头的键）
   request-person.ts  这个请求是哪个人：只经身份服务认请求带的登录凭据（登录提供方的会话或市场会话），主体须是启用的人；认不出就是没有，调用方照常放行（任务中心建录入、发布用）

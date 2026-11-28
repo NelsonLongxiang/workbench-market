@@ -67,6 +67,11 @@
       "GET /api/bench-views/:bench/reports/:dimension/binding  -> bench-store.report-read  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "PUT /api/bench-views/:bench/reports/:dimension/binding  -> bench-store.report-bind  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "POST /api/bench-views/:bench/reports/:dimension/binding/stop  -> bench-store.report-bind-stop  decide  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "GET /api/bench-views/:bench/retired-datasets  -> bench-store.dataset-lifecycle-precheck  decide  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "POST /api/bench-views/:bench/datasets/:name/retire/precheck  -> bench-store.dataset-lifecycle-precheck  decide  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "POST /api/bench-views/:bench/datasets/:name/retire  -> bench-store.dataset-retire  decide  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "POST /api/bench-views/:bench/datasets/:name/restore/precheck  -> bench-store.dataset-lifecycle-precheck  decide  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
+      "POST /api/bench-views/:bench/datasets/:name/restore  -> bench-store.dataset-restore  decide  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "POST /api/bench-views/:bench/reports  -> bench-store.report-generate  write  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "GET /api/bench-views/:bench/reports  -> bench-store.report-read  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
       "GET /api/bench-views/:bench/reports/:id  -> bench-store.report-read  read  （状态码不代表授权：放不放行由数据视图域自己判：先拒管理口令，再看判定的结论；台没登记回 404）",
@@ -811,9 +816,24 @@
         "scoped": "write"
       },
       {
+        "action": "bench-store.dataset-lifecycle-precheck",
+        "global": "decide",
+        "scoped": null
+      },
+      {
         "action": "bench-store.dataset-list",
         "global": "write",
         "scoped": "write"
+      },
+      {
+        "action": "bench-store.dataset-restore",
+        "global": "decide",
+        "scoped": null
+      },
+      {
+        "action": "bench-store.dataset-retire",
+        "global": "decide",
+        "scoped": null
       },
       {
         "action": "bench-store.form-submit",
