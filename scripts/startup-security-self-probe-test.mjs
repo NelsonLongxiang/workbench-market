@@ -53,6 +53,7 @@ async function fixture({personalTokenIssueBroken=false,reportDimCreateBroken=fal
  app.put('/api/knowledge/project-depts',(_req,res)=>knowledgeMapBroken?res.status(403).json({error:'need admin'}):res.status(401).json({error:'login_required'}));
  app.post('/api/knowledge/remember',(_req,res)=>rememberBroken?res.status(403).json({error:'need admin'}):res.status(401).json({error:'login_required'}));
  app.post('/api/teams/reassign',(_req,res)=>teamReassignBroken?res.status(404).json({error:'seat_not_in_roster'}):res.status(401).json({error:'teams_auth_required'}));
+ app.post('/api/teams/seat-session',(_req,res)=>res.status(401).json({error:'seat_session_login_required'}));
  app.post('/api/attention/answer',(_req,res)=>attentionBroken?res.status(404).json({error:'attention_item_not_found'}):res.status(403).json({error:'denied'}));
  app.get('/api/apps/:slug/data',(_req,res)=>appDataBroken?res.json({items:[]}):res.status(403).json({error:'app_read_denied'}));
  app.get('/api/workbenches/:id/vars',(_req,res)=>varsMissingBroken?res.status(404).json({error:'workbench not found'}):res.status(403).json({error:'denied'}));
@@ -183,6 +184,7 @@ for(const nodeEnv of ['development','test']){
  app.put('/api/knowledge/project-depts',(_req,res)=>res.status(401).end());
  app.post('/api/knowledge/remember',(_req,res)=>res.status(401).end());
  app.post('/api/teams/reassign',(_req,res)=>res.status(401).end());
+ app.post('/api/teams/seat-session',(_req,res)=>res.status(401).end());
  app.post('/api/attention/answer',(_req,res)=>res.status(403).end());
  app.get('/api/apps/:slug/data',(_req,res)=>res.status(403).end());
  app.get('/api/workbenches/:id/vars',(_req,res)=>res.status(403).end());

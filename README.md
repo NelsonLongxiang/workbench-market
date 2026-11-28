@@ -281,6 +281,8 @@ GET              /api/health/ready              就绪：含 LayerFS 探测（�
 | 出站管理面 `GET /api/a2a/state`、`POST /api/a2a/send` | `server/src/routes/a2a-outbound.ts`，只给管理员；send 只发给对端登记表里状态为 active 的对端 |
 | 对端登记表 `/api/a2a/peers` | `server/src/routes/a2a-peers.ts`，登记时验签并钉住公钥 |
 | 团队名册 `GET /api/a2a/teams` | `server/src/routes/a2a-roster.ts` |
+| 团队席位会话 `/api/teams/seat-session` | GET 带 `host, team, seat, seat_id` 和可选的 `before, limit, chars`，返回 `entries, total, from, to, stale`。向前翻页用 `before=from`。POST 带同样的席位键、每次操作的 `request_id` 和 `action` 取 `steer`、`queue` 或 `stop`，前两项另传 `text`。本人或团队负责人凭同源登录会话调用。 |
+| 对端会话配对 `POST /api/teams/seat-session/pair` | 市场属主传 `{action:"start", peer_id}` 取得短码和配对句柄。节点属主确认短码后，市场属主传 `{action:"poll", handle}`，市场领取并保存限定范围的委托。需要服务端凭据库已解锁。 |
 
 名片上声明的能力（`canvasMemberProvenance`、`progressReceipts`、`teamRoster`、`directedSeats`）各有一个开关，见上方环境变量。
 要让 superagent 团队接市场派的工，节点侧怎么配（把市场加成团队画布的远端成员等）以上游的
@@ -518,6 +520,7 @@ server/src/services/  app·app-data·sop·skill·sandbox·cockpit·workbench·co
   custom-role.ts（自定义角色：Cordis 服务 `customRoles`·从内置预设复制、改、删、属主放行、导出·每步留痕·带来管理类或决定类权限的要属主放行）
   department.ts（部门：Cordis 服务 `departments`·部门清单、负责人、成员归属、职能代号·部门标识即授予范围 dept:<标识>·还有没结束的部门授予时不能删）
   team.ts（团队与分配：Cordis 服务 `teams`·团队登记（认领、挂部门）、负责人（另外指定的加所挂部门的负责人）、成员分配（起止时间、同一席位只有一条生效、按时间点查那时归谁）·键和节点名册一致·认领、负责人、分配记下节点的根地址和完整指纹（peer_root、key_fingerprint），用时和名册、对端登记核对，对不上的不算数（状态 node-changed，「等你拍板」的团队归属给管理层列出来）·状态读的时候推·每步留痕 team_events）
+  seat-sessions.ts（团队席位会话：对端限有效节点和当前完整指纹，属主配对后将限范围委托交给服务端凭据库。登录人按分配和负责人关系核权，通过 sdk/user 翻页、插话、排队和停止，日志只留人、目标、动作及状态）
   team-binding-sql.ts（团队归属绑节点的核对条件 boundSql：只有 SQL 文本、不引任何服务，team.ts 和 bench-registry.ts 共用）
   relation-proposal.ts（关系的提议：Cordis 服务 `relationProposals`·部门负责人、团队负责人只有属主能确认，团队认领到部门要管理层或接收部门的负责人确认·提议期间关系不存在、不带来权限·确认接口和页面的 can_approve 共用 confirmRefusal）
   dept-lead-grant.ts（部门负责人的字段和授予一起落：属主确认、属主直接指定时同一事务里写负责人字段、发这个部门范围的 dept-lead 授予并记进 dept_lead_grants；换人、移除只收回记着的那条；字段单独不带来权力，只有字段的是「待属主放行」，启动时补记一条负责人提议给属主）

@@ -237,6 +237,26 @@ export async function vaultCredential(title: string): Promise<{ id: string; secr
   }
 }
 
+/** Service-side credential access uses the same serialized vault writes as its admin routes. */
+export async function vaultAvailable(): Promise<boolean> {
+  try { await unlocked(false); return true; } catch { return false; }
+}
+
+export function putVaultCredential(title: string, id: string, secret: string, fields: Record<string, string>): Promise<void> {
+  return serial(async () => {
+    const o = await unlocked();
+    const hits = o.store.list().filter(entry => entry.title === title && !entry.deletedAt);
+    if (hits.length > 1) throw new Error('duplicate service credential');
+    const patch = { title, kind: 'secret' as const, username: id, password: '', secret, apiKey: '', fields };
+    if (hits.length) {
+      if (!await o.store.update(hits[0].id, patch)) throw new Error('service credential no longer exists');
+    } else {
+      await o.store.add(patch);
+    }
+    await afterWrite(o);
+  });
+}
+
 /**
  * 17 条路由经 HTTP 服务注册，每条报动作（域 vault）。除状态接口外都声明面门：服务端持有主密码、请求又不是从控制面或凭据库专用域名来的，
  * 由这里的 controlOnly 回 403 vault_control_only——那是面的规则，不是「谁能做什么」（判定比对记「被面门拦下」，切换时不抢先）。

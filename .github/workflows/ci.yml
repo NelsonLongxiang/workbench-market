@@ -322,6 +322,8 @@ jobs:
           echo "::endgroup::"
           echo "单测与对抗组退出码 $rc；变异测试退出码 $mutation"
           [ "$rc" -eq 0 ] && [ "$mutation" -eq 0 ]
+      - name: 团队席位会话（配对、发送前复核、关闭出站）
+        run: node scripts/seat-sessions-smoke.mjs && node scripts/seat-sessions-smoke.mjs --outbound-off
   upgrade-smoke:
     # 线上发布分支的库换成这份代码启动两次（自检、只加不改、幂等、回填），再退回发布分支能读能写；全程合成数据、只听回环
     runs-on: ubuntu-24.04 # 和 browser-security 同一个镜像，换镜像另开 PR 一起换

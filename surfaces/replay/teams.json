@@ -1,6 +1,6 @@
 {
   "domain": "teams",
-  "what": "团队与分配：/api/teams 的 11 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。人、部门、名册都是合成的。",
+  "what": "团队与分配：/api/teams 的 14 条路由。response 由 scripts/route-replay-test.mjs --record 写入，不手改。人、部门、名册都是合成的。",
   "routes": [
     "GET /api/teams",
     "GET /api/teams/mine",
@@ -12,7 +12,10 @@
     "POST /api/teams/unassign",
     "POST /api/teams/reassign",
     "GET /api/teams/events",
-    "GET /api/teams/assignments"
+    "GET /api/teams/assignments",
+    "GET /api/teams/seat-session",
+    "POST /api/teams/seat-session",
+    "POST /api/teams/seat-session/pair"
   ],
   "exempt": [
     { "route": "GET /api/teams", "class": "invalid", "why": "这条路由不读查询串、路径参数和请求体，没有会被拒的输入：带畸形参数的请求照常应答", "shown_by": "open/list-junk" },
@@ -746,6 +749,176 @@
             "type": "application/json; charset=utf-8",
             "headers": { "content-length": "65", "etag": "W/\"41-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
             "body": { "error": "team_not_claimed", "message": "这个团队没有认领" }
+          }
+        }
+      ]
+    },
+    {
+      "name": "seat-session",
+      "what": "当前绑定和登陆人经过真实市场路由及发行 SDK，配对与会话只消费合成节点。",
+      "env": {},
+      "clock": "2030-01-01T00:00:00Z",
+      "fixtures": ["identity-fake", "seat-sessions-fake"],
+      "seed": [
+        { "table": "principals", "row": { "id": "user:alpha", "id_key": "user:alpha", "kind": "person", "display_name": "合成甲" } },
+        { "table": "principal_identities", "row": { "provider": "fake", "external_id": "alpha", "external_key": "alpha", "principal_id": "user:alpha" } },
+        { "table": "departments", "row": { "id": "replay-fixture", "name": "合成部门", "created_at": 0, "updated_at": 0 } },
+        {
+          "table": "a2a_peers",
+          "row": { "id": "peer_f6d0", "root_url": "https://seat-session.synthetic.invalid", "zone": "fixture", "name": "合成节点", "status": "active", "key_fingerprint": "sha256:f6d036fb951b9d0ec1598853f5f9583146241eff5aaeb91d355d38f588ab0aad", "public_key": "MCowBQYDK2VwAyEAbjLBl0Hwr4JgYSrpn9E9ijiURyLgiWTdI5c49VKmFTs=", "registered_by": "seed", "registered_at": "2030-01-01T00:00:00Z", "updated_at": "2030-01-01T00:00:00Z" }
+        },
+        {
+          "table": "a2a_roster_nodes",
+          "row": { "host": "f6d036fb", "peer_root": "https://seat-session.synthetic.invalid", "key_fingerprint": "sha256:f6d036fb951b9d0ec1598853f5f9583146241eff5aaeb91d355d38f588ab0aad", "peer_zone": "fixture", "reported_at": "2030-01-01T00:00:00Z", "received_at": "2030-01-01T00:00:00Z" }
+        },
+        {
+          "table": "a2a_roster_node_seats",
+          "row": { "host": "f6d036fb", "team": "fixture/canvas/main", "seat": "fixture/11223344", "seat_id": "replay-seat", "peer_root": "https://seat-session.synthetic.invalid", "key_fingerprint": "sha256:f6d036fb951b9d0ec1598853f5f9583146241eff5aaeb91d355d38f588ab0aad", "name": "合成席位", "role": "member", "online": 1, "queued": 0, "last_active_at": "", "first_seen_at": "2030-01-01T00:00:00Z" }
+        }
+      ],
+      "steps": [
+        {
+          "id": "claim",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/teams/claim", "json": { "host": "f6d036fb", "team": "fixture/canvas/main", "department": "replay-fixture" } },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "assign",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/teams/assign", "json": { "host": "f6d036fb", "team": "fixture/canvas/main", "seat": "fixture/11223344", "seat_id": "replay-seat", "principal": "user:alpha" } },
+          "response": { "status": 201 }
+        },
+        {
+          "id": "pair-start",
+          "route": "POST /api/teams/seat-session/pair",
+          "class": "normal",
+          "compare": "status",
+          "request": { "method": "POST", "path": "/api/teams/seat-session/pair", "json": { "action": "start", "peer_id": "peer_f6d0" } },
+          "save": { "pair_handle": "handle" },
+          "response": { "status": 200 }
+        },
+        {
+          "id": "pair-poll",
+          "route": "POST /api/teams/seat-session/pair",
+          "class": "normal",
+          "request": { "method": "POST", "path": "/api/teams/seat-session/pair", "json": { "action": "poll", "handle": "{{pair_handle}}" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "30", "etag": "W/\"1e-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "state": "approved" }
+          }
+        },
+        {
+          "id": "read-anonymous",
+          "route": "GET /api/teams/seat-session",
+          "class": "unauthorized",
+          "request": { "method": "GET", "path": "/api/teams/seat-session", "headers": { "x-forwarded-for": "192.0.2.99" } },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "seat_session_login_required" }
+          }
+        },
+        {
+          "id": "read-invalid",
+          "route": "GET /api/teams/seat-session",
+          "class": "invalid",
+          "request": { "method": "GET", "path": "/api/teams/seat-session", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "51", "etag": "W/\"33-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "host 写法不对", "code": "host_invalid" }
+          }
+        },
+        {
+          "id": "read-ok",
+          "route": "GET /api/teams/seat-session",
+          "class": "normal",
+          "request": { "method": "GET", "path": "/api/teams/seat-session?host=f6d036fb&team=fixture%2Fcanvas%2Fmain&seat=fixture%2F11223344&seat_id=replay-seat", "headers": { "cookie": "session_id=fake-internal-alpha-0001" } },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "122", "etag": "W/\"7a-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "entries": [{ "i": 0, "role": "user", "text": "replay synthetic transcript" }], "total": 1, "from": 0, "to": 1, "stale": false }
+          }
+        },
+        {
+          "id": "stop-anonymous",
+          "route": "POST /api/teams/seat-session",
+          "class": "unauthorized",
+          "request": {
+            "method": "POST",
+            "path": "/api/teams/seat-session",
+            "headers": { "x-forwarded-for": "192.0.2.99" },
+            "json": { "host": "f6d036fb", "team": "fixture/canvas/main", "seat": "fixture/11223344", "seat_id": "replay-seat", "action": "stop", "request_id": "replay" }
+          },
+          "response": {
+            "status": 401,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "39", "etag": "W/\"27-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "seat_session_login_required" }
+          }
+        },
+        {
+          "id": "stop-invalid",
+          "route": "POST /api/teams/seat-session",
+          "class": "invalid",
+          "request": {
+            "method": "POST",
+            "path": "/api/teams/seat-session",
+            "headers": { "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "host": "f6d036fb", "team": "fixture/canvas/main", "seat": "fixture/11223344", "seat_id": "replay-seat", "action": "unknown", "request_id": "replay" }
+          },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "67", "etag": "W/\"43-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "未知会话操作", "code": "seat_session_action_invalid" }
+          }
+        },
+        {
+          "id": "stop-ok",
+          "route": "POST /api/teams/seat-session",
+          "class": "normal",
+          "request": {
+            "method": "POST",
+            "path": "/api/teams/seat-session",
+            "headers": { "cookie": "session_id=fake-internal-alpha-0001" },
+            "json": { "host": "f6d036fb", "team": "fixture/canvas/main", "seat": "fixture/11223344", "seat_id": "replay-seat", "action": "stop", "request_id": "replay" }
+          },
+          "response": {
+            "status": 200,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "43", "etag": "W/\"2b-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "ok": true, "stopped": true, "replayed": false }
+          }
+        },
+        {
+          "id": "pair-anonymous",
+          "route": "POST /api/teams/seat-session/pair",
+          "class": "unauthorized",
+          "request": { "method": "POST", "path": "/api/teams/seat-session/pair", "headers": { "x-forwarded-for": "192.0.2.99" }, "json": { "action": "start", "peer_id": "peer_f6d0" } },
+          "response": {
+            "status": 403,
+            "type": "application/json; charset=utf-8",
+            "headers": { "content-length": "141", "etag": "W/\"8d-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "需要有效的 X-Admin-Token 或站内管理员登录（口令缺失或无效一律拒绝；顶栏钥匙图标可输入口令）" }
+          }
+        },
+        {
+          "id": "pair-invalid",
+          "route": "POST /api/teams/seat-session/pair",
+          "class": "invalid",
+          "request": { "method": "POST", "path": "/api/teams/seat-session/pair", "json": { "action": "unknown" } },
+          "response": {
+            "status": 400,
+            "type": "application/json; charset=utf-8",
+            "headers": { "cache-control": "private, no-store", "content-length": "72", "etag": "W/\"48-<指纹>\"", "vary": "Origin", "x-powered-by": "Express" },
+            "body": { "error": "未知配对操作", "code": "seat_session_pair_action_invalid" }
           }
         }
       ]

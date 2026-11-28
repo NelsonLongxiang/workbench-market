@@ -647,6 +647,7 @@
       "cors",
       "express",
       "http-proxy-middleware",
+      "market-a2a-user-sdk",
       "multer",
       "redis",
       "yaml"

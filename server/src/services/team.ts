@@ -41,6 +41,8 @@ export type SeatKey = { host: string; team: string; seat: string; seat_id: strin
 export type TeamStatus = 'unclaimed' | 'off-roster' | 'node-changed' | 'lead-vacant' | 'active';
 export type Actor = { by: string; principal: string | null };
 export type TeamRefusal = { ok: false; http: 400 | 403 | 404 | 409 | 422; code: string; message: string };
+type SeatSessionTarget = { ok: true; node: NodeBinding; seat: SeatKey; actor: { principal: string; display_name: string } };
+type SeatSessionRefusal = TeamRefusal | { ok: false; http: 401; code: string; message: string };
 export type Lead = { principal: string; display_name: string; source: 'explicit' | 'department' };
 export type Member = {
   seat: string; seat_id: string; name: string; role: string; online: boolean; router: boolean;
@@ -127,6 +129,33 @@ export class TeamService extends Service {
     const t = this.rosterTeams().get(tkey(k.host, k.team));
     if (!t) return null;
     return t.seats.find((s) => sameSeat({ host: k.host, team: k.team, seat: s.seat, seat_id: s.seat_id }, k)) ?? null;
+  }
+
+  /** 转发会话前只认启用人员及其确认关系。异步准备后传入服务端此前解析的节点，复核原绑定。 */
+  resolveSeatSessionTarget(principal: string | null, key: SeatKey, expectedNode?: NodeBinding): SeatSessionTarget | SeatSessionRefusal {
+    const person = principal ? this.personActive(principal) : null;
+    if (!principal || !person) return { ok: false, http: 401, code: 'seat_session_login_required', message: '请用启用的个人账号登录后查看席位会话' };
+
+    const node = currentNode(key.host);
+    const hidden = () => refuse(404, 'seat_session_not_found', '当前看不到这个席位的会话');
+    if (!node || (expectedNode && (expectedNode.peer_root !== node.peer_root || expectedNode.key_fingerprint !== node.key_fingerprint))) return hidden();
+
+    // 只从当前钉住的名册取席位。固定标识重复时，句柄也不能用来猜要转发到哪个会话。
+    const column = key.seat_id ? 's.seat_id' : 's.seat';
+    const listed = db.prepare(`SELECT s.seat, s.seat_id FROM a2a_roster_node_seats s
+      WHERE s.peer_root = ? AND s.key_fingerprint = ? AND s.host = ? AND s.team = ? AND ${column} = ?
+        AND (s.seat_id = '' OR NOT EXISTS (
+          SELECT 1 FROM a2a_roster_node_seats other
+          WHERE other.peer_root = s.peer_root AND other.key_fingerprint = s.key_fingerprint AND other.seat_id = s.seat_id
+            AND (other.team <> s.team OR other.seat <> s.seat)))`)
+      .get(node.peer_root, node.key_fingerprint, key.host, key.team, key.seat_id || key.seat) as Pick<SeatKey, 'seat' | 'seat_id'> | undefined;
+    if (!listed) return hidden();
+
+    const seat = { host: key.host, team: key.team, seat: listed.seat, seat_id: listed.seat_id };
+    const assignment = this.activeAssignment(seat);
+    const ownsSeat = assignment?.team === seat.team && assignment.principal_id === principal;
+    if (!ownsSeat && !this.leads(seat).some((lead) => lead.principal === principal)) return hidden();
+    return { ok: true, node, seat, actor: { principal, display_name: person.display_name } };
   }
 
   // ---------- 登记 ----------

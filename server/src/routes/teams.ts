@@ -35,7 +35,8 @@
  * 写请求总门对这两条放行（index.ts 的 REMOTE_ALLOW_PREFIX），认人、同源、负责人在这里判。认领、负责人的增减是管理面，照写请求总门和管理员门。
  * 每一步在 team_events 里留痕，并写一行日志（谁、做了什么、哪个团队）。
  */
-import { actorPrincipal } from '../request-person.ts';
+import { actorPrincipal, requestPerson } from '../request-person.ts';
+import type { SeatSessionService } from '../services/seat-sessions.ts';
 import type express from 'express';
 import type { HttpService } from '../http.ts';
 import { svc } from '../context.ts';
@@ -139,6 +140,67 @@ export function registerTeamRoutes(app: HttpService, deps: TeamRouteDeps): void 
     const principal = actorPrincipal(by);
     return { by, principal, owner: grants().isOwner(principal) };
   }
+
+  const seatSessions = () => svc<SeatSessionService>('seatSessions');
+  const seatSessionJudgment = '由路由按发起人、当前席位及团队关系判定；节点状态也会拒绝';
+  const pairJudgment = '由路由判市场属主，并核当前对端登记与配对状态';
+  const reply = (res: express.Response, result: { ok: boolean; status?: number }) =>
+    res.status(result.ok ? 200 : result.status ?? 502).json(result);
+  function sessionSurface(req: express.Request, res: express.Response): boolean {
+    res.set('Cache-Control', 'private, no-store');
+    if (!deps.crossOriginDenied(req)) return true;
+    res.status(403).json({ error: 'teams_cross_origin_denied' });
+    return false;
+  }
+  async function seatSessionPerson(req: express.Request, res: express.Response): Promise<string | null> {
+    if (!sessionSurface(req, res)) return null;
+    const { principal } = await requestPerson(req);
+    if (!principal) res.status(401).json({ error: 'seat_session_login_required' });
+    return principal;
+  }
+  function pageNumber(raw: unknown, key: string, min: number, max: number): number | undefined {
+    if (raw === undefined) return undefined;
+    const value = Number(str(raw, key, /^[0-9]+$/, 9));
+    if (value < min || value > max) throw new HttpError(400, key + ' 超出范围', { code: key + '_invalid' });
+    return value;
+  }
+  app.get('/api/teams/seat-session', { action: 'team.seat-session-read', kind: 'read', statusNotVerdict: seatSessionJudgment }, route(async (req, res) => {
+    const person = await seatSessionPerson(req, res);
+    if (!person) return;
+    const seat = seatKeyOf(req.query as Record<string, unknown>);
+    return reply(res, await seatSessions().execute(person, seat, { kind: 'read', page: {
+      before: pageNumber(req.query.before, 'before', 0, 999999999),
+      limit: pageNumber(req.query.limit, 'limit', 1, 100),
+      chars: pageNumber(req.query.chars, 'chars', 1, 4000),
+    } }));
+  }));
+  app.post('/api/teams/seat-session', { action: 'team.seat-session-write', kind: 'write', statusNotVerdict: seatSessionJudgment }, route(async (req, res) => {
+    const person = await seatSessionPerson(req, res);
+    if (!person) return;
+    const body = bodyOf(req);
+    const seat = seatKeyOf(body);
+    const requestId = str(body.request_id, 'request_id', /^[A-Za-z0-9._:-]{1,64}$/, 64);
+    if (body.action === 'stop') return reply(res, await seatSessions().execute(person, seat, { kind: 'stop', requestId }));
+    if (body.action !== 'steer' && body.action !== 'queue') throw new HttpError(400, '未知会话操作', { code: 'seat_session_action_invalid' });
+    if (typeof body.text !== 'string' || !body.text.trim() || [...body.text].length > 8000) {
+      throw new HttpError(400, '会话输入须为 1 到 8000 字', { code: 'seat_session_text_invalid' });
+    }
+    return reply(res, await seatSessions().execute(person, seat, { kind: body.action, text: body.text, requestId }));
+  }));
+  app.post('/api/teams/seat-session/pair', { action: 'team.seat-session-pair', kind: 'admin', statusNotVerdict: pairJudgment }, route(async (req, res) => {
+    if (!sessionSurface(req, res)) return;
+    const actor = await admin(req, res);
+    if (!actor) return;
+    if (!actor.owner) return res.status(403).json({ error: 'seat_session_owner_required' });
+    const body = bodyOf(req);
+    if (body.action === 'start') {
+      return reply(res, await seatSessions().startPairing(str(body.peer_id, 'peer_id', /^peer_[0-9a-f]+$/, 64), actor.by));
+    }
+    if (body.action === 'poll') {
+      return reply(res, await seatSessions().pollPairing(str(body.handle, 'handle', /^[0-9a-f-]{36}$/, 36), actor.by));
+    }
+    throw new HttpError(400, '未知配对操作', { code: 'seat_session_pair_action_invalid' });
+  }));
 
   app.get('/api/teams', { action: 'team.list', kind: 'read' }, route(async (req, res) => {
     const v = await viewer(req, res);

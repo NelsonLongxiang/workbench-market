@@ -55,6 +55,7 @@ const CLOCK_PRELOAD = join(HERE, 'replay-clock-preload.mjs');
 const FIXTURES = {
   // 登录提供方换成假的（scripts/identity-fake-provider.mjs）：认人只看 session_id 的值，不访问任何外部系统
   'identity-fake': { preload: join(HERE, 'identity-fake-preload.mjs'), env: { IDENTITY_SEAM_ROOT: ROOT } },
+  'seat-sessions-fake': { preload: join(HERE, 'seat-sessions-fake-preload.mjs'), env: {} },
   'area-access-identity': { preload: join(HERE, 'fixtures/area-access-identity-preload.mjs'), env: {} },
   'capability-fixture': { preload: join(HERE, 'fixtures/capability-extensions/fixture-domain/server.mjs'), env: { WM_EXTENSIONS_DIR: join(HERE, 'fixtures/capability-extensions') } },
   // 本机起一个假飞书、建一个放好合成应用凭证的临时凭据库，飞书登录指过去（scripts/feishu-fake-preload.mjs）

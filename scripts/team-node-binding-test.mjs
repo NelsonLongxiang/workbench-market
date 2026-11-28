@@ -105,12 +105,38 @@ const snap = () => ({
   stale: teams.staleBindings(), bench: (() => { try { parseBinding({ department: 'sales', team_host: K.host, team: K.team }); return 'ok'; } catch (e) { return e.message; } })(),
 });
 out.normal = snap();
+const sessionTarget = (person, key = S, node) => teams.resolveSeatSessionTarget(person, key, node);
+const allowed = (person, key = S) => sessionTarget(person, key)?.ok === true;
+const notFound = (person, key = S) => sessionTarget(person, key)?.http === 404;
+const target = sessionTarget('user:owner1', { ...S, seat: 'zsyn/11111111' });
+out.session = {
+  assigned: target?.ok === true && target.seat.seat === S.seat && target.seat.seat_id === S.seat_id
+    && target.node.peer_root === '${R1}' && target.node.key_fingerprint === '${F1}',
+  currentByHandle: allowed('user:owner1', { ...S, seat_id: '' }),
+  lead: allowed('user:lead1'),
+  unrelated: notFound('user:lead2'),
+  missing: notFound('user:lead1', { ...S, seat: 'zsyn/11111111', seat_id: '' }),
+  forgedId: notFound('user:lead1', { ...S, seat_id: 'other' }),
+  noPrincipal: sessionTarget(null)?.http === 401,
+};
+db.prepare("UPDATE principals SET status = 'disabled' WHERE id = 'user:owner1'").run();
+out.session.inactive = sessionTarget('user:owner1')?.http === 401;
+db.prepare("UPDATE principals SET status = 'active' WHERE id = 'user:owner1'").run();
+// 分配保留相同 seat_id，但当时的团队已不是此会话所在团队。
+db.prepare("UPDATE seat_assignments SET team = 'zsyn/canvas/old-team' WHERE seat_id = ?").run(S.seat_id);
+out.session.teamDrift = notFound('user:owner1');
+db.prepare('UPDATE seat_assignments SET team = ? WHERE seat_id = ?').run(K.team, S.seat_id);
+// 同一节点上 seat_id 重复时，不能任取一行转发会话。
+db.prepare("INSERT INTO a2a_roster_node_seats (peer_root, key_fingerprint, host, team, seat, seat_id, name, role, online, queued, last_active_at, first_seen_at) VALUES (?, ?, ?, ?, ?, ?, '合成重复席位', 'member', 1, 0, '', '0')").run('${R1}', '${F1}', K.host, 'zsyn/canvas/other-team', 'zsyn/0000000b', S.seat_id);
+out.session.ambiguousId = notFound('user:lead1') && notFound('user:owner1', { ...S, seat_id: '' });
+db.prepare('DELETE FROM a2a_roster_node_seats WHERE host = ? AND seat = ?').run(K.host, 'zsyn/0000000b');
 out.stamped = db.prepare("SELECT (SELECT peer_root || '|' || key_fingerprint FROM teams) AS t, (SELECT peer_root || '|' || key_fingerprint FROM team_leads) AS l, (SELECT peer_root || '|' || key_fingerprint FROM seat_assignments) AS a, (SELECT COUNT(*) FROM team_events WHERE peer_root = '${R1}' AND key_fingerprint = '${F1}') AS ev").get();
 // 二：名册被清，别的节点报了同一个号
 db.prepare("DELETE FROM a2a_roster_nodes WHERE host = '${H}'").run();
 seedNode('${H}', '${R2}', '${F2}');
 seats('${H}', '${TEAM}', [${JSON.stringify(SEAT)}]);
 out.impostor = snap();
+out.session.replacement = notFound('user:owner1') && notFound('user:lead1');
 out.impostorAttempt = { lead: teams.addLead(K, 'user:lead2', A, 20).code ?? 'ok', assign: teams.assign(S, 'user:lead2', A, 20).code ?? 'ok' };
 // 管理层重新认领、指定、分配：算数；旧行自动结束
 out.reclaim = teams.claim(K, 'sales', A, 30).changed;
@@ -118,15 +144,21 @@ out.endedAtClaim = db.prepare("SELECT (SELECT COUNT(*) FROM team_leads WHERE end
 out.relead = teams.addLead(K, 'user:lead1', A, 31).added;
 out.reassign = teams.assign(S, 'user:owner1', A, 32).ok;
 out.after = snap();
+const newTarget = sessionTarget('user:owner1');
+out.session.boundCurrent = newTarget?.ok === true && sessionTarget('user:owner1', S, newTarget.node).ok;
+out.session.boundOldRoot = target?.ok === true && sessionTarget('user:owner1', S, target.node).http === 404;
+out.session.boundOldKey = newTarget?.ok === true && sessionTarget('user:lead1', S, { ...newTarget.node, key_fingerprint: '${F3}' }).http === 404;
 out.eventsLead = teams.events(K, true).map((e) => e.kind);
 out.eventsAll = teams.events(K).map((e) => e.kind);
 out.ended = db.prepare("SELECT (SELECT COUNT(*) FROM team_leads WHERE ended_by = 'system:node-changed') AS l, (SELECT COUNT(*) FROM seat_assignments WHERE ended_by = 'system:node-changed') AS a").get();
 // 三：同一根地址换了钥
 db.prepare("UPDATE a2a_peers SET key_fingerprint = '${F3}' WHERE root_url = '${R2}'").run();
 out.rekey = snap();
+out.session.rekey = notFound('user:owner1') && notFound('user:lead1');
 // 四：对端停用、恢复
 db.prepare("UPDATE a2a_peers SET key_fingerprint = '${F2}', status = 'disabled' WHERE root_url = '${R2}'").run();
 out.disabled = snap();
+out.session.disabled = notFound('user:owner1') && notFound('user:lead1');
 // 对端停用时团队显示「节点换了」：节点名字、名册停推的提示照样给（属主要靠它去找那台机器），只是展示，不认人
 out.disabledNode = teams.nodeInfo('${H}');
 const seatRel = async () => (await import(${at('server/src/team-relation.ts')})).relationOf({ seat: S }, { seat: S }).relations.sort();
@@ -137,6 +169,7 @@ out.disabledStale = { one: teams.rosterStaleness('${H}', Date.parse('2026-11-13T
 db.prepare("UPDATE a2a_roster_nodes SET received_at = '0' WHERE host = '${H}'").run();
 db.prepare("UPDATE a2a_peers SET status = 'active' WHERE root_url = '${R2}'").run();
 out.restored = snap();
+out.session.restored = allowed('user:owner1') && allowed('user:lead1');
 out.seatRelRestored = await seatRel();
 // 撞号：另一个根地址、另一把键也报了这个号（对端启用）——同一个号下两个节点，两个都不算：现在的归属不算数；停用撞号的那台后恢复
 db.prepare("INSERT INTO a2a_roster_nodes (host, peer_root, key_fingerprint, peer_zone, reported_at, received_at) VALUES ('${H}', '${R4}', '${F4}', 'zsyn', '0', '0')").run();
@@ -163,6 +196,15 @@ out.resolvedNode = (await import(${at('server/src/services/team.ts')})).currentN
       && o.normal.assignedTo === 1 && o.normal.history === 1 && o.normal.leadOf === 1 && o.normal.member === 'user:owner1' && o.normal.stale.length === 0 && o.normal.bench === 'ok'
       && o.stamped.t === `${R1}|${F1}` && o.stamped.l === `${R1}|${F1}` && o.stamped.a === `${R1}|${F1}` && o.stamped.ev >= 3,
     '正常：认领、负责人、分配、团队事件都记下根地址和完整指纹；负责人、成员的主人、事项归属、细到团队的台都算数', show({ normal: o.normal, stamped: o.stamped }));
+  check(o.session.assigned && o.session.currentByHandle && o.session.lead,
+    '会话目标：只返回名册里的当前席位和对端根地址、完整指纹；席位所有人和负责人通过', show(o.session));
+  check(o.session.unrelated && o.session.missing && o.session.forgedId && o.session.noPrincipal && o.session.inactive && o.session.teamDrift,
+    '会话目标：拒绝未登录、停用、无关人员、伪造席位和已经移出团队的旧分配', show(o.session));
+  check(o.session.replacement && o.session.rekey && o.session.disabled && o.session.restored,
+    '会话目标：换节点、换钥、停用时拒绝，恢复相同节点后沿用现行关系', show(o.session));
+  check(o.session.ambiguousId, '会话目标：同一可信节点重复了固定席位标识，按标识或句柄请求均拒', show(o.session));
+  check(o.session.boundCurrent && o.session.boundOldRoot && o.session.boundOldKey,
+    '会话目标：重新核对先前的根地址与完整指纹，已有新分配也不会复用旧绑定', show(o.session));
   const gone = (x) => x.status === 'node-changed' && x.leads.length === 0 && x.owner === null && x.owners[0] === null && x.assignedTo === 0 && x.history === 0 && x.leadOf === 0 && x.member === null && x.bench !== 'ok';
   check(gone(o.impostor) && show(o.impostor.stale) === show([{ host: H, team: TEAM, claim: true, leads: 1, assignments: 1 }]),
     '名册被清、别的节点报了同一个号：原负责人、成员的主人、认领都不转给它（负责人没了、成员不归谁、「我分到的」「我负责的」都没了、团队 node-changed、台绑不上）；团队归属列进待重新确认', show(o.impostor));
