@@ -27,6 +27,24 @@ for (let i = 0; i < 20; i++) more.push(await freePort());
 ok('被占着的端口不会再发出', more.every((p) => !heldPorts.includes(p) && !heldPorts.includes(p + 1)));
 held.forEach((s) => s.close());
 
+// 确定性用例：把随机数钉死，让「随机挑中的端口」每次都是同一个，才能区分「查了已发端口/相邻端口」和「碰巧没撞上」
+{
+  const realRandom = Math.random;
+  try {
+    Math.random = () => 0.5; // 候选端口恒为 26000
+    const first = await freePort();
+    const second = await freePort();
+    ok('随机挑中同一个端口时，第二次不会再发出同一个端口，也不发相邻的（已发端口记录有效）', first !== second && Math.abs(first - second) > 1, { first, second });
+    Math.random = () => 0.6; // 候选端口恒为 27200
+    const blocker = await listen(27201);
+    if (blocker) {
+      const got = await freePort();
+      ok('随机挑中的端口的 +1 被别的进程占着：跳过它，不发出（相邻端口检查有效）', got !== 27200 && got !== 27201, { got });
+      blocker.close();
+    } else ok('（跳过）27201 本机已被占，无法构造相邻被占的场景', true);
+  } finally { Math.random = realRandom; }
+}
+
 // withPortRetry
 let calls = 0;
 const r1 = await withPortRetry(async () => { if (++calls < 3) { const e = new Error('listen EADDRINUSE: address already in use'); throw e; } return 'ok'; }, 3, () => {});
