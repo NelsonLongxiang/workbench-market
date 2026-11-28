@@ -35,6 +35,10 @@ ok('席位会话：不可凭管理权限、待放行或缺失的关系打开', !
   && !canOpenSeatSession({ principal: 'user:other', teams: [], members: [] }, { ...sessionTeam, can_assign: true }, sessionMember)
   && !canOpenSeatSession(leadMine, { ...sessionTeam, leads: [], lead_pending_grant: { principal: 'user:zhang' } }, sessionMember)
   && !canOpenSeatSession(leadMine, { ...sessionTeam, in_roster: false }, sessionMember));
+ok('席位会话：团队卡写着负责人，但本人的关系清单不含这个团队时不可进', !canOpenSeatSession({ ...leadMine, teams: [] }, sessionTeam, sessionTeam.router)
+  && !canOpenSeatSession({ ...leadMine, teams: [{ host: sessionTeam.host, team: 'ops/canvas/其他团队' }] }, sessionTeam, sessionMember));
+ok('席位会话：关系清单命中席位，但席位已分配给别人时不可进', !canOpenSeatSession(memberMine, sessionTeam, { ...sessionMember, assigned_to: { principal: 'user:other', display_name: '别人' } })
+  && !canOpenSeatSession(memberMine, sessionTeam, { ...sessionMember, assigned_to: null }));
 ok('整形：坏的部门、团队、成员丢掉，不崩', t.departments.length === 1 && t.departments[0].teams.length === 1 && t.departments[0].teams[0].members.length === 2);
 ok('整形：不是对象、不是数组都按空', J(teamsOf(null)) === '{"departments":[],"unclaimed":null,"can":null}' && teamsOf({ departments: 'x', unclaimed: 'y' }).unclaimed === null);
 ok('管理员视图：应答里有「待认领的团队」这一栏才算（空数组也算）', !isAdminView(t) && isAdminView(teamsOf({ departments: [], unclaimed: [] })));
