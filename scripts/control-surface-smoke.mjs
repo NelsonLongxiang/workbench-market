@@ -6,6 +6,7 @@
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { createServer, request } from 'node:http';
+import { createServer as createNetServer } from 'node:net';
 import { join, resolve } from 'node:path';
 
 const TMP = resolve('tmp/control-surface-smoke-' + Date.now().toString(36));
@@ -13,8 +14,25 @@ let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
 const servers = [];
 
-function boot(tag, extraEnv) {
-  const port = 20000 + Math.floor(Math.random() * 12000);
+// 端口一律让系统分配：先监听 0 拿到空闲端口再关掉；本脚本已发出的端口也不再重复发（关闭到子进程绑定之间的窗口里系统可能把同一端口再给下一次）。
+// 随机取 20000–32000 不查占用，撞上同脚本里已在跑的实例时请求会落到旧实例（PR #1163 的 CI 失败即此例）。
+const taken = new Set();
+// 「缺省不开控制面」的断言看业务端口 + 1 有没有监听，所以相邻的 + 1 也要空闲并一并预留。
+const listenFree = (port) => new Promise((resolveP) => {
+  const probe = createNetServer();
+  probe.once('error', () => resolveP(0));
+  probe.listen(port, '127.0.0.1', () => { const { port: p } = probe.address(); probe.close(() => resolveP(p)); });
+});
+async function freePort() {
+  for (let i = 0; i < 50; i++) {
+    const port = await listenFree(0);
+    if (port && port <= 65533 && !taken.has(port) && !taken.has(port + 1) && await listenFree(port + 1)) { taken.add(port); taken.add(port + 1); return port; }
+  }
+  throw new Error('50 次都没取到未用过的空闲端口');
+}
+
+async function boot(tag, extraEnv) {
+  const port = await freePort();
   const data = join(TMP, `data-${tag}`); mkdirSync(data, { recursive: true });
   const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), DATA_DIR: data, ...extraEnv };
   if (env.NODE_ENV === 'production') env.MCP_GATEWAY = 'on'; // keep production control tests authenticated
@@ -37,13 +55,14 @@ const http = (port, method, path, headers = {}, body) => new Promise((done) => {
   if (body !== undefined) rq.write(body);
   rq.end();
 });
-const up = async (port) => { const end = Date.now() + 40_000; while (Date.now() < end) { if ((await http(port, 'GET', '/api/health')).status === 200) return true; await new Promise((x) => setTimeout(x, 250)); } return false; };
+// 起不来（子进程已退出）立即返回 false，不再等满 40 秒，更不会把请求落到别的实例上。
+const up = async (port, child) => { const end = Date.now() + 40_000; while (Date.now() < end) { if (child && child.exitCode !== null) return false; if ((await http(port, 'GET', '/api/health')).status === 200) return true; await new Promise((x) => setTimeout(x, 250)); } return false; };
 const wb = (n) => JSON.stringify({ name: `cs-${n}`, url: 'http://127.0.0.1:9/', type: 'web' });
 
 try {
   const TOK = 'synthetic-control-token';
-  const A = boot('a', { ADMIN_TOKEN: TOK });
-  ok('业务面起来', await up(A.port));
+  const A = await boot('a', { ADMIN_TOKEN: TOK });
+  ok('业务面起来', await up(A.port, A.child));
   ok('缺省不开控制面端口（业务端口 + 1 没有监听）', (await http(A.port + 1, 'GET', '/api/health')).status === 0);
   const M = `http://127.0.0.1:${A.port}`;
 
@@ -104,8 +123,8 @@ try {
   ok('业务面浏览器 POST /api/sop/runs 不被总门拦', r.status !== 403, `${r.status} ${JSON.stringify(r.body)}`);
 
   console.log('显式开控制面（WM_CONTROL_PORT）时围栏照旧');
-  const E2 = boot('e2', { ADMIN_TOKEN: TOK, WM_CONTROL_PORT: String(20000 + Math.floor(Math.random() * 12000)) });
-  ok('业务面与控制面都起来', (await up(E2.port)) && (await up(E2.control)));
+  const E2 = await boot('e2', { ADMIN_TOKEN: TOK, WM_CONTROL_PORT: String(await freePort()) });
+  ok('业务面与控制面都起来', (await up(E2.port, E2.child)) && (await up(E2.control, E2.child)));
   const C = `http://127.0.0.1:${E2.control}`;
   r = await http(E2.control, 'POST', '/api/workbenches', { origin: C, 'x-admin-token': TOK }, wb(20));
   ok('控制面 + 控制面 Origin + 口令 → 201', r.status === 201, `${r.status} ${JSON.stringify(r.body)}`);
@@ -128,8 +147,8 @@ try {
   ok('控制面 WS 升级被拒（不升级）', wsC !== 'upgraded', wsC);
 
   console.log('口令设置（无 ENV 口令的实例）');
-  const B = boot('b', {});
-  await up(B.port);
+  const B = await boot('b', {});
+  ok('B 起来', await up(B.port, B.child));
   const MB = `http://127.0.0.1:${B.port}`;
   r = await http(B.port, 'PUT', '/api/admin-token', { origin: MB, 'x-forwarded-for': '10.0.0.8' }, JSON.stringify({ token: 'set-from-remote' }));
   ok('远程（反代转发）首次设口令 → 403', r.status === 403, `${r.status} ${JSON.stringify(r.body)}`);
@@ -163,8 +182,8 @@ try {
     });
   });
   await new Promise((x) => odoo.listen(0, '127.0.0.1', x));
-  const O = boot('o', { ADMIN_TOKEN: TOK, WM_ODOO_URL: `http://127.0.0.1:${odoo.address().port}` });
-  await up(O.port);
+  const O = await boot('o', { ADMIN_TOKEN: TOK, WM_ODOO_URL: `http://127.0.0.1:${odoo.address().port}` });
+  ok('O 起来', await up(O.port, O.child));
   const MO = `http://127.0.0.1:${O.port}`;
   const ck = (sid) => ({ cookie: `session_id=${sid}` });
   r = await http(O.port, 'POST', '/api/workbenches', { origin: MO, ...ck('admin-session-0123456789') }, wb(30));
@@ -194,16 +213,16 @@ try {
   odoo.close();
 
   console.log('web dev 来源例外（显式开启）');
-  const D = boot('d', { ADMIN_TOKEN: TOK, WM_DEV_ORIGIN: '1', NODE_ENV: 'production' });
-  await up(D.port);
+  const D = await boot('d', { ADMIN_TOKEN: TOK, WM_DEV_ORIGIN: '1', NODE_ENV: 'production' });
+  ok('D 起来', await up(D.port, D.child));
   r = await http(D.port, 'POST', '/api/workbenches', { origin: 'http://localhost:5173', 'x-admin-token': TOK }, wb(14));
   ok('WM_DEV_ORIGIN=1：vite 5173 源 + 口令 → 201', r.status === 201, `${r.status} ${JSON.stringify(r.body)}`);
   r = await http(D.port, 'POST', '/api/workbenches', { origin: 'http://localhost:5173' }, wb(15));
   ok('WM_DEV_ORIGIN=1：vite 5173 源不带口令 → 403（例外只免同源、不免口令）', r.status === 403, `${r.status}`);
   r = await http(D.port, 'POST', '/api/workbenches', { origin: 'http://localhost:5173', 'x-admin-token': TOK, 'x-forwarded-for': '10.0.0.8' }, wb(16));
   ok('WM_DEV_ORIGIN=1：带转发头（非本机直连）→ 403', r.status === 403, `${r.status}`);
-  const P = boot('p', { ADMIN_TOKEN: TOK, NODE_ENV: 'production' });
-  await up(P.port);
+  const P = await boot('p', { ADMIN_TOKEN: TOK, NODE_ENV: 'production' });
+  ok('P 起来', await up(P.port, P.child));
   r = await http(P.port, 'POST', '/api/workbenches', { origin: 'http://localhost:5173', 'x-admin-token': TOK }, wb(17));
   ok('NODE_ENV=production、未开例外：vite 5173 源 + 口令 → 403', r.status === 403, `${r.status}`);
 } catch (e) {
