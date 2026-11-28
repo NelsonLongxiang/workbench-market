@@ -11,6 +11,7 @@ import { signCard } from '@nelsonlongxiang/dsh-open-a2a-net/card';
 import { spawn } from './owned-script-fixture.mjs';
 import { SESSIONS } from './identity-fake-provider.mjs';
 import { legacySeed } from './lib/legacy-dept-seed.mjs';
+import { openVault } from '../server/src/vault/store.ts';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const scratch = process.env.WM_SEAT_SESSION_SMOKE_TMP ?? join(root, 'tmp', 'seat-sessions-smoke');
@@ -255,6 +256,38 @@ try {
       assert.equal((await write('steer')).status, 502);
       assert.equal(requests.slice(before).filter(x => x.method === 'POST').length, 1);
       drop = false;
+    });
+    await check('a logged-in admin who is not the market owner cannot pair and nothing reaches the node', async () => {
+      await call('GET', '/api/auth/viewer', undefined, SESSIONS.admin);
+      const before = requests.length;
+      const cards = cardRequests;
+      for (const body of [{ action: 'start', peer_id: 'peer_ab12' }, { action: 'poll', handle: '00000000-0000-0000-0000-000000000000' }]) {
+        const response = await call('POST', route + '/pair', body, SESSIONS.admin);
+        assert.equal(response.status, 403);
+        assert.equal(response.json.error, 'seat_session_owner_required');
+      }
+      assert.equal(requests.length, before);
+      assert.equal(cardRequests, cards);
+    });
+    await check('a stored credential whose scope no longer matches is refused without any node request', async () => {
+      // The vault HTTP surface is control-only here, so rewrite the stored entry through the vault store itself.
+      const vault = await openVault({ masterPassword: fakeVaultPassword, path: join(data, 'vault', 'default.json'), clearStaleLock: false });
+      const hit = vault.list().find(entry => entry.title.startsWith('Market seat sessions ') && !entry.deletedAt);
+      assert(hit, 'seat session credential entry exists');
+      const original = { ...vault.get(hit.id).fields };
+      assert.equal(original.scope, JSON.stringify(scope));
+      await vault.update(hit.id, { fields: { ...original, scope: JSON.stringify(['session.list']) } });
+      const before = requests.length;
+      try {
+        for (const response of [await read(SESSIONS.alpha), await write('queue')]) {
+          assert.equal(response.status, 503);
+          assert.equal(response.json.code, 'seat_session_vault_unavailable');
+        }
+        assert.equal(requests.length, before);
+      } finally {
+        await vault.update(hit.id, { fields: original });
+      }
+      assert.equal((await read(SESSIONS.alpha)).status, 200);
     });
     await check('disabled node and revoked seat cannot reuse the stored delegate', async () => {
       let before = requests.length;
