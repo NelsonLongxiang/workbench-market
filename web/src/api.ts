@@ -522,6 +522,16 @@ export async function decideBenchMcp(bench: string, id: number, approve: boolean
     return { status: r.status, body: await r.json().catch(() => null) };
   } catch { return { status: 0, body: null }; }
 }
+/** #1015 数据集退役与恢复页：在用清单、已退役清单、预检、确认。预检和确认都是 POST，返回状态码和应答体；断网当状态码 0 */
+export const getBenchDatasets = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/datasets`);
+export const getRetiredDatasets = (bench: string) => benchViewsGet(`/api/bench-views/${encodeURIComponent(bench)}/retired-datasets`);
+export async function datasetLifecyclePost(bench: string, name: string, action: 'retire' | 'restore', step: 'precheck' | 'confirm', body?: { ticket: string; confirm_name: string; reason: string; operation_id: string }): Promise<{ status: number; body: unknown }> {
+  const path = `/api/bench-views/${encodeURIComponent(bench)}/datasets/${encodeURIComponent(name)}/${action}${step === 'precheck' ? '/precheck' : ''}`;
+  try {
+    const r = await fetch(path, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    return { status: r.status, body: await r.json().catch(() => null) };
+  } catch { return { status: 0, body: null }; }
+}
 export const getBenchEntry = (ref: string | number) => benchViewsGet(`/api/bench-views/${encodeURIComponent(String(ref))}/entry`) as Promise<{ status: number; body: BenchEntry | { error?: string } | null }>;
 /** 视图台页面上交表单：路径写卡片 id。返回状态码和应答体（出错时带 error、message），让表单说原因；断网当状态码 0 */
 export async function submitBenchForm(ref: string | number, req: { view: string; block: number; version: number; values: Record<string, unknown> }): Promise<{ status: number; body: unknown }> {

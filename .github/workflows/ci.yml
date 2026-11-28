@@ -214,6 +214,10 @@ jobs:
         env:
           PYTHON: python
         run: node scripts/bench-mcp-ui-browser.mjs
+      - name: 数据集退役与恢复页（#1015：真实后端＋浏览器——没授予只看到说法·被引用的阻断写清在哪·复述名字和理由·预检后变了要重新预检·恢复后数据一行不少）
+        env:
+          PYTHON: python
+        run: node scripts/dataset-lifecycle-browser.mjs
       - name: 设置页「个人令牌」真实闭环（#1063：属主签发·原文只显示一次·不进存储与地址·不带管理口令·刷新后看不到·名字重复照说·撤销后 401·非属主只见说明；个人令牌接口不截）
         env:
           PYTHON: python
@@ -689,6 +693,8 @@ jobs:
         run: node scripts/report-page-unit.mjs && node scripts/report-image-unit.mjs
       - name: 台的 MCP 授权页单测（#904：状态·读写·授予从哪来·驳回要理由·没成的说法·应答不像样不当空·网关页「台上的申请」的行）
         run: node scripts/bench-mcp-page-unit.mjs
+      - name: 数据集退役与恢复页单测（#1015：应答不像样不当空·阻断写在哪怎么解·复述名字和理由·凭据剩余·没成的说法）
+        run: node scripts/dataset-lifecycle-page-unit.mjs
       - name: 身份变了以后页面重读单测（纯函数——认人只认 /api/auth/me·不通和 502 不算·合并去抖·世代号；单列一步）
         run: node scripts/session-watch-unit.mjs
       - name: 技能正文里写到的 MCP 工具名都在工具目录里（对照 surfaces/mcp-tools.json）
