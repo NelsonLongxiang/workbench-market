@@ -364,6 +364,14 @@ body {
 .wm-bm-acts { display: inline-flex; gap: var(--wm-space-2); }
 .wm-bm-tools { display: inline-flex; flex-wrap: wrap; gap: var(--wm-space-1); }
 .wm-bm-wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+.wm-ds-intro { margin: 0 0 var(--wm-space-4); }
+.wm-ds-section { margin-bottom: var(--wm-space-6); }
+.wm-ds-n { font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); font-weight: normal; }
+.wm-ds-note { margin: var(--wm-space-3) 0; }
+.wm-ds-blockers { margin: 0; padding-left: var(--wm-space-4); }
+.wm-ds-confirm { display: flex; flex-direction: column; gap: var(--wm-space-3); margin: var(--wm-space-3) 0 var(--wm-space-6); }
+.wm-ds-field { display: flex; flex-direction: column; gap: var(--wm-space-1); }
+.wm-ds-err { margin-top: var(--wm-space-3); }
 .wm-bm-block { margin-top: var(--wm-space-6); }
 .wm-bm-gap { margin-bottom: var(--wm-space-2); }
 .wm-bm-gap-l { margin-left: var(--wm-space-2); }

@@ -15,6 +15,7 @@ import Settings from './pages/Settings';
 import UseEntry from './pages/UseEntry';
 import BenchReports from './pages/BenchReports';
 import BenchMcp from './pages/BenchMcp';
+import BenchDatasets from './pages/BenchDatasets';
 import Cockpit from './pages/Cockpit';
 import Sops from './pages/Sops';
 import SopSpace from './pages/SopSpace';
@@ -159,6 +160,7 @@ export default function App() {
         <Route path="/owner-pending" element={<OwnerPending />} />
         <Route path="/mcp-gateways" element={<McpGateways />} />
         <Route path="/bench-mcp/:bench" element={<BenchMcp />} />
+        <Route path="/bench-datasets/:bench" element={<BenchDatasets />} />
         <Route path="/vault" element={<Vault />} />
         <Route path="/types" element={<Types />} />
         <Route path="/settings" element={<Settings />} />
