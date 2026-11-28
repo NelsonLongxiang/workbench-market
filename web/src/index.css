@@ -791,7 +791,11 @@ body { background: var(--wm-color-page); }
 .wm-team-member-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
 .wm-team-member-meta { display: flex; justify-content: space-between; gap: var(--wm-space-2); font-size: var(--wm-font-size-caption); color: var(--wm-color-text-secondary); }
 .wm-team-assigned { color: var(--wm-color-text); }
-.wm-team-member-ops { display: flex; justify-content: flex-end; gap: var(--wm-space-2); margin-top: var(--wm-space-1); }
+.wm-team-member-ops { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--wm-space-2); margin-top: var(--wm-space-1); }
+.wm-seat-session { width: 100%; }
+.wm-seat-session-entries { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--wm-space-2); }
+.wm-seat-session-entry { border: 1px solid var(--wm-color-border); border-radius: var(--wm-radius-md); padding: var(--wm-space-2) var(--wm-space-3); }
+.wm-seat-session-entry > div { white-space: pre-wrap; overflow-wrap: anywhere; }
 .wm-team-assign-body { display: flex; flex-direction: column; gap: var(--wm-space-2); }
 .wm-team-assign-select { width: 100%; }
 .wm-team-dot { flex: none; width: 8px; height: 8px; border-radius: var(--wm-radius-full); background: var(--wm-color-border); }

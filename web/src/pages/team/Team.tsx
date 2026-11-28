@@ -24,6 +24,8 @@ import type { ButtonProps } from 'antd';
 import WmPage from '../../components/WmPage';
 import { addTeamLead, approveRelationProposal, assignTeamSeat, attentionChanged, claimTeam, getRelationProposals, getTeamDepartments, getTeamPeople, getTeams, reassignTeamSeat, rejectRelationProposal, unassignTeamSeat } from '../../api';
 import RelTime from '../../components/RelTime';
+import SeatSessionDrawer from './SeatSessionDrawer';
+import { canOpenSeatSession, getSeatSessionRelations, type SeatTarget } from '../../seat-session';
 import { subscribeAdminToken } from '../../admin-token';
 import {
   actionProblem, approvedNotice, needsMigration, ASSIGN_BY_TEXT, assignDoneText, assigneeOptions, assignOps, claimedTeams, leadPendingGrantText, reassignHintText, unassignConfirmText, pendingText, proposedText, claimButtonText, LEAD_SKIPPED_TEXT, proposalsOf, knownNames, proposalTitle, proposerText, proposalGroups, rejectLabel, outcomeLabel, outcomeReasonText, assignedText, memberlessText, departmentsOf, emptyText, isAdminView, leadsOf, personName, memberLabel, nodeLabel, rosterStaleText, sourceProblem,
@@ -45,13 +47,21 @@ function peopleOf(body: unknown): Person[] {
 }
 
 type AssignMode = 'assign' | 'reassign' | 'unassign';
-const NO_OPS = { assign: false, reassign: false, unassign: false };
 const NO_SPACE = { autoInsertSpace: false } as const;
 
+function SeatSessionEntry({ target, name }: { target: SeatTarget; name: string }) {
+  const [open, setOpen] = useState(false);
+  return <>
+    <Button size="small" onClick={() => setOpen(true)} data-testid="team-seat-session-open" {...NO_SPACE}>席位会话</Button>
+    {open && <SeatSessionDrawer target={target} name={name} onClose={() => setOpen(false)} />}
+  </>;
+}
+
 /** 成员卡：名字、在不在线、在办几件、归谁用；看的人能分配时，带「分配给…」或「改派」「收回」，选人和确认在弹窗里 */
-function MemberCard({ m, chief, t, onDone }: { m: Member; chief?: boolean; t?: TeamT; onDone?: () => void }) {
+function MemberCard({ m, chief, t, onDone, mine }: { m: Member; chief?: boolean; t: TeamT; onDone?: () => void; mine: unknown }) {
   const { message } = App.useApp();
-  const ops = t ? assignOps(t, m, chief) : NO_OPS;
+  const ops = assignOps(t, m, chief);
+  const canOpen = canOpenSeatSession(mine, t, m);
   const [mode, setMode] = useState<AssignMode | null>(null);
   const [to, setTo] = useState<string | undefined>();
   const [busy, setBusy] = useState(false);
@@ -90,8 +100,9 @@ function MemberCard({ m, chief, t, onDone }: { m: Member; chief?: boolean; t?: T
         <span>{m.active_items > 0 ? `在办 ${m.active_items} 件` : '手上没有在办的'}</span>
         <span className={m.assigned_to ? 'wm-team-assigned' : 'wm-team-shared'} data-testid="team-assigned">{chief ? '只对负责人' : assignedText(m)}</span>
       </div>
-      {(ops.assign || ops.reassign || ops.unassign) && (
+      {(canOpen || ops.assign || ops.reassign || ops.unassign) && (
         <div className="wm-team-member-ops">
+          {canOpen && <SeatSessionEntry name={name} target={{ host: t.host, team: t.team, seat: m.seat, seat_id: m.seat_id }} />}
           {ops.assign && <Button size="small" onClick={() => setMode('assign')} data-testid="team-assign-open" {...NO_SPACE}>分配给…</Button>}
           {ops.reassign && <Button size="small" onClick={() => setMode('reassign')} data-testid="team-reassign-open" {...NO_SPACE}>改派</Button>}
           {ops.unassign && <Button size="small" danger onClick={() => setMode('unassign')} data-testid="team-unassign-open" {...NO_SPACE}>收回</Button>}
@@ -124,7 +135,7 @@ function MemberCard({ m, chief, t, onDone }: { m: Member; chief?: boolean; t?: T
   );
 }
 
-function TeamBlock({ t, nameOf, onDone, admin }: { t: TeamT; nameOf: (id: string) => string; onDone: () => void; admin: boolean }) {
+function TeamBlock({ t, nameOf, onDone, admin, mine }: { t: TeamT; nameOf: (id: string) => string; onDone: () => void; admin: boolean; mine: unknown }) {
   const leads = leadsOf(t);
   const n = teamCounts(t);
   const stale = rosterStaleText(t, Date.now());
@@ -146,8 +157,8 @@ function TeamBlock({ t, nameOf, onDone, admin }: { t: TeamT; nameOf: (id: string
           <div key={p.id} className="wm-team-pending" data-testid="team-lead-pending">负责人待确认：{p.principal ? nameOf(p.principal) : '（没写是谁）'}，{pendingText(p)}</div>
         ))}
       </div>
-      {t.router && <MemberCard m={t.router} chief />}
-      {t.members.map((m) => <MemberCard key={`${m.seat}-${m.seat_id}`} m={m} t={t} onDone={onDone} />)}
+      {t.router && <MemberCard key={JSON.stringify([t.router.seat, t.router.seat_id])} m={t.router} t={t} mine={mine} chief />}
+      {t.members.map(m => <MemberCard key={JSON.stringify([m.seat, m.seat_id])} m={m} t={t} mine={mine} onDone={onDone} />)}
       {t.members.length === 0 && <div className="wm-team-none">{memberlessText(t)}</div>}
     </div>
   );
@@ -280,10 +291,18 @@ function ProposalsSection({ list, names, onDone, onNotice }: { list: Proposal[];
 }
 
 export default function Team() {
-  const [src, setSrc] = useState<{ teams: SourceResult | null; depts: SourceResult | null; people: SourceResult | null; proposals: SourceResult | null }>({ teams: null, depts: null, people: null, proposals: null });
+  const [src, setSrc] = useState<{ tick: number; teams: SourceResult | null; depts: SourceResult | null; people: SourceResult | null; proposals: SourceResult | null }>({ tick: -1, teams: null, depts: null, people: null, proposals: null });
   const [loading, setLoading] = useState(true);
   const [tick, setTick] = useState(0);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [relations, setRelations] = useState<{ tick: number; body: unknown } | null>(null);
+  useEffect(() => {
+    const read = new AbortController();
+    void getSeatSessionRelations(read.signal).then(body => {
+      if (!read.signal.aborted) setRelations({ tick, body });
+    });
+    return () => read.abort();
+  }, [tick]);
   const reload = useCallback(() => setTick((n) => n + 1), []);
   useEffect(() => subscribeAdminToken(reload), [reload]);
   useEffect(() => {
@@ -294,7 +313,7 @@ export default function Team() {
       const admin = ok(teams) && isAdminView(teamsOf(teams.body));
       const people = admin ? await getTeamPeople() : null;
       if (!live) return;
-      setSrc({ teams, depts, people, proposals });
+      setSrc({ tick, teams, depts, people, proposals });
       setLoading(false);
     });
     return () => { live = false; };
@@ -307,6 +326,7 @@ export default function Team() {
   const proposals = useMemo(() => (ok(src.proposals) ? proposalsOf(src.proposals!.body) : []), [src]);
   const names = useMemo(() => knownNames(t, depts, people), [t, depts, people]);
   const admin = isAdminView(t);
+  const mine = src.tick === tick && relations?.tick === tick ? relations.body : null;
 
   const problem = sourceProblem('团队', src.teams);
   const teams = claimedTeams(t);
@@ -327,7 +347,7 @@ export default function Team() {
         <section aria-labelledby="claimed-teams-title" data-testid="claimed-teams">
           <div className="wm-team-sec"><h3 id="claimed-teams-title">已认领的团队</h3></div>
           <div className="wm-team-grid">
-            {teams.map((x) => <TeamBlock key={JSON.stringify([x.host, x.team])} t={x} nameOf={nameOf} onDone={reload} admin={admin} />)}
+            {teams.map((x) => <TeamBlock key={JSON.stringify([x.host, x.team])} t={x} nameOf={nameOf} onDone={reload} admin={admin} mine={mine} />)}
           </div>
         </section>
       )}
