@@ -3,6 +3,7 @@
  *  (a) 没有核准资格的人打开全景、「等你拍板」，网络里没有发往核准类接口的读写；
  *  (b) 有资格的人在卡片上点批准、不给（带理由）：发出的请求路径、方法、请求体对——走统一答复入口的和按 answer_via 走的各一种。
  *  Python Playwright/Chromium；全新 DATA_DIR + 随机回环端口；合成身份、合成口令。条目用页面里截下来的合成夹具（服务端的守卫由服务端测试覆盖）。 */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -16,7 +17,7 @@ const TMP = resolve('tmp/approval-gate-browser-' + Date.now().toString(36));
 for (const d of ['data', 'home', 'ext']) mkdirSync(join(TMP, d), { recursive: true });
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
 const gh = await startFakeGithub();
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN_TOKEN = 'synthetic-approval-gate-admin';
 const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'off', WM_CONTROL_PORT: '0',

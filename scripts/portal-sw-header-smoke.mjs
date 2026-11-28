@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** #292 M5：/go/ 代理剥掉上游 Service-Worker-Allowed（防上游把 SW 作用域扩到市场全站），其它上游头照常透传。
  *  合成上游 + 全新 DATA_DIR + 随机回环端口；不碰真实工作台。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { createServer, request } from 'node:http';
@@ -18,7 +19,7 @@ const upstream = createServer((rq, rs) => {
   rs.end(js ? 'self.addEventListener("fetch",()=>{})' : '<!doctype html><title>sw probe</title>');
 });
 await new Promise((x) => upstream.listen(0, '127.0.0.1', x));
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'sw-smoke' };
 for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS']) delete env[k];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });

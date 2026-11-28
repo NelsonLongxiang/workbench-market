@@ -8,6 +8,7 @@
 //   B5 MCP 只授三个工具：会话调 app_data_submit 被拒
 //   B6 轮换：属主带 override 修订 config.owner 加新登记身份；新会话写的事项采信；旧会话吊销后写不进，它以前写的事项照常采信；别人改不了
 //   B7 抢先登记：属主登记前被别的管理员抢先——页面显示的属主是抢先者（看得出来），真属主登记回冲突，其答复不被采信
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
@@ -32,7 +33,7 @@ const source = createServer((rq, rs) => {
 await new Promise((x) => source.listen(0, '127.0.0.1', x));
 
 const DATA = mkdtempSync(resolve('tmp', 'owner-board-'));
-const PORT = 22000 + Math.floor(Math.random() * 10000);
+const PORT = await freePort();
 const base = 'http://127.0.0.1:' + PORT;
 const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, ADMIN_TOKEN: ADMIN, MCP_GATEWAY: 'on', NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '', IDENTITY_SEAM_ROOT: resolve('.'), IDENTITY_FAKE_REMOTE_URL: `http://127.0.0.1:${source.address().port}/viewer` };
 for (const k of ['WM_EXTENSIONS_DIR', 'WM_LOGIN_GATE']) delete env[k];

@@ -3,6 +3,7 @@
 // 裁判是上游 dsh-open-a2a-net 的 verifyOriginClaim（A2A_ORIGIN_SRC 指 src/origin-claim.ts），
 // 窗口按关窗后的状态跑（unboundOpen:false）——#64 关窗那天对端就是这么判的。
 // 隔离 DATA_DIR、本机回环，不碰任何生产主机。
+import { freePort } from './lib/free-port.mjs';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -18,7 +19,7 @@ const { verifyOriginClaim } = await import(pathToFileURL(originSrc).href);
 
 mkdirSync('tmp', { recursive: true });
 const data = mkdtempSync(resolve('tmp', 'oc-bound-'));
-const port = 21000 + Math.floor(Math.random() * 11000);
+const port = await freePort();
 const base = 'http://127.0.0.1:' + port;
 const env = { ...process.env, PORT: String(port), DATA_DIR: data, ADMIN_TOKEN: 'oc-test', MCP_GATEWAY: 'on', REDIS_URL: '', LAYERFS_SERVICE_URL: '', MARKET_PUBLIC_URL: base };
 let child, logs = '', pass = 0;

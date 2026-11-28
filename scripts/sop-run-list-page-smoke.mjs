@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** sop_run_list 翻页冒烟（独立实例 + 合成 run 行）：缺省 50 条、limit 上限 200、offset 翻页不漏不重、
  *  同一 updated_at 也按 id 排定、坏参数回落缺省。直接往合成库插 sop_runs 行，不经发布链。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -11,7 +12,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const TMP = resolve('tmp/sop-run-list-page-smoke-' + Date.now().toString(36));
 mkdirSync(join(TMP, 'data'), { recursive: true });
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'synthetic-runlist-admin' };
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { stdio: ['ignore', 'ignore', 'pipe'], env });

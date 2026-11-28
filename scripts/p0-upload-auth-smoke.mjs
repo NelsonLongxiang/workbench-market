@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** P0 安全冒烟（SOP run 文件写面鉴权三件·总工 direct-c2b55f91/监督席 direct-d111cf20·判据先红后绿）。
@@ -12,7 +13,7 @@ const SOURCE_DATA_DIR = requireDataSource();
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 
-const PORT = 9980;
+const PORT = await freePort();
 const DATA = 'tmp/e2e-p0-' + Date.now().toString(36);
 const ADMIN = { 'X-Admin-Token': 'p0-tok' };
 let pass = 0, fail = 0;

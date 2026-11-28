@@ -11,6 +11,7 @@
  *  五、留痕：取和分段读都进审计，标原工具名。
  *  六、测试用的限值只在测试环境认：生产上设了就拒绝启动。
  */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdirSync, rmSync } from 'node:fs';
@@ -24,8 +25,8 @@ const ok = (name, cond, extra = '') => { if (cond) { pass++; console.log(`  ✓ 
 const J = (x) => JSON.stringify(x);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function boot(name, extra = {}) {
-  const port = 20000 + Math.floor(Math.random() * 12000);
+async function boot(name, extra = {}) {
+  const port = await freePort();
   const data = `tmp/e2e-mcp-result-ref-${name}-${Date.now().toString(36)}`;
   rmSync(data, { recursive: true, force: true });
   mkdirSync(join(data, 'home'), { recursive: true });
@@ -46,7 +47,7 @@ async function waitUp(srv, ms = 60000) {
   return false;
 }
 
-const srv = boot('main', { WM_MCP_RESULT_LIMITS: `inline=1000,ttl=${TTL_MS}` });
+const srv = await boot('main', { WM_MCP_RESULT_LIMITS: `inline=1000,ttl=${TTL_MS}` });
 try {
   if (!(await waitUp(srv))) throw new Error('实例没起来\n' + srv.log().slice(-1500));
   const AT = { 'X-Admin-Token': ADMIN };
@@ -169,7 +170,7 @@ try {
 
 console.log('六、测试用的限值只在测试环境认');
 {
-  const prod = boot('prod', { NODE_ENV: 'production', WM_MCP_RESULT_LIMITS: 'inline=1000,ttl=3000' });
+  const prod = await boot('prod', { NODE_ENV: 'production', WM_MCP_RESULT_LIMITS: 'inline=1000,ttl=3000' });
   const up = await waitUp(prod, 30000);
   ok('不是测试环境却设了 WM_MCP_RESULT_LIMITS：拒绝启动', !up && /WM_MCP_RESULT_LIMITS/.test(prod.log()), prod.log().slice(-300));
   prod.child.kill('SIGKILL');

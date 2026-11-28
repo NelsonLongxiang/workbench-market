@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** 远程写总门路径一致性冒烟：Express 路由不区分大小写、也认绝对形式请求目标（#299），总门必须与路由同源分类。
  *  从本机非回环地址发请求（算远程）；找不到非回环 IPv4 时 SKIP（不当通过）。全新 DATA_DIR + 随机端口。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { request } from 'node:http';
 import { mkdirSync, rmSync } from 'node:fs';
@@ -12,7 +13,7 @@ if (!lan) { console.log('api-gate-case-smoke: SKIP（本机没有非回环 IPv4�
 const TMP = resolve('tmp/api-gate-case-' + Date.now().toString(36)); mkdirSync(TMP, { recursive: true });
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };
-const port = 20000 + Math.floor(Math.random() * 12000);
+const port = await freePort();
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), DATA_DIR: TMP, ADMIN_TOKEN: 'case-smoke' };
 for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT']) delete env[k];
 const child = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { env, stdio: ['ignore', 'ignore', 'pipe'] });

@@ -3,6 +3,7 @@
  *  门户 /go/<id>/ 上游下发 Set-Cookie（含 session_id），进程 stdout/stderr 里不出现 cookie 值，只记 cookie 名；查询串也不进日志。
  *  对抗（direct-d9c28a29 / direct-871e4312 / direct-237dbde1）：路径里藏 %3F / %253F 编码的查询串不进日志。
  *  原来的第二部分（Odoo 同域登录中继 /web/login 的嵌入安全头）随中继一起下线（2026-11-17），见 log-secret-relay-headers-smoke 的历史。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdirSync, rmSync } from 'node:fs';
@@ -19,7 +20,7 @@ const QUERY_SECRET = 'querySECRETstate00000000000000004';
 const ENC_SECRET = 'encodedSECRETmarker0000000000000005';
 const DBL_SECRET = 'doubleSECRETmarker00000000000000006';
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 globalThis.__MARKET = base;
 const env = { ...process.env, NODE_ENV: 'test', MCP_GATEWAY: 'off', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'log-secret-admin', REDIS_URL: '', LAYERFS_SERVICE_URL: '', WM_LOGIN_GATE: 'off' };

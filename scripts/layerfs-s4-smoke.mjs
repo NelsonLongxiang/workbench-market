@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #94 S4 删除与清除冒烟（K16+L10 五步+D4 月度重建·判据先红后绿）。
@@ -11,7 +12,7 @@ import { rmSync, mkdirSync, cpSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 
-const PORT = 9930;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = process.env.LAYERFS_SMOKE_DATA ?? 'tmp/e2e-s4-data';
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 's4-tok' };

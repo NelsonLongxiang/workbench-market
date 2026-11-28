@@ -9,6 +9,7 @@
  *  宿主 YGL_HOME 一律覆盖。需要 web 已构建（pnpm --filter web build）与 Python Playwright。
  *  用法：node scripts/e2e-full-run.mjs [--control-off] [--dry-env]；PYTHON 指定解释器（缺省 python3）。
  *  --dry-env：不起实例，只打印三类子进程会拿到的隔离相关环境（JSON），供 e2e-full-run-isolation-smoke 机械回归。 */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { request as httpRequest } from 'node:http';
@@ -117,7 +118,7 @@ const dryEnv = process.argv.includes('--dry-env');
 const surfacesOnly = process.argv.includes('--surfaces-only');
 if (!dryEnv && !existsSync('web/dist/index.html')) { console.error('e2e-full-run: 缺 web/dist（先 pnpm --filter web build）'); process.exit(2); }
 const TMP = resolve('tmp/e2e-full-' + Date.now().toString(36)); mkdirSync(TMP, { recursive: true });
-const PORT = 21000 + Math.floor(Math.random() * 11000);
+const PORT = await freePort();
 const YGL_HOME = join(TMP, 'ygl-home'); mkdirSync(YGL_HOME, { recursive: true }); // 专属空工作区：统一待办的 ygl-trees 源只会读到它
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'synthetic-e2e-admin', YGL_HOME, SCRIPT_TARGET_MODE: 'isolated', SCRIPT_ISOLATED_ROOT: TMP, SCRIPT_SOURCE_DB: join(TMP, 'data/workbench-market.db'), SCRIPT_SOURCE_DATA_DIR: join(TMP, 'data') };
 for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT', 'WM_DEV_ORIGIN', 'E2E_ALLOW_PROD', 'YGL_SESSION', 'A2A_STATE_URL']) delete env[k];

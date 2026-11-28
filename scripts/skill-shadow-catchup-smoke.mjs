@@ -10,6 +10,7 @@
  *  七、对外断开（配了 LayerFS）：整轮跳过——不推、不写库、轮数不动（退避不往前走），日志只打一行；恢复后同一个状态接着正常推
  *     （实例层的对抗见 scripts/outbound-off-test.mjs：开关打开时那一版仍是 pending，对照组真的推了）
  *  定时器随根上下文停：见 scripts/timers-unload-test.mjs。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -125,7 +126,7 @@ function snapshot(rel, files) {
   return `skill-snapshots/${rel}`;
 }
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN = 'skill-shadow-admin';
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, ADMIN_TOKEN: ADMIN, REDIS_URL: '',

@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 /** P0-b 发布面冒烟（判据先红 · direct-3017ec1f 五项断言族）：
  *  人审门 / 口令门 / N+1 快照 / digest 锚 / 同 slug 二发 409 ——发布端点未实现时全红。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-const PORT = 9941;
+const PORT = await freePort();
 const DATA = 'tmp/e2e-p0b-data';
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };

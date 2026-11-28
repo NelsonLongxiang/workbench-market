@@ -2,10 +2,11 @@
 /** 端点计数冒烟（direct-10eba7cb · K1/K2/K3 自查版 · 独立实例）：
  *  K1 连续两请求计数+2、跨重启持久并续增；K2 业务端点契约不变（/api/tasks 信封仍全字段）；
  *  K3 /api/stats 可读（per-endpoint 总量 + 按日分桶）。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 
-const PORT = 9860;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-stats-data';
 let pass = 0, fail = 0;

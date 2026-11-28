@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /** 自产台数据提交面冒烟（独立实例）：写入→读回→游标分页→掩码边界→大小限制。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn, fixtureLanHost } from './owned-script-fixture.mjs';
 
 async function waitReady(url, ms = 20000) {
@@ -13,7 +14,7 @@ async function waitReady(url, ms = 20000) {
 import { rmSync, mkdirSync } from 'node:fs';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 9816;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-appdata-data';
 let pass = 0, fail = 0;

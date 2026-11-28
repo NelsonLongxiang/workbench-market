@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** 自产台提交推送冒烟（属主裁 C · 判据先红后绿）。
@@ -12,7 +13,7 @@ import { spawn, fixtureLanHost } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 
-const PORT = 9853;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-appnotify-data';
 const LAN_IP = fixtureLanHost(); // Only this machine's owned test listener; never inherit a remote LAN_IP.

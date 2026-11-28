@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /** P4 run 交付物冒烟（product/run-delivery F1-F7 自查版 · 独立实例） */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 9844;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-delivery-data';
 let pass = 0, fail = 0;

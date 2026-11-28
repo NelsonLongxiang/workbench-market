@@ -2,6 +2,7 @@
 // #258 R3 业务 URL 登记准入（docs/r3-url-allowlist-design.md v2 · U1–U15）：
 // 纯解析层（分类 fixture、key 等价、配置拒启、deny 限量、审计降级）+ 隔离实例全入口（REST/MCP/自动登记/import 事务注错/审计日志）。
 // 全部合成：随机端口、tmp/ 专属 DATA_DIR，公网地址只登记不访问（不发任何外网或元数据请求）。
+import { freePort } from './lib/free-port.mjs';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -211,7 +212,7 @@ process.stderr.write = (chunk, ...rest) => {
 const gh = await startFakeGithub();
 const tmps = [];
 async function startServer(extraEnv = {}, { expectExit = false } = {}) {
-  const port = 21000 + Math.floor(Math.random() * 11000);
+  const port = await freePort();
   const data = extraEnv.DATA_DIR ?? mkdtempSync(join('tmp', 'r3-allow-'));
   if (!extraEnv.DATA_DIR) tmps.push(data);
   const env = { ...process.env, PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, MCP_GATEWAY: 'off', NODE_ENV: 'test', ADMIN_TOKEN: 'r3-test', R3_FIXTURE_FAIL_FLAG: join(data, '.fail-audit'), WM_GITHUB_API: gh.api, ...extraEnv };

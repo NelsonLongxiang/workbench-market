@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #94 ② R9 项目名冒烟（>63 slug 折叠 wm-<52>-<hash8>·判据先红后绿）。
@@ -12,7 +13,7 @@ import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 9955;
+const PORT = await freePort();
 const DATA = 'tmp/e2e-r9-' + Date.now().toString(36);
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 'r9-tok' };
 let pass = 0, fail = 0;

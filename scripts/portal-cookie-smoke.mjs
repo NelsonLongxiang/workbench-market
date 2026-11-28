@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** 登录态保持冒烟（属主报障 Sub2API）：Set-Cookie 去 Domain+Path 改 /go/<id>/·cookie 回传透传。 */
@@ -6,7 +7,7 @@ import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 
-const PORT = 10036, TP = 10037;
+const PORT = await freePort(), TP = await freePort();
 const DATA = 'tmp/e2e-ck-' + Date.now().toString(36);
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 'ck' };
 let pass = 0, fail = 0;

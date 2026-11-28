@@ -729,6 +729,8 @@ jobs:
         run: node scripts/spa-asset-rewrite-smoke.mjs
       - name: 控制面冒烟（#292 M1：浏览器管理写只认控制面·本机 CLI 保留·反代按远程·控制面围栏）
         run: node scripts/control-surface-smoke.mjs
+      - name: 冒烟脚本取端口共享件（系统分配、不重复、相邻预留、只对端口原因重试）
+        run: node scripts/free-port-test.mjs
       - name: 远程写总门大小写一致性（/API/… 不能绕过口令）
         run: node scripts/api-gate-case-smoke.mjs
       - name: 安全对抗例组（PASS / SKIP / NEEDS-MATERIAL 分列）

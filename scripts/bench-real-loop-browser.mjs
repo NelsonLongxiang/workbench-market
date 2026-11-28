@@ -6,6 +6,7 @@
  * 身份用合成的（identity-fake-provider，标注：合成身份，不冒充生产身份）。隔离目录 tmp/bench-real-loop-*，跑完清掉。
  * 需先 pnpm --filter web build。种子与核对全走正式 REST 入口（与 MCP 工具同一处理器；MCP 授予面另有 bench-mcp-test 覆盖）。
  */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,7 +19,7 @@ const ROOT = resolve('.');
 const TMP = resolve('tmp/bench-real-loop-browser-' + Date.now().toString(36));
 for (const d of ['data', 'home', 'ext']) mkdirSync(join(TMP, d), { recursive: true });
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
-const PORT = 21000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN_TOKEN = 'synthetic-bench-loop-admin';
 const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), HOME: join(TMP, 'home'), ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'off', WM_CONTROL_PORT: '0',

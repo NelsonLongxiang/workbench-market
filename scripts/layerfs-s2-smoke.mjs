@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #94 S2 技能入 LayerFS 冒烟（K13+摘要一致·判据先红后绿）。
@@ -15,7 +16,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const PORT = 9920;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = process.env.LAYERFS_SMOKE_DATA ?? 'tmp/e2e-s2-data';
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 's2-tok' };

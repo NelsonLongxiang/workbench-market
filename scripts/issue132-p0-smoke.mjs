@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #132 P0 冒烟（files note 全链+软删·判据先红后绿·监督席 direct-13dfb0d1）。
@@ -11,7 +12,7 @@ import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 9993;
+const PORT = await freePort();
 const DATA = 'tmp/e2e-132-' + Date.now().toString(36);
 const ADMIN = { 'X-Admin-Token': 'p132' };
 let pass = 0, fail = 0;

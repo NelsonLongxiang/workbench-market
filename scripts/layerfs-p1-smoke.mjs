@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #94 P1 影子双写冒烟（监督席 direct-cccd4d16·判据先红后绿）。
@@ -15,7 +16,7 @@ import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = 9895;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = process.env.LAYERFS_SMOKE_DATA ?? 'tmp/e2e-p1-data';
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 'p1-tok' };

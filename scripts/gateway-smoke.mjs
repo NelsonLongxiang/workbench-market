@@ -2,6 +2,7 @@
 /** MCP 网关 P1 冒烟（独立实例：DATA_DIR+ADMIN_TOKEN+MCP_GATEWAY=on 双 env 全开）。
  *  覆盖：会话 CRUD/令牌一次性/grants 校验、401+WWW-Authenticate、tools/list 过滤、
  *  未授权=不存在同应答、审计行（args_sha256 无原文）、last_used_at、软吊销即时生效。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 
 async function waitReady(url, ms = 20000) {
@@ -14,7 +15,7 @@ async function waitReady(url, ms = 20000) {
 }
 import { rmSync, mkdirSync } from 'node:fs';
 
-const PORT = Number(process.env.GW_PORT) > 0 ? Number(process.env.GW_PORT) : 20000 + Math.floor(Math.random() * 12000); // #164 随机端口根治并发撞
+const PORT = Number(process.env.GW_PORT) > 0 ? Number(process.env.GW_PORT) : await freePort(); // #164 随机端口根治并发撞
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-gw-data';
 let pass = 0, fail = 0;

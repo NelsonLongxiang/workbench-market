@@ -3,6 +3,7 @@
  *  不设目录 → 什么都不加载；目录不存在 / 相对路径 / 模块加载失败 / 没导出 register / register 抛错 / 空子目录 /
  *  业务写面落在宿主命名空间 → 拒绝启动并点名；正常扩展：路由挂上、待办来源并入（带 label/color，抛错降级为稳定码）、
  *  业务写面进 S3 快照且远程浏览器写不被管理写门拦、登录回跳页登记生效。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -16,8 +17,8 @@ const TMP = resolve('tmp/extensions-smoke-' + Date.now().toString(36));
 mkdirSync(TMP, { recursive: true });
 const ADMIN = 'synthetic-ext-admin';
 
-function boot(name, extDir, extra = {}) {
-  const port = 20000 + Math.floor(Math.random() * 12000);
+async function boot(name, extDir, extra = {}) {
+  const port = await freePort();
   const data = join(TMP, `data-${name}`);
   mkdirSync(data, { recursive: true });
   const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(port), WM_CONTROL_PORT: '0', DATA_DIR: data, ADMIN_TOKEN: ADMIN, REDIS_URL: '', LAYERFS_SERVICE_URL: '' };
@@ -40,7 +41,7 @@ async function ready(s) {
 }
 /** 期望拒绝启动：40 秒内退出码 1，日志点名 */
 async function refuses(label, extDir, want) {
-  const s = boot(label, extDir);
+  const s = await boot(label, extDir);
   const code = await Promise.race([s.p.done, sleep(40_000).then(() => 'timeout')]);
   if (code === 'timeout') s.p.kill();
   ok(`${label}：拒绝启动并点名`, code === 1 && want.test(s.p.out), `code=${code} log=${s.p.out.slice(-300)}`);
@@ -74,7 +75,7 @@ try {
   ok('web：只收含 web/index.tsx 的扩展，按名排序', entries.length === 2 && entries[0].endsWith(join('a-ext', 'web', 'index.tsx')) && entries[1].endsWith(join('b-ext', 'web', 'index.tsx')), JSON.stringify(entries));
 
   // ---- 不设目录 ----
-  const plain = boot('plain');
+  const plain = await boot('plain');
   ok('不设 WM_EXTENSIONS_DIR：正常启动', await ready(plain), plain.p.out.slice(-300));
   ok('不设目录：日志里没有加载扩展', !/\[extensions\] 已加载/.test(plain.p.out));
   let r = await fetch(plain.base + '/api/tasks', { headers: { 'X-Admin-Token': ADMIN } });
@@ -100,7 +101,7 @@ try {
 
   // ---- 正常扩展 ----
   const goodRoot = join(TMP, 'good'); ext(goodRoot, 'demo', { 'server.mjs': GOOD });
-  const g = boot('good', goodRoot);
+  const g = await boot('good', goodRoot);
   ok('正常扩展：启动', await ready(g), g.p.out.slice(-300));
   ok('正常扩展：日志点名已加载', /\[extensions\] 已加载：demo/.test(g.p.out), g.p.out.slice(-300));
   r = await fetch(g.base + '/api/demo-ext/ping'); j = await r.json().catch(() => null);
@@ -126,7 +127,7 @@ try {
   // ---- Odoo 已下线（2026-11-17）：旧变量（含旧名 LC_ODOO_URL、内容面那几个）还设着照常启动、逐个告警「已下线、忽略」，带 Odoo 会话认不出人 ----
   {
     const SID = 'sidCompat' + '0'.repeat(23);
-    const both = boot('odoo-retired', undefined, { WM_ODOO_URL: 'http://127.0.0.1:9', LC_ODOO_URL: 'http://127.0.0.1:9', WM_CONTENT_PORT: '0', WM_CONTENT_IP: '127.0.0.2', WM_CONTENT_TARGETS: '[{bad json' });
+    const both = await boot('odoo-retired', undefined, { WM_ODOO_URL: 'http://127.0.0.1:9', LC_ODOO_URL: 'http://127.0.0.1:9', WM_CONTENT_PORT: '0', WM_CONTENT_IP: '127.0.0.2', WM_CONTENT_TARGETS: '[{bad json' });
     ok('旧的 Odoo 变量还设着：照常启动（不拒启动）', await ready(both), both.p.out.slice(-300));
     const x = await fetch(both.base + '/api/auth/viewer', { headers: { cookie: `session_id=${SID}` } });
     const j = await x.json().catch(() => null);

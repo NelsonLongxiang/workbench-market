@@ -3,6 +3,7 @@
  *  起一个全新的合成实例（随机回环端口、合成口令、合成身份），经管理接口（POST /api/bindings）给任务中心绑两个合成的通知团队，不开库。
  *  页面上的请求一个都不截：打开抽屉、读可派团队、交表单、进详情、回列表，走的都是实例里真的接口。
  *  需先 pnpm --filter web build。 */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -14,7 +15,7 @@ const ROOT = resolve('.');
 const TMP = resolve('tmp/arrange-e2e-browser-' + Date.now().toString(36));
 for (const d of ['data', 'home', 'ext']) mkdirSync(join(TMP, d), { recursive: true });
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN_TOKEN = 'synthetic-arrange-e2e-admin';
 const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'off', WM_CONTROL_PORT: '0',

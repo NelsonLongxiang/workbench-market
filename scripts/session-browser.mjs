@@ -3,6 +3,7 @@
  *  接口回 401 且确认没登录了、或者会话换成另一个人（beta）→ alpha 的东西从页面上清掉、按现在的人重读；
  *  身份服务连不上（502 identity_unavailable）→ 不清、挂 #641 的横幅；旧身份在路上的请求回来不写回页面；从浏览器缓存恢复的页面也确认一次。
  *  造数据只走现有接口。需先 pnpm --filter web build。全新 DATA_DIR + 随机回环端口；合成身份、合成口令。 */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -16,7 +17,7 @@ const TMP = resolve('tmp/session-browser-' + Date.now().toString(36));
 for (const d of ['data', 'home', 'ext']) mkdirSync(join(TMP, d), { recursive: true });
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
 const gh = await startFakeGithub();
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN_TOKEN = 'synthetic-session-admin';
 const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'off', WM_CONTROL_PORT: '0',

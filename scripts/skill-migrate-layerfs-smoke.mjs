@@ -2,6 +2,7 @@
 /** 技能迁移 POST /api/skills/:slug/migrate-layerfs 冒烟（独立实例 + LayerFS 替身 + 合成技能，直接往合成库插登记行）：
  *  带 0 字节文件（scripts/__init__.py）的技能照常迁移，读回摘要与登记一致才记 commit_id；重跑幂等；
  *  快照读出的摘要与登记不符 → 留档不迁；服务读回丢了空文件 → 不记 commit_id、可重跑；空快照 → 异常。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
@@ -65,7 +66,7 @@ function snapshot(rel, files) {
   return `skill-snapshots/${rel}`; // 登记的是相对 DATA_DIR 的路径
 }
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, ADMIN_TOKEN: 'skill-migrate-admin', REDIS_URL: '',
   LAYERFS_SERVICE_URL: `http://127.0.0.1:${lfs.address().port}`, LAYERFS_SERVICE_TOKEN: TOKEN };

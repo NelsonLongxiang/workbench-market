@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /** #170 P6/P7/P11 冒烟：①HTML 同源绝对链接改 /go/<id>/ ②Referer 只到目标源 ③自产台响应带 CSP sandbox。
  *  隔离：空的 DATA_DIR（tmp/ 下现建、跑完删），不读任何真实数据，直接 node 就能跑，接在 CI 里。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, mkdtempSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 import { createServer } from 'node:http';
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const TP = PORT + 1;
 mkdirSync('tmp', { recursive: true });
 const DATA = mkdtempSync(resolve('tmp', 'e2e-p6711-'));

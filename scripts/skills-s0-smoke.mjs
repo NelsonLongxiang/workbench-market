@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #94 v3 S0 六件冒烟（总工 direct-b6cc7b7b·判据先红后绿）。
@@ -14,7 +15,7 @@ import { rmSync, mkdirSync, cpSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
 
-const PORT = 9868;
+const PORT = await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-s0-data';
 const ADMIN = { 'Content-Type': 'application/json', 'X-Admin-Token': 's0-tok' };

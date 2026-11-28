@@ -7,13 +7,14 @@
  * 隔离：空的 DATA_DIR（tmp/ 下现建、跑完删），本机起两个假上游（普通台、以前的 Odoo 台），不读任何真实数据、不连外网。
  *   node scripts/portal-forward-strip-test.mjs
  */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from './owned-script-fixture.mjs';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
 import { join, resolve } from 'node:path';
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const ADMIN = 'pfs-admin-token';
 mkdirSync('tmp', { recursive: true });
 const DATA = mkdtempSync(resolve('tmp', 'portal-forward-strip-'));

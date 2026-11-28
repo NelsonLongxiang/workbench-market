@@ -6,6 +6,7 @@
  *  上游工具经 REST 转发；mcp_calls 审计 channel=rest/mcp 分列；匿名 5MB 请求体 413。
  *  文件与资源（MCP 内嵌）：99MB 原始字节流式上传 sha256 前后一致、multipart 上传、Range/ETag/304/416 下载、列文件带 quota、读台数据、
  *  SOP run 元数据/附件（run 读授权）、未授权 403、匿名 401、内容不符 415；initialize 与 access_info 带 openapi_url / rest_base；openapi 写对二进制类型。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createServer, request as httpRequest } from 'node:http';
 import { rmSync, mkdirSync } from 'node:fs';
@@ -14,7 +15,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { startFakeGithub, ghPublish } from './github-fixture.mjs';
 
-const PORT = Number(process.env.GW_PORT) > 0 ? Number(process.env.GW_PORT) : 20000 + Math.floor(Math.random() * 12000);
+const PORT = Number(process.env.GW_PORT) > 0 ? Number(process.env.GW_PORT) : await freePort();
 const BASE = `http://127.0.0.1:${PORT}`;
 const DATA = 'tmp/e2e-mcp-rest-' + Date.now().toString(36);
 // --login-gate：同一套判据在 WM_LOGIN_GATE=enforce 下再跑一遍；被测的 /mcp、/openapi.json、/api/mcp-rest/* 请求带 X-Forwarded-For 冒充远程

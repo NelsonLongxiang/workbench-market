@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /** 全局口令携带冒烟（direct-92be192a）：api.ts req() 注入 X-Admin-Token——
  *  本机放行（loopback）/ 无口令远程 403（服务面既有行为）/ 前端 bundle 含全局机制锚。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { rmSync, mkdirSync } from 'node:fs';
 
-const PORT = 9971;
+const PORT = await freePort();
 const DATA = 'tmp/e2e-gt-data';
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log(`  ✓ ${n}`); } else { fail++; console.log(`  ✗ ${n} ${x}`); } };

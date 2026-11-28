@@ -2,6 +2,7 @@
 /** #318 SOP 交付空间浏览器回归（Python Playwright/Chromium，CI browser-security job）。
  *  合成 SOP（含私有填写值 + 附件）+ 全新 DATA_DIR + 随机回环端口；业务面无读授权、控制面持管理员口令两种视角。
  *  需先 pnpm --filter web build（服务端托管 web/dist）。 */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -12,7 +13,7 @@ if (!existsSync('web/dist/index.html')) { console.error('缺 web/dist：先跑 p
 const TMP = resolve('tmp/sop-space-browser-' + Date.now().toString(36));
 mkdirSync(join(TMP, 'data'), { recursive: true });
 const gh = await startFakeGithub(); // 来源收敛（属主 2026-11-02）：SOP 台只从 GitHub main 同步，测试用本机替身
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const env = { ...process.env, MCP_GATEWAY: 'off', NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), ADMIN_TOKEN: 'synthetic-sop-space-admin', WM_GITHUB_API: gh.api };
 for (const k of ['WM_ODOO_URL', 'WM_EXTENSIONS_DIR', 'WM_ODOO_ORIGINS', 'WM_CONTROL_PORT']) delete env[k]; // 控制面用缺省 PORT+1

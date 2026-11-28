@@ -1,11 +1,12 @@
 #!/usr/bin/env node
+import { freePort } from './lib/free-port.mjs';
 import {requireDataSource} from './explicit-data-target.mjs';
 const SOURCE_DATA_DIR = requireDataSource();
 /** #183 P0 冒烟：①新发布技能 export 200 ②agents:/jf: 同名双来源并存不覆盖 ③verify 失败不漏绝对路径。 */
 import { spawn } from './owned-script-fixture.mjs';
 import { rmSync, mkdirSync, cpSync, readdirSync } from 'node:fs';
 
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const DATA = 'tmp/e2e-183-' + Date.now().toString(36);
 const H = { 'Content-Type': 'application/json', 'X-Admin-Token': 'k183' };
 let pass = 0, fail = 0;

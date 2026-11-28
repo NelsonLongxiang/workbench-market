@@ -14,6 +14,7 @@
  *   A10 导入：备份里没有 access 的带凭据行导入后为 admin，带了合法 access 的沿用
  *   A12 名单只收 user:（Odoo 已下线）：新建、改台加新的 odoo: 一律 400 且不落库；改台保留原有的 odoo: 项照常；
  *       备份恢复进来的旧 odoo: 项按查看人主体名下保留的历史 Odoo 绑定对上，没绑的人对不上 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { connect } from 'node:net';
@@ -75,8 +76,8 @@ await new Promise((r) => up.listen(0, '127.0.0.1', r));
 const UP = `http://127.0.0.1:${up.address().port}`;
 
 const PRELOAD = pathToFileURL(resolve('scripts/identity-fake-preload.mjs')).href;
-function start(extra, tag, dataDir) {
-  const PORT = 21000 + Math.floor(Math.random() * 11000);
+async function start(extra, tag, dataDir) {
+  const PORT = await freePort();
   const DATA = dataDir ?? mkdtempSync(resolve('tmp', `portal-access-${tag}-`));
   const env = { ...process.env, PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: DATA, NODE_ENV: 'test', REDIS_URL: '', LAYERFS_SERVICE_URL: '', IDENTITY_SEAM_ROOT: resolve('.'), ...extra };
   for (const k of Object.keys(extra)) if (extra[k] === undefined) delete env[k];
@@ -123,7 +124,7 @@ const create = (B, body) => req(B, 'POST', '/api/workbenches', ADM, body);
 
 // ---------- E：登录门 enforce ----------
 console.log('E · WM_LOGIN_GATE=enforce');
-const E = start({ WM_LOGIN_GATE: 'enforce', ADMIN_TOKEN: ADMIN }, 'enforce');
+const E = await start({ WM_LOGIN_GATE: 'enforce', ADMIN_TOKEN: ADMIN }, 'enforce');
 try {
   ok('E 启动', await ready(E), E.out().slice(-600));
   const B = E.B;
@@ -290,7 +291,7 @@ try {
 
 // ---------- O：登录门 off ----------
 console.log('O · WM_LOGIN_GATE=off');
-const O = start({ WM_LOGIN_GATE: undefined, ADMIN_TOKEN: ADMIN }, 'off');
+const O = await start({ WM_LOGIN_GATE: undefined, ADMIN_TOKEN: ADMIN }, 'off');
 try {
   ok('O 启动', await ready(O), O.out().slice(-600));
   const B = O.B;
@@ -305,7 +306,7 @@ try {
 console.log('M · 旧库（无 access 列）迁移');
 {
   const DATA = mkdtempSync(resolve('tmp', 'portal-access-migrate-'));
-  const M1 = start({ WM_LOGIN_GATE: undefined, ADMIN_TOKEN: ADMIN }, 'migrate', DATA);
+  const M1 = await start({ WM_LOGIN_GATE: undefined, ADMIN_TOKEN: ADMIN }, 'migrate', DATA);
   ok('M1 首次启动', await ready(M1), M1.out().slice(-400));
   await stop(M1, true);
   const db = new DatabaseSync(join(DATA, 'workbench-market.db'));
@@ -316,7 +317,7 @@ console.log('M · 旧库（无 access 列）迁移');
   const c = Number(ins.run('legacy-plain', `${UP}/p/`, '').lastInsertRowid);
   const d = Number(ins.run('legacy-app', '/apps/legacy/', '').lastInsertRowid);
   db.close();
-  const M2 = start({ WM_LOGIN_GATE: undefined, ADMIN_TOKEN: ADMIN }, 'migrate', DATA);
+  const M2 = await start({ WM_LOGIN_GATE: undefined, ADMIN_TOKEN: ADMIN }, 'migrate', DATA);
   try {
     ok('M2 再次启动', await ready(M2), M2.out().slice(-400));
     const list = (await req(M2.B, 'GET', '/api/workbenches', ADM)).body;

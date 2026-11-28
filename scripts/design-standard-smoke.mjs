@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /** MCP design_standard 冒烟：模块级（读真文件、缺文件/坏 front matter 503、参数校验）+ 独立实例（tools/list 含该工具、
  *  tools/call 返回与仓库文件 sha256 一致、section 过滤、坏参数 isError、网关开时未授权同"不存在"应答）。合成数据目录、随机端口。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { readFileSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -40,8 +41,8 @@ ok('模块：front matter 解析失败 → 503', err(() => designStandard({}, tm
 rmSync(tmpRoot, { recursive: true, force: true });
 
 // ── 实例级 ──
-function start(gateway, tag, admin) {
-  const PORT = 20000 + Math.floor(Math.random() * 12000);
+async function start(gateway, tag, admin) {
+  const PORT = await freePort();
   const DATA = `tmp/e2e-dstd-${tag}`;
   rmSync(DATA, { recursive: true, force: true }); mkdirSync(DATA, { recursive: true });
   const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), WM_CONTROL_PORT: '0', DATA_DIR: `../${DATA}`, ADMIN_TOKEN: admin ?? '', MCP_GATEWAY: gateway };
@@ -62,7 +63,7 @@ const rpc = async (base, method, params, token) => {
 };
 
 {
-  const i = start('off', 'off');
+  const i = await start('off', 'off');
   try {
     ok('实例(off)：就绪', await ready(i), i.stderr().slice(-300));
     const l = await rpc(i.base, 'tools/list', {});
@@ -79,7 +80,7 @@ const rpc = async (base, method, params, token) => {
 }
 {
   const ADMIN = 'dstd-admin-tok';
-  const i = start('on', 'on', ADMIN);
+  const i = await start('on', 'on', ADMIN);
   try {
     ok('实例(on)：就绪', await ready(i), i.stderr().slice(-300));
     const AT = { 'Content-Type': 'application/json', 'X-Admin-Token': ADMIN };

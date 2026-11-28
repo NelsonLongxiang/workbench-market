@@ -2,6 +2,7 @@
 /** #1063 设置页「个人令牌」：真实后端 → 浏览器（起隔离实例，个人令牌接口不截）。
  *   准备：属主 root-admin（owner 授予）、非属主 alpha；浏览器（scripts/personal-tokens-browser.py）签发、只显示一次、刷新后看不到、名字重复照说、撤销后 401、非属主只见说明。
  *   回到这里：服务端输出里不得出现任何令牌原文。身份用合成的（identity-fake-provider）。隔离目录 tmp/personal-tokens-browser-*，跑完清掉。需先 pnpm --filter web build。 */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -13,7 +14,7 @@ const ROOT = resolve('.');
 const TMP = resolve('tmp/personal-tokens-browser-' + Date.now().toString(36));
 for (const d of ['data', 'home', 'ext']) mkdirSync(join(TMP, d), { recursive: true });
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
-const PORT = 21000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), HOME: join(TMP, 'home'), ADMIN_TOKEN: 'synthetic-personal-tokens-admin', REDIS_URL: '', MCP_GATEWAY: 'on', WM_CONTROL_PORT: '0',
   IDENTITY_SEAM_ROOT: ROOT, IDENTITY_FAKE_ADMIN_GRANT: 'admin', WM_EXTENSIONS_DIR: join(TMP, 'ext'), WM_BENCH_VIEWS: 'on' };

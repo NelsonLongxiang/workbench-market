@@ -2,6 +2,7 @@
 /** 驾驶舱「AI 员工」页签的浏览器回归（Python Playwright/Chromium）：普通员工、负责人两种身份。
  *  团队数据要名册（节点上报）才有，接口造不出来，所以 /api/teams/mine、/api/teams 用页面里截下来的合成夹具；驾驶舱本身走接口建。
  *  需先 pnpm --filter web build。全新 DATA_DIR + 随机回环端口；合成身份、合成口令。 */
+import { freePort } from './lib/free-port.mjs';
 import { pythonBin } from './python-bin.mjs';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -15,7 +16,7 @@ const TMP = resolve('tmp/ai-staff-browser-' + Date.now().toString(36));
 for (const d of ['data', 'home', 'ext']) mkdirSync(join(TMP, d), { recursive: true });
 const { SESSIONS } = await import('./identity-fake-provider.mjs');
 const gh = await startFakeGithub();
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN_TOKEN = 'synthetic-ai-staff-admin';
 const env = { ...process.env, NODE_ENV: 'test', PORT: String(PORT), DATA_DIR: join(TMP, 'data'), YGL_HOME: join(TMP, 'home'), ADMIN_TOKEN, REDIS_URL: '', MCP_GATEWAY: 'off', WM_CONTROL_PORT: '0',

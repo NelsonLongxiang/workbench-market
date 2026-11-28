@@ -5,6 +5,7 @@
  *  ② 影子发布远端已建 Commit 但响应丢失（本地 commit_id 留空）：配了 LayerFS 时删台仍按项目名删远端；
  *     远端删除失败 → 502 且保留本地台，可重试；
  *  ③ 系统保留项目名（wm-skills 技能库）：同步拒收该 slug；历史遗留的同名台删台只删本地，绝不删远端系统项目。 */
+import { freePort } from './lib/free-port.mjs';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import { mkdirSync } from 'node:fs';
@@ -35,7 +36,7 @@ const LF = `http://127.0.0.1:${lfServer.address().port}`;
 
 const TMP = resolve('tmp/layerfs-health-delete-smoke-' + Date.now().toString(36));
 mkdirSync(join(TMP, 'data'), { recursive: true });
-const PORT = 20000 + Math.floor(Math.random() * 12000);
+const PORT = await freePort();
 const base = `http://127.0.0.1:${PORT}`;
 const ADMIN = 'synthetic-lfhealth-admin';
 const gh = await startFakeGithub();
